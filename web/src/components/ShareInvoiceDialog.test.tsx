@@ -87,4 +87,60 @@ describe('ShareInvoiceDialog', () => {
     expect(shareInvoice).toHaveBeenCalledWith(9, { channel: 'WHATSAPP', recipient: '919812345678' });
     expect(openShare).not.toHaveBeenCalled();
   });
+
+  describe('starting values', () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const dialog = (open: boolean, defaultEmail = 'a@b.test', defaultPhone = '') => (
+      <QueryClientProvider client={qc}>
+        <ShareInvoiceDialog
+          open={open}
+          invoiceId={1}
+          defaultEmail={defaultEmail}
+          defaultPhone={defaultPhone}
+          onClose={() => undefined}
+        />
+      </QueryClientProvider>
+    );
+    const emailBox = () => screen.getByRole('textbox', { name: /email/i }) as HTMLInputElement;
+
+    it('starts from the party email and lets the user edit it', async () => {
+      render(dialog(true));
+      expect(emailBox().value).toBe('a@b.test');
+      await userEvent.clear(emailBox());
+      await userEvent.type(emailBox(), 'typo');
+      expect(emailBox().value).toBe('typo');
+    });
+
+    it('goes back to the party email each time the dialog is reopened', async () => {
+      const { rerender } = render(dialog(true));
+      await userEvent.clear(emailBox());
+      await userEvent.type(emailBox(), 'typo');
+
+      rerender(dialog(false));
+      rerender(dialog(true));
+      expect(emailBox().value).toBe('a@b.test');
+    });
+
+    it('picks up new party details while the dialog is open', () => {
+      const { rerender } = render(dialog(true, 'a@b.test'));
+      rerender(dialog(true, 'new@b.test'));
+      expect(emailBox().value).toBe('new@b.test');
+    });
+
+    it('does not wipe what the user typed when the page re-renders with the same details', async () => {
+      const { rerender } = render(dialog(true));
+      await userEvent.clear(emailBox());
+      await userEvent.type(emailBox(), 'typo');
+      rerender(dialog(true));
+      expect(emailBox().value).toBe('typo');
+    });
+
+    it('opens on WhatsApp when only a phone is known, and on email otherwise', () => {
+      const { unmount } = render(dialog(true, '', '919812345678'));
+      expect(screen.getByRole('textbox', { name: /whatsapp/i })).toBeTruthy();
+      unmount();
+      render(dialog(true, 'a@b.test', ''));
+      expect(emailBox()).toBeTruthy();
+    });
+  });
 });

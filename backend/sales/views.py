@@ -9,7 +9,14 @@ from rest_framework.response import Response
 from core.celery_utils import safe_delay
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
-from core.idempotency import begin_record, release_record, store_record, wrap_idempotent
+from core.idempotency import (
+    begin_record,
+    release_record,
+    request_fingerprint,
+    require_idempotency_key,
+    store_record,
+    wrap_idempotent,
+)
 from core.models import Notification
 from billing.permissions import SubscriptionWritesAllowed
 from core.permissions import (
@@ -28,6 +35,7 @@ from core.viewsets import CompanyScopedViewSet
 from masters.models import Customer, Product
 from payments.models import PaymentAllocation
 
+from .status_semantics import OPEN_RECEIVABLE_STATUSES
 from .einvoice_eway_actions import InvoiceEinvoiceEwayActionsMixin
 from .models import Quotation, RecurringInvoiceSchedule, SalesInvoice, SalesReturn
 from .serializers import (
@@ -57,6 +65,102 @@ def _convert_line_quantities(request):
 _INVOICE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 
 
+def _annotate_live_settlement(qs):
+    """Live paid/partial/unpaid: reversed receipts do not count, credit notes do."""
+    from django.db.models import Case, ExpressionWrapper, When
+
+    from payments.models import PaymentAllocation
+    from sales.models import SalesCreditNote, SalesDebitNote
+
+    money = DecimalField(max_digits=14, decimal_places=2)
+
+    def _sum(filtered, field):
+        return Coalesce(
+            Subquery(
+                filtered.values("sales_invoice_id").annotate(s=Sum(field)).values("s")[:1],
+                output_field=money,
+            ),
+            Value(0, output_field=money),
+        )
+
+    cn = _sum(
+        SalesCreditNote.objects.filter(
+            sales_invoice_id=OuterRef("pk"),
+            status=SalesCreditNote.Status.COMPLETED,
+        ),
+        "grand_total",
+    )
+    dn = _sum(
+        SalesDebitNote.objects.filter(
+            sales_invoice_id=OuterRef("pk"),
+            status=SalesDebitNote.Status.COMPLETED,
+        ),
+        "grand_total",
+    )
+    alloc = _sum(
+        PaymentAllocation.objects.filter(
+            sales_invoice_id=OuterRef("pk"),
+            reversed_at__isnull=True,
+            receipt__isnull=False,
+            receipt__status="POSTED",
+        ),
+        "amount",
+    )
+    # Settlement (early-payment) discount counts as settled, as the ledger counts it: each
+    # allocation carries its share of its receipt's discount, by share of the receipt's allocations.
+    receipt_alloc_total = Subquery(
+        PaymentAllocation.objects.filter(
+            receipt_id=OuterRef("receipt_id"),
+            receipt__isnull=False,
+            supplier_payment__isnull=True,
+            reversed_at__isnull=True,
+        ).values("receipt_id").annotate(t=Sum("amount")).values("t")[:1],
+        output_field=money,
+    )
+    discount_share = Coalesce(
+        Subquery(
+            PaymentAllocation.objects.filter(
+                sales_invoice_id=OuterRef("pk"),
+                reversed_at__isnull=True,
+                receipt__isnull=False,
+                supplier_payment__isnull=True,
+            ).values("sales_invoice_id").annotate(
+                d=Sum(
+                    ExpressionWrapper(
+                        F("receipt__settlement_discount") * F("amount") / receipt_alloc_total,
+                        output_field=money,
+                    )
+                )
+            ).values("d")[:1],
+            output_field=money,
+        ),
+        Value(0, output_field=money),
+    )
+    tcs_extra = Case(
+        When(tcs_in_grand_total=False, then=F("tcs_amount")),
+        default=Value(0),
+        output_field=money,
+    )
+    return qs.annotate(_cn=cn, _dn=dn, _live_alloc=alloc, _settle=discount_share).annotate(
+        _balance=ExpressionWrapper(
+            F("grand_total") + tcs_extra - F("_cn") + F("_dn") - F("_live_alloc") - F("_settle"),
+            output_field=money,
+        )
+    )
+
+
+def _apply_payment_status(qs, payment_status):
+    # A draft or cancelled invoice has no receivable: it is neither paid nor unpaid.
+    qs = _annotate_live_settlement(qs).filter(
+        status__in=OPEN_RECEIVABLE_STATUSES
+    )
+    if payment_status == "PAID":
+        return qs.filter(_balance__lte=0, grand_total__gt=0)
+    if payment_status == "UNPAID":
+        return qs.filter(_balance__gt=0, _live_alloc=0, _cn=0)
+    return qs.filter(_balance__gt=0).filter(Q(_live_alloc__gt=0) | Q(_cn__gt=0))
+
+
 class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
@@ -75,7 +179,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         claimed = None
         if raw_key:
             claimed = begin_record(
-                company=self.company, scope="sales_invoice_create", raw_key=raw_key
+                company=self.company, scope="sales_invoice_create", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
             )
             if isinstance(claimed, Response):
                 return claimed
@@ -88,6 +193,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
                     data = data.get("data") or {}
                 created_id = data.get("id") if isinstance(data, dict) else ""
+                # The invoice is committed: never release the key past this point.
+                created_ok = True
                 store_record(
                     company=self.company,
                     scope="sales_invoice_create",
@@ -95,7 +202,6 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     response=response,
                     resource_id=str(created_id or ""),
                 )
-                created_ok = True
             return response
         finally:
             # Release in-flight placeholder if create did not complete successfully.
@@ -116,9 +222,11 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 CanCreateSales(),
                 CanCreatePayments(),
             ]
+        if action == "record_payment":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
-            "record_payment", "bulk_pdf_zip", "repeat_last",
+            "bulk_pdf_zip", "repeat_last",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in (
@@ -205,28 +313,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             )
         payment_status = (params.get("payment_status") or "").upper()
         if payment_status in ("PAID", "PARTIAL", "UNPAID"):
-            # paidAware: 0 balance = PAID, received>0 = PARTIAL, else UNPAID
-            qs = qs.annotate(
-                _received=Coalesce(
-                    Subquery(
-                        PaymentAllocation.objects.filter(
-                            sales_invoice_id=OuterRef("pk"),
-                            receipt__status="POSTED",
-                        )
-                        .values("sales_invoice_id")
-                        .annotate(s=Sum("amount"))
-                        .values("s")[:1],
-                        output_field=DecimalField(max_digits=14, decimal_places=2),
-                    ),
-                    Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
-                )
-            )
-            if payment_status == "PAID":
-                qs = qs.filter(_received__gte=F("grand_total"), grand_total__gt=0)
-            elif payment_status == "UNPAID":
-                qs = qs.filter(_received=0)
-            else:
-                qs = qs.filter(_received__gt=0, _received__lt=F("grand_total"))
+            # Live outstanding: reversed receipts do not pay, credit notes do.
+            qs = _apply_payment_status(qs, payment_status)
         return qs
 
     def get_serializer(self, *args, **kwargs):
@@ -259,7 +347,16 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             company=self.company,
             resource_id=str(instance.pk),
         ).delete()
-        super().perform_destroy(instance)
+        from django.db import transaction
+
+        from .notes_services import SalesNotesService
+
+        with transaction.atomic():
+            # A draft made by converting an order took quantity from it: give that back.
+            SalesNotesService.release_order_conversion(
+                getattr(instance, "source_order", None), instance.items.all(), unlink_invoice_id=instance.pk,
+            )
+            super().perform_destroy(instance)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):
@@ -318,8 +415,17 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 )
 
                 gst_guard_override_reason = request.data.get("gst_guard_override_reason") or None
+                confirm_blank_pos = str(
+                    request.data.get("confirm_blank_pos")
+                    or (raw_invoice or {}).get("confirm_blank_pos")
+                    or ""
+                ).lower() in ("1", "true", "yes")
                 completed, _warnings = SalesService.complete(
-                    invoice, user=request.user, gst_guard_override_reason=gst_guard_override_reason,
+                    invoice,
+                    user=request.user,
+                    gst_guard_override_reason=gst_guard_override_reason,
+                    confirm_blank_pos=confirm_blank_pos,
+                    below_cost_override_reason=str(request.data.get("below_cost_override_reason") or ""),
                 )
 
                 payment_data = request.data.get("payment")
@@ -589,6 +695,12 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 "1", "true", "yes",
             )
             gst_guard_override_reason = request.data.get("gst_guard_override_reason") or None
+            unlock_code = request.data.get("unlock_code") or None
+            below_cost_reason = str(request.data.get("below_cost_override_reason") or "")
+            pharmacy_patient = request.data.get("patient_name") or ""
+            pharmacy_prescriber = request.data.get("prescriber_name") or ""
+            pharmacy_registration = request.data.get("prescriber_registration") or ""
+            pharmacy_prescription = request.data.get("prescription_note") or ""
             invoice, warnings = SalesService.complete(
                 self.get_object(),
                 request.user,
@@ -597,6 +709,12 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 confirm_gstin_total_change=confirm_gstin_total,
                 confirm_missing_licence=confirm_missing_licence,
                 gst_guard_override_reason=gst_guard_override_reason,
+                unlock_code=unlock_code,
+                below_cost_override_reason=below_cost_reason,
+                pharmacy_patient=pharmacy_patient,
+                pharmacy_prescriber=pharmacy_prescriber,
+                pharmacy_registration=pharmacy_registration,
+                pharmacy_prescription=pharmacy_prescription,
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings
@@ -634,7 +752,44 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             or request.data.get("cancelReason")
             or ""
         )
-        invoice = SalesService.cancel(self.get_object(), request.user, reason=str(reason))
+        current = self.get_object()
+        from django.db import transaction
+
+        # Spending the approval and cancelling are one unit: a refused cancel (locked period, a
+        # business rule) must give the approval back instead of burning it.
+        with transaction.atomic():
+            if current.status == SalesInvoice.Status.COMPLETED:
+                from planwave.models import ApprovalRequest
+                from planwave.services import (
+                    consume_action_approval,
+                    decide_approval,
+                    owner_is_sole_approver,
+                    submit_approval,
+                )
+
+                approval = consume_action_approval(
+                    current.company, request.data.get("approval_id"), request.user, "invoice_cancel",
+                    invoice=current.pk,
+                )
+                if approval is None and owner_is_sole_approver(current.company, request.user):
+                    pending = submit_approval(
+                        company=current.company, action="invoice_cancel", requester=request.user,
+                        payload={"invoice": current.pk, "reason": str(reason)},
+                    )
+                    pending.reason = "Owner is the only approver."
+                    pending.save(update_fields=["reason"])
+                    decide_approval(pending, approver=request.user, accept=True, owner_exception=True)
+                elif approval is None:
+                    # Asking again while a request is open reuses it instead of piling up new ones.
+                    pending = ApprovalRequest.objects.filter(
+                        company=current.company, action="invoice_cancel", requester=request.user,
+                        status=ApprovalRequest.Status.PENDING, payload__invoice=current.pk,
+                    ).first() or submit_approval(
+                        company=current.company, action="invoice_cancel", requester=request.user,
+                        payload={"invoice": current.pk, "reason": str(reason)},
+                    )
+                    return Response({"status": "PENDING", "approval_id": pending.pk}, status=202)
+            invoice = SalesService.cancel(current, request.user, reason=str(reason))
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=["post"], url_path="regenerate-pdf")
@@ -653,29 +808,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
 
     @action(detail=False, methods=["get"], url_path="payment-stats")
     def payment_stats(self, request):
-        from django.db.models import Count, DecimalField, F, OuterRef, Subquery, Sum, Value
-        from django.db.models.functions import Coalesce
-        from payments.models import PaymentAllocation
+        from django.db.models import Count, Sum
 
         qs = self.filter_queryset(self.get_queryset())
-        annotated = qs.annotate(
-            _received=Coalesce(
-                Subquery(
-                    PaymentAllocation.objects.filter(
-                        sales_invoice_id=OuterRef("pk"),
-                        receipt__status="POSTED",
-                    )
-                    .values("sales_invoice_id")
-                    .annotate(s=Sum("amount"))
-                    .values("s")[:1],
-                    output_field=DecimalField(max_digits=14, decimal_places=2),
-                ),
-                Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)),
-            )
-        )
-        paid = annotated.filter(_received__gte=F("grand_total"), grand_total__gt=0)
-        unpaid = annotated.filter(_received=0)
-        partial = annotated.filter(_received__gt=0, _received__lt=F("grand_total"))
+        if "_balance" not in getattr(qs.query, "annotations", {}):
+            qs = _annotate_live_settlement(qs)
+        qs = qs.filter(status__in=OPEN_RECEIVABLE_STATUSES)
+        paid = qs.filter(_balance__lte=0, grand_total__gt=0)
+        unpaid = qs.filter(_balance__gt=0, _live_alloc=0, _cn=0)
+        partial = qs.filter(_balance__gt=0).filter(Q(_live_alloc__gt=0) | Q(_cn__gt=0))
 
         def _agg(s):
             data = s.aggregate(count=Count("id"), amount=Sum("grand_total"))
@@ -711,15 +852,61 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
     def record_payment(self, request, pk=None):
         from decimal import Decimal as D
 
-        from payments.services import PaymentService, cheque_fields_from_payload
-
         invoice = self.get_object()
         if invoice.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             raise BusinessRuleError("Record payment is only for completed invoices.")
-        amount = D(str(request.data.get("amount") or 0))
-        discount = D(str(request.data.get("discount") or request.data.get("settlement_discount") or 0))
+        from decimal import InvalidOperation
+
+        try:
+            amount = D(str(request.data.get("amount") or 0))
+            discount = D(str(request.data.get("discount") or request.data.get("settlement_discount") or 0))
+        except (InvalidOperation, ValueError):
+            raise BusinessRuleError("Amount and discount must be numbers.") from None
+        if not amount.is_finite() or not discount.is_finite():
+            raise BusinessRuleError("Amount and discount must be numbers.")
         if amount <= 0:
             raise BusinessRuleError("Amount received must be greater than zero.")
+        if discount < 0:
+            raise BusinessRuleError("Settlement discount cannot be negative.")
+        raw_key = require_idempotency_key(request)
+        claimed = begin_record(
+            company=invoice.company,
+            scope="invoice_record_payment",
+            raw_key=raw_key,
+            fingerprint=request_fingerprint(request),
+        )
+        if isinstance(claimed, Response):
+            return claimed
+        from django.db import transaction
+
+        created_ok = False
+        try:
+            with transaction.atomic():
+                response = self._record_payment_in_transaction(
+                    request, invoice, amount, discount,
+                )
+            # The money is committed. From here the key must never be released,
+            # even if storing the replay fails, or a retry would post it twice.
+            created_ok = True
+            store_record(
+                company=invoice.company,
+                scope="invoice_record_payment",
+                raw_key=raw_key,
+                response=response,
+                resource_id=str(invoice.pk),
+            )
+            return response
+        finally:
+            if claimed is not None and not isinstance(claimed, Response) and not created_ok:
+                release_record(
+                    company=invoice.company,
+                    scope="invoice_record_payment",
+                    raw_key=raw_key,
+                )
+
+    def _record_payment_in_transaction(self, request, invoice, amount, discount):
+        from payments.services import PaymentService, cheque_fields_from_payload
+
         receipt = PaymentService.create_receipt(
             company=invoice.company,
             customer=invoice.customer,
@@ -905,7 +1092,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         if not recipient:
             raise BusinessRuleError("No recipient available for this channel.")
         from sales.whatsapp_send import (
-            allow_cloud_for_customer,
+            cloud_allowed_for_recipient,
             compose_invoice_whatsapp_body,
             persist_invoice_whatsapp,
         )
@@ -913,7 +1100,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         if channel == Notification.Channel.WHATSAPP:
             body = compose_invoice_whatsapp_body(invoice, request)
             subject = "invoice_ready"
-            allow_cloud = allow_cloud_for_customer(invoice.customer)
+            allow_cloud = cloud_allowed_for_recipient(invoice.customer, recipient)
         else:
             from django.conf import settings as dj_settings
 

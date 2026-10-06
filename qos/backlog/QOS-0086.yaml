@@ -23,7 +23,7 @@ recommendation: Show days overdue, amount received, and sales_invoice_outstandin
 test_required: Partial receipt. Row balance equals sales_invoice_outstanding.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_open_invoice_row_uses_sales_invoice_outstanding
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

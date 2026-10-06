@@ -14,8 +14,7 @@ from .test_growth_os import _flags
 
 
 def _bill_and_complete(tenant, customer, amount="500"):
-    """mark_reward_paid drafts its credit note against the referrer's own
-    completed sales invoice line -- give them one to draw on."""
+    """A completed invoice is not required to mark a reward paid."""
     from masters.models import Product
 
     from .conftest import create_draft_invoice, make_product
@@ -79,10 +78,7 @@ def test_mark_paid_records_status_and_does_not_move_money(tenant_a):
         company=tenant_a.company, action="referral_reward_marked_paid", entity_id=str(reward.pk),
     ).exists()
 
-    # mark_reward_paid is idempotent once a credit note is already drafted
-    # ("A later call returns the note already stored on the reward") -- a
-    # retry (e.g. a double-click) must not error, and must not draft a
-    # second credit note or move any more money.
+    # A second mark-paid is a no-op. It must not draft a credit note.
     again = tenant_a.client.post(f"/api/v1/crm/referrals/rewards/{reward.id}/mark-paid/")
     assert again.status_code == 200, again.data
     assert again.data["reward_status"] == ReferralReward.Status.PAID

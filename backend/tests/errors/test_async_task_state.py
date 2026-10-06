@@ -42,6 +42,21 @@ def test_failed_invoice_pdf_ends_FAILED_and_is_recoverable(tenant_a):
 
     status = tenant_a.client.get(f"/api/v1/sales/invoices/{iid}/pdf-status/")
     assert status.status_code == 200
+    # The first render error stays queued so Celery can retry. FAILED is the
+    # state after those retries are used up.
+    assert status.data["pdf_status"] == SalesInvoice.PdfStatus.QUEUED
+    from sales.tasks import generate_invoice_pdf
+
+    generate_invoice_pdf.push_request(retries=generate_invoice_pdf.max_retries)
+    try:
+        with mock.patch(
+            "sales.pdf.render_gst_tax_invoice", side_effect=RuntimeError("boom")
+        ):
+            with pytest.raises(RuntimeError):
+                generate_invoice_pdf.run(iid, company_id=tenant_a.company.id)
+    finally:
+        generate_invoice_pdf.pop_request()
+    status = tenant_a.client.get(f"/api/v1/sales/invoices/{iid}/pdf-status/")
     assert status.data["pdf_status"] == SalesInvoice.PdfStatus.FAILED
     assert status.data["pdf_file"] is None
 

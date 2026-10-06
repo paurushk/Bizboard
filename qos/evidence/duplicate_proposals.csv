@@ -1,0 +1,32 @@
+proposal,task_a,task_b,text_a,text_b,persona_a,persona_b,similarity,why
+MERGE,X-0299,X-0436,Duplicate invoice → duplicate detection,Duplicate invoice → duplicate detection,Multiple / Cross-persona,Multiple / Cross-persona,1.0,same wording and same persona
+SHARE_TEST,P-0014,P-0030,Process a sales return,Process sales returns,Gully Vendor / Small Retailer,Kirana Shop Owner,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0028,P-0146,Track supplier outstanding,Track supplier outstanding,Kirana Shop Owner,Purchase Manager,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0048,P-0060,Track supplier-wise purchases,Track supplier purchases,Medical Shop,Distributor,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0057,P-0137,Track customer outstanding,View customer outstanding,Distributor,Salesperson,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0072,P-0153,Track damaged stock,Record damaged stock,Single-Godown Distributor,Inventory Manager,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0073,P-0154,Track returned stock,Record returned stock,Single-Godown Distributor,Inventory Manager,1.0,"same task for different personas; keep both rows, link one test"
+SHARE_TEST,P-0111,X-0479,Export accounting data,Export accounting data,Accountant / GST Operator,Multiple / Cross-persona,1.0,"same task for different personas; keep both rows, link one test"
+KEEP_DISTINCT,X-0447,X-0449,Order confirmation → customer receives confirmation,Return confirmation → customer receives confirmation,Multiple / Cross-persona,Multiple / Cross-persona,0.95,"differs by: order, return"
+KEEP_DISTINCT,X-0289,X-0290,Credit note → tax liability adjustment,Debit note → tax liability adjustment,Multiple / Cross-persona,Multiple / Cross-persona,0.93,"differs by: credit, debit"
+KEEP_DISTINCT,X-0385,X-0390,Transaction → sales dashboard updates,Transaction → payables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.93,"differs by: payable, sale"
+KEEP_DISTINCT,X-0385,X-0388,Transaction → sales dashboard updates,Transaction → GST dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.92,"differs by: gst, sale"
+KEEP_DISTINCT,X-0222,X-0223,Price mismatch → exception is generated,Tax mismatch → exception is generated,Multiple / Cross-persona,Multiple / Cross-persona,0.89,"differs by: price, tax"
+KEEP_DISTINCT,X-0283,X-0284,Intra-state transaction → CGST/SGST treatment,Inter-state transaction → IGST treatment,Multiple / Cross-persona,Multiple / Cross-persona,0.89,"differs by: cgst, igst, inter, intra, sgst"
+KEEP_DISTINCT,X-0385,X-0386,Transaction → sales dashboard updates,Transaction → purchase dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.89,"differs by: purchase, sale"
+KEEP_DISTINCT,X-0385,X-0389,Transaction → sales dashboard updates,Transaction → receivables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.89,"differs by: receivable, sale"
+KEEP_DISTINCT,X-0221,X-0223,Quantity mismatch → exception is generated,Tax mismatch → exception is generated,Multiple / Cross-persona,Multiple / Cross-persona,0.88,"differs by: quantity, tax"
+KEEP_DISTINCT,X-0227,X-0341,Supplier payment recorded → payable decreases,Supplier payment → payable decreases,Multiple / Cross-persona,Multiple / Cross-persona,0.88,differs by: recorded
+KEEP_DISTINCT,X-0386,X-0390,Transaction → purchase dashboard updates,Transaction → payables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.88,"differs by: payable, purchase"
+KEEP_DISTINCT,X-0389,X-0390,Transaction → receivables dashboard updates,Transaction → payables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.88,"differs by: payable, receivable"
+KEEP_DISTINCT,P-0034,P-0049,Generate GST-compliant invoices,Generate GST-compliant medicine invoices,Kirana Shop Owner,Medical Shop,0.87,differs by: medicine
+KEEP_DISTINCT,X-0386,X-0388,Transaction → purchase dashboard updates,Transaction → GST dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.87,"differs by: gst, purchase"
+KEEP_DISTINCT,X-0386,X-0389,Transaction → purchase dashboard updates,Transaction → receivables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.87,"differs by: purchase, receivable"
+KEEP_DISTINCT,X-0469,X-0476,Import GST data,Export GST data,Multiple / Cross-persona,Multiple / Cross-persona,0.87,"differs by: export, import"
+KEEP_DISTINCT,X-0490,X-0492,Accountant reconciles sales,Accountant reconciles payments,Multiple / Cross-persona,Multiple / Cross-persona,0.87,"differs by: payment, sale"
+KEEP_DISTINCT,P-0009,P-0026,Record a customer credit sale,Track customer credit,Gully Vendor / Small Retailer,Kirana Shop Owner,0.86,differs by: sale
+KEEP_DISTINCT,X-0221,X-0222,Quantity mismatch → exception is generated,Price mismatch → exception is generated,Multiple / Cross-persona,Multiple / Cross-persona,0.86,"differs by: price, quantity"
+KEEP_DISTINCT,X-0387,X-0388,Transaction → inventory dashboard updates,Transaction → GST dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.86,"differs by: gst, inventory"
+KEEP_DISTINCT,P-0085,P-0091,Compare godown-wise profitability,Compare shop profitability,Multi-Godown Distributor,Multi-Shop Owner,0.85,"differs by: godown, shop"
+KEEP_DISTINCT,X-0388,X-0390,Transaction → GST dashboard updates,Transaction → payables dashboard updates,Multiple / Cross-persona,Multiple / Cross-persona,0.85,"differs by: gst, payable"
+KEEP_DISTINCT,X-0490,X-0491,Accountant reconciles sales,Accountant reconciles purchases,Multiple / Cross-persona,Multiple / Cross-persona,0.85,"differs by: purchase, sale"

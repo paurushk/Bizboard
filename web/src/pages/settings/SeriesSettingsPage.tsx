@@ -22,6 +22,7 @@ import { PageTitle } from '@/contextHelp';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { useAuth } from '@/auth/AuthContext';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { t } from '@/i18n';
 
 interface DocumentSeriesConfig {
   docType: string;
@@ -33,20 +34,21 @@ interface DocumentSeriesConfig {
   gstinKey?: string;
   fyLabel?: string;
   preview?: string;
+  nameKey: string;
 }
 
 const SERIES_DEFINITIONS = [
-  { name: 'Sales Invoices', endpoint: 'sales/invoices' },
-  { name: 'Quotations', endpoint: 'sales/quotations' },
-  { name: 'Sales Orders', endpoint: 'sales/orders' },
-  { name: 'Delivery Challans', endpoint: 'sales/delivery-challans' },
-  { name: 'Sales Credit Notes', endpoint: 'sales/credit-notes' },
-  { name: 'Sales Debit Notes', endpoint: 'sales/debit-notes' },
-  { name: 'Purchase Invoices', endpoint: 'purchases/invoices' },
-  { name: 'Purchase Orders', endpoint: 'purchases/orders' },
-  { name: 'Goods Receipt Notes (GRN)', endpoint: 'purchases/grns' },
-  { name: 'Purchase Credit Notes', endpoint: 'purchases/credit-notes' },
-  { name: 'Purchase Debit Notes', endpoint: 'purchases/debit-notes' },
+  { nameKey: 'cog.seriesSales', endpoint: 'sales/invoices' },
+  { nameKey: 'cog.seriesQuotes', endpoint: 'sales/quotations' },
+  { nameKey: 'cog.seriesOrders', endpoint: 'sales/orders' },
+  { nameKey: 'cog.seriesChallans', endpoint: 'sales/delivery-challans' },
+  { nameKey: 'cog.seriesCredit', endpoint: 'sales/credit-notes' },
+  { nameKey: 'cog.seriesDebit', endpoint: 'sales/debit-notes' },
+  { nameKey: 'cog.seriesPurchases', endpoint: 'purchases/invoices' },
+  { nameKey: 'cog.seriesPo', endpoint: 'purchases/orders' },
+  { nameKey: 'cog.seriesGrn', endpoint: 'purchases/grns' },
+  { nameKey: 'cog.seriesPcn', endpoint: 'purchases/credit-notes' },
+  { nameKey: 'cog.seriesPdn', endpoint: 'purchases/debit-notes' },
 ];
 
 export function SeriesSettingsPage() {
@@ -70,13 +72,15 @@ export function SeriesSettingsPage() {
             const d = res.data?.data || res.data;
             return {
               ...d,
-              name: def.name,
+              name: def.nameKey,
+              nameKey: def.nameKey,
               endpoint: def.endpoint,
             } as DocumentSeriesConfig;
           } catch {
             return {
-              docType: def.name,
-              name: def.name,
+              docType: def.nameKey,
+              name: def.nameKey,
+              nameKey: def.nameKey,
               endpoint: def.endpoint,
               prefix: '—',
               nextNumber: 1,
@@ -115,7 +119,7 @@ export function SeriesSettingsPage() {
   }
 
   if (query.isLoading) {
-    return <LoadingState label="Loading document series configurations..." />;
+    return <LoadingState label={t('sweep.loadingSeries')} />;
   }
 
   if (query.isError) {
@@ -141,7 +145,7 @@ export function SeriesSettingsPage() {
     <Stack spacing={3}>
       <Box>
         <PageTitle variant="h5" sx={{ fontWeight: 600 }}>
-          Document Number Series
+          {t('sweep2.docNumberSeries')}
         </PageTitle>
         <Typography variant="body2" color="text.secondary">
           Configure independent, concurrency-safe sequential prefixes, padding, and next numbers for all commercial and statutory documents.
@@ -154,18 +158,18 @@ export function SeriesSettingsPage() {
         <Table>
           <TableHead>
             <TableRow>
-              <TableCell>Document Type</TableCell>
-              <TableCell>Current Prefix</TableCell>
-              <TableCell align="right">Next Number</TableCell>
-              <TableCell align="right">Padding</TableCell>
-              <TableCell>Next Sample Preview</TableCell>
-              <TableCell align="right">Action</TableCell>
+              <TableCell>{t('sweep2.docType')}</TableCell>
+              <TableCell>{t('sweep2.currentPrefix')}</TableCell>
+              <TableCell align="right">{t('sweep2.nextNumber')}</TableCell>
+              <TableCell align="right">{t('sweep2.padding')}</TableCell>
+              <TableCell>{t('sweep2.nextSamplePreview')}</TableCell>
+              <TableCell align="right">{t('sweep2.action')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {seriesList.map((row) => (
               <TableRow key={row.endpoint}>
-                <TableCell sx={{ fontWeight: 500 }}>{row.name}</TableCell>
+                <TableCell sx={{ fontWeight: 500 }}>{t(row.nameKey)}</TableCell>
                 <TableCell sx={{ fontFamily: 'monospace' }}>{row.prefix}</TableCell>
                 <TableCell align="right">{row.nextNumber}</TableCell>
                 <TableCell align="right">{row.padding}</TableCell>
@@ -174,7 +178,7 @@ export function SeriesSettingsPage() {
                 </TableCell>
                 <TableCell align="right">
                   <Button size="small" variant="outlined" onClick={() => handleEdit(row)}>
-                    Configure
+                    {t('sweep2.configure')}
                   </Button>
                 </TableCell>
               </TableRow>
@@ -184,36 +188,36 @@ export function SeriesSettingsPage() {
       </TableContainer>
 
       <Dialog open={!!editing} onClose={() => setEditing(null)} maxWidth="sm" fullWidth>
-        <DialogTitle>Configure Series: {editing?.name}</DialogTitle>
+        <DialogTitle>{editing ? t('cog.configureSeries', { name: t(editing.nameKey) }) : ''}</DialogTitle>
         <DialogContent>
           <Stack spacing={2.5} sx={{ mt: 1 }}>
             {error && <HelpErrorAlert error={error} />}
             <TextField
-              label="Prefix"
+              label={t('sweep.prefix')}
               value={prefix}
               onChange={(e) => setPrefix(e.target.value)}
-              helperText="E.g. INV-2026, QTN, DC, or custom identifier"
+              helperText={t('sweep.prefixHelp')}
               fullWidth
             />
             <TextField
-              label="Next Number"
+              label={t('sweep.nextNumber')}
               type="number"
               value={nextNumber}
               onChange={(e) => setNextNumber(Math.max(1, parseInt(e.target.value) || 1))}
-              helperText="The sequence number for the next completed document"
+              helperText={t('sweep.nextNumberHelp')}
               fullWidth
             />
             <TextField
-              label="Minimum Padding Digits"
+              label={t('sweep.minPadding')}
               type="number"
               value={padding}
               onChange={(e) => setPadding(Math.max(1, Math.min(10, parseInt(e.target.value) || 1)))}
-              helperText="Leading zeros (e.g. 5 digits → 00001)"
+              helperText={t('sweep.paddingHelp')}
               fullWidth
             />
             <Paper variant="outlined" sx={{ p: 2, bgcolor: 'action.hover' }}>
               <Typography variant="caption" color="text.secondary" display="block">
-                Sample Output Preview:
+                {t('sweep2.sampleOutputPreview')}
               </Typography>
               <Typography variant="h6" sx={{ fontFamily: 'monospace', mt: 0.5 }}>
                 {calculatePreview()}
@@ -222,13 +226,13 @@ export function SeriesSettingsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditing(null)}>Cancel</Button>
+          <Button onClick={() => setEditing(null)}>{t('sweep2.cancel')}</Button>
           <Button
             variant="contained"
             onClick={() => saveMutation.mutate()}
             disabled={saveMutation.isPending}
           >
-            {saveMutation.isPending ? 'Saving...' : 'Save Configuration'}
+            {saveMutation.isPending ? t('cog.savingConfig') : t('cog.saveConfiguration')}
           </Button>
         </DialogActions>
       </Dialog>

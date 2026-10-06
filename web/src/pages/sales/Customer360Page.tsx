@@ -10,20 +10,22 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { contractTimeline, issueReferralCode, listContractsPage, listTicketsPage } from '@/api/growth';
+import { customerNextAction } from '@/pages/sales/customer360Value';
 import { getCustomer360 } from '@/api/osPlan';
 import { createPaymentPromise, listPaymentPromises, repeatLastInvoice, resolvePaymentPromise } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
-import { isComplaintsEnabled, isContractsEnabled, isReferralsEnabled, isSupportTicketsEnabled } from '@/config/features';
+import { isComplaintsEnabled, isContractsEnabled, isCrmEnabled, isReferralsEnabled, isSupportTicketsEnabled } from '@/config/features';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney } from '@/utils/money';
 import { canManagePaymentPromises } from '@/utils/permissions';
+import { isPastIso } from '@/utils/clock';
 
 function agingAmount(aging: Record<string, string> | null | undefined, keys: string[]): string | null {
   if (!aging) return null;
@@ -38,6 +40,15 @@ function defaultPromiseDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 3);
   return todayIso(d);
+}
+
+function OffSection({ title }: { title: string }) {
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle2">{title}</Typography>
+      <Typography variant="body2" color="text.secondary">{t('customer360.notOn', { section: title })}</Typography>
+    </Paper>
+  );
 }
 
 export function Customer360Page() {
@@ -105,6 +116,7 @@ export function Customer360Page() {
   const showTickets = isRuntimeFlagEnabled('ENABLE_CUSTOMER_360') && isSupportTicketsEnabled();
   const showContracts = isRuntimeFlagEnabled('ENABLE_CUSTOMER_360') && isContractsEnabled();
   const showReferral = isReferralsEnabled();
+  const showOpportunities = isCrmEnabled();
   const [issuedCode, setIssuedCode] = useState('');
   const [issueError, setIssueError] = useState('');
   const [issuing, setIssuing] = useState(false);
@@ -124,6 +136,12 @@ export function Customer360Page() {
   return (
     <Stack spacing={2}>
       <PageTitle>{body?.name || t('nav.customer360')}</PageTitle>
+      {customerIdValid ? (
+        <Stack direction="row" spacing={1}>
+          <Button component={RouterLink} to={`/sales/new?customer=${customerId}`} variant="contained">{t('cog.newBill')}</Button>
+          <Button component={RouterLink} to="/sales/receipts" variant="outlined">{t('nav.receipts')}</Button>
+        </Stack>
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -139,9 +157,23 @@ export function Customer360Page() {
             <Typography variant="body2" color="text.secondary">
               {body.pattern || t('osPlan.noPattern')}
             </Typography>
-            {body.recommendedNextStep ? (
-              <Typography variant="body2">{body.recommendedNextStep}</Typography>
-            ) : null}
+            <Typography variant="body2">
+              {(() => {
+                const next = customerNextAction({
+                  recommended: body.recommendedNextStep,
+                  outstanding: body.outstanding,
+                  ticketsPending: showTickets && !tickets.isSuccess,
+                  openTickets: (tickets.data?.results ?? []).filter(
+                    (row) => row.status !== 'RESOLVED' && row.status !== 'CLOSED',
+                  ).length,
+                });
+                if (!next) return null;
+                if (next === 'due') return t('growth.nextActionDue');
+                if (next === 'ticket') return t('growth.nextActionTicket');
+                if (next === 'quiet') return t('growth.nextActionQuiet');
+                return next;
+              })()}
+            </Typography>
             <Button
               size="small"
               variant="outlined"
@@ -162,6 +194,7 @@ export function Customer360Page() {
           </Paper>
           {body.outstanding != null || body.profit != null ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2">{t('customer360.dues')}</Typography>
               <Typography variant="subtitle2">{t('osPlan.money')}</Typography>
               {body.outstanding != null ? (
                 <Typography variant="body2">{t('portal.outstanding')}: {formatMoney(body.outstanding)}</Typography>
@@ -253,23 +286,23 @@ export function Customer360Page() {
               </Typography>
             ) : null}
           </Paper>
-          {showComplaints && body.complaints ? (
+          {showComplaints ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2">{t('customer360.complaints')}</Typography>
-              {body.complaints.length === 0 ? (
+              {(body.complaints ?? []).length === 0 ? (
                 <Typography variant="body2" color="text.secondary">{t('customer360.none')}</Typography>
-              ) : body.complaints.map((row) => (
+              ) : (body.complaints ?? []).map((row) => (
                 <Typography key={row.id} variant="body2">
                   {row.number || row.id} · {String(row.category || '').replaceAll('_', ' ')} · {String(row.status || '').replaceAll('_', ' ')}
                 </Typography>
               ))}
             </Paper>
-          ) : null}
+          ) : <OffSection title={t('customer360.complaints')} />}
           {showTickets ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2">{t('growth.support')}</Typography>
               {(tickets.data?.results ?? []).map((row) => {
-                const breached = row.slaDueAt && ['OPEN', 'IN_PROGRESS', 'WAITING'].includes(row.status) && new Date(row.slaDueAt).getTime() < Date.now();
+                const breached = row.slaDueAt && ['OPEN', 'IN_PROGRESS', 'WAITING'].includes(row.status) && isPastIso(row.slaDueAt);
                 return (
                   <Typography key={row.id} variant="body2">
                     {row.number} · {row.subject} · {row.status.replaceAll('_', ' ')} · {row.priority}
@@ -279,7 +312,7 @@ export function Customer360Page() {
                 );
               })}
             </Paper>
-          ) : null}
+          ) : <OffSection title={t('customer360.tickets')} />}
           {showContracts ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2">{t('growth.serviceHistory')}</Typography>
@@ -287,7 +320,7 @@ export function Customer360Page() {
                 <ContractHistory key={row.id} contractId={row.id} />
               ))}
             </Paper>
-          ) : null}
+          ) : <OffSection title={t('customer360.contracts')} />}
           {showReferral ? (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography variant="subtitle2">{t('nav.referrals')}</Typography>
@@ -315,7 +348,15 @@ export function Customer360Page() {
               {issuedCode ? <Typography variant="body2">{t('growth.issuedFor')}: {issuedCode}</Typography> : null}
               {issueError ? <Typography color="error" variant="body2">{issueError}</Typography> : null}
             </Paper>
-          ) : null}
+          ) : <OffSection title={t('customer360.referrals')} />}
+          {showOpportunities ? (
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography variant="subtitle2">{t('customer360.opportunities')}</Typography>
+              {body.opportunityTotal != null ? (
+                <Typography variant="body2">{formatMoney(body.opportunityTotal)}</Typography>
+              ) : null}
+            </Paper>
+          ) : <OffSection title={t('customer360.opportunities')} />}
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography variant="subtitle2">{t('osPlan.products')}</Typography>
             <Typography variant="body2">

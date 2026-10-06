@@ -108,6 +108,58 @@ items:
   - ARCH-01
   - ARCH-03
   override: true
+- path: /portal
+  kind: route
+  route_kind: page
+  component: CustomerPortalRequestPage
+  guards: []
+  nav_label: nav.customerPortal
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /portal/:token
+  kind: route
+  route_kind: page
+  component: CustomerPortalPage
+  guards: []
+  nav_label: null
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /lead-form/:token
+  kind: route
+  route_kind: page
+  component: LeadFormPage
+  guards: []
+  nav_label: null
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
 - path: /setup
   kind: route
   route_kind: page
@@ -467,6 +519,25 @@ items:
   - ARCH-01
   - ARCH-03
   override: false
+- path: /help/pilot-limits
+  kind: route
+  route_kind: page
+  component: PilotLimitsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  nav_label: null
+  coverage: SMOKE
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  freeze_row: A20
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
 - path: /settings/help
   kind: route
   route_kind: page
@@ -615,7 +686,7 @@ items:
   nav_label: null
   coverage: JOURNEY
   coverage_evidence:
-  - mapped A1, no gating UI/API test found
+  - e2e-golden
   - 'override: Challan convert lands on /sales/history/:id/edit then Save & Complete
     (ARCH-03).'
   freeze_row: A1
@@ -636,7 +707,7 @@ items:
   - ProtectedRoute
   - AppShell
   - RoleRoute:canCreateSales
-  nav_label: nav.quickEntry
+  nav_label: nav.more
   coverage: LIM
   coverage_evidence:
   - LIM — reachable, not freeze-journeyed
@@ -751,7 +822,7 @@ items:
   nav_label: null
   coverage: JOURNEY
   coverage_evidence:
-  - mapped A1, no gating UI/API test found
+  - e2e-golden
   - 'override: ARCH-01/03 open invoice after return; payment-link create; attention
     walk.'
   freeze_row: A1
@@ -852,6 +923,51 @@ items:
   - ARCH-03
   - ARCH-04
   override: false
+- path: /sales/delivery-routes
+  kind: route
+  route_kind: page
+  component: DeliveryRoutesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: nav.deliveryRoutes
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
+- path: /sales/delivery-routes/:id
+  kind: route
+  route_kind: page
+  component: DeliveryRoutesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: null
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
 - path: /sales/recurring
   kind: route
   route_kind: page
@@ -898,6 +1014,28 @@ items:
   - ARCH-03
   - ARCH-04
   override: false
+- path: /sales/customers/:id
+  kind: route
+  route_kind: page
+  component: Customer360Page
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: null
+  coverage: JOURNEY
+  coverage_evidence:
+  - e2e-golden
+  freeze_row: A12
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
 - path: /sales/quotations
   kind: route
   route_kind: page
@@ -921,6 +1059,28 @@ items:
   - ARCH-03
   - ARCH-04
   override: true
+- path: /sales/quotations/:id
+  kind: route
+  route_kind: page
+  component: QuotationsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewSalesSurfaces
+  nav_label: null
+  coverage: GAP
+  coverage_evidence:
+  - mapped A4, no gating UI/API test found
+  freeze_row: A4
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-04
+  override: false
 - path: /sales/returns
   kind: route
   route_kind: page
@@ -1753,6 +1913,51 @@ items:
   - ARCH-03
   - ARCH-06
   override: false
+- path: /inventory/purchase-planning
+  kind: route
+  route_kind: page
+  component: PurchasePlanningPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.purchasePlanning
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
+- path: /inventory/demand-forecast
+  kind: route
+  route_kind: page
+  component: DemandForecastPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewInventorySurfaces
+  nav_label: nav.demandForecast
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P4
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  - ARCH-06
+  override: false
 - path: /inventory/expiry-alerts
   kind: route
   route_kind: page
@@ -1976,6 +2181,27 @@ items:
   - ARCH-01
   - ARCH-03
   override: false
+- path: /payments/collections
+  kind: route
+  route_kind: page
+  component: CollectionsWorklistPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.collections
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
 - path: /reports/sales
   kind: route
   route_kind: page
@@ -2011,6 +2237,94 @@ items:
   coverage_evidence:
   - e2e smoke / domain spec; no business-outcome assertion
   freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/discounts
+  kind: route
+  route_kind: page
+  component: DiscountReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.discountReport
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/sales-discounts
+  kind: route
+  route_kind: page
+  component: DiscountReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: null
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/invoice-profit
+  kind: route
+  route_kind: page
+  component: InvoiceProfitReportPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.invoiceProfitReport
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/invoice-profit/rollup
+  kind: route
+  route_kind: page
+  component: InvoiceProfitRollupPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: null
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
   defect: null
   personas:
   - P1
@@ -2060,6 +2374,27 @@ items:
   - P1
   - P5
   - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /accounting/expenses
+  kind: route
+  route_kind: page
+  component: ExpensesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.expenses
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
   archetypes:
   - ARCH-03
   - ARCH-05
@@ -2121,6 +2456,28 @@ items:
   coverage_evidence:
   - e2e smoke / domain spec; no business-outcome assertion
   freeze_row: A13
+  defect: null
+  personas:
+  - P1
+  - P5
+  - P6
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
+- path: /reports/day-book
+  kind: route
+  route_kind: page
+  component: DayBookPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canViewFinancialReports
+  nav_label: nav.dayBook
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
   defect: null
   personas:
   - P1
@@ -2547,6 +2904,27 @@ items:
   - ARCH-03
   - ARCH-05
   override: false
+- path: /settings/packs
+  kind: route
+  route_kind: page
+  component: PackWizardPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  - RoleRoute:inline
+  nav_label: nav.packWizard
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
 - path: /settings/company
   kind: route
   route_kind: page
@@ -2725,9 +3103,9 @@ items:
   - RoleRoute:canAccessSettings
   - RoleRoute:canManageUsers
   nav_label: nav.billing
-  coverage: SMOKE
+  coverage: JOURNEY
   coverage_evidence:
-  - e2e smoke / domain spec; no business-outcome assertion
+  - e2e-golden
   freeze_row: A17
   defect: null
   personas:
@@ -2771,6 +3149,26 @@ items:
   coverage_evidence:
   - e2e smoke / domain spec; no business-outcome assertion
   freeze_row: A16
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /settings/telegram
+  kind: route
+  route_kind: page
+  component: TelegramSettingsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:canAccessSettings
+  nav_label: nav.telegram
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
   defect: null
   personas:
   - P1
@@ -3030,6 +3428,27 @@ items:
   - ARCH-03
   - ARCH-05
   override: false
+- path: /accounting/expenses
+  kind: route
+  route_kind: page
+  component: ExpensesPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowAccounting
+  nav_label: nav.expenses
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P5
+  archetypes:
+  - ARCH-03
+  - ARCH-05
+  override: false
 - path: /manufacturing
   kind: route
   route_kind: redirect
@@ -3193,6 +3612,26 @@ items:
   archetypes:
   - ARCH-03
   override: false
+- path: /crm/onboarding
+  kind: route
+  route_kind: page
+  component: CrmOnboardingPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  nav_label: nav.crmOnboarding
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
 - path: /crm/opportunities
   kind: route
   route_kind: page
@@ -3211,6 +3650,233 @@ items:
   - P1
   - P3
   archetypes:
+  - ARCH-03
+  override: false
+- path: /crm/campaigns
+  kind: route
+  route_kind: page
+  component: CampaignsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  nav_label: nav.campaigns
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /crm/pipeline
+  kind: route
+  route_kind: page
+  component: OpportunityPipelinePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowCrm
+  nav_label: nav.pipeline
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /crm/referrals
+  kind: route
+  route_kind: page
+  component: ReferralsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowReferrals
+  nav_label: nav.referrals
+  coverage: OUT
+  coverage_evidence:
+  - FREEZE_SCOPE §B / dark prefix
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  - P3
+  archetypes:
+  - ARCH-03
+  override: false
+- path: /complaints
+  kind: route
+  route_kind: page
+  component: ComplaintsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowComplaints
+  nav_label: nav.complaints
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /complaints/suppliers
+  kind: route
+  route_kind: page
+  component: SupplierComplaintsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowSupplierComplaints
+  nav_label: nav.supplierComplaints
+  coverage: UNMAPPED
+  coverage_evidence:
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /support/tickets
+  kind: route
+  route_kind: page
+  component: TicketsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowTickets
+  nav_label: nav.tickets
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /support/shared
+  kind: route
+  route_kind: page
+  component: SharedTicketsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowTickets
+  nav_label: nav.sharedTickets
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /workshop/jobs
+  kind: route
+  route_kind: page
+  component: JobCardsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowWorkshop
+  nav_label: nav.jobCards
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /projects
+  kind: route
+  route_kind: page
+  component: ProjectsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowProjects
+  nav_label: nav.projects
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /insurance
+  kind: route
+  route_kind: page
+  component: InsurancePage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowInsurance
+  nav_label: nav.insurance
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e-golden
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
+  - ARCH-03
+  override: false
+- path: /contracts
+  kind: route
+  route_kind: page
+  component: ContractsPage
+  guards:
+  - ProtectedRoute
+  - AppShell
+  - RoleRoute:allowContracts
+  nav_label: nav.contracts
+  coverage: UNMAPPED
+  coverage_evidence:
+  - e2e smoke / domain spec; no business-outcome assertion
+  - no FREEZE_SCOPE A-row
+  freeze_row: null
+  defect: null
+  personas:
+  - P1
+  archetypes:
+  - ARCH-01
   - ARCH-03
   override: false
 - path: /*

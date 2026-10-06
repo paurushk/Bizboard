@@ -29,11 +29,12 @@ import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import type { Product } from '@/types/domain';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { asRows, DataTable, PageShell, type Row } from '@/pages/phase/phaseShared';
 
 export function StockCountPage() {
+  useLocale();
   const { writesBlocked } = useSubscriptionGate();
   const { user } = useAuth();
   useStockOffline(user?.companyId ?? 0, user?.id ?? 0);
@@ -192,10 +193,10 @@ export function StockCountPage() {
       actions={
         <Stack direction="row" spacing={1}>
           <Button variant="outlined" onClick={() => setReorderOpen(true)} disabled={writesBlocked}>
-            Add godown reorder
+            {t('sweep2.addGodownReorder')}
           </Button>
           <Button variant="contained" onClick={() => setCreateOpen(true)} disabled={writesBlocked}>
-            New count
+            {t('sweep2.newCount')}
           </Button>
         </Stack>
       }
@@ -263,13 +264,13 @@ export function StockCountPage() {
       />
       <DataTable
         rows={rows}
-        empty="No stock counts yet."
+        empty={t('items.noStockCounts')}
         columns={[
           { key: 'id', label: '#' },
-          { key: 'warehouseName', label: 'Godown' },
-          { key: 'status', label: 'Status', status: true },
-          { key: 'countedOn', label: 'Counted on' },
-          { key: 'notes', label: 'Notes' },
+          { key: 'warehouseName', label: t('items.godown') },
+          { key: 'status', label: t('common.status'), status: true },
+          { key: 'countedOn', label: t('items.countedOn') },
+          { key: 'notes', label: t('common.notes') },
         ]}
         actions={(row) => (
           <Button
@@ -288,56 +289,56 @@ export function StockCountPage() {
               }
             }}
           >
-            {String(row.status) === 'POSTED' ? 'View' : 'Count'}
+            {String(row.status) === 'POSTED' ? t('items.view') : t('items.count')}
           </Button>
         )}
       />
 
       <Typography variant="h6" sx={{ mt: 4, mb: 1 }}>
-        Per-godown reorder
+        {t('sweep2.perGodownReorder')}
       </Typography>
       <DataTable
         rows={asRows(reorders.data)}
-        empty="No per-godown reorder rules. Company-wide reorder on the item is used until you add one."
+        empty={t('items.noReorderRules')}
         // F3-016: can grow to product-count × godown-count rows for a large
         // catalog — window the DOM rows.
         virtualized
         columns={[
-          { key: 'productName', label: 'Item' },
-          { key: 'warehouseName', label: 'Godown' },
-          { key: 'reorderLevel', label: 'Reorder qty' },
+          { key: 'productName', label: t('items.item') },
+          { key: 'warehouseName', label: t('items.godown') },
+          { key: 'reorderLevel', label: t('items.reorderQty') },
         ]}
       />
 
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>New stock count</DialogTitle>
+        <DialogTitle>{t('items.newStockCount')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField select label="Godown" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
+            <TextField select label={t('items.godown')} value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}>
               {(warehouses.data ?? []).map((warehouse) => (
                 <MenuItem key={warehouse.id} value={String(warehouse.id)}>
                   {warehouse.name}
                 </MenuItem>
               ))}
             </TextField>
-            <TextField label="Notes" value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <TextField label={t('common.notes')} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateOpen(false)}>Cancel</Button>
+          <Button onClick={() => setCreateOpen(false)}>{t('common.cancel')}</Button>
           <Button variant="contained" disabled={!warehouseId || create.isPending} onClick={() => create.mutate()}>
-            Start count
+            {t('items.startCount')}
           </Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(active)} onClose={() => setActive(null)} fullWidth maxWidth="md">
         <DialogTitle>
-          Count {String(active?.warehouseName || '')} ({String(active?.status || '')})
+          {t('items.countTitle', { name: String(active?.warehouseName || ''), status: String(active?.status || '') })}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ mt: 1 }}>
-            {lines.length === 0 ? <Typography color="text.secondary">No on-hand lines at this godown.</Typography> : null}
+            {lines.length === 0 ? <Typography color="text.secondary">{t('items.noOnHand')}</Typography> : null}
             {/* F3-016: deliberately NOT virtualized — "Print sheet" below
                 relies on every line being in the DOM (a windowed list would
                 only print the currently-visible rows), which matters more
@@ -355,7 +356,7 @@ export function StockCountPage() {
                 ) : null}
                 <TextField
                   size="small"
-                  label="Counted"
+                  label={t('items.counted')}
                   type="number"
                   value={counted[String(line.id)] ?? String(line.countedQty ?? '')}
                   onChange={(e) => setCounted((current) => ({ ...current, [String(line.id)]: e.target.value }))}
@@ -367,15 +368,15 @@ export function StockCountPage() {
           </Stack>
         </DialogContent>
         <DialogActions className="no-print">
-          <Button onClick={() => setActive(null)}>Close</Button>
-          <Button onClick={() => window.print()}>Print sheet</Button>
+          <Button onClick={() => setActive(null)}>{t('common.close')}</Button>
+          <Button onClick={() => window.print()}>{t('items.printSheet')}</Button>
           {String(active?.status) !== 'POSTED' && String(active?.status) !== 'CANCELLED' ? (
             <>
               <Button onClick={() => saveLines.mutate()} disabled={writesBlocked || saveLines.isPending}>
-                Save counts
+                {t('items.saveCounts')}
               </Button>
               <Button color="warning" onClick={() => cancel.mutate()} disabled={writesBlocked || cancel.isPending}>
-                Cancel count
+                {t('items.cancelCount')}
               </Button>
               <Button
                 variant="contained"
@@ -385,7 +386,7 @@ export function StockCountPage() {
                 }}
               disabled={writesBlocked || post.isPending || String(active?.status) !== 'COUNTED'}
               >
-                Post variances
+                {t('items.postVariances')}
               </Button>
             </>
           ) : null}
@@ -393,7 +394,7 @@ export function StockCountPage() {
       </Dialog>
 
       <Dialog open={reorderOpen} onClose={() => setReorderOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Per-godown reorder</DialogTitle>
+        <DialogTitle>{t('items.perGodownReorder')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
@@ -404,26 +405,26 @@ export function StockCountPage() {
               getOptionLabel={(option) => option.name}
               inputValue={productSearch.productQuery}
               onInputChange={(_, value) => productSearch.setProductQuery(value)}
-              renderInput={(params) => <TextField {...params} label="Item" helperText={productSearch.helperText} />}
+              renderInput={(params) => <TextField {...params} label={t('items.item')} helperText={productSearch.helperText} />}
             />
-            <TextField select label="Godown" value={reorderWarehouse} onChange={(e) => setReorderWarehouse(e.target.value)}>
+            <TextField select label={t('items.godown')} value={reorderWarehouse} onChange={(e) => setReorderWarehouse(e.target.value)}>
               {(warehouses.data ?? []).map((warehouse) => (
                 <MenuItem key={warehouse.id} value={String(warehouse.id)}>
                   {warehouse.name}
                 </MenuItem>
               ))}
             </TextField>
-            <TextField label="Reorder qty" type="number" value={reorderQty} onChange={(e) => setReorderQty(e.target.value)} />
+            <TextField label={t('items.reorderQty')} type="number" value={reorderQty} onChange={(e) => setReorderQty(e.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setReorderOpen(false)}>Cancel</Button>
+          <Button onClick={() => setReorderOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={!selectedProduct || !reorderWarehouse || !reorderQty || writesBlocked || saveReorder.isPending}
             onClick={() => saveReorder.mutate()}
           >
-            Save
+            {t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>

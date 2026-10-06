@@ -46,6 +46,67 @@ def _pending_charge_months(charge_date):
     return months
 
 
+def _months_before_window(charge_date, earliest_month_end):
+    """Month-ends older than the automatic window, down to the acquisition month.
+
+    The scheduler still posts only `_MAX_CATCHUP_MONTHS`. These older months
+    are remembered so a long outage does not drop them.
+    """
+    window = _pending_charge_months(charge_date)
+    if not window or earliest_month_end is None:
+        return []
+    oldest = window[-1]
+    months = []
+    cur = _month_end(oldest.replace(day=1) - datetime.timedelta(days=1))
+    guard = 0
+    while cur >= earliest_month_end and guard < 120:
+        months.append(cur)
+        cur = _month_end(cur.replace(day=1) - datetime.timedelta(days=1))
+        guard += 1
+    months.reverse()
+    return months
+
+
+def _prorate_days_in_service(locked, cm, amount):
+    """Acquisition and disposal months, for SLM and WDV, by days in service."""
+    from decimal import ROUND_HALF_UP, Decimal as _D
+
+    days_in_month = (cm - cm.replace(day=1)).days + 1
+    start = cm.replace(day=1)
+    end = cm
+    acquired = locked.acquisition_date
+    disposed = getattr(locked, "disposed_at", None)
+    if acquired and _month_end(acquired) == cm and acquired > start:
+        start = acquired
+    if disposed and _month_end(disposed) == cm and disposed < end:
+        end = disposed
+    if end < start or days_in_month <= 0:
+        return _D("0.00")
+    days_in_service = (end - start).days + 1
+    if 0 < days_in_service < days_in_month:
+        amount = (amount * _D(days_in_service) / _D(days_in_month)).quantize(
+            _D("0.01"), rounding=ROUND_HALF_UP,
+        )
+    return amount
+
+
+def _depreciation_already_posted(locked, cm) -> bool:
+    m_start = cm.replace(day=1)
+    purpose = f"DEPRECIATION-{cm:%Y-%m}"
+    return JournalEntry.objects.filter(
+        company=locked.company,
+        source_type="FIXED_ASSET",
+        source_id=locked.id,
+        status=JournalEntry.Status.POSTED,
+    ).filter(
+        models.Q(purpose=purpose)
+        | models.Q(
+            purpose__startswith="DEPRECIATION-",
+            entry_date__range=(m_start, cm),
+        )
+    ).exists()
+
+
 def _depreciate_company_assets(company_id) -> int:
     from decimal import Decimal as _D
 
@@ -67,6 +128,7 @@ def _depreciate_company_assets(company_id) -> int:
                 # B1-005: post EVERY still-missing month (bounded), each dated to
                 # its own month-end, so one failed/slipped cycle doesn't lose a
                 # month forever.
+                skipped_months: list[str] = []
                 for cm in charge_months:
                     if cm > charge_date:
                         continue
@@ -98,24 +160,11 @@ def _depreciate_company_assets(company_id) -> int:
                     amount = min(locked.monthly_depreciation, remaining)
                     if amount <= 0:
                         break
-                    # B1-021: SLM charged a full month's depreciation for the
-                    # acquisition month regardless of how many days into that
-                    # month the asset was actually acquired. Prorate that one
-                    # month by days-in-service; the existing remaining-balance
-                    # clamp below already handles the schedule naturally
-                    # running one extra (smaller) month at the tail end to
-                    # make up the difference -- no other change needed.
-                    if (
-                        (locked.method or FixedAsset.Method.SLM) == FixedAsset.Method.SLM
-                        and locked.acquisition_date
-                        and _month_end(locked.acquisition_date) == cm
-                    ):
-                        days_in_month = (cm - cm.replace(day=1)).days + 1
-                        days_in_service = (cm - locked.acquisition_date).days + 1
-                        if 0 < days_in_service < days_in_month:
-                            amount = (
-                                amount * days_in_service / days_in_month
-                            ).quantize(_D("0.01"))
+                    # Days in service for the acquisition month and the disposal
+                    # month, for both SLM and WDV. A full month is unchanged.
+                    amount = _prorate_days_in_service(locked, cm, amount)
+                    if amount <= 0:
+                        continue
                     if remaining - amount <= _D("1"):
                         amount = remaining
                     try:
@@ -133,8 +182,11 @@ def _depreciate_company_assets(company_id) -> int:
                                 ],
                             )
                     except BusinessRuleError as exc:
-                        # e.g. a back-catch-up month lands in a closed period —
-                        # skip it, keep going for the newer months.
+                        # A closed month is recorded and not added to depreciated_amount.
+                        # A later open month must not wipe that message.
+                        skipped_months.append(f"{m_key}: {exc}")
+                        locked.last_depreciation_error = "; ".join(skipped_months)[:500]
+                        locked.save(update_fields=["last_depreciation_error", "updated_at"])
                         logger.warning(
                             "Depreciation month %s skipped for asset %s: %s",
                             m_key, locked.id, exc,
@@ -142,13 +194,26 @@ def _depreciate_company_assets(company_id) -> int:
                         continue
                     if entry:
                         locked.depreciated_amount += amount
-                        locked.last_depreciation_error = ""
+                        if not skipped_months:
+                            locked.last_depreciation_error = ""
+                        else:
+                            locked.last_depreciation_error = "; ".join(skipped_months)[:500]
                         locked.save(
                             update_fields=[
                                 "depreciated_amount", "last_depreciation_error", "updated_at",
                             ]
                         )
                         count += 1
+                earliest = _month_end(locked.acquisition_date) if locked.acquisition_date else None
+                older_missing = [
+                    f"{cm:%Y-%m}"
+                    for cm in _months_before_window(charge_date, earliest)
+                    if not _depreciation_already_posted(locked, cm)
+                ]
+                catchup = ",".join(older_missing)[:800]
+                if catchup != (locked.depreciation_catchup_months or ""):
+                    locked.depreciation_catchup_months = catchup
+                    locked.save(update_fields=["depreciation_catchup_months", "updated_at"])
         except BusinessRuleError as exc:
             logger.warning("Depreciation skipped for asset %s: %s", asset.id, exc)
             FixedAsset.objects.filter(pk=asset.pk).update(last_depreciation_error=str(exc))
@@ -156,6 +221,78 @@ def _depreciate_company_assets(company_id) -> int:
             logger.exception("Depreciation failed for asset %s", asset.id)
             FixedAsset.objects.filter(pk=asset.pk).update(last_depreciation_error=str(exc))
     return count
+
+
+def backfill_depreciation_catchup(company_id) -> int:
+    """Post depreciation months the automatic window refused to drop.
+
+    Explicit only. The nightly task records those months; this posts them,
+    oldest first, and clears each one once a journal exists.
+    """
+    from decimal import Decimal as _D
+
+    set_rls_company(company_id)
+    posted_count = 0
+    assets = FixedAsset.objects.filter(
+        company_id=company_id, status=FixedAsset.Status.ACTIVE,
+    ).exclude(depreciation_catchup_months="")
+    for asset in assets:
+        keys = [part for part in (asset.depreciation_catchup_months or "").split(",") if part]
+        if not keys:
+            continue
+        with transaction.atomic():
+            locked = FixedAsset.objects.select_for_update().get(pk=asset.pk, company_id=company_id)
+            if locked.status != FixedAsset.Status.ACTIVE:
+                continue
+            still = []
+            for key in keys:
+                year, month = int(key[:4]), int(key[5:7])
+                cm = _month_end(datetime.date(year, month, 1))
+                if _depreciation_already_posted(locked, cm):
+                    continue
+                floor = locked.salvage_value or _D("0")
+                remaining = locked.acquisition_cost - locked.depreciated_amount - floor
+                if remaining <= 0:
+                    continue
+                amount = min(locked.monthly_depreciation, remaining)
+                if amount <= 0:
+                    still.append(key)
+                    continue
+                amount = _prorate_days_in_service(locked, cm, amount)
+                if amount <= 0:
+                    continue
+                if remaining - amount <= _D("1"):
+                    amount = remaining
+                purpose = f"DEPRECIATION-{key}"
+                try:
+                    with transaction.atomic():
+                        entry = PostingService.post(
+                            company=locked.company,
+                            source_type="FIXED_ASSET",
+                            source_id=locked.id,
+                            purpose=purpose,
+                            entry_date=cm,
+                            narration=f"SLM depreciation: {locked.name}",
+                            lines=[
+                                {"account": locked.depreciation_expense_account, "debit": amount},
+                                {"account": locked.accumulated_depreciation_account, "credit": amount},
+                            ],
+                        )
+                except BusinessRuleError as exc:
+                    locked.last_depreciation_error = f"{key}: {exc}"[:500]
+                    still.append(key)
+                    continue
+                if entry:
+                    locked.depreciated_amount += amount
+                    posted_count += 1
+                else:
+                    still.append(key)
+            locked.depreciation_catchup_months = ",".join(still)[:800]
+            locked.save(update_fields=[
+                "depreciated_amount", "depreciation_catchup_months",
+                "last_depreciation_error", "updated_at",
+            ])
+    return posted_count
 
 
 @shared_task

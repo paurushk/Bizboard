@@ -218,7 +218,7 @@ def test_bb_000683_payroll_je_uses_period_month_end(tenant_a):
         company=tenant_a.company, period="2026-01", status=PayRun.Status.DRAFT,
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
-    complete_pay_run(run, tenant_a.owner)
+    complete_pay_run(run, tenant_a.owner, pay_from_cash=True)
     entry = JournalEntry.objects.get(company=tenant_a.company, source_type="PAY_RUN", purpose="PAYROLL")
     assert entry.entry_date == date(2026, 1, 31)
     assert pay_period_month_end("2026-01") == date(2026, 1, 31)

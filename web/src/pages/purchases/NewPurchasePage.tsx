@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
+import { flushSync } from 'react-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -21,6 +22,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import Alert from '@mui/material/Alert';
+import Chip from '@mui/material/Chip';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -53,6 +55,7 @@ import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/ap
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { isValidGstin, isValidHsnSac } from '@/utils/gst';
+import { parseSmartExpiryDate, toIsoDateOrRaw } from '@/lib/smartDateParser';
 import { useAuth } from '@/auth/AuthContext';
 import {
   clearPurchaseDraft,
@@ -72,9 +75,12 @@ import { StateSelect } from '@/components/StateSelect';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { HelpHint } from '@/pages/help/HelpHint';
+import { decidePlaceOfSupply, fillPurchaseFromProduct, showGodownSelect, statutoryChipIds, statutoryChipLabel } from '@/cognitive/loadHelpers';
 import { t } from '@/i18n';
 import { FieldHelpTip } from '@/contextHelp';
-import { preferredInvoiceType, companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
+import { preferredInvoiceType, companyStepIncompleteNeedsGst, resolvedSeriesGstin } from '@/onboarding/taxHints';
+import { jsonSnapshot, useEditorBaseline } from '@/pages/sales/invoice/editorDirty';
+import { statutoryTdsRate, TDS_SECTION_OPTIONS } from '@/pages/purchases/tdsSections';
 import {
   firstCompleteDisabledReason,
   previewAllowsComplete,
@@ -91,7 +97,6 @@ import {
   calculateLineTax,
   extractExclusiveFromInclusiveLine,
   isIntraState,
-  placeOfSupplyKnown,
   type InvoiceDiscountMode,
 } from '@/utils/tax';
 
@@ -111,6 +116,7 @@ import {
   useDebouncedValue,
   type DraftLine,
 } from '@/components/billing';
+import { classifyCompleteFailure, trackShopFloor } from '@/lib/telemetry';
 
 const COL_PREFS_KEY = 'bizboard.billing.batchCols';
 
@@ -118,8 +124,35 @@ function makeLine(
   product: Parameters<typeof makeLineBase>[0],
   intraState: boolean | null,
   quantity = 1,
+  typedRate?: number | null,
 ): DraftLine {
-  return makeLineBase(product, intraState, quantity, 'purchasePrice');
+  const line = makeLineBase(product, intraState, quantity, 'purchasePrice');
+  const filled = fillPurchaseFromProduct(product, line.priceEdited ? line.unitPrice : typedRate);
+  return recomputeLine(
+    {
+      ...line,
+      description: filled.description,
+      hsnCode: filled.hsnCode || line.hsnCode,
+      gstRate: filled.gstRate || line.gstRate,
+      unitPrice: filled.unitPrice,
+      rateNotice: t('cog.fromItem'),
+    },
+    intraState,
+  );
+}
+
+function dateFieldHint(value: string, allowPast: boolean): { error: boolean; helper?: string } {
+  const trimmed = value.trim();
+  if (trimmed.length < 4) return { error: false };
+  const parsed = parseSmartExpiryDate(trimmed, { allowPast });
+  if (parsed.ok) return { error: false, helper: parsed.preview };
+  return {
+    error: true,
+    helper: t(
+      `billing.smartDate.${parsed.code}`,
+      parsed.maxDays != null ? { max: parsed.maxDays } : undefined,
+    ),
+  };
 }
 
 export function NewPurchasePage() {
@@ -139,7 +172,7 @@ export function NewPurchasePage() {
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const skipAutosaveRef = useRef(false);
-  const skipLeaveGuard = useRef(false);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const [offline, setOffline] = useState(
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   );
@@ -174,6 +207,7 @@ export function NewPurchasePage() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const [supplierId, setSupplierId] = useState<number | ''>('');
+  const [posPick, setPosPick] = useState<'gstin' | 'address' | ''>('');
   const [supplierQuery, setSupplierQuery] = useState('');
   const debouncedSupplierQuery = useDebouncedValue(supplierQuery, 300);
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
@@ -184,14 +218,14 @@ export function NewPurchasePage() {
   const [billOfEntryId, setBillOfEntryId] = useState<number | ''>('');
   const [priceMode, setPriceMode] = useState<PriceMode>('EXCLUSIVE');
   const [isReverseCharge, setIsReverseCharge] = useState(false);
-  const [itcEligibility, setItcEligibility] = useState<'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED'>('CLAIMABLE');
+  const [itcEligibility, setItcEligibility] = useState<'UNREVIEWED' | 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED'>('UNREVIEWED');
   const [supplierBillNumber, setSupplierBillNumber] = useState('');
   const [invoiceDate, setInvoiceDate] = useState(todayIso());
   const [paymentTermsDays, setPaymentTermsDays] = useState(30);
   const [dueDate, setDueDate] = useState(() => addDaysIso(todayIso(), 30));
   // F2-008: stop recomputing the due date from invoiceDate + terms once it is
   // explicitly set (by the user or a loaded bill).
-  const dueDateTouched = useRef(false);
+  const [dueDateTouched, setDueDateTouched] = useState(false);
   const [showPaymentTerms, setShowPaymentTerms] = useState(true);
 
   // BUG-502/514: prefix/nextNumber are read-only display-only previews, same
@@ -218,10 +252,24 @@ export function NewPurchasePage() {
   const [invoiceDiscountMode, setInvoiceDiscountMode] = useState<InvoiceDiscountMode>('AFTER_TAX');
   const [autoRoundOff, setAutoRoundOff] = useState(true);
   const [amountPaid, setAmountPaid] = useState(0);
+  const editorSnapshot = jsonSnapshot({
+    additionalCharges,
+    invoiceDiscount,
+    amountPaid,
+    notes,
+    lines,
+    supplierId,
+  });
+  const { dirty: editorDirty, rearm: rearmEditorBaseline } = useEditorBaseline(
+    editorSnapshot,
+    !isEdit || loadedEdit,
+  );
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH');
   const [cheque, setCheque] = useState<ChequePaymentValues>({ chequeNumber: '', chequeBankName: '', chequeDate: '' });
   const [shipFrom, setShipFrom] = useState('');
   const [shipFromAddress, setShipFromAddress] = useState('');
+  const [purchaseExtras, setPurchaseExtras] = useState(false);
+  const [showPurchaseTax, setShowPurchaseTax] = useState(false);
   const [markFullyPaid, setMarkFullyPaid] = useState(false);
 
   const [showBatchCols, setShowBatchCols] = useState(() => {
@@ -255,10 +303,10 @@ export function NewPurchasePage() {
   const [signatureId, setSignatureId] = useState<number | null>(null);
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  useEffect(() => {
-    if (isEdit || purchaseTypeTouched || !company.data) return;
-    setPurchaseType(preferredInvoiceType(company.data.registrationType));
-  }, [company.data, isEdit, purchaseTypeTouched]);
+  if (!isEdit && !purchaseTypeTouched && company.data) {
+    const preferred = preferredInvoiceType(company.data.registrationType);
+    if (purchaseType !== preferred) setPurchaseType(preferred);
+  }
   const suppliers = useQuery({
     queryKey: ['suppliers-search', debouncedSupplierQuery],
     queryFn: () => listSuppliersPage({ q: debouncedSupplierQuery.trim() || undefined, pageSize: 50 }),
@@ -357,11 +405,15 @@ export function NewPurchasePage() {
     return map;
   }, [stockBalances.data]);
 
-  useEffect(() => {
-    if (!series.data || isEdit) return;
-    setPrefix(series.data.prefix);
-    setNextNumber(series.data.nextNumber);
-  }, [series.data, isEdit]);
+  const [appliedSeriesKey, setAppliedSeriesKey] = useState('');
+  if (!isEdit && series.data) {
+    const seriesKey = `${series.data.prefix}|${series.data.nextNumber}`;
+    if (appliedSeriesKey !== seriesKey) {
+      setAppliedSeriesKey(seriesKey);
+      setPrefix(series.data.prefix);
+      setNextNumber(series.data.nextNumber);
+    }
+  }
 
   usePurchaseOffline(companyId, userId, setOutboxBanner);
 
@@ -425,16 +477,21 @@ export function NewPurchasePage() {
     invoiceDiscountMode,
   ]);
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoadedEdit(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
 
   useEffect(() => {
     if (!existingInvoice.data || loadedEdit) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+    if (cancelled || !existingInvoice.data) return;
     const inv = existingInvoice.data;
     if (inv.status === 'CANCELLED') {
-      setError('This purchase cannot be edited.');
+      setError(t('billing.cannotEditPurchase'));
       // BUG-517: without this, an unrelated cache invalidation (e.g. of
       // `suppliers`) while this page stays mounted re-runs this effect and
       // re-fires setError, unlike the equivalent Sales branch.
@@ -450,12 +507,12 @@ export function NewPurchasePage() {
     setBillOfEntryId(inv.billOfEntry ?? '');
     setPriceMode((inv.priceMode as PriceMode) || 'EXCLUSIVE');
     setIsReverseCharge(!!inv.isReverseCharge);
-    setItcEligibility(inv.itcEligibility ?? 'CLAIMABLE');
+    setItcEligibility(inv.itcEligibility ?? 'UNREVIEWED');
     setSupplierBillNumber(inv.supplierBillNumber ?? '');
     setInvoiceDate(inv.invoiceDate);
     setPaymentTermsDays(inv.paymentTermsDays ?? 0);
     setDueDate(inv.dueDate ?? addDaysIso(inv.invoiceDate, inv.paymentTermsDays ?? 0));
-    dueDateTouched.current = Boolean(inv.dueDate);
+    setDueDateTouched(Boolean(inv.dueDate));
     setShowPaymentTerms(Boolean(inv.dueDate || inv.paymentTermsDays));
     setNotes(inv.notes ?? '');
     setShowNotes(Boolean(inv.notes));
@@ -555,32 +612,31 @@ export function NewPurchasePage() {
     });
     setLines(mapped);
     setLoadedEdit(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [existingInvoice.data, loadedEdit, company.data, selectedSupplierQuery.data, products.data, setError]);
 
-  useEffect(() => {
-    if (!isEdit && !warehouseId) {
-      const defaultWarehouse = warehouses.data?.find((warehouse) => warehouse.isDefault);
-      if (defaultWarehouse) setWarehouseId(defaultWarehouse.id);
-    }
-  }, [isEdit, warehouseId, warehouses.data]);
-
-  useEffect(() => {
-    if (company.data?.signature) {
-      setSignatureId(company.data.signature);
-    }
-  }, [company.data, isEdit]);
-
-  useEffect(() => {
-    if (isEdit || termsText) return;
-    setTermsText(
-      '1. Goods received are subject to inspection and approval.\n2. Payment as per agreed terms.\n3. All disputes are subject to local jurisdiction.',
-    );
-  }, [isEdit, termsText]);
-
-  useEffect(() => {
-    if (dueDateTouched.current) return;
-    setDueDate(addDaysIso(invoiceDate, paymentTermsDays || 0));
-  }, [invoiceDate, paymentTermsDays]);
+  if (!isEdit && !warehouseId && warehouses.data) {
+    const defaultWarehouse = warehouses.data.find((warehouse) => warehouse.isDefault);
+    if (defaultWarehouse) setWarehouseId(defaultWarehouse.id);
+  }
+  const [seenCompanyForSignature, setSeenCompanyForSignature] = useState<typeof company.data>();
+  if (company.data && company.data !== seenCompanyForSignature) {
+    const firstLoad = seenCompanyForSignature == null;
+    setSeenCompanyForSignature(company.data);
+    if (firstLoad && company.data.signature) setSignatureId(company.data.signature);
+  }
+  const [termsSeeded, setTermsSeeded] = useState(false);
+  if (!isEdit && !termsSeeded) {
+    setTermsSeeded(true);
+    if (!termsText) setTermsText(t('billing.defaultPurchaseTerms'));
+  }
+  if (!dueDateTouched) {
+    const nextDue = addDaysIso(invoiceDate, paymentTermsDays || 0);
+    if (dueDate !== nextDue) setDueDate(nextDue);
+  }
 
   useEffect(() => {
     try {
@@ -591,10 +647,31 @@ export function NewPurchasePage() {
   }, [showBatchCols]);
 
   const selectedSupplier = selectedSupplierQuery.data ?? null;
-  const intraState = isIntraState(
-    company.data?.gstin || company.data?.state,
-    selectedSupplier?.gstin || selectedSupplier?.state,
-    { assumeLocalStateForBlankParty: !!company.data?.assumeLocalStateForBlankParty },
+  // Plain values, not the decision object, so the memoised totals below depend on primitives only.
+  const {
+    ask: posAsk,
+    reason: posReason,
+    addressCode: posAddressCode,
+    gstinCode: posGstinCode,
+  } = decidePlaceOfSupply(selectedSupplier?.gstin, selectedSupplier?.state) as {
+    ask: boolean;
+    reason?: string;
+    addressCode?: string;
+    gstinCode?: string;
+  };
+  const posConflict = posAsk && posReason === 'conflict';
+  const partyPlace = posConflict
+    ? posPick === 'address'
+      ? posAddressCode
+      : posPick === 'gstin'
+        ? posGstinCode
+        : undefined
+    : selectedSupplier?.gstin || selectedSupplier?.state;
+  const companyPlace = company.data?.gstin || company.data?.state;
+  const assumeLocalForBlank = !!company.data?.assumeLocalStateForBlankParty;
+  const intraState = useMemo(
+    () => isIntraState(companyPlace, partyPlace, { assumeLocalStateForBlankParty: assumeLocalForBlank }),
+    [companyPlace, partyPlace, assumeLocalForBlank],
   );
 
   const lineTaxes = useMemo(
@@ -686,20 +763,21 @@ export function NewPurchasePage() {
     purchaseType === 'NON_GST' ||
     !company.data?.isGstRegistered ||
     company.data?.assumeLocalStateForBlankParty ||
-    placeOfSupplyKnown(selectedSupplier?.state, selectedSupplier?.gstin);
+    !posAsk ||
+    (posReason === 'conflict' && posPick !== '');
 
   const displayGrandTotal = rcmPreview?.payable ?? totals.grandTotal;
 
   const balance = roundMoney(Math.max(0, displayGrandTotal - amountPaid));
 
-  useEffect(() => {
-    if (markFullyPaid) setAmountPaid(displayGrandTotal);
-  }, [markFullyPaid, displayGrandTotal]);
+  if (markFullyPaid && amountPaid !== displayGrandTotal) setAmountPaid(displayGrandTotal);
 
   const resetForm = () => {
     // BUG-501 / P0-311: do NOT call clearFeedback here — Save & New sets the
-    // success flash then resets fields in the same tick. See useBillingSaveFeedback.
+    //     success flash then resets fields in the same tick. See useBillingSaveFeedback.
+    rearmEditorBaseline();
     setLines([]);
+    setSkipLeaveGuard(false);
     setSupplierId('');
     setWarehouseId(warehouses.data?.find((warehouse) => warehouse.isDefault)?.id ?? '');
     setCostCenterId('');
@@ -707,7 +785,7 @@ export function NewPurchasePage() {
     setPurchaseTypeTouched(false);
     setPriceMode('EXCLUSIVE');
     setIsReverseCharge(false);
-    setItcEligibility('CLAIMABLE');
+    setItcEligibility('UNREVIEWED');
     setSupplierBillNumber('');
     setInvoiceDate(todayIso());
     setPaymentTermsDays(30);
@@ -798,8 +876,8 @@ export function NewPurchasePage() {
       batch: l.batch ?? undefined,
       batchNo: l.batchNo || undefined,
       unitName: l.unitName || undefined,
-      expDate: l.expDate || null,
-      mfgDate: l.mfgDate || null,
+      expDate: toIsoDateOrRaw(l.expDate),
+      mfgDate: toIsoDateOrRaw(l.mfgDate, true),
       ...(l.trackSerial && l.serialNumbersText?.trim()
         ? { serialNumbers: parseSerialNumbersText(l.serialNumbersText) }
         : {}),
@@ -850,6 +928,28 @@ export function NewPurchasePage() {
       }
       if (shouldComplete && lines.some((l) => toNumber(l.quantity) <= 0)) {
         throw new Error(t('billing.completeDisabledZeroQty'));
+      }
+      if (shouldComplete) {
+        for (const line of lines) {
+          for (const [raw, allowPast] of [
+            [line.expDate, false],
+            [line.mfgDate, true],
+          ] as const) {
+            if (!raw.trim()) continue;
+            const parsed = parseSmartExpiryDate(raw, { allowPast });
+            if (!parsed.ok) {
+              throw new Error(
+                t('billing.smartDateLine', {
+                  name: line.productName,
+                  message: t(
+                    `billing.smartDate.${parsed.code}`,
+                    parsed.maxDays != null ? { max: parsed.maxDays } : undefined,
+                  ),
+                }),
+              );
+            }
+          }
+        }
       }
       const payload = buildPayload();
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
@@ -959,7 +1059,7 @@ export function NewPurchasePage() {
       return { invoice, mode, paymentWarning };
     },
     onSuccess: async ({ invoice, mode, paymentWarning }) => {
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
       void qc.invalidateQueries({ queryKey: ['purchases'] });
@@ -1009,7 +1109,10 @@ export function NewPurchasePage() {
         },
       });
     },
-    onError: (err) => flashError(err),
+    onError: (err) => {
+      if (classifyCompleteFailure(err) === 'validation') trackShopFloor('form_validation_failed', { feature: 'form' });
+      flashError(err);
+    },
   });
 
   const partyMutation = useMutation({
@@ -1274,12 +1377,14 @@ export function NewPurchasePage() {
     isPending: saveMutation.isPending,
     mutate: saveMutation.mutate,
   });
-  kbdRef.current = {
-    canComplete,
-    primaryMode: primarySave.mode,
-    isPending: saveMutation.isPending,
-    mutate: saveMutation.mutate,
-  };
+  useLayoutEffect(() => {
+    kbdRef.current = {
+      canComplete,
+      primaryMode: primarySave.mode,
+      isPending: saveMutation.isPending,
+      mutate: saveMutation.mutate,
+    };
+  });
   const kbdSubmittingRef = useRef(false);
   useEffect(() => {
     if (!saveMutation.isPending) kbdSubmittingRef.current = false;
@@ -1343,18 +1448,23 @@ export function NewPurchasePage() {
 
   return (
     <DocumentEditorShell
+      partyRole="supplier"
       title={isEdit ? t('billing.purchaseEditTitle') : t('billing.purchaseTitle')}
       primarySave={primarySave}
       canSave={canSave}
       canComplete={canComplete}
       primaryDisabledExtra={isCompletedEdit && !isOwner}
       primaryDisabledReason={completeDisabledReason}
+      onFocusMissing={() => {
+        document.getElementById(supplierId ? 'billing-item-input' : 'billing-party-input')?.focus();
+      }}
       isEdit={isEdit}
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? '/purchases/history' : null}
       message={message ?? outboxBanner}
       error={error || preview.error}
       errorSource={errorSource}
+      onDismissError={() => setError(null)}
       documentId={isEdit ? editId ?? undefined : undefined}
       multiGodown={(warehouses.data?.length ?? 0) > 1}
       warning={
@@ -1392,7 +1502,7 @@ export function NewPurchasePage() {
       }
     >
       <Stack spacing={2}>
-      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
+      <UnsavedChangesGuard when={!skipLeaveGuard && editorDirty} />
       <Alert severity="info">{t('billing.grnGuidance')}</Alert>
       {gstinRequiredForGst ? (
         <Alert
@@ -1477,6 +1587,13 @@ export function NewPurchasePage() {
               setPartyDialogOpen(true);
             }}
           />
+          {purchaseType !== 'NON_GST' && selectedSupplier && !String(selectedSupplier.gstin ?? '').trim() ? (
+            <Alert severity="warning">{t('billing.supplierNoGstinRcm')}</Alert>
+          ) : null}
+          <Button size="small" onClick={() => setPurchaseExtras((open) => !open)} aria-expanded={purchaseExtras}>
+            {t('billing.purchaseExtras')}
+          </Button>
+          <Collapse in={purchaseExtras || Boolean(shipFrom || shipFromAddress || billOfEntryId)}>
           <TextField
             size="small"
             label={t('billing.shipFrom')}
@@ -1491,55 +1608,83 @@ export function NewPurchasePage() {
             value={shipFromAddress}
             onChange={(e) => setShipFromAddress(e.target.value)}
           />
+          </Collapse>
 
           <Stack spacing={1.5} sx={{ flex: 1, minWidth: 280 }}>
-            <Stack direction="row" spacing={1}>
-              <CompactField
-                label={t('billing.invoicePrefix')}
-                value={prefix}
-                InputProps={{ readOnly: true }}
-                disabled
-                sx={{ width: 120 }}
-              />
-              <NumericField
-                label={t('billing.invoiceNumber')}
-                value={nextNumber}
-                onValueChange={() => undefined}
-                min={1}
-                emptyAs={1}
-                fullWidth
-                disabled
-                helperText={
-                  isEdit
-                    ? 'Purchase number is fixed when editing'
-                    : `${t('billing.nextNumberHint')}: ${prefix}-${String(nextNumber).padStart(series?.data?.padding ?? 5, '0')}`
-                }
-              />
-            </Stack>
-            <Stack direction="row" alignItems="flex-start" spacing={0.25}>
-            <CompactField
-              select
-              label={t('nav.warehouses')}
-              value={warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
-              sx={{ flex: 1, minWidth: 140 }}
-            >
-              {(warehouses.data ?? []).filter((warehouse) => warehouse.isActive !== false).map((warehouse) => (
-                <MenuItem key={warehouse.id} value={warehouse.id}>
-                  {warehouse.name}{warehouse.isDefault ? ' (default)' : ''}
-                </MenuItem>
+            <Typography variant="body2" color="text.secondary">
+              {isEdit
+                ? t('billing.invoiceNumberFixed')
+                : t('billing.nextBillCaption', {
+                    number: `${prefix}-${String(nextNumber).padStart(series?.data?.padding ?? 5, '0')}`,
+                  })}
+            </Typography>
+            {resolvedSeriesGstin(company.data) ? (
+              <Typography variant="caption" color="text.secondary">
+                {t('billing.seriesGstin', { gstin: resolvedSeriesGstin(company.data) })}
+              </Typography>
+            ) : null}
+            {(() => {
+              const activeGodowns = (warehouses.data ?? []).filter((warehouse) => warehouse.isActive !== false);
+              const defaultGodown = activeGodowns.find((warehouse) => warehouse.isDefault) ?? activeGodowns[0];
+              const revealGodown = showGodownSelect({
+                activeCount: activeGodowns.length,
+                isEdit,
+                selectedId: warehouseId,
+                defaultId: defaultGodown?.id ?? '',
+              });
+              if (!revealGodown) {
+                return <Typography variant="body2">{t('cog.onlyGodown', { name: defaultGodown?.name ?? '' })}</Typography>;
+              }
+              return (
+                <Stack direction="row" alignItems="flex-start" spacing={0.25}>
+                  <CompactField
+                    select
+                    label={t('billing.godown')}
+                    value={warehouseId}
+                    onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : '')}
+                    sx={{ flex: 1, minWidth: 140 }}
+                  >
+                    {activeGodowns.map((warehouse) => (
+                      <MenuItem key={warehouse.id} value={warehouse.id}>
+                        {warehouse.name}{warehouse.isDefault ? t('billing.defaultGodown') : ''}
+                      </MenuItem>
+                    ))}
+                  </CompactField>
+                  <FieldHelpTip slot="godown" title={t('help.godownTip')} />
+                </Stack>
+              );
+            })()}
+            {posAsk && posReason === 'conflict' ? (
+              <Alert severity="warning">
+                {t('cog.posConflict', { gstinState: posGstinCode ?? '', addressState: posAddressCode ?? '' })}
+                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                  <Button size="small" variant={posPick === 'gstin' ? 'contained' : 'outlined'} onClick={() => setPosPick('gstin')}>{t('cog.useGstinState')}</Button>
+                  <Button size="small" variant={posPick === 'address' ? 'contained' : 'outlined'} onClick={() => setPosPick('address')}>{t('cog.useAddressState')}</Button>
+                </Stack>
+              </Alert>
+            ) : null}
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              {statutoryChipIds({
+                companyGstinId,
+                costCenterId,
+                reverseCharge: isReverseCharge,
+              }).map((chip) => (
+                <Chip key={chip} size="small" clickable label={t(statutoryChipLabel(chip))} onClick={() => setShowPurchaseTax(true)} />
               ))}
-            </CompactField>
-            <FieldHelpTip slot="godown" title={t('help.godownTip')} />
             </Stack>
+            <Link component="button" type="button" variant="caption" onClick={() => setShowPurchaseTax((open) => !open)} sx={{ alignSelf: 'flex-start' }}>
+              {showPurchaseTax ? `− ${t('billing.lessTaxOptions')}` : `+ ${t('billing.moreTaxOptions')}`}
+            </Link>
+            <Collapse in={showPurchaseTax}>
+            <Stack spacing={1.5}>
             {(companyGstins.data ?? []).length > 0 ? (
               <CompactField
                 select
-                label="Company GSTIN"
+                label={t('billing.companyGstin')}
                 value={companyGstinId}
                 onChange={(e) => setCompanyGstinId(e.target.value ? Number(e.target.value) : '')}
               >
-                <MenuItem value="">Primary / default</MenuItem>
+                <MenuItem value="">{t('sweep2.primaryDefault')}</MenuItem>
                 {(companyGstins.data ?? [])
                   .filter((row) => row.isActive !== false && row.is_active !== false)
                   .map((row) => (
@@ -1549,15 +1694,27 @@ export function NewPurchasePage() {
                   ))}
               </CompactField>
             ) : null}
+            {purchaseType === 'GST' ? (
+              <CompactField
+                select
+                label={t('billing.priceMode')}
+                value={priceMode}
+                onChange={(e) => setPriceMode(e.target.value as PriceMode)}
+                disabled={isCompletedEdit && !canAmendMoney}
+              >
+                <MenuItem value="EXCLUSIVE">{t('billing.taxExclusive')}</MenuItem>
+                <MenuItem value="INCLUSIVE">{t('billing.taxInclusive')}</MenuItem>
+              </CompactField>
+            ) : null}
             <HelpHint intent="purchase-bill-blocked" slot="cost-center">
             <Stack direction="row" alignItems="center" spacing={0.25}>
             <CompactField
               select
-              label="Cost center"
+              label={t('billing.costCenter')}
               value={costCenterId}
               onChange={(e) => setCostCenterId(e.target.value ? Number(e.target.value) : '')}
             >
-              <MenuItem value="">None</MenuItem>
+              <MenuItem value="">{t('sweep2.none')}</MenuItem>
               {(costCenters.data ?? []).map((cc) => (
                 <MenuItem key={String(cc.id)} value={Number(cc.id)}>
                   {String(cc.code ?? cc.name ?? cc.id)}
@@ -1567,6 +1724,25 @@ export function NewPurchasePage() {
             <FieldHelpTip slot="cost-center" title={t('help.costCenterTip')} />
             </Stack>
             </HelpHint>
+            {purchaseType === 'GST' ? (
+              <HelpHint intent="purchase-bill-blocked" slot="rcm">
+              <Stack direction="row" alignItems="center" spacing={0.25}>
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={isReverseCharge}
+                    onChange={(e) => setIsReverseCharge(e.target.checked)}
+                    disabled={isCompletedEdit && !canAmendMoney}
+                  />
+                }
+                label={t('billing.reverseCharge')}
+              />
+              <FieldHelpTip slot="rcm" title={t('help.rcmTip')} />
+              </Stack>
+              </HelpHint>
+            ) : null}
+            </Stack>
+            </Collapse>
             <Stack direction="row" spacing={1}>
               <CompactField
                 label={t('billing.purchaseInvDate')}
@@ -1585,10 +1761,11 @@ export function NewPurchasePage() {
                 }}
               >
                 {company.data?.registrationType === 'REGULAR' ? (
-                  <MenuItem value="GST">GST</MenuItem>
+                  <MenuItem value="GST">{t('billing.gstInvoice')}</MenuItem>
                 ) : null}
-                <MenuItem value="NON_GST">Non-GST</MenuItem>
+                <MenuItem value="NON_GST">{t('billing.nonGstInvoice')}</MenuItem>
               </CompactField>
+              <Collapse in={purchaseExtras || Boolean(billOfEntryId)}>
               <HelpHint intent="purchase-bill-blocked" slot="boe">
               <Stack direction="row" alignItems="center" spacing={0.25}>
               <CompactField
@@ -1608,37 +1785,18 @@ export function NewPurchasePage() {
               <FieldHelpTip slot="boe" title={t('help.boeTip')} />
               </Stack>
               </HelpHint>
+              </Collapse>
               {purchaseType === 'GST' ? (
-                <CompactField
-                  select
-                  label="Price mode"
-                  value={priceMode}
-                  onChange={(e) => setPriceMode(e.target.value as PriceMode)}
-                  disabled={isCompletedEdit && !canAmendMoney}
-                >
-                  <MenuItem value="EXCLUSIVE">Tax exclusive</MenuItem>
-                  <MenuItem value="INCLUSIVE">Tax inclusive</MenuItem>
-                </CompactField>
+                <Chip
+                  size="small"
+                  clickable
+                  label={priceMode === 'INCLUSIVE' ? t('billing.priceIncludesGst') : t('billing.priceBeforeGst')}
+                  onClick={() => setShowPurchaseTax(true)}
+                />
               ) : null}
             </Stack>
             {purchaseType === 'GST' ? (
-              <HelpHint intent="purchase-bill-blocked" slot="rcm">
-              <Stack direction="row" alignItems="center" spacing={0.25}>
-              <FormControlLabel
-                control={
-                  <Checkbox
-                    checked={isReverseCharge}
-                    onChange={(e) => setIsReverseCharge(e.target.checked)}
-                    disabled={isCompletedEdit && !canAmendMoney}
-                  />
-                }
-                label="Reverse charge (RCM)"
-              />
-              <FieldHelpTip slot="rcm" title={t('help.rcmTip')} />
-              </Stack>
-              </HelpHint>
-            ) : null}
-            {purchaseType === 'GST' ? (
+              <>
               <HelpHint intent="purchase-bill-blocked" slot="itc">
               <Stack direction="row" alignItems="center" spacing={0.25}>
               <CompactField
@@ -1646,17 +1804,29 @@ export function NewPurchasePage() {
                 label={t('billing.itcEligibility')}
                 value={itcEligibility}
                 onChange={(e) =>
-                  setItcEligibility(e.target.value as 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED')
+                  setItcEligibility(e.target.value as 'UNREVIEWED' | 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED')
                 }
                 disabled={isCompletedEdit && !canAmendMoney}
               >
-                <MenuItem value="CLAIMABLE">Claimable</MenuItem>
-                <MenuItem value="INELIGIBLE">Ineligible</MenuItem>
-                <MenuItem value="REVERSED">Reversed</MenuItem>
+                <MenuItem value="UNREVIEWED">{t('billing.itcUnreviewed')}</MenuItem>
+                <MenuItem value="CLAIMABLE">{t('billing.itcClaimable')}</MenuItem>
+                <MenuItem value="INELIGIBLE">{t('billing.itcIneligible')}</MenuItem>
+                <MenuItem value="REVERSED">{t('billing.itcReversed')}</MenuItem>
               </CompactField>
+              <Typography variant="caption" color="text.secondary">
+                {itcEligibility === 'INELIGIBLE'
+                  ? t('billing.itcIneligible')
+                  : itcEligibility === 'REVERSED'
+                    ? t('billing.itcReversed')
+                    : itcEligibility === 'UNREVIEWED'
+                      ? t('billing.itcUnreviewed')
+                      : t('billing.itcClaimable')}
+              </Typography>
               <FieldHelpTip slot="itc" title={t('help.itcTip')} />
               </Stack>
               </HelpHint>
+              <Typography variant="body2" color="text.secondary">{t('billing.rcmStaysOnBill')}</Typography>
+              </>
             ) : null}
             <CompactField
               label={t('billing.originalInvNo')}
@@ -1677,7 +1847,7 @@ export function NewPurchasePage() {
                   size="small"
                   sx={{ position: 'absolute', top: 4, right: 4 }}
                   onClick={() => setShowPaymentTerms(false)}
-                  aria-label="dismiss"
+                  aria-label={t('common.close')}
                 >
                   ×
                 </IconButton>
@@ -1703,7 +1873,7 @@ export function NewPurchasePage() {
                     type="date"
                     value={dueDate}
                     onChange={(e) => {
-                      dueDateTouched.current = true;
+                      setDueDateTouched(true);
                       setDueDate(e.target.value);
                     }}
                     InputLabelProps={{ shrink: true }}
@@ -1724,7 +1894,7 @@ export function NewPurchasePage() {
         </Stack>
       </Paper>
 
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <DraftLineTable
           lines={
             preview.totals?.items && preview.totals.items.length === lines.length
@@ -1811,17 +1981,37 @@ export function NewPurchasePage() {
               </TableCell>
               <TableCell>
                 <CompactField
-                  type="date"
+                  placeholder="YYYY-MM-DD / MMYY"
                   value={line.expDate}
+                  error={dateFieldHint(line.expDate, false).error}
                   onChange={(e) => updateLine(line.key, { expDate: e.target.value })}
+                  onBlur={(e) => {
+                    const val = e.target.value.trim();
+                    if (!val) return;
+                    const parsed = parseSmartExpiryDate(val);
+                    if (parsed.ok) {
+                      updateLine(line.key, { expDate: parsed.dateIso });
+                    }
+                  }}
+                  helperText={dateFieldHint(line.expDate, false).helper}
                   InputLabelProps={{ shrink: true }}
                 />
               </TableCell>
               <TableCell>
                 <CompactField
-                  type="date"
+                  placeholder="YYYY-MM-DD / MMYY"
                   value={line.mfgDate}
+                  error={dateFieldHint(line.mfgDate, true).error}
                   onChange={(e) => updateLine(line.key, { mfgDate: e.target.value })}
+                  onBlur={(e) => {
+                    const val = e.target.value.trim();
+                    if (!val) return;
+                    const parsed = parseSmartExpiryDate(val, { allowPast: true });
+                    if (parsed.ok) {
+                      updateLine(line.key, { mfgDate: parsed.dateIso });
+                    }
+                  }}
+                  helperText={dateFieldHint(line.mfgDate, true).helper}
                   InputLabelProps={{ shrink: true }}
                 />
               </TableCell>
@@ -1889,6 +2079,7 @@ export function NewPurchasePage() {
             <Stack spacing={1} sx={{ flex: 1 }}>
               <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
               <Autocomplete<Product>
+              id="billing-item-input"
               sx={{ flex: 1 }}
               options={(
                 (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
@@ -2026,9 +2217,28 @@ export function NewPurchasePage() {
                 <Paper variant="outlined" sx={{ p: 1.5 }}>
                   <Typography variant="subtitle2">TDS withheld</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
-                    <TextField size="small" label="Section" value={tdsSection} onChange={(e) => setTdsSection(e.target.value)} placeholder="194C" />
-                    <TextField size="small" type="number" label="Rate %" inputProps={{ min: 0, max: 100, step: 0.01 }} value={tdsRate || ''} onChange={(e) => setTdsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
-                    <TextField size="small" type="number" label="TDS amount" inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => { setTdsAmountManual(true); setTdsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
+                    <TextField
+                      select
+                      size="small"
+                      label={t('billing.tdsSection')}
+                      value={TDS_SECTION_OPTIONS.some((opt) => opt.code === tdsSection) ? tdsSection : ''}
+                      onChange={(e) => {
+                        const code = e.target.value;
+                        setTdsSection(code);
+                        const rate = statutoryTdsRate(code, selectedSupplier?.gstin);
+                        if (rate != null) {
+                          setTdsRate(rate);
+                          setTdsAmountManual(false);
+                        }
+                      }}
+                    >
+                      <MenuItem value="">{t('common.none')}</MenuItem>
+                      {TDS_SECTION_OPTIONS.map((opt) => (
+                        <MenuItem key={opt.code} value={opt.code}>{t(opt.labelKey)}</MenuItem>
+                      ))}
+                    </TextField>
+                    <TextField size="small" type="number" label={t('billing.tdsRate')} inputProps={{ min: 0, max: 100, step: 0.01 }} value={tdsRate || ''} onChange={(e) => setTdsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                    <TextField size="small" type="number" label={t('billing.tdsAmount')} inputProps={{ min: 0 }} value={tdsAmount || ''} onChange={(e) => { setTdsAmountManual(true); setTdsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
                   </Stack>
                 </Paper>
               )}
@@ -2061,7 +2271,7 @@ export function NewPurchasePage() {
                 <Typography variant="body2" color="text.secondary">
                   {t('billing.noBankConfigured')}{' '}
                   <Link component={RouterLink} to="/settings/company">
-                    Company
+                    {t('sweep2.company')}
                   </Link>
                 </Typography>
               )}
@@ -2146,6 +2356,7 @@ export function NewPurchasePage() {
                 max={displayGrandTotal}
                 decimals={2}
                 placeholder={t('billing.enterPaymentAmount')}
+                inputProps={{ 'aria-label': t('billing.amountPaid') }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                 }}
@@ -2155,13 +2366,14 @@ export function NewPurchasePage() {
                 value={paymentMode}
                 onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
                 sx={{ maxWidth: 120 }}
+                SelectProps={{ SelectDisplayProps: { 'aria-label': t('billing.paymentMode') } as HTMLAttributes<HTMLDivElement> }}
               >
-                <MenuItem value="CASH">Cash</MenuItem>
+                <MenuItem value="CASH">{t('sweep2.cash')}</MenuItem>
                 <MenuItem value="UPI">UPI</MenuItem>
-                <MenuItem value="BANK">Bank</MenuItem>
-                <MenuItem value="CARD">Card</MenuItem>
-                <MenuItem value="CREDIT">Credit</MenuItem>
-                <MenuItem value="CHEQUE">Cheque</MenuItem>
+                <MenuItem value="BANK">{t('sweep2.bank')}</MenuItem>
+                <MenuItem value="CARD">{t('sweep2.card')}</MenuItem>
+                <MenuItem value="CREDIT">{t('sweep2.credit')}</MenuItem>
+                <MenuItem value="CHEQUE">{t('sweep2.cheque')}</MenuItem>
               </CompactField>
             </Stack>
             {paymentMode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
@@ -2279,7 +2491,7 @@ export function NewPurchasePage() {
               onChange={(e) => setPartyForm((f) => ({ ...f, phone: e.target.value }))}
             />
             <TextField
-              label="GSTIN"
+              label={t('billing.gstin')}
               value={partyForm.gstin}
               onChange={(e) => setPartyForm((f) => ({ ...f, gstin: e.target.value }))}
             />
@@ -2323,13 +2535,13 @@ export function NewPurchasePage() {
               onChange={(e) => setItemForm((f) => ({ ...f, name: e.target.value }))}
             />
             <TextField
-              label="SKU"
+              label={t('common.sku')}
               value={itemForm.sku}
               onChange={(e) => setItemForm((f) => ({ ...f, sku: e.target.value }))}
-              helperText="Must be unique if set"
+              helperText={t('sweep.uniqueIfSet')}
             />
             <TextField
-              label="HSN"
+              label={t('billing.hsn')}
               value={itemForm.hsnCode}
               onChange={(e) => setItemForm((f) => ({ ...f, hsnCode: e.target.value }))}
               error={Boolean(itemForm.hsnCode) && !isValidHsnSac(itemForm.hsnCode)}
@@ -2341,21 +2553,21 @@ export function NewPurchasePage() {
             />
             <Stack direction="row" spacing={1}>
               <TextField
-                label="Purchase price"
+                label={t('products.purchasePrice')}
                 type="number"
                 fullWidth
                 value={itemForm.purchasePrice}
                 onChange={(e) => setItemForm((f) => ({ ...f, purchasePrice: e.target.value }))}
               />
               <TextField
-                label="MRP"
+                label={t('items.mrp')}
                 type="number"
                 fullWidth
                 value={itemForm.mrp}
                 onChange={(e) => setItemForm((f) => ({ ...f, mrp: e.target.value }))}
               />
               <TextField
-                label="GST %"
+                label={t('products.gstPercent')}
                 type="number"
                 fullWidth
                 value={itemForm.gstRate}

@@ -10,12 +10,14 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Collapse from '@mui/material/Collapse';
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
 import { getShopFloorSummary, funnelCount, funnelReasons } from '@/lib/telemetry';
-import { canCreateSales, canViewAiInsights, isOwner } from '@/utils/permissions';
+import { canCreateSales, canViewAiInsights, canViewFinancialReports, isOwner } from '@/utils/permissions';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -29,7 +31,7 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { canViewPaymentSurfaces } from '@/utils/permissions';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
-import { useState } from 'react';
+import { companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
 
 function agingBucket(aging: NonNullable<DashboardKpis['receivablesAging']>, keys: string[]): number {
   for (const key of keys) {
@@ -45,6 +47,7 @@ export function DashboardPage() {
   const [inviteCtaDismissed, setInviteCtaDismissed] = useState(
     () => localStorage.getItem('bb_invite_cta_dismissed') === '1',
   );
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const showInsights = canViewAiInsights(user);
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
@@ -160,6 +163,17 @@ export function DashboardPage() {
         title={t('nav.dashboard')}
         actions={
           <Stack direction="row" spacing={1}>
+            {/* Both routes are behind canViewFinancialReports: other roles would land on Forbidden. */}
+            {canViewFinancialReports(user) ? (
+              <>
+                <Button component={RouterLink} to="/morning" size="small" variant="text">
+                  {t('cog.morningTitle')}
+                </Button>
+                <Button component={RouterLink} to="/reports/close-month" size="small" variant="text">
+                  {t('cog.closeMonth')}
+                </Button>
+              </>
+            ) : null}
             {showInsights ? (
               <Button component={RouterLink} to="/insights" size="small" variant="outlined">
                 {t('nav.insights')}
@@ -180,15 +194,6 @@ export function DashboardPage() {
         invoiceCount={invoiceCount}
       />
 
-      {shopFloor.data ? (
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-            {t('dashboard.shopFloor')}
-          </Typography>
-          <ShopFloorFunnel summary={shopFloor.data} />
-        </Paper>
-      ) : null}
-
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
           <Typography variant="h6">{t('dashboard.needsAttention')}</Typography>
@@ -204,7 +209,8 @@ export function DashboardPage() {
       {!inviteCtaDismissed &&
       user?.role === 'OWNER' &&
       productCount > 0 &&
-      invoiceCount > 0 ? (
+      invoiceCount > 0 &&
+      !companyStepIncompleteNeedsGst(company.data) ? (
         <Alert
           severity="success"
           onClose={() => {
@@ -272,7 +278,10 @@ export function DashboardPage() {
         <KpiStat label={t('dashboard.todaySales')} value={data.salesToday?.total} money />
         <KpiStat label={t('dashboard.monthSales')} value={data.salesThisMonth?.total} money />
         <KpiStat label={t('dashboard.purchasesThisMonth')} value={data.purchasesThisMonth?.total} money />
-        <KpiStat label={t('dashboard.lowStock')} value={data.lowStockCount ?? 0} />
+        <KpiStat
+          label={t('dashboard.lowStock')}
+          value={lowStock.isSuccess ? (lowStock.data?.length ?? 0) : (data.lowStockCount ?? 0)}
+        />
         <KpiStat label={t('dashboard.receivables')} value={data.receivables} money />
         <KpiStat label={t('dashboard.payables')} value={data.payables} money />
         {data.cashPosition != null || data.cash_position != null ? (
@@ -320,6 +329,20 @@ export function DashboardPage() {
             ))}
           </Box>
         </Stack>
+      ) : null}
+
+      {shopFloor.data ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Button size="small" onClick={() => setDiagnosticsOpen((open) => !open)} aria-expanded={diagnosticsOpen}>
+            {t('dashboard.counterDiagnostics')}
+          </Button>
+          <Collapse in={diagnosticsOpen}>
+            <Typography variant="subtitle2" sx={{ mt: 1 }}>
+              {t('dashboard.shopFloor')}
+            </Typography>
+            <ShopFloorFunnel summary={shopFloor.data} />
+          </Collapse>
+        </Paper>
       ) : null}
 
       {data.recentInvoices && data.recentInvoices.length > 0 ? (
@@ -373,9 +396,7 @@ export function DashboardPage() {
       ) : null}
 
       <Stack spacing={1.5}>
-        <PageHeader
-          title={t('dashboard.alerts')}
-        />
+        <Typography variant="h6">{t('dashboard.alerts')}</Typography>
         {lowStock.isLoading ? (
           <LoadingState />
         ) : lowStock.isError ? (
@@ -386,8 +407,11 @@ export function DashboardPage() {
           <Stack spacing={1}>
             {lowStock.data!.slice(0, 5).map((item) => (
               <Typography key={item.product}>
-                {item.productName} — available {toNumber(item.available)} (reorder{' '}
-                {toNumber(item.reorderLevel)})
+                {t('dashboard.lowStockLine', {
+                  name: item.productName,
+                  available: toNumber(item.available),
+                  reorder: toNumber(item.reorderLevel),
+                })}
               </Typography>
             ))}
             <Button component={RouterLink} to="/inventory/low-stock" size="small">

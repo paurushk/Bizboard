@@ -34,10 +34,14 @@ test('a policy desk user issues a policy in the browser', async ({ page }) => {
   await page.goto('/insurance');
   await page.getByRole('textbox', { name: 'Product', exact: true }).fill(`Motor A ${id}`);
   await page.getByLabel('Insurer').fill('Insurer A');
+  await page.getByLabel('Premium').fill('1200');
+  await page.getByLabel('Sum insured').fill('100000');
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText(`Motor A ${id}`)).toBeVisible({ timeout: 15_000 });
   await page.getByRole('textbox', { name: 'Product', exact: true }).fill(`Motor B ${id}`);
   await page.getByLabel('Insurer').fill('Insurer B');
+  await page.getByLabel('Premium').fill('900');
+  await page.getByLabel('Sum insured').fill('80000');
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByText(`Motor B ${id}`)).toBeVisible({ timeout: 15_000 });
   await page.getByRole('checkbox', { name: `Motor A ${id}` }).check();

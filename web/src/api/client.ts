@@ -1,5 +1,6 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { clearTokens, setAccessToken } from '@/auth/session';
+import { t } from '@/i18n';
 
 // BB-000518: API shapes are defined by backend OpenAPI — see docs/openapi-snapshot.json (CI-generated).
 
@@ -13,6 +14,15 @@ if (import.meta.env.PROD && import.meta.env.VITE_PILOT_ADVANCED === 'true') {
 
 const baseURL =
   import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1';
+
+/** BUG-SEC-015: enrol token lives in this module, not sessionStorage. */
+let memoryEnrolToken: string | null = null;
+
+export function consumeEnrolToken(): string | null {
+  const token = memoryEnrolToken;
+  memoryEnrolToken = null;
+  return token;
+}
 
 /** BB-000055: persisted by useCompanySwitcher for X-Company-Id header. */
 export const ACTIVE_COMPANY_STORAGE_KEY = 'bizboard:active-company-id';
@@ -168,15 +178,35 @@ function isCsrfFailure(error: AxiosError): boolean {
 }
 
 /** BB-000229: never attempt refresh-retry on credential / token endpoints. */
-function isAuthCredentialUrl(url?: string): boolean {
+export function isAuthCredentialUrl(url?: string): boolean {
   if (!url) return false;
   const path = url.replace(/^https?:\/\/[^/]+/i, '');
   return (
     /\/auth\/login\/?(\?|$)/.test(path) ||
     /\/auth\/register\/?(\?|$)/.test(path) ||
     /\/auth\/refresh\/?(\?|$)/.test(path) ||
-    /\/auth\/otp\//.test(path)
+    /\/auth\/otp\//.test(path) ||
+    // F-SEC-02: a wrong authenticator code is a credential failure, not an expired session.
+    /\/auth\/mfa\/verify\/?(\?|$)/.test(path) ||
+    /\/auth\/invite\/accept\/?(\?|$)/.test(path)
   );
+}
+
+/** True when a refresh response is an enrolment challenge, not a new session. */
+export function refreshBodyRequiresEnrolment(data: unknown): boolean {
+  const root = data as { data?: Record<string, unknown> } | Record<string, unknown> | null;
+  const nested = root && typeof root === 'object' && 'data' in root ? root.data : undefined;
+  const body = (nested && typeof nested === 'object' ? nested : root) as Record<string, unknown> | null;
+  if (!body || typeof body !== 'object') return false;
+  return Boolean(body.mfaEnrollmentRequired || body.mfa_enrollment_required);
+}
+
+export function enrolTokenFromRefreshBody(data: unknown): string {
+  const root = data as { data?: Record<string, unknown> } | Record<string, unknown> | null;
+  const nested = root && typeof root === 'object' && 'data' in root ? root.data : undefined;
+  const body = (nested && typeof nested === 'object' ? nested : root) as Record<string, unknown> | null;
+  const token = body?.enrolToken ?? body?.enrol_token;
+  return typeof token === 'string' ? token : '';
 }
 
 let lastRefreshSuccessTime = 0;
@@ -292,6 +322,15 @@ async function postRefresh(retriedCsrf = false): Promise<string | null> {
       },
     );
     if (status >= 200 && status < 300) {
+      if (refreshBodyRequiresEnrolment(data)) {
+        const token = enrolTokenFromRefreshBody(data);
+        if (token) {
+          // BUG-SEC-015: keep the enrol token in memory. sessionStorage is readable by any script on the page.
+          memoryEnrolToken = token;
+        }
+        expireSessionOnInvalidRefresh({ notifyOnFailure: true });
+        return null;
+      }
       lastRefreshSuccessTime = Date.now();
       const access = data?.data?.access ?? data?.access;
       const token = typeof access === 'string' && access ? access : 'cookie';
@@ -532,6 +571,30 @@ export function getErrorMessage(error: unknown): string {
     for (const candidate of [data?.detail, data?.message, data?.error]) {
       if (typeof candidate === 'string' && candidate.trim()) return friendlyAuthMessage(candidate);
     }
+    // UX-N01: no server-provided message. Never show axios' raw "Request failed with status code 500".
+    const status = error.response?.status;
+    // A request the page itself cancelled (navigation, a newer search) is not a lost connection.
+    if (!error.response && error.code === 'ERR_CANCELED') return '';
+    if (!error.response) return error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' ? t('httpError.timeout') : t('httpError.network');
+    if ((status === 400 || status === 422) && data && typeof data === 'object') {
+      // DRF field errors ({ amount: ["..."] }): say which field and why, not just "not accepted".
+      for (const [field, value] of Object.entries(data as Record<string, unknown>)) {
+        const first = Array.isArray(value) ? value.find((v) => typeof v === 'string') : typeof value === 'string' ? value : undefined;
+        if (typeof first === 'string' && first.trim() && !['detail', 'message', 'error', 'details', 'success', 'code'].includes(field)) {
+          return `${field}: ${first}`;
+        }
+      }
+    }
+    if (status === 401) return t('httpError.unauthorized');
+    if (status === 402) return t('httpError.paymentRequired');
+    if (status === 403) return t('httpError.forbidden');
+    if (status === 404) return t('httpError.notFound');
+    if (status === 409) return t('httpError.conflict');
+    if (status === 413) return t('httpError.tooLarge');
+    if (status === 429) return t('httpError.rateLimited');
+    if (status !== undefined && status >= 500) return t('httpError.server');
+    // Any other 4xx (400, 422, 405, 410 ...): a plain "not accepted", never axios' raw status text.
+    if (status !== undefined && status >= 400) return t('httpError.badRequest');
     if (error.message) return friendlyAuthMessage(error.message);
     return 'Request failed';
   }

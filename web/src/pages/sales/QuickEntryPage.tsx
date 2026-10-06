@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -113,9 +113,11 @@ export function QuickEntryPage() {
     return out;
   }, [recentInvoices.data]);
 
-  useEffect(() => {
+  const [seenCompanyId, setSeenCompanyId] = useState<number | null>(null);
+  if (seenCompanyId !== companyId) {
+    setSeenCompanyId(companyId);
     setRecentSkus(loadRecentSkus(companyId));
-  }, [companyId]);
+  }
 
   const addLine = (product: Product | RecentSku) => {
     saveRecentSku(companyId, product as Product);

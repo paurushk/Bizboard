@@ -38,6 +38,21 @@ test.describe('Accessibility smoke (axe)', () => {
     { name: 'POS', path: '/pos' },
     { name: 'a report', path: '/reports/profit-loss' },
     { name: 'company settings', path: '/settings/company' },
+    // UX programme A1/A2: these routes failed axe (unlabeled inputs, checkboxes, contrast).
+    { name: 'new purchase', path: '/purchases/new' },
+    { name: 'sales history', path: '/sales/history' },
+    { name: 'current stock', path: '/inventory/stock' },
+    { name: 'item settings', path: '/settings/items' },
+    { name: 'user settings', path: '/settings/users' },
+    { name: 'billing', path: '/settings/billing' },
+    { name: 'stock counts', path: '/inventory/stock-counts' },
+    { name: 'receipts', path: '/sales/receipts' },
+    { name: 'supplier payments', path: '/purchases/payments' },
+    { name: 'sales returns', path: '/sales/returns' },
+    { name: 'purchase returns', path: '/purchases/returns' },
+    { name: 'customer ledger', path: '/reports/customer-ledger' },
+    { name: 'supplier ledger', path: '/reports/supplier-ledger' },
+    { name: 'pilot limits', path: '/help/pilot-limits' },
   ]) {
     test(`${name} has no serious/critical axe violations`, async ({ page }) => {
       await loginAsOwner(page);

@@ -134,6 +134,7 @@ export function PartySelectPanel<T extends PartyOption>({
       ) : (
         <Stack spacing={1} sx={{ mt: 1 }}>
           <Autocomplete<T>
+            id="billing-party-input"
             options={options}
             getOptionLabel={(o) => (o.phone ? `${o.name} (${o.phone})` : o.name)}
             filterOptions={(opts) => opts}

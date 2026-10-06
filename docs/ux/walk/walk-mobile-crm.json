@@ -1,0 +1,320 @@
+[
+ {
+  "path": "/manufacturing/boms",
+  "phase": "G6",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Bills of Material"
+  ],
+  "buttons": [
+   "Add"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Manufacturing is BOM and work orders, not a shop-floor MES.",
+   "Manufacturing is BOM and work orders, not a shop-floor MES."
+  ],
+  "textHead": "Manufacturing is BOM and work orders, not a shop-floor MES. Bills of Material Add Nothing here yet Create a BOM to define finished goods and components.",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/manufacturing/work-orders",
+  "phase": "G6",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Work Orders"
+  ],
+  "buttons": [
+   "Add"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Manufacturing is BOM and work orders, not a shop-floor MES.",
+   "Manufacturing is BOM and work orders, not a shop-floor MES.",
+   "Serial-tracked components need serials before Release. Enter them in the next step — Release fails without them.",
+   "Serial-tracked components need serials before Release. Enter them in the next step — Release fails without them."
+  ],
+  "textHead": "Manufacturing is BOM and work orders, not a shop-floor MES. Serial-tracked components need serials before Release. Enter them in the next step — Release fails without them. Work Orders Add Nothing here yet Create work orders from active BOMs.",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/payroll/employees",
+  "phase": "G6",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Employees"
+  ],
+  "buttons": [
+   "Add",
+   "Edit",
+   "Deactivate",
+   "Edit",
+   "Deactivate",
+   "Edit",
+   "Deactivate",
+   "Edit",
+   "Deactivate"
+  ],
+  "tableHeaders": [
+   "Name",
+   "Employee code",
+   "Monthly salary",
+   "Status",
+   "Actions"
+  ],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Payslips are not Form 24Q / statutory filing.",
+   "Payslips are not Form 24Q / statutory filing."
+  ],
+  "textHead": "Payslips are not Form 24Q / statutory filing. Employees Add Name Employee code Monthly salary Status Actions UX Employee 1 UXH-E1 ₹25,000.00 Active EditDeactivate UX Employee 2 UXH-E2 ₹25,000.00 Active EditDeactivate UX Employee 3 UXH-E3 ₹25,000.00 Active EditDeactivate UX Employee 4 UXH-E4 ₹25,000.00 Active EditDeactivate",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/payroll/pay-runs",
+  "phase": "G6",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Pay Runs"
+  ],
+  "buttons": [
+   "Add"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Payslips are not Form 24Q / statutory filing.",
+   "Payslips are not Form 24Q / statutory filing."
+  ],
+  "textHead": "Payslips are not Form 24Q / statutory filing. Pay Runs Add Nothing here yet Create a pay run for a calendar month.",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/leads",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Leads"
+  ],
+  "buttons": [
+   "Web form link",
+   "WhatsApp webhook link",
+   "Replace WhatsApp webhook link",
+   "Import CSV",
+   "Add",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead",
+   "Edit",
+   "Activities",
+   "Convert lead"
+  ],
+  "tableHeaders": [
+   "Name",
+   "Phone",
+   "Email",
+   "Customers",
+   "Source",
+   "Campaigns",
+   "Assignee",
+   "Status",
+   "Actions"
+  ],
+  "tabs": [],
+  "fieldsVisible": 22,
+  "alerts": [
+   "This is a lead notebook, not a CRM pipeline.",
+   "This is a lead notebook, not a CRM pipeline."
+  ],
+  "textHead": "This is a lead notebook, not a CRM pipeline. Leads Web form link WhatsApp webhook link Replace WhatsApp webhook link Import CSV CSV columns: name, phone, email, message, campaign, referral_code. Add Source ​ Source Campaigns ​ Campaigns Needs review My leads Name Phone Email Customers Source Campaigns Assignee Status Actions UXH Lead 8 9000000408 — — — — ​ ​ New EditActivitiesConvert lead UXH Lead 7 9000000407 — — — — ​ ​ New EditActivitiesConvert lead UXH Lead 6 9000000406 — — — — ​ ​ New EditActivitiesConvert lead UXH Lead 5 9000000405 — — — — ​ ​ New EditActivitiesConvert lead UXH Lead 4 9000000404 — — — — ​ ​ New EditActivitiesConvert lead UXH Lead 3 9000000403 — — — — ​ ​ New EditActivi",
+  "cta": "Import CSV",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/onboarding",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "CRM checklist"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "CRM checklist Work these before you ask anyone to use the pipeline every week. ○ Confirm the company GSTIN and state ✓ Add the person who will work the pipeline ✓ Capture the first lead ○ Move that lead once so stage activity is recorded"
+ },
+ {
+  "path": "/crm/opportunities",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Opportunities"
+  ],
+  "buttons": [
+   "Add"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "This is a lead notebook, not a CRM pipeline.",
+   "This is a lead notebook, not a CRM pipeline."
+  ],
+  "textHead": "This is a lead notebook, not a CRM pipeline. Opportunities Add Nothing here yet Manage pipeline opportunities.",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/campaigns",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Campaigns"
+  ],
+  "buttons": [
+   "Save"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 12,
+  "alerts": [],
+  "textHead": "Campaigns This screen records the campaign. It does not send messages. Create Name Name Type DIGITAL Type Status DRAFT Status Parent campaign ​ Parent campaign Budget Budget Target revenue Target revenue Start date Start date End date End date Expected outcome Expected outcome Save"
+ },
+ {
+  "path": "/crm/pipeline",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Pipeline"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [],
+  "textHead": "Pipeline Forecast is amount times probability, by month. It is not a committed booking. Drag an open deal onto Qualified, Negotiation, Won, or Lost. Won and Lost stay closed. Forecast Unscheduled 0.00 Date Date Won this month: 0.00 Invoices for those customers: 0.00 OPEN QUALIFIED NEGOTIATION WON LOST"
+ },
+ {
+  "path": "/crm/referrals",
+  "phase": "G4",
+  "project": "mobile-crm",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Referrals"
+  ],
+  "buttons": [
+   "Issue code"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 4,
+  "alerts": [],
+  "textHead": "Referrals Customer Customer Reward type FLAT Reward type Reward value Reward value Issue code Leaderboard Rewards Marking a reward paid drafts a credit note. Completing the note adjusts the customer balance. It does not send cash.",
+  "cta": "Issue code",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ }
+]

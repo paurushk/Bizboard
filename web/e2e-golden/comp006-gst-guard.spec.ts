@@ -174,10 +174,11 @@ test('COMP-006: a missing HSN on a B2B invoice line blocks Complete until an OWN
   // available here — select GST explicitly rather than relying on the page's
   // own default, since GST Guard only runs when tax is enabled (invoice_type
   // != NON_GST — see SalesService.complete()'s tax_enabled gate).
+  await page.getByRole('button', { name: 'Change bill type' }).click();
   await page.getByLabel('Invoice type').click();
-  await page.getByRole('option', { name: /^GST Invoice/ }).click();
+  await page.getByRole('option', { name: /^GST invoice/i }).click();
   await page.getByRole('button', { name: 'Save draft' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toBeVisible();

@@ -12,15 +12,38 @@ from .models import Campaign, Opportunity
 
 
 def _won_revenue(opportunity: Opportunity) -> tuple[Decimal, str]:
-    converted = Quotation.objects.filter(
-        company_id=opportunity.company_id,
-        opportunity=opportunity,
-        status=Quotation.Status.CONVERTED,
+    """Completed-invoice taxable value, net of completed credit notes.
+
+    Quotation totals and opportunity.amount are not revenue. grand_total
+    includes GST, so it is not the basis either.
+    """
+    from sales.models import SalesCreditNote, SalesInvoice
+
+    invoice_ids = list(
+        Quotation.objects.filter(
+            company_id=opportunity.company_id,
+            opportunity=opportunity,
+            status=Quotation.Status.CONVERTED,
+            converted_invoice_id__isnull=False,
+        ).values_list("converted_invoice_id", flat=True)
     )
-    total = converted.aggregate(total=Sum("grand_total"))["total"]
-    if total is not None:
-        return Decimal(total), "quotation_total"
-    return Decimal(opportunity.amount or 0), "opportunity_amount"
+    invoices = SalesInvoice.objects.filter(
+        company_id=opportunity.company_id,
+        pk__in=invoice_ids or [-1],
+        status=SalesInvoice.Status.COMPLETED,
+    )
+    if not invoices.exists():
+        return Decimal("0"), "no_completed_invoice"
+    taxable = invoices.aggregate(total=Sum("taxable_total"))["total"] or Decimal("0")
+    credits = (
+        SalesCreditNote.objects.filter(
+            company_id=opportunity.company_id,
+            sales_invoice_id__in=invoices.values("id"),
+            status=SalesCreditNote.Status.COMPLETED,
+        ).aggregate(total=Sum("taxable_total"))["total"]
+        or Decimal("0")
+    )
+    return Decimal(taxable) - Decimal(credits), "completed_invoice_taxable_net"
 
 
 def _direct_stats(company, campaign: Campaign) -> dict:

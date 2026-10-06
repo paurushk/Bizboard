@@ -11,7 +11,7 @@ Monorepo, three deployables plus docs:
 
 | Path | What | Stack |
 |---|---|---|
-| `backend/` | REST API, business logic, async jobs | Python 3.12, Django 5, DRF, SimpleJWT, Celery, drf-spectacular |
+| `backend/` | REST API, business logic, async jobs | Python 3.13, Django 5, DRF, SimpleJWT, Celery, drf-spectacular |
 | `web/` | SPA | React 18, MUI 6, Vite 6, TanStack Query, react-hook-form + zod |
 | `mobile/` | Android WebView shell over the `web/` build | Capacitor 6 |
 | `docs/` | This tree | Markdown |
@@ -22,12 +22,19 @@ local/dev).
 
 ## Backend layout
 
-`backend/` is ~19 Django apps under a service-layer pattern:
+`backend/` is 27 Django apps under a service-layer pattern:
 
 - **Domain apps** — `sales`, `purchases`, `inventory`, `payments`, `masters`,
-  `ledgers`, `reporting`, `accounting`, `banking`, `billing` (SaaS entitlements),
-  `crm`, `manufacturing`, `payroll`, `insights`, `imports`, `integrations`,
-  `search`, `accounts` (tenant/company/user).
+  `ledgers`, `reporting`, `accounting`, `billing` (SaaS entitlements),
+  `insights`, `imports`, `integrations`, `search`, `accounts` (tenant/company/user).
+- **Dark modules** — `manufacturing`, `payroll`, `crm`. These three are the only
+  apps named by `DARK_MODULE_KEYS`.
+- **Installed, not dark modules** — `complaints`, `support`, `contracts`,
+  `workshop`, `projects`, `insurance`, `banking`, `ops`, `planwave`. They ship in
+  `INSTALLED_APPS` and are flag-gated, but they are not dark modules.
+  `planwave` holds the cross-cutting controls added by the register fixes:
+  approvals, the books quarantine, sealed secrets (`planwave.crypto`), rate
+  limits, POS cart holds, party snapshots, and the 16(2)/16(4) ITC checks.
 - **`core`** — cross-cutting: auth, permissions, RLS, idempotency, feature
   flags, notifications, LLM, PDF/file assets, help system, domain-event bus,
   middleware, pagination, renderers.

@@ -1,0 +1,35 @@
+id: QOS-0099
+category: RELIABILITY_TRUST
+title: ESLint is red across the web app (fixed 2026-10-01)
+persona:
+- P1
+journey: Every web change
+problem: About 100 errors, mostly react-hooks v7 rules (set-state-in-effect, refs), mean lint cannot gate
+  a change and real problems are hidden in the noise.
+evidence:
+  strength: measured
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: 'ledger row UX-N21. Measured 2026-10-01 with eslint over src: 103 errors, 66 set-state-in-effect
+    and 23 refs, concentrated in the order and note editors. Fixed the same day: npm run lint now exits 0
+    (0 errors, 24 warnings) and CI runs it. The rewrites lean on the existing component tests (658 passing);
+    no new fail-before tests were added for each one.'
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 4
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: A tooling problem. It becomes urgent only if it hides a real defect.
+effort: L
+recommendation: Rewrite the effect-driven state in the editors with derived state, one editor per change,
+  each with its existing tests green first (GD-31). Do not disable the rules.
+test_required: npm run lint exits 0, and tsc -b and the editor tests stay green.
+guard_ref:
+  test: web/package.json::lint
+lifecycle: fixed
+owner: web
+opened: '2026-10-01'
+closed: '2026-10-01'

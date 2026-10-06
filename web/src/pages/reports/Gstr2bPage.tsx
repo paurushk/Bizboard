@@ -282,7 +282,7 @@ export function Gstr2bPage() {
       ) : null}
       {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={64}>
             {({ rows: virtualRows, totalSize, measureElement }) => (
               <Table size="small">
@@ -417,7 +417,7 @@ export function Gstr2bPage() {
           {t('ims.scorecardEmpty')}
         </Typography>
       ) : (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

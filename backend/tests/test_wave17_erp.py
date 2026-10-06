@@ -86,7 +86,7 @@ def test_payrun_complete(tenant_a):
     assert run_resp.status_code == 201, run_resp.data
     run_id = _body(run_resp)["id"]
 
-    complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json")
     assert complete.status_code == 200, complete.data
     body = _body(complete)
     assert body["status"] == "COMPLETED"
@@ -113,7 +113,7 @@ def test_payrun_complete_posts_journal_when_accounting_enabled(tenant_a):
         format="json",
     )
     run_id = _body(run_resp)["id"]
-    complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json")
     assert complete.status_code == 200, complete.data
     assert JournalEntry.objects.filter(
         company=tenant_a.company, source_type="PAY_RUN", source_id=run_id,
@@ -137,9 +137,13 @@ def test_crm_lead_opportunity_crud(tenant_a):
     assert patch.status_code == 200, patch.data
     assert Lead.objects.get(pk=lead_id).status == Lead.Status.QUALIFIED
 
+    from tests.conftest import make_customer
+
+    # a deal needs a customer before it can be won (BUG-CRM-003)
+    buyer = make_customer(tenant_a.company, name="Q2 Buyer")
     opp_resp = tenant_a.client.post(
         "/api/v1/crm/opportunities/",
-        {"lead": lead_id, "title": "Q2 Deal", "amount": "150000", "stage": "OPEN"},
+        {"lead": lead_id, "title": "Q2 Deal", "amount": "150000", "stage": "OPEN", "customer": buyer.id},
         format="json",
     )
     assert opp_resp.status_code == 201, opp_resp.data

@@ -1,4 +1,5 @@
 from django.core.cache import cache
+from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
 from rest_framework.decorators import action
@@ -18,6 +19,15 @@ from core.services.gstin_verify import apply_verification, get_gstin_provider
 from core.viewsets import CompanyScopedViewSet
 
 from .models import Brand, Category, Customer, ExpenseCategory, PaymentMode, PriceList, Product, Supplier, TaxRate, Unit
+def _soft_destroy(instance, user):
+    from django.utils import timezone
+
+    instance.is_deleted = True
+    instance.deleted_at = timezone.now()
+    instance.updated_by = user
+    instance.save(update_fields=["is_deleted", "deleted_at", "updated_by", "updated_at"])
+
+
 from .serializers import (
     BrandSerializer,
     CategorySerializer,
@@ -194,6 +204,63 @@ class CustomerViewSet(CompanyScopedViewSet):
             qs = qs.order_by("name")
         return qs
 
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.get("partial", False)
+        if not partial:
+            instance = self.get_object()
+            try:
+                sent = int(request.data.get("version"))
+            except (TypeError, ValueError):
+                sent = None
+            if sent != instance.version:
+                return Response(
+                    {"detail": "stale write", "current": self.get_serializer(instance).data},
+                    status=409,
+                )
+        return super().update(request, *args, **kwargs)
+
+    def perform_update(self, serializer):
+        """Reload under a row lock and write only the fields in this request.
+
+        A concurrent PATCH of a different field therefore keeps both edits.
+        The lock is taken here, after any test barrier around perform_update.
+        """
+        with transaction.atomic():
+            locked = Customer.all_objects.select_for_update().get(
+                pk=serializer.instance.pk, company=self.company,
+            )
+            if not self.kwargs.get("partial", False) and self.request.method == "PUT":
+                # The check in update() ran before the lock. Two PUTs carrying version N both pass
+                # it, so compare again now that this request owns the row.
+                try:
+                    sent = int(self.request.data.get("version"))
+                except (TypeError, ValueError):
+                    sent = None
+                if sent != locked.version:
+                    from rest_framework.exceptions import APIException
+
+                    class StaleWrite(APIException):
+                        status_code = 409
+                        default_detail = "stale write"
+                        default_code = "stale_write"
+
+                    raise StaleWrite()
+            addresses = serializer.validated_data.pop("shipping_addresses", None)
+            for key, value in serializer.validated_data.items():
+                setattr(locked, key, value)
+            locked.version = int(locked.version or 0) + 1
+            locked.updated_by = self.request.user
+            locked.save()
+            serializer.instance = locked
+            if addresses is not None:
+                serializer._replace_addresses(locked, addresses)
+        self._audit("UPDATE", serializer.instance)
+
+    def perform_destroy(self, instance):
+        _soft_destroy(instance, self.request.user)
+        # a soft delete is still a delete: it must leave the same audit row a hard one did
+        self._audit_raw("DELETE", str(instance.pk))
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         # BUG-301-style fix: one bulk aggregation for the whole list instead of
@@ -231,6 +298,19 @@ class CustomerViewSet(CompanyScopedViewSet):
 class SupplierViewSet(CompanyScopedViewSet):
     queryset = Supplier.objects.all()
     serializer_class = SupplierSerializer
+
+    def perform_destroy(self, instance):
+        from core.exceptions import BusinessRuleError
+
+        # Hard delete used to be stopped by PROTECT foreign keys. A soft delete hides the row from
+        # the alive manager, so ledgers and open bills would lose a supplier that still has a balance.
+        if instance.is_referenced():
+            raise BusinessRuleError(
+                f"Cannot delete '{instance.name}' because purchase documents reference it. Mark it Inactive instead."
+            )
+        _soft_destroy(instance, self.request.user)
+        # a soft delete is still a delete: it must leave the same audit row a hard one did
+        self._audit_raw("DELETE", str(instance.pk))
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
@@ -320,6 +400,9 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
                 | Q(sku__icontains=q)
                 | Q(barcode__icontains=q)
                 | Q(hsn_code__icontains=q)
+                | Q(salt__icontains=q)
+                | Q(composition__icontains=q)
+                | Q(manufacturer__icontains=q)
                 | build_search_q(q, defs)
             )
         qs = apply_cf_filters(qs, self.request.query_params, defs)
@@ -446,6 +529,11 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
 class PriceListViewSet(CompanyScopedViewSet):
     queryset = PriceList.objects.prefetch_related("items__product")
     serializer_class = PriceListSerializer
+
+    def perform_destroy(self, instance):
+        _soft_destroy(instance, self.request.user)
+        # a soft delete is still a delete: it must leave the same audit row a hard one did
+        self._audit_raw("DELETE", str(instance.pk))
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:

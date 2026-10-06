@@ -63,6 +63,10 @@ test('inventory staff transfers stock and is denied journals / period close', as
   await dialog.getByRole('button', { name: 'Create draft' }).click();
   await expect(page.getByRole('button', { name: 'Complete' }).first()).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Complete' }).first().click();
+  const receive = page.getByRole('button', { name: 'Receive' });
+  await expect(receive).toBeVisible({ timeout: 15_000 });
+  await receive.click();
+  await expect(receive).toBeHidden({ timeout: 15_000 });
   expect(await readGodownStock(page, 'Default Godown', productName)).toBe(7);
   expect(await readGodownStock(page, branch, productName)).toBe(3);
 

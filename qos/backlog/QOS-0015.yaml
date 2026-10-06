@@ -17,9 +17,11 @@ evidence:
   - docs/TESTING_STRATEGY.md#7 G-13
   - backend/tests/errors/test_llm_extraction_failures.py
   - backend/tests/accuracy/test_llm_bill_extraction_accuracy.py
+  - backend/tests/accuracy/test_bill_accuracy_scoring.py
   - backend/tests/fixtures/bill_accuracy_corpus/README.md
-  detail: The no-corpus skip path is proven (1 skipped, clean); the scoring logic itself is unexercised
-    against a real case, since none exist.
+  detail: The no-corpus skip path is proven (1 skipped, clean). The scoring logic is now pinned by 9
+    default-suite tests on hand-made dicts (test_bill_accuracy_scoring.py). Accuracy against real
+    bills is still unmeasured, since no corpus exists.
 scoring:
   reach: 1
   severity: 3

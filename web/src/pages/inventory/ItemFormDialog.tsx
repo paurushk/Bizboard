@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -12,6 +12,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Radio from '@mui/material/Radio';
 import RadioGroup from '@mui/material/RadioGroup';
 import Box from '@mui/material/Box';
+import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
@@ -40,7 +41,7 @@ import {
   updateProduct,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { todayIso } from '@/components/billing';
 import type { Product } from '@/types/domain';
 import { isValidHsnSac, normalizeGstRate, GST_RATE_OPTIONS } from '@/utils/gst';
@@ -49,6 +50,7 @@ import { toNumber } from '@/utils/money';
 import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFieldDefaults';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { trackShopFloor } from '@/lib/telemetry';
 
 type Tracking = 'NONE' | 'BATCH' | 'SERIAL';
 type TabKey = 'basic' | 'stock' | 'pricing' | 'custom';
@@ -177,6 +179,7 @@ interface Props {
 }
 
 export function ItemFormDialog({ open, product, existingNames, onClose, onSaved }: Props) {
+  useLocale();
   const qc = useQueryClient();
   const { user } = useAuth();
   const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany, enabled: open });
@@ -195,6 +198,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const warehouses = warehousesQuery.data ?? [];
   const defaultWarehouseId = String(warehouses[0]?.id ?? '');
   const [tab, setTab] = useState<TabKey>('basic');
+  const [showStockOnCreate, setShowStockOnCreate] = useState(false);
   const [form, setForm] = useState<FormState>(() => buildForm(product, defaultWarehouseId));
   // F3-015: JSON-diff dirty tracking — this form isn't react-hook-form.
   const [baselineFormJson, setBaselineFormJson] = useState('');
@@ -236,7 +240,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     if (form.unitName) set.add(form.unitName);
     if (product?.unitName) set.add(product.unitName);
     return [...set];
-  }, [form.unitName, product?.unitName, unitsQuery.data]);
+  }, [form.unitName, product, unitsQuery.data]);
   const alternateUnitOptions = useMemo(() => {
     const set = new Set(STANDARD_UNITS.filter((unit) => unit !== form.unitName));
     for (const unit of unitsQuery.data ?? []) {
@@ -248,7 +252,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       set.add(product.alternateUnitName);
     }
     return [...set];
-  }, [form.unitName, form.alternateUnitName, product?.alternateUnitName, unitsQuery.data]);
+  }, [form.unitName, form.alternateUnitName, product, unitsQuery.data]);
   const unitLabel = (code: string) => {
     const match = (unitsQuery.data ?? []).find(
       (unit) => (unit.shortName || unit.uqcCode || '').toUpperCase() === code.toUpperCase(),
@@ -256,51 +260,61 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     return formatUnitLabel(code, match?.name);
   };
 
-  useEffect(() => {
-    if (!open) return;
-    setTab('basic');
-    setError(null);
-    const fresh = buildForm(product, defaultWarehouseId, customDefs);
-    setForm(fresh);
-    // F3-015: snapshot this as the "clean" baseline for the unsaved-changes
-    // guard below.
-    setBaselineFormJson(JSON.stringify(fresh));
-    // Reset only when the dialog opens or the edited product changes — not when
-    // company defs / godowns finish loading, which would wipe in-progress edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, product?.id]);
+  // Reset only when the dialog opens or the edited product changes — not when
+  // company defs / godowns finish loading, which would wipe in-progress edits.
+  const resetKey = open ? String(product?.id ?? 'new') : null;
+  const [seenResetKey, setSeenResetKey] = useState<string | null>(null);
+  const resettingForm = seenResetKey !== resetKey && resetKey !== null;
+  if (seenResetKey !== resetKey) {
+    setSeenResetKey(resetKey);
+    if (resetKey !== null) {
+      setTab('basic');
+      setShowStockOnCreate(false);
+      setError(null);
+      const fresh = buildForm(product, defaultWarehouseId, customDefs);
+      setForm(fresh);
+      // F3-015: snapshot this as the "clean" baseline for the unsaved-changes
+      // guard below.
+      setBaselineFormJson(JSON.stringify(fresh));
+    }
+  }
 
-  useEffect(() => {
-    if (!open || !defaultWarehouseId) return;
-    setForm((current) => {
-      if (current.warehouseId) return current;
-      return {
-        ...current,
-        warehouseId: defaultWarehouseId,
-        lots: current.lots.map((lot) => ({ ...lot, warehouseId: lot.warehouseId || defaultWarehouseId })),
-        serials: current.serials.map((row) => ({ ...row, warehouseId: row.warehouseId || defaultWarehouseId })),
-      };
-    });
-  }, [open, defaultWarehouseId]);
+  // Fill an empty godown when the default arrives or the dialog opens. Keyed on the
+  // default itself, so a godown the user clears on purpose is not filled again.
+  const warehouseKey = open && defaultWarehouseId ? String(defaultWarehouseId) : null;
+  const [seenWarehouseKey, setSeenWarehouseKey] = useState<string | null>(null);
+  if (seenWarehouseKey !== warehouseKey) {
+    setSeenWarehouseKey(warehouseKey);
+    if (warehouseKey !== null) {
+      setForm((current) => {
+        if (current.warehouseId) return current;
+        return {
+          ...current,
+          warehouseId: defaultWarehouseId,
+          lots: current.lots.map((lot) => ({ ...lot, warehouseId: lot.warehouseId || defaultWarehouseId })),
+          serials: current.serials.map((row) => ({ ...row, warehouseId: row.warehouseId || defaultWarehouseId })),
+        };
+      });
+    }
+  }
 
-  useEffect(() => {
-    if (!open) return;
+  // Add a value slot for any custom field the form does not have yet. Stops once every key exists.
+  // Must not run in the same render as the product reset above: a plain setForm({...form})
+  // would replace that reset with the previous empty form and drop the item name.
+  if (!resettingForm && open && customDefs.some((def) => !(def.key in form.customValues))) {
     setForm((current) => {
+      if (customDefs.every((def) => def.key in current.customValues)) return current;
       const customValues = { ...current.customValues };
-      let changed = false;
       const stored = product?.customFields ?? {};
       for (const def of customDefs) {
         if (def.key in customValues) continue;
         customValues[def.key] = String(stored[def.key] ?? stored[def.label] ?? '');
-        changed = true;
       }
-      return changed ? { ...current, customValues } : current;
+      return { ...current, customValues };
     });
-  }, [open, customDefs, product]);
+  }
 
-  useEffect(() => {
-    if (tab === 'custom' && customDefs.length === 0) setTab('basic');
-  }, [tab, customDefs.length]);
+  if (tab === 'custom' && customDefs.length === 0) setTab('basic');
 
   const hsnSearch = useQuery({
     queryKey: ['hsn-search', hsnQuery, hsnKind],
@@ -330,16 +344,65 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const customValuesReady = customDefs.every((def) => def.key in form.customValues);
   const conversionRateInvalid =
     Boolean(form.alternateUnitName) && !(Number(form.conversionRate) > 0);
-  const canSave =
-    Boolean(form.name.trim()) &&
-    Boolean(form.sku.trim()) &&
-    !hsnInvalid &&
-    !conversionRateInvalid &&
-    Number(form.purchasePrice) >= 0 &&
-    Number(form.sellingPrice) >= 0 &&
-    Number(form.reorderLevel) >= 0 &&
-    !companyQuery.isLoading &&
-    customValuesReady;
+  const isRegularDealer =
+    (companyQuery.data?.registrationType ?? user?.company?.registrationType ?? 'REGULAR') === 'REGULAR';
+
+  const validateForm = (): { valid: boolean; tab?: TabKey; fieldId?: string; message?: string } => {
+    if (!form.name.trim()) {
+      return { valid: false, fieldId: 'item-form-name', message: 'Item name is required.' };
+    }
+    if (isNaN(Number(form.sellingPrice)) || Number(form.sellingPrice) < 0) {
+      return { valid: false, fieldId: 'item-form-selling-price', message: 'Selling price cannot be negative.' };
+    }
+    if (isNaN(Number(form.purchasePrice)) || Number(form.purchasePrice) < 0) {
+      return { valid: false, fieldId: 'item-form-purchase-price', message: 'Purchase price cannot be negative.' };
+    }
+    if (hsnInvalid) {
+      return {
+        valid: false,
+        tab: isRegularDealer ? undefined : 'basic',
+        fieldId: 'item-form-hsn',
+        message: 'HSN/SAC must be 4, 6, or 8 digits',
+      };
+    }
+    if (!form.sku.trim()) {
+      return { valid: false, tab: 'basic', fieldId: 'item-form-sku', message: 'Item code is required.' };
+    }
+    if (conversionRateInvalid) {
+      return {
+        valid: false,
+        tab: 'basic',
+        fieldId: 'item-form-conversion-rate',
+        message: 'Conversion rate must be greater than 0',
+      };
+    }
+    if (isNaN(Number(form.reorderLevel)) || Number(form.reorderLevel) < 0) {
+      return { valid: false, tab: 'stock', fieldId: 'item-form-reorder-level', message: 'Reorder level cannot be negative' };
+    }
+    if (isNaN(Number(form.wholesalePrice)) || Number(form.wholesalePrice) < 0) {
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-wholesale-price', message: 'Wholesale price cannot be negative' };
+    }
+    if (isNaN(Number(form.mrp)) || Number(form.mrp) < 0) {
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-mrp', message: 'MRP cannot be negative' };
+    }
+    if (isNaN(Number(form.cessRate)) || Number(form.cessRate) < 0) {
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-rate', message: 'Cess rate cannot be negative' };
+    }
+    if (isNaN(Number(form.cessAmount)) || Number(form.cessAmount) < 0) {
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-amount', message: 'Cess amount cannot be negative' };
+    }
+    const disc = Number(form.defaultDiscountPercent);
+    if (isNaN(disc) || disc < 0 || disc > 100) {
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-discount', message: 'Default discount must be between 0 and 100%' };
+    }
+    if (!customValuesReady) {
+      return { valid: false, tab: 'custom', message: 'Please fill all required custom fields' };
+    }
+    return { valid: true };
+  };
+
+  const validationResult = validateForm();
+  const canSave = validationResult.valid && !companyQuery.isLoading;
   const mrpNum = Number(form.mrp) || 0;
   const sellNum = Number(form.sellingPrice) || 0;
   const discOnMrp = mrpNum > 0 ? (((mrpNum - sellNum) / mrpNum) * 100).toFixed(2) : '';
@@ -492,10 +555,32 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         setForm(fresh);
         setBaselineFormJson(JSON.stringify(fresh));
         setTab('basic');
+        setShowStockOnCreate(false);
       }
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
+
+  const handleSave = (keepOpen: boolean) => {
+    const result = validateForm();
+    if (!result.valid) {
+      trackShopFloor('form_validation_failed', { feature: 'form' });
+      if (result.tab && result.tab !== tab) {
+        if (result.tab === 'stock') setShowStockOnCreate(true);
+        setTab(result.tab);
+      }
+      setError(result.message || 'Please check highlighted fields.');
+      if (result.fieldId) {
+        setTimeout(() => {
+          const el = document.getElementById(result.fieldId!);
+          el?.focus();
+        }, 50);
+      }
+      return;
+    }
+    setError(null);
+    save.mutate(keepOpen);
+  };
 
   const patchLot = (index: number, patch: Partial<LotRow>) =>
     setForm((current) => {
@@ -527,12 +612,6 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           {product ? t('common.edit') : t('empty.createItem')}
         </DialogTitle>
         <DialogContent>
-          <Tabs value={tab} onChange={(_, value: TabKey) => setTab(value)} sx={{ mb: 2 }} variant="scrollable">
-            <Tab value="basic" label="Basic details" />
-            <Tab value="stock" label="Stock details" disabled={isService} />
-            <Tab value="pricing" label="Pricing details" />
-            {customDefs.length ? <Tab value="custom" label="Custom fields" /> : null}
-          </Tabs>
           {error ? (
             <HelpErrorAlert message={error} sx={{ mb: 2 }} />
           ) : null}
@@ -542,11 +621,139 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             </Alert>
           ) : null}
 
+          <Paper variant="outlined" sx={{ p: 2, mb: 2.5, bgcolor: 'background.default' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              {t('sweep2.coreEssentials')}
+            </Typography>
+            <Stack spacing={2}>
+              <TextField
+                id="item-form-name"
+                label={t('common.name')}
+                required
+                value={form.name}
+                onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
+                helperText={duplicateName ? 'An item with this name already exists — check SKU when billing' : undefined}
+                fullWidth
+              />
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  id="item-form-selling-price"
+                  label={t('products.sellingPrice')}
+                  type="number"
+                  value={form.sellingPrice}
+                  onChange={(e) => setForm((current) => ({ ...current, sellingPrice: e.target.value }))}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  id="item-form-purchase-price"
+                  label={t('products.purchasePrice')}
+                  type="number"
+                  value={form.purchasePrice}
+                  onChange={(e) => setForm((current) => ({ ...current, purchasePrice: e.target.value }))}
+                  sx={{ flex: 1 }}
+                />
+                <TextField
+                  id="item-form-gst-rate"
+                  select
+                  label={t('items.gstRate')}
+                  value={form.gstRate}
+                  onChange={(e) => setForm((current) => ({ ...current, gstRate: e.target.value }))}
+                  sx={{ flex: 1 }}
+                >
+                  {(GST_RATE_OPTIONS.some((r) => r.value === form.gstRate)
+                    ? GST_RATE_OPTIONS
+                    : [...GST_RATE_OPTIONS, { value: form.gstRate, label: `${form.gstRate}%` }]
+                  ).map((rate) => (
+                    <MenuItem key={rate.value} value={rate.value}>
+                      {rate.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+                <Box sx={{ flex: 1, minWidth: 160, width: '100%' }}>
+                  <HelpHint intent="unit-conversion-rate" slot="uom">
+                    <TextField
+                      id="item-form-unit"
+                      select
+                      label={t('products.unit')}
+                      value={form.unitName}
+                      onChange={(e) =>
+                        setForm((current) => {
+                          const unitName = e.target.value;
+                          const changed = current.unitName !== unitName;
+                          return {
+                            ...current,
+                            unitName,
+                            alternateUnitName: changed ? '' : current.alternateUnitName,
+                            conversionRate: changed ? '1' : current.conversionRate,
+                          };
+                        })
+                      }
+                      disabled={unitLocked}
+                      helperText={
+                        unitLocked
+                          ? 'Locked — this item has stock on hand. Bring stock to zero (Stock Adjustment) to change the unit.'
+                          : locked
+                            ? 'Stock for this item is zero, so the unit can be changed.'
+                            : undefined
+                      }
+                      fullWidth
+                    >
+                      {baseUnitOptions.map((unit) => (
+                        <MenuItem key={unit} value={unit}>
+                          {unitLabel(unit)}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </HelpHint>
+                </Box>
+                {isRegularDealer ? (
+                  <Stack direction="row" spacing={1} alignItems="flex-start" sx={{ flex: 1, width: '100%' }}>
+                    <TextField
+                      id="item-form-hsn"
+                      label={isService ? 'SAC code' : 'HSN code'}
+                      value={form.hsnCode}
+                      onChange={(e) => setForm((current) => ({ ...current, hsnCode: e.target.value }))}
+                      error={hsnInvalid}
+                      helperText={hsnInvalid ? 'HSN/SAC must be 4, 6, or 8 digits' : undefined}
+                      fullWidth
+                    />
+                    <Button sx={{ mt: 1, whiteSpace: 'nowrap' }} onClick={() => setHsnOpen(true)}>
+                      Find {hsnKind}
+                    </Button>
+                  </Stack>
+                ) : null}
+              </Stack>
+            </Stack>
+          </Paper>
+
+          <Tabs value={tab} onChange={(_, value: TabKey) => setTab(value)} sx={{ mb: 2 }} variant="scrollable">
+            <Tab value="basic" label={t('items.basicDetails')} />
+            {product || showStockOnCreate ? (
+              <Tab value="stock" label={t('items.stockDetails')} disabled={isService} />
+            ) : null}
+            <Tab value="pricing" label={t('items.pricingDetails')} />
+            {customDefs.length ? <Tab value="custom" label={t('items.customFields')} /> : null}
+          </Tabs>
+          {!product && !stockHidden && !showStockOnCreate ? (
+            <Stack spacing={0.5} sx={{ mb: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                {t('products.openingStockAfterSave')}
+              </Typography>
+              <Box>
+                <Button variant="outlined" onClick={() => { setShowStockOnCreate(true); setTab('stock'); }}>
+                  {t('products.addOpeningStock')}
+                </Button>
+              </Box>
+            </Stack>
+          ) : null}
+
           {tab === 'basic' ? (
             <Stack spacing={2}>
               <TextField
                 select
-                label="Item type"
+                label={t('items.itemType')}
                 value={form.productType}
                 onChange={(e) =>
                   setForm((current) => ({
@@ -558,16 +765,9 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 }
                 disabled={locked}
               >
-                <MenuItem value="GOODS">Goods</MenuItem>
-                <MenuItem value="SERVICE">Service</MenuItem>
+                <MenuItem value="GOODS">{t('items.goods')}</MenuItem>
+                <MenuItem value="SERVICE">{t('items.service')}</MenuItem>
               </TextField>
-              <TextField
-                label={t('common.name')}
-                required
-                value={form.name}
-                onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                helperText={duplicateName ? 'An item with this name already exists — check SKU when billing' : undefined}
-              />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
                   label={t('products.category')}
@@ -604,6 +804,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
               </Stack>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
+                  id="item-form-sku"
                   label={t('products.skuRequired')}
                   helperText={t('products.skuRequiredHint')}
                   required
@@ -641,63 +842,27 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   }}
                 />
               </Stack>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
-                <TextField
-                  label={isService ? 'SAC code' : 'HSN code'}
-                  value={form.hsnCode}
-                  onChange={(e) => setForm((current) => ({ ...current, hsnCode: e.target.value }))}
-                  error={hsnInvalid}
-                  helperText={hsnInvalid ? 'HSN/SAC must be 4, 6, or 8 digits' : undefined}
-                  sx={{ flex: 1 }}
-                />
-                <Button sx={{ mt: 1 }} onClick={() => setHsnOpen(true)}>
-                  Find {hsnKind}
-                </Button>
-              </Stack>
+              {!isRegularDealer ? (
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start">
+                  <TextField
+                    id="item-form-hsn"
+                    label={isService ? 'SAC code' : 'HSN code'}
+                    value={form.hsnCode}
+                    onChange={(e) => setForm((current) => ({ ...current, hsnCode: e.target.value }))}
+                    error={hsnInvalid}
+                    helperText={hsnInvalid ? 'HSN/SAC must be 4, 6, or 8 digits' : undefined}
+                    sx={{ flex: 1 }}
+                  />
+                  <Button sx={{ mt: 1 }} onClick={() => setHsnOpen(true)}>
+                    Find {hsnKind}
+                  </Button>
+                </Stack>
+              ) : null}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="flex-start" data-testid="item-form-unit-row">
-                <Box sx={{ flex: '1 1 160px', minWidth: 0, maxWidth: '100%' }}>
-                  <HelpHint intent="unit-conversion-rate" slot="uom">
-                    <TextField
-                      select
-                      label={t('products.unit')}
-                      value={form.unitName}
-                      onChange={(e) =>
-                        setForm((current) => {
-                          const unitName = e.target.value;
-                          // The conversion rate only means something relative to
-                          // the base unit ("1 CARTON = 48 PCS") -- changing the
-                          // base always invalidates it, not just on a name clash.
-                          const changed = current.unitName !== unitName;
-                          return {
-                            ...current,
-                            unitName,
-                            alternateUnitName: changed ? '' : current.alternateUnitName,
-                            conversionRate: changed ? '1' : current.conversionRate,
-                          };
-                        })
-                      }
-                      disabled={unitLocked}
-                      helperText={
-                        unitLocked
-                          ? 'Locked — this item has stock on hand. Bring stock to zero (Stock Adjustment) to change the unit.'
-                          : locked
-                            ? 'Stock for this item is zero, so the unit can be changed. New stock movements will use the new unit; past movements stay recorded in the old one.'
-                            : 'How you buy and sell this item (e.g. PCS, BOX, KG). Stock is counted in this unit and it becomes fixed after the first stock movement.'
-                      }
-                      sx={{ minWidth: 160, width: '100%' }}
-                    >
-                      {baseUnitOptions.map((unit) => (
-                        <MenuItem key={unit} value={unit}>
-                          {unitLabel(unit)}
-                        </MenuItem>
-                      ))}
-                    </TextField>
-                  </HelpHint>
-                </Box>
                 <Box sx={{ flex: '1 1 160px', minWidth: 0, maxWidth: '100%' }}>
                   <TextField
                     select
-                    label="Alternate unit (optional)"
+                    label={t('items.alternateUnit')}
                     value={form.alternateUnitName}
                     onChange={(e) =>
                       setForm((current) => {
@@ -709,10 +874,10 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                         };
                       })
                     }
-                    helperText="A second unit for billing — e.g. stock in Pieces (PCS) but sell by Carton (CTN). Stock is always kept in the base unit."
+                    helperText={t('sweep.altUnitHelp')}
                     sx={{ minWidth: 160, width: '100%' }}
                   >
-                    <MenuItem value="">None</MenuItem>
+                    <MenuItem value="">{t('items.none')}</MenuItem>
                     {alternateUnitOptions.map((unit) => (
                       <MenuItem key={unit} value={unit}>
                         {unitLabel(unit)}
@@ -723,7 +888,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 <Box sx={{ flex: '1 1 160px', minWidth: 0, maxWidth: '100%' }}>
                   <HelpHint intent="unit-conversion-rate" slot="conversion-rate">
                     <TextField
-                      label="Conversion rate"
+                      id="item-form-conversion-rate"
+                      label={t('items.conversionRate')}
                       type="number"
                       value={form.conversionRate}
                       onChange={(e) => setForm((current) => ({ ...current, conversionRate: e.target.value }))}
@@ -742,7 +908,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 </Box>
               </Stack>
               <TextField
-                label="Description"
+                label={t('items.description')}
                 multiline
                 minRows={2}
                 value={form.description}
@@ -756,8 +922,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   setForm((current) => ({ ...current, status: e.target.value as 'ACTIVE' | 'INACTIVE' }))
                 }
               >
-                <MenuItem value="ACTIVE">ACTIVE</MenuItem>
-                <MenuItem value="INACTIVE">INACTIVE</MenuItem>
+                <MenuItem value="ACTIVE">{t('items.active')}</MenuItem>
+                <MenuItem value="INACTIVE">{t('items.inactive')}</MenuItem>
               </TextField>
             </Stack>
           ) : null}
@@ -766,7 +932,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             <Stack spacing={2}>
               {product ? (
                 <Stack spacing={1}>
-                  <Typography variant="subtitle2">Stock in existing godowns</Typography>
+                  <Typography variant="subtitle2">{t('items.stockInGodowns')}</Typography>
                   {(stockQuery.data ?? []).filter((row) => Number(row.product) === Number(product.id)).length ? (
                     (stockQuery.data ?? [])
                       .filter((row) => Number(row.product) === Number(product.id))
@@ -795,7 +961,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                     : 'Stock is zero, so the base unit (Basic details tab) can still be changed.'}{' '}
                   {product ? (
                     <Button size="small" component={RouterLink} to={`/inventory/adjustments?product=${product.id}`}>
-                      Adjust stock
+                      {t('sweep2.adjustStock')}
                     </Button>
                   ) : null}
                 </Alert>
@@ -808,22 +974,22 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                     disabled={locked}
                   />
                 }
-                label="Track inventory"
+                label={t('items.trackInventory')}
               />
-              <Typography variant="subtitle2">Tracking mode</Typography>
+              <Typography variant="subtitle2">{t('items.trackingMode')}</Typography>
               <RadioGroup
                 row
                 value={form.tracking}
                 onChange={(e) => setForm((current) => ({ ...current, tracking: e.target.value as Tracking }))}
               >
-                <FormControlLabel value="NONE" control={<Radio disabled={locked} />} label="None" />
-                <FormControlLabel value="BATCH" control={<Radio disabled={locked} />} label="Batch / expiry" />
-                <FormControlLabel value="SERIAL" control={<Radio disabled={locked} />} label="Serial" />
+                <FormControlLabel value="NONE" control={<Radio disabled={locked} />} label={t('items.none')} />
+                <FormControlLabel value="BATCH" control={<Radio disabled={locked} />} label={t('items.batchExpiry')} />
+                <FormControlLabel value="SERIAL" control={<Radio disabled={locked} />} label={t('items.serial')} />
               </RadioGroup>
               <TextField
                 select
-                label="Regulated category"
-                helperText="D15 / ARCH-05: gates the drug-licence / FSSAI statutory guard at invoice complete."
+                label={t('items.regulatedCategory')}
+                helperText={t('items.regulatedHint')}
                 value={form.regulatedCategory}
                 onChange={(e) =>
                   setForm((current) => ({
@@ -832,18 +998,18 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   }))
                 }
               >
-                <MenuItem value="NONE">Not regulated</MenuItem>
-                <MenuItem value="DRUG">Drug / pharmaceutical</MenuItem>
-                <MenuItem value="FOOD">Food (FSSAI)</MenuItem>
+                <MenuItem value="NONE">{t('items.notRegulated')}</MenuItem>
+                <MenuItem value="DRUG">{t('items.drug')}</MenuItem>
+                <MenuItem value="FOOD">{t('items.food')}</MenuItem>
               </TextField>
               {form.tracking === 'BATCH' && !product ? (
                 <Stack spacing={1.5}>
-                  <Typography variant="subtitle2">Opening lots</Typography>
+                  <Typography variant="subtitle2">{t('items.openingLots')}</Typography>
                   {form.lots.map((lot, index) => (
                     <Stack key={index} direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems="center">
                       <TextField
                         select
-                        label="Godown"
+                        label={t('items.godown')}
                         value={lot.warehouseId || defaultWarehouseId}
                         onChange={(e) => patchLot(index, { warehouseId: e.target.value })}
                         sx={{ minWidth: 140 }}
@@ -854,12 +1020,12 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                           </MenuItem>
                         ))}
                       </TextField>
-                      <TextField label="Qty" type="number" value={lot.quantity} onChange={(e) => patchLot(index, { quantity: e.target.value })} />
-                      <TextField label="As of" type="date" InputLabelProps={{ shrink: true }} value={lot.asOf} onChange={(e) => patchLot(index, { asOf: e.target.value })} />
-                      <TextField label="Batch no" value={lot.batchNo} onChange={(e) => patchLot(index, { batchNo: e.target.value })} />
-                      <TextField label="Expiry" type="date" InputLabelProps={{ shrink: true }} value={lot.expiryDate} onChange={(e) => patchLot(index, { expiryDate: e.target.value })} />
-                      <TextField label="Mfg" type="date" InputLabelProps={{ shrink: true }} value={lot.manufacturingDate} onChange={(e) => patchLot(index, { manufacturingDate: e.target.value })} />
-                      <TextField label="Unit cost" type="number" value={lot.unitCost} onChange={(e) => patchLot(index, { unitCost: e.target.value })} />
+                      <TextField label={t('items.qty')} type="number" value={lot.quantity} onChange={(e) => patchLot(index, { quantity: e.target.value })} />
+                      <TextField label={t('items.asOf')} type="date" InputLabelProps={{ shrink: true }} value={lot.asOf} onChange={(e) => patchLot(index, { asOf: e.target.value })} />
+                      <TextField label={t('items.batchNo')} value={lot.batchNo} onChange={(e) => patchLot(index, { batchNo: e.target.value })} />
+                      <TextField label={t('items.expiry')} type="date" InputLabelProps={{ shrink: true }} value={lot.expiryDate} onChange={(e) => patchLot(index, { expiryDate: e.target.value })} />
+                      <TextField label={t('items.mfg')} type="date" InputLabelProps={{ shrink: true }} value={lot.manufacturingDate} onChange={(e) => patchLot(index, { manufacturingDate: e.target.value })} />
+                      <TextField label={t('items.unitCost')} type="number" value={lot.unitCost} onChange={(e) => patchLot(index, { unitCost: e.target.value })} />
                       <IconButton onClick={() => setForm((current) => ({ ...current, lots: current.lots.filter((_, i) => i !== index) }))} disabled={form.lots.length === 1}>
                         <DeleteOutlineIcon />
                       </IconButton>
@@ -867,7 +1033,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   ))}
                   <Stack direction="row" spacing={1} flexWrap="wrap">
                     <Button startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, lots: [...current.lots, emptyLot(defaultWarehouseId)] }))}>
-                      Add godown / lot
+                      {t('sweep2.addGodownLot')}
                     </Button>
                     <Button
                       onClick={() =>
@@ -877,19 +1043,19 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                         })
                       }
                     >
-                      Apply first godown to all rows
+                      {t('sweep2.applyFirstGodown')}
                     </Button>
                   </Stack>
                 </Stack>
               ) : null}
               {form.tracking === 'SERIAL' && !product ? (
                 <Stack spacing={1.5}>
-                  <Typography variant="subtitle2">Opening serials</Typography>
+                  <Typography variant="subtitle2">{t('items.openingSerials')}</Typography>
                   {form.serials.map((row, index) => (
                     <Stack key={index} direction={{ xs: 'column', md: 'row' }} spacing={1}>
                       <TextField
                         select
-                        label="Godown"
+                        label={t('items.godown')}
                         value={row.warehouseId || defaultWarehouseId}
                         onChange={(e) => patchSerial(index, { warehouseId: e.target.value })}
                         sx={{ minWidth: 140 }}
@@ -900,17 +1066,17 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                           </MenuItem>
                         ))}
                       </TextField>
-                      <TextField label="Serial no" value={row.serialNo} onChange={(e) => patchSerial(index, { serialNo: e.target.value })} sx={{ flex: 1 }} />
-                      <TextField label="As of" type="date" InputLabelProps={{ shrink: true }} value={row.asOf} onChange={(e) => patchSerial(index, { asOf: e.target.value })} />
-                      <TextField label="Unit cost" type="number" value={row.unitCost} onChange={(e) => patchSerial(index, { unitCost: e.target.value })} />
+                      <TextField label={t('items.serialNo')} value={row.serialNo} onChange={(e) => patchSerial(index, { serialNo: e.target.value })} sx={{ flex: 1 }} />
+                      <TextField label={t('items.asOf')} type="date" InputLabelProps={{ shrink: true }} value={row.asOf} onChange={(e) => patchSerial(index, { asOf: e.target.value })} />
+                      <TextField label={t('items.unitCost')} type="number" value={row.unitCost} onChange={(e) => patchSerial(index, { unitCost: e.target.value })} />
                       <IconButton onClick={() => setForm((current) => ({ ...current, serials: current.serials.filter((_, i) => i !== index) }))} disabled={form.serials.length === 1}>
                         <DeleteOutlineIcon />
                       </IconButton>
                     </Stack>
                   ))}
                   <TextField
-                    label="Paste serials"
-                    helperText="One serial per line, or comma-separated. Qty = number of serials."
+                    label={t('items.pasteSerials')}
+                    helperText={t('sweep.serialsHelp')}
                     value={serialPaste}
                     onChange={(e) => setSerialPaste(e.target.value)}
                     multiline
@@ -933,10 +1099,10 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                         setSerialPaste('');
                       }}
                     >
-                      Apply pasted serials
+                      {t('sweep2.applyPastedSerials')}
                     </Button>
                     <Button startIcon={<AddIcon />} onClick={() => setForm((current) => ({ ...current, serials: [...current.serials, emptySerial(defaultWarehouseId)] }))}>
-                      Add serial
+                      {t('sweep2.addSerial')}
                     </Button>
                   </Stack>
                 </Stack>
@@ -952,7 +1118,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                   />
                   <TextField
                     select
-                    label="Godown"
+                    label={t('items.godown')}
                     value={form.warehouseId || defaultWarehouseId}
                     onChange={(e) => setForm((current) => ({ ...current, warehouseId: e.target.value }))}
                     sx={{ minWidth: 180 }}
@@ -966,13 +1132,14 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 </Stack>
               ) : null}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems="center">
-                <TextField size="small" label="New godown name" value={godownName} onChange={(e) => setGodownName(e.target.value)} />
-                <TextField size="small" label="Code" value={godownCode} onChange={(e) => setGodownCode(e.target.value)} />
+                <TextField size="small" label={t('items.newGodownName')} value={godownName} onChange={(e) => setGodownName(e.target.value)} />
+                <TextField size="small" label={t('items.code')} value={godownCode} onChange={(e) => setGodownCode(e.target.value)} />
                 <Button disabled={!godownName.trim() || createGodown.isPending} onClick={() => createGodown.mutate()}>
                   + New godown
                 </Button>
               </Stack>
               <TextField
+                id="item-form-reorder-level"
                 label={t('products.reorderLevel')}
                 type="number"
                 value={form.reorderLevel}
@@ -986,51 +1153,36 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             <Stack spacing={2}>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <TextField
-                  label={t('products.sellingPrice')}
-                  type="number"
-                  value={form.sellingPrice}
-                  onChange={(e) => setForm((current) => ({ ...current, sellingPrice: e.target.value }))}
-                  sx={{ flex: 1 }}
-                />
-                <TextField
                   select
-                  label="Sales tax"
+                  label={t('items.salesTax')}
                   value={form.sellingTaxInclusive ? 'IN' : 'EX'}
                   onChange={(e) => setForm((current) => ({ ...current, sellingTaxInclusive: e.target.value === 'IN' }))}
-                  sx={{ minWidth: 160 }}
-                >
-                  <MenuItem value="EX">Without tax</MenuItem>
-                  <MenuItem value="IN">With tax</MenuItem>
-                </TextField>
-              </Stack>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  label={t('products.purchasePrice')}
-                  type="number"
-                  value={form.purchasePrice}
-                  onChange={(e) => setForm((current) => ({ ...current, purchasePrice: e.target.value }))}
                   sx={{ flex: 1 }}
-                />
+                >
+                  <MenuItem value="EX">{t('items.withoutTax')}</MenuItem>
+                  <MenuItem value="IN">{t('items.withTax')}</MenuItem>
+                </TextField>
                 <TextField
                   select
-                  label="Purchase tax"
+                  label={t('items.purchaseTax')}
                   value={form.purchaseTaxInclusive ? 'IN' : 'EX'}
                   onChange={(e) => setForm((current) => ({ ...current, purchaseTaxInclusive: e.target.value === 'IN' }))}
-                  sx={{ minWidth: 160 }}
+                  sx={{ flex: 1 }}
                 >
-                  <MenuItem value="EX">Without tax</MenuItem>
-                  <MenuItem value="IN">With tax</MenuItem>
+                  <MenuItem value="EX">{t('items.withoutTax')}</MenuItem>
+                  <MenuItem value="IN">{t('items.withTax')}</MenuItem>
                 </TextField>
               </Stack>
-              <TextField label="MRP" type="number" value={form.mrp} onChange={(e) => setForm((current) => ({ ...current, mrp: e.target.value }))} />
+              <TextField id="item-form-mrp" label={t('items.mrp')} type="number" value={form.mrp} onChange={(e) => setForm((current) => ({ ...current, mrp: e.target.value }))} />
               <TextField
-                label="Disc. on MRP %"
+                label={t('items.discOnMrp')}
                 value={discOnMrp}
                 InputProps={{ readOnly: true }}
                 helperText="(MRP − selling price) / MRP. Not a line discount."
               />
               <TextField
-                label="Wholesale price"
+                id="item-form-wholesale-price"
+                label={t('items.wholesalePrice')}
                 type="number"
                 value={form.wholesalePrice}
                 onChange={(e) => setForm((current) => ({ ...current, wholesalePrice: e.target.value }))}
@@ -1045,37 +1197,27 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 <MenuItem value="UNBRANDED">{t('billing.gstSupplyUnbranded')}</MenuItem>
                 <MenuItem value="BRANDED_PREPACKED">{t('billing.gstSupplyBranded')}</MenuItem>
               </TextField>
-              <TextField select label="GST rate" value={form.gstRate} onChange={(e) => setForm((current) => ({ ...current, gstRate: e.target.value }))}>
-                {/* F3-012: if an HSN picker (or a legacy product) set a rate not
-                    in the standard slabs, still render it as an option so the
-                    field doesn't go blank. */}
-                {(GST_RATE_OPTIONS.some((r) => r.value === form.gstRate)
-                  ? GST_RATE_OPTIONS
-                  : [...GST_RATE_OPTIONS, { value: form.gstRate, label: `${form.gstRate}%` }]
-                ).map((rate) => (
-                  <MenuItem key={rate.value} value={rate.value}>
-                    {rate.label}
-                  </MenuItem>
-                ))}
-              </TextField>
               <TextField
-                label="Cess rate %"
+                id="item-form-cess-rate"
+                label={t('items.cessRate')}
                 type="number"
                 value={form.cessRate}
                 onChange={(e) => setForm((current) => ({ ...current, cessRate: e.target.value }))}
-                helperText="Compensation cess, ad-valorem (blank/0 for most goods)"
+                helperText={t('sweep.cessRateHelp')}
                 inputProps={{ min: 0, step: '0.01' }}
               />
               <TextField
-                label="Cess per unit (₹)"
+                id="item-form-cess-amount"
+                label={t('items.cessPerUnit')}
                 type="number"
                 value={form.cessAmount}
                 onChange={(e) => setForm((current) => ({ ...current, cessAmount: e.target.value }))}
-                helperText="Specific cess per unit, added on top of the % cess (pan-masala / tobacco)"
+                helperText={t('sweep.cessAmountHelp')}
                 inputProps={{ min: 0, step: '0.01' }}
               />
               <TextField
-                label="Default discount %"
+                id="item-form-discount"
+                label={t('items.defaultDiscount')}
                 type="number"
                 value={form.defaultDiscountPercent}
                 onChange={(e) => setForm((current) => ({ ...current, defaultDiscountPercent: e.target.value }))}
@@ -1088,7 +1230,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
               <Alert severity="info">
                 Extra keys are defined in{' '}
                 <Button size="small" component={RouterLink} to="/settings/items">
-                  Item Settings
+                  {t('sweep2.itemSettings')}
                 </Button>
                 .
               </Alert>
@@ -1148,26 +1290,20 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         <DialogActions>
           <Button onClick={handleClose}>{t('common.cancel')}</Button>
           {!product ? (
-            <Button disabled={!canSave || save.isPending} onClick={() => save.mutate(true)}>
-              Save & New
+            <Button disabled={save.isPending} onClick={() => handleSave(true)}>
+              {t('sweep2.saveAndNew')}
             </Button>
           ) : null}
           <Tooltip
             title={
-              !form.name.trim()
-                ? 'Enter item name to save'
-                : !form.sku.trim()
-                  ? 'Enter item code (SKU) to save'
-                  : hsnInvalid
-                  ? 'Enter a valid HSN/SAC code (4, 6, or 8 digits)'
-                  : conversionRateInvalid
-                    ? 'Conversion rate must be greater than 0'
-                    : ''
+              !canSave && validationResult.message
+                ? validationResult.message
+                : ''
             }
           >
             <span>
-              <Button variant="contained" disabled={!canSave || save.isPending} onClick={() => save.mutate(false)}>
-                Save item
+              <Button variant="contained" disabled={save.isPending} onClick={() => handleSave(false)}>
+                {t('sweep2.saveItem')}
               </Button>
             </span>
           </Tooltip>
@@ -1175,12 +1311,12 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       </Dialog>
 
       <Dialog open={hsnOpen} onClose={() => setHsnOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Find {hsnKind}</DialogTitle>
+        <DialogTitle>{t('items.findCode', { kind: hsnKind })}</DialogTitle>
         <DialogContent>
           <TextField
             autoFocus
             fullWidth
-            label="Search code or description"
+            label={t('items.searchCode')}
             value={hsnQuery}
             onChange={(e) => setHsnQuery(e.target.value)}
             sx={{ mt: 1, mb: 2 }}

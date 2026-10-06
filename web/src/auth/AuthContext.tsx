@@ -1,13 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +13,7 @@ import {
   setStoredUser,
 } from '@/auth/session';
 import { clearAllDrafts } from '@/offline/invoiceDraftCache';
+import { clearForUser } from '@/lib/deviceDraft';
 import { clearPosPendingStorageForUser } from '@/pages/pos/posStatus';
 import { deepLinkToPath, isNative, onDeepLink, registerForPushNotifications } from '@/lib/native';
 import { clearBizboardPwaCaches } from '@/pwaCaches';
@@ -34,6 +26,8 @@ interface AuthContextValue {
   authReady: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithOtp: (phone: string, code: string) => Promise<void>;
+  /** F-SEC-02: finish a login that returned MfaRequiredError. */
+  completeMfaLogin: (mfaToken: string, input: { code?: string; recoveryCode?: string }) => Promise<void>;
   register: (payload: authApi.RegisterPayload) => Promise<'session' | 'pending'>;
   setSession: (nextUser: User, access: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -41,6 +35,9 @@ interface AuthContextValue {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+// One push registration per login (this provider is a singleton); logout clears it.
+let pushRegistered = false;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -77,6 +74,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [applySession],
   );
 
+  const completeMfaLogin = useCallback(
+    async (mfaToken: string, input: { code?: string; recoveryCode?: string }) => {
+      const result = await authApi.verifyMfaLogin(mfaToken, input);
+      applySession(result.user, result.tokens.access);
+      await fetchFeatureFlags(true);
+    },
+    [applySession],
+  );
+
   const loginWithOtp = useCallback(
     async (phone: string, code: string) => {
       const result = await authApi.verifyOtp(phone, code);
@@ -103,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setUsingMockSession(false);
     // A shared device's next login is a different user -- let it re-register.
-    pushRegisteredRef.current = false;
+    pushRegistered = false;
     try {
       await authApi.logout();
     } catch {
@@ -112,6 +118,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (companyId && userId) {
       // CR-109: drop mid-settlement cash/UPI cues so the next operator cannot resume them.
       clearPosPendingStorageForUser(companyId, userId);
+      clearForUser(companyId, userId);
       try {
         await clearAllDrafts(companyId, userId);
       } catch {
@@ -141,6 +148,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearFeatureFlagsCache();
       if (companyId && userId) {
         clearPosPendingStorageForUser(companyId, userId);
+        clearForUser(companyId, userId);
         void clearAllDrafts(companyId, userId).catch(() => {
           // best-effort wipe
         });
@@ -183,10 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // M1-009: register this device's push token once per login, native shells
   // only. No-ops instantly on web (isNative() false) or if the plugin isn't
   // wired (no google-services.json bundled) — see lib/native.ts.
-  const pushRegisteredRef = useRef(false);
   useEffect(() => {
-    if (!user || !isNative() || pushRegisteredRef.current) return;
-    pushRegisteredRef.current = true;
+    if (!user || !isNative() || pushRegistered) return;
+    pushRegistered = true;
     void (async () => {
       const token = await registerForPushNotifications();
       if (token) {
@@ -234,7 +241,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Never hydrate role/capabilities from localStorage (display profile only).
   useEffect(() => {
     let cancelled = false;
-    setAuthReady(false);
     (async () => {
       try {
         if (shouldUseMocks()) {
@@ -347,12 +353,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authReady,
       login,
       loginWithOtp,
+      completeMfaLogin,
       register,
       setSession,
       logout,
       usingMockSession,
     }),
-    [user, authReady, login, loginWithOtp, register, setSession, logout, usingMockSession],
+    [user, authReady, login, loginWithOtp, completeMfaLogin, register, setSession, logout, usingMockSession],
   );
 
   if (!authReady) {

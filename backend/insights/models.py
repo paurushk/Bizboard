@@ -206,6 +206,15 @@ class ShopFloorEvent(CompanyScopedModel):
         JOURNEY_FAILED = "journey_failed"
         # Reserved for a later FE migration; Gate 2 writers do not emit this.
         JOURNEY_COMPLETED = "journey_completed"
+        # GD-5: first occurrence only. first_invoice stays on TenantActivation.
+        FIRST_LEAD = "first_lead"
+        FIRST_QUOTE = "first_quote"
+        RECEIPT_FROM_LINK = "receipt_from_link"
+        # A5-1: task-success signals. No document text, names, or amounts.
+        FORM_ABANDONED = "form_abandoned"
+        DRAFT_RESTORED = "draft_restored"
+        DOCUMENT_VOIDED = "document_voided"
+        FORM_VALIDATION_FAILED = "form_validation_failed"
 
     class FailureReason(models.TextChoices):
         VALIDATION = "validation"

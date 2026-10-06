@@ -130,12 +130,12 @@ export function SupplierLedgerPage() {
             // F3-017: deliberately NOT virtualized — the Print button above
             // relies on every row being in the DOM (a windowed list would
             // only print the currently-visible rows).
-            <Paper sx={{ overflow: 'auto' }}>
+            <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
                     <TableCell>{t('common.date')}</TableCell>
-                    <TableCell>Type</TableCell>
+                    <TableCell>{t('sweep2.typeText')}</TableCell>
                     <TableCell>{t('common.number')}</TableCell>
                     <TableCell align="right">{t('reports.supplierPaidAmount')}</TableCell>
                     <TableCell align="right">{t('reports.supplierBilledAmount')}</TableCell>

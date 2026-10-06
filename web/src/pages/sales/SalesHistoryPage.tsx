@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
+import TextField from '@mui/material/TextField';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
@@ -43,6 +45,7 @@ import {
   bulkInvoicePdfZip,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { isSetupWizardEnabled } from '@/config/features';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -53,6 +56,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
@@ -60,7 +64,7 @@ import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canCreateSales, canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
-import { isSetupWizardEnabled } from '@/config/features';
+import { documentSearchQuery, shortDocumentNumber } from '@/utils/documentNumber';
 
 const PAGE_SIZE = 50;
 
@@ -76,6 +80,8 @@ export function SalesHistoryPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const [customerId, setCustomerId] = useState<number | ''>('');
+  const customerSearch = useCustomerSearch();
   const debouncedQ = useDebouncedValue(filters.q, 300);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<SalesInvoice | null>(null);
@@ -92,29 +98,31 @@ export function SalesHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['sales-invoices', page, filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryKey: ['sales-invoices', page, filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo, customerId],
     queryFn: () =>
       listSalesInvoicesPage({
         page,
         pageSize: PAGE_SIZE,
         status: filters.status || undefined,
-        q: debouncedQ || undefined,
+        q: debouncedQ ? documentSearchQuery(debouncedQ) : undefined,
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
         payment_status: filters.paymentStatus || undefined,
+        customer: customerId || undefined,
       }),
     staleTime: 0,
     refetchOnMount: 'always',
   });
   const stats = useQuery({
-    queryKey: ['sales-invoice-payment-stats', filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryKey: ['sales-invoice-payment-stats', filters.status, filters.paymentStatus, debouncedQ, filters.dateFrom, filters.dateTo, customerId],
     queryFn: () =>
       getInvoicePaymentStats({
         status: filters.status || undefined,
-        q: debouncedQ || undefined,
+        q: debouncedQ ? documentSearchQuery(debouncedQ) : undefined,
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
         payment_status: filters.paymentStatus || undefined,
+        customer: customerId || undefined, // the totals follow the same customer filter as the table
       }),
   });
 
@@ -221,6 +229,19 @@ export function SalesHistoryPage() {
       {!query.isError ? (
         <>
         <HistoryFilterBar
+          party={
+            <Autocomplete
+              options={customerSearch.options}
+              getOptionLabel={(option) => option.name}
+              onInputChange={(_, value) => customerSearch.setQuery(value)}
+              onChange={(_, option) => {
+                setCustomerId(option?.id ?? '');
+                setPage(1);
+              }}
+              renderInput={(params) => <TextField {...params} size="small" label={t('cog.customerFilter')} />}
+              sx={{ maxWidth: 320 }}
+            />
+          }
           value={filters}
           onChange={(next) => {
             setFilters(next);
@@ -319,7 +340,7 @@ export function SalesHistoryPage() {
         />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={52}>
             {({ rows: virtualRows, totalSize, measureElement }) => (
           <Table size="small">
@@ -328,6 +349,7 @@ export function SalesHistoryPage() {
                 <TableCell padding="checkbox">
                   <Checkbox
                     size="small"
+                    inputProps={{ 'aria-label': t('common.selectAllRows') }}
                     checked={rows.length > 0 && rows.every((r) => selected.includes(r.id))}
                     indeterminate={selected.length > 0 && rows.some((r) => !selected.includes(r.id))}
                     onChange={() =>
@@ -376,6 +398,7 @@ export function SalesHistoryPage() {
                   <TableCell padding="checkbox">
                     <Checkbox
                       size="small"
+                      inputProps={{ 'aria-label': t('common.selectRow', { name: invoiceNumberLabel(inv) }) }}
                       checked={selected.includes(inv.id)}
                       onChange={() =>
                         setSelected((prev) =>
@@ -390,9 +413,10 @@ export function SalesHistoryPage() {
                       component={RouterLink}
                       to={`/sales/history/${inv.id}`}
                       fontWeight={600}
+                      title={invoiceNumberLabel(inv)}
                       sx={{ color: 'primary.main', textDecoration: 'none' }}
                     >
-                      {invoiceNumberLabel(inv)}
+                      {inv.number ? shortDocumentNumber(inv.number, inv.invoiceDate) : invoiceNumberLabel(inv)}
                     </Typography>
                   </TableCell>
                   <TableCell>{inv.customerName ?? '—'}</TableCell>
@@ -531,13 +555,13 @@ export function SalesHistoryPage() {
               <ListItemIcon>
                 <PrintOutlinedIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>Print receipt (80mm)</ListItemText>
+              <ListItemText>{t('sweep2.printReceipt80')}</ListItemText>
             </MenuItem>
             <MenuItem onClick={() => void runThermalPrint(58)}>
               <ListItemIcon>
                 <PrintOutlinedIcon fontSize="small" />
               </ListItemIcon>
-              <ListItemText>Print receipt (58mm)</ListItemText>
+              <ListItemText>{t('sweep2.printReceipt58')}</ListItemText>
             </MenuItem>
             <MenuItem
               onClick={() => {

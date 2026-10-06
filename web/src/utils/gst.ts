@@ -37,10 +37,10 @@ export function isValidIndianPhone(phone: string): boolean {
   return /^[6-9][0-9]{9}$/.test(digits);
 }
 
-/** Indian PIN code: exactly 6 digits. */
+/** India Post PIN: six digits, first digit 1–9. Blank is not valid here. */
 export function isValidPincode(pin: string): boolean {
   if (!pin) return false;
-  return /^\d{6}$/.test(pin.trim());
+  return /^[1-9]\d{5}$/.test(pin.trim());
 }
 
 /** HSN/SAC: 4, 6, or 8 digits for MVP format check. */

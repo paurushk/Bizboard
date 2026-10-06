@@ -58,58 +58,77 @@ class AaIngestView(APIView):
                 raise BusinessRuleError(
                     f"Consent {data['consent_id']} is {existing.status}; ingest refused."
                 )
-            consent, _ = AaConsent.objects.update_or_create(
-                company=company,
-                consent_id=data["consent_id"],
-                defaults={
-                    "status": data["status"],
-                    "fi_type": data["fi_type"],
-                    "created_by": request.user,
-                    "updated_by": request.user,
-                },
-            )
+            if data.get("use_live_fiu"):
+                if existing is None or existing.status != AaConsent.Status.ACTIVE:
+                    raise BusinessRuleError(
+                        "No active consent for this company. A live fetch does not create one."
+                    )
+                consent = existing
+            else:
+                consent, _ = AaConsent.objects.update_or_create(
+                    company=company,
+                    consent_id=data["consent_id"],
+                    defaults={
+                        "status": data["status"],
+                        "fi_type": data["fi_type"],
+                        "created_by": request.user,
+                        "updated_by": request.user,
+                    },
+                )
         if consent.status not in (AaConsent.Status.PENDING, AaConsent.Status.ACTIVE):
             raise BusinessRuleError(
                 f"Consent {consent.consent_id} is {consent.status}; ingest refused."
             )
 
-        # B4-009: the FIU fetch below is an outbound HTTP call (timeout=12s)
-        # that must not run inside a DB transaction -- the old
-        # `@transaction.atomic` on the whole view held a write transaction
-        # (and, later, match_aa_to_receipts' select_for_update locks) open
-        # for the full fetch latency, under no throttle. It now runs with no
-        # transaction open; only the upsert above and the store+match below
-        # are wrapped.
-        rows = data.get("transactions") or []
+        # Client-supplied rows are always tagged "client", whatever the fetch mode,
+        # so a caller cannot label its own rows as FIU or mock. The original row
+        # stays in raw when the client sent no raw block.
+        rows = []
+        for client_row in data.get("transactions") or []:
+            client_raw = dict(client_row.get("raw") or client_row)
+            client_raw["ingest_source"] = "client"
+            rows.append({**client_row, "raw": client_raw})
         env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
-        # GAP-001: mock FIU is allowlisted (dev/test/local only). Empty rows must
-        # not inject mocks; unset/blank env fails closed.
         mock_allowed = env in ("development", "dev", "test", "local")
         want_mock = bool(data.get("use_mock_fiu"))
         if want_mock and not mock_allowed:
             raise BusinessRuleError("Mock AA ingest is disabled outside development.")
-        if want_mock:
-            for mock in fetch_transactions_for_consent(
-                consent_id=consent.consent_id, fi_type=consent.fi_type
-            ):
-                rows.append(
-                    {
-                        "txn_id": mock.txn_id,
-                        "amount": str(mock.amount),
-                        "txn_date": mock.txn_date.isoformat(),
-                        "raw": mock.raw,
-                    }
+        if data.get("use_live_fiu"):
+            from banking.fiu_adapter import company_fiu_api_key
+
+            token = company_fiu_api_key(company)
+            if not token:
+                raise BusinessRuleError(
+                    "Live AA ingest is off until this company has its own FIU credential."
                 )
-        elif data.get("use_live_fiu"):
             for live in fetch_live_transactions_for_consent(
-                consent_id=consent.consent_id, fi_type=consent.fi_type
+                consent_id=consent.consent_id,
+                fi_type=consent.fi_type,
+                api_key=token,
+                company=company,
             ):
+                raw = dict(live.raw or {})
+                raw["ingest_source"] = "fiu"
                 rows.append(
                     {
                         "txn_id": live.txn_id,
                         "amount": str(live.amount),
                         "txn_date": live.txn_date.isoformat(),
-                        "raw": live.raw,
+                        "raw": raw,
+                    }
+                )
+        elif want_mock:
+            for mock in fetch_transactions_for_consent(
+                consent_id=consent.consent_id, fi_type=consent.fi_type
+            ):
+                raw = dict(mock.raw or {})
+                raw["ingest_source"] = "mock"
+                rows.append(
+                    {
+                        "txn_id": mock.txn_id,
+                        "amount": str(mock.amount),
+                        "txn_date": mock.txn_date.isoformat(),
+                        "raw": raw,
                     }
                 )
 
@@ -155,6 +174,13 @@ class AaIngestView(APIView):
                         created_by=request.user, updated_by=request.user,
                     ))
                 else:
+                    already_matched = bool(
+                        existing.matched_payment_id
+                        or existing.matched_supplier_payment_id
+                        or existing.matched_expense_id
+                    )
+                    if already_matched:
+                        continue
                     existing.consent = consent
                     existing.amount = amount
                     existing.txn_date = txn_date

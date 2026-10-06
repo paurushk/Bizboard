@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.db import IntegrityError, transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import record_document_event
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
@@ -98,8 +99,10 @@ def sync_company_bank_account(company):
     """Keep payments.BankAccount in sync with company bill-print bank details (E2E3-033)."""
     from .models import BankAccountType
 
+    from planwave.crypto import reveal_bank_account
+
     name = (company.bank_name or "").strip()
-    number = (company.bank_account or "").strip()
+    number = reveal_bank_account(company.bank_account or "").strip()
     ifsc = (company.bank_ifsc or "").strip()
     if not name and not number:
         return None
@@ -341,6 +344,7 @@ class PaymentService:
             from accounting.services import PostingService
 
             PostingService.post_receipt(receipt, user)
+        record_document_event(document=receipt, user=user, event="customer_receipt.created")
         emit("document.completed", document=receipt, user=user, event="customer_receipt.created")
         receipt._utr_warning = warn  # transient for API
         return receipt
@@ -367,6 +371,8 @@ class PaymentService:
         cheque_bank_name="",
         cheque_date=None,
         cheque_image=None,
+        gstin_hold_override=False,
+        gstin_hold_reason="",
     ):
         # B4-035: normalise once — an internal caller may pass a float.
         amount = Decimal(str(amount)).quantize(Decimal("0.01"))
@@ -374,6 +380,28 @@ class PaymentService:
             raise BusinessRuleError("Payment amount must be greater than zero.")
         if supplier.company_id != company.id:
             raise BusinessRuleError("Invalid supplier reference.")
+        cancelled_on = getattr(supplier, "gstin_cancelled_on", None)
+        if cancelled_on is not None:
+            from planwave.services import alert_purchase_team, assert_gstin_override
+
+            pay_on = payment_date or timezone.localdate()
+            if isinstance(pay_on, str):
+                from datetime import date as date_cls
+
+                pay_on = date_cls.fromisoformat(pay_on[:10])
+            elif hasattr(pay_on, "hour") and hasattr(pay_on, "date"):  # a datetime, not a date
+                pay_on = pay_on.date()
+            if pay_on >= cancelled_on and not gstin_hold_override:
+                alert_purchase_team(
+                    company,
+                    "Supplier payment held",
+                    f"{supplier.name} GSTIN was cancelled on {cancelled_on}. The payment is held.",
+                )
+                raise BusinessRuleError(
+                    "Supplier GSTIN is cancelled. Payment is held until an Owner or Accountant records an override reason.",
+                )
+            if pay_on >= cancelled_on:
+                assert_gstin_override(company, user, gstin_hold_reason)
         from reporting.gst_periods import assert_period_allows_money_amend
 
         gate_date = payment_date or timezone.localdate()
@@ -446,16 +474,19 @@ class PaymentService:
             from accounting.services import PostingService
 
             PostingService.post_supplier_payment(payment, user)
+        record_document_event(document=payment, user=user, event="supplier_payment.created")
         emit("document.completed", document=payment, user=user, event="supplier_payment.created")
         return payment
 
     @staticmethod
     @transaction.atomic
     def allocate_receipt(*, receipt, sales_invoice, amount, user=None):
+        from decimal import ROUND_HALF_UP
+
         from ledgers.services import LedgerService
         from sales.models import SalesInvoice
 
-        amount = Decimal(amount)
+        amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if amount <= 0:
             raise BusinessRuleError("Allocation amount must be greater than zero.")
         if receipt.company_id != sales_invoice.company_id:
@@ -507,6 +538,10 @@ class PaymentService:
         from insights.telemetry import record_allocation_reconciled
 
         record_allocation_reconciled(sales_invoice, user=user)
+        record_document_event(
+            document=alloc, user=user, event="payment_allocation.created",
+            metadata={"amount": str(amount), "sales_invoice_id": sales_invoice.pk},
+        )
         return alloc
 
     @staticmethod
@@ -621,6 +656,9 @@ class PaymentService:
         alloc.reversed_at = timezone.now()
         alloc.updated_by = user
         alloc.save(update_fields=["reversed_at", "updated_by", "updated_at"])
+        record_document_event(
+            document=alloc, user=user, event="payment_allocation.reversed",
+        )
         return alloc
 
     @staticmethod
@@ -654,21 +692,166 @@ class PaymentService:
         rec.status = ReceiptStatus.VOIDED
         rec.updated_by = user
         rec.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+        record_document_event(document=rec, user=user, event="customer_receipt.voided")
         emit("document.voided", document=rec, user=user, event="customer_receipt.voided")
         return rec
 
     @staticmethod
+    def _dishonour_fee_amount(company, bank_charge) -> Decimal:
+        """Company dishonour charge, else the bank charge on this bounce. Paise."""
+        raw = bank_charge
+        if raw is None:
+            flags = getattr(company, "feature_flags", None) or {}
+            raw = flags.get("cheque_dishonour_charge")
+        if raw in (None, ""):
+            # Nothing configured and the bank reported no charge: do not invent a fee
+            # and bill a customer for it.
+            return Decimal("0.00")
+        try:
+            fee = Decimal(str(raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except InvalidOperation:
+            raise BusinessRuleError("The bank charge must be a number.") from None
+        if fee < 0:
+            raise BusinessRuleError("Dishonour fee cannot be negative.")
+        return fee
+
+    @staticmethod
+    def _store_section_138_notice(*, receipt, fee, user, memo_date=None):
+        """Store a Section 138 dishonour notice PDF. This is not a court filing."""
+        from io import BytesIO
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.pdfgen import canvas
+
+        from core.models import FileAsset
+        from core.services.files import FileService
+
+        customer = receipt.customer
+        company = receipt.company
+        buf = BytesIO()
+        pdf = canvas.Canvas(buf, pagesize=A4)
+        y = 800
+        pdf.setFont("Helvetica-Bold", 14)
+        pdf.drawString(40, y, "Section 138 notice of cheque dishonour")
+        pdf.setFont("Helvetica", 11)
+        y -= 28
+        pdf.drawString(40, y, "Stored notice. This document is not a court filing.")
+        y -= 18
+        pdf.drawString(40, y, "An advocate must review this draft before it is sent.")
+        from planwave.services import section_138_dates
+
+        memo = memo_date or timezone.localdate()
+        dates = section_138_dates(memo=memo, demand=timezone.localdate())
+        y -= 18
+        pdf.drawString(40, y, f"Bank memo date: {dates['memo']}")
+        y -= 18
+        pdf.drawString(40, y, f"Demand date: {dates['demand']}")
+        y -= 18
+        pdf.drawString(40, y, f"Pay by: {dates['pay_by']}")
+        y -= 22
+        pdf.drawString(40, y, f"Company: {(company.legal_name or company.name or '')[:80]}")
+        y -= 18
+        pdf.drawString(40, y, f"Party: {(customer.name or '')[:80]}")
+        y -= 18
+        pdf.drawString(40, y, f"Cheque number: {receipt.cheque_number or '-'}")
+        y -= 18
+        cheque_date = receipt.cheque_date.isoformat() if receipt.cheque_date else "-"
+        pdf.drawString(40, y, f"Cheque date: {cheque_date}")
+        y -= 18
+        pdf.drawString(40, y, f"Cheque bank: {(receipt.cheque_bank_name or '-')[:80]}")
+        y -= 18
+        pdf.drawString(40, y, f"Cheque amount: {Decimal(str(receipt.amount or 0)).quantize(Decimal('0.01'))}")
+        y -= 18
+        pdf.drawString(40, y, f"Dishonour fee: {fee}")
+        y -= 18
+        pdf.drawString(40, y, f"Notice date: {timezone.localdate().isoformat()}")
+        y -= 18
+        pdf.drawString(40, y, f"Receipt: {receipt.number or receipt.pk}")
+        pdf.showPage()
+        pdf.save()
+        payload = buf.getvalue()
+        return FileService.store_bytes(
+            company=company,
+            content=payload,
+            filename=f"section-138-notice-{receipt.pk}.pdf",
+            kind=FileAsset.Kind.ATTACHMENT,
+            content_type="application/pdf",
+            user=user,
+        )
+
+    @staticmethod
+    def _post_dishonour_fee(*, receipt, fee, user):
+        """Debit the customer and credit bank-charge recovery through PostingService."""
+        if not receipt.company.accounting_enabled:
+            return None
+        from accounting.services import PostingService
+
+        PostingService._ensure_chart(receipt.company)
+        return PostingService.post(
+            company=receipt.company,
+            source_type="CHEQUE_DISHONOUR",
+            source_id=receipt.id,
+            purpose="DISHONOUR_FEE",
+            entry_date=timezone.localdate(),
+            user=user,
+            allow_soft_closed=True,
+            narration=f"Cheque dishonour fee {receipt.number or receipt.pk}",
+            lines=[
+                {
+                    "account": PostingService._account(receipt.company, "1200"),
+                    "debit": fee,
+                    "customer": receipt.customer,
+                },
+                {"account": PostingService._account(receipt.company, "5200"), "credit": fee},
+            ],
+        )
+
+    @staticmethod
     @transaction.atomic
-    def set_cheque_status(*, receipt, cheque_status, user=None):
+    def set_cheque_status(*, receipt, cheque_status, user=None, bank_charge=None, memo_date=None):
         rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
         if rec.mode != PaymentMode.CHEQUE:
             raise BusinessRuleError("Cheque status only applies to cheque receipts.")
         if cheque_status == ChequeStatus.BOUNCED:
+            if rec.cheque_status == ChequeStatus.BOUNCED:
+                raise BusinessRuleError("This cheque receipt has already been bounced.")
             PaymentService.void_receipt(receipt=rec, user=user, reason="Cheque bounced")
-            rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+            rec = CustomerReceipt.objects.select_for_update().select_related("customer").get(pk=receipt.pk)
+            fee = PaymentService._dishonour_fee_amount(rec.company, bank_charge)
+            # The fee is posted whole to the recovery account. Grossing it up for GST here
+            # would credit the tax to income, so no GST is added until it has its own line.
+            try:
+                with transaction.atomic():
+                    notice = PaymentService._store_section_138_notice(
+                        receipt=rec, fee=fee, user=user, memo_date=memo_date,
+                    )
+            except Exception:  # noqa: BLE001 - a failed PDF must not stop the bounce being recorded
+                logger.exception("section 138 notice could not be stored for receipt %s", rec.pk)
+                notice = None
             rec.cheque_status = ChequeStatus.BOUNCED
+            rec.dishonour_fee = fee
+            rec.section_138_notice = notice
             rec.updated_by = user
-            rec.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+            rec.save(update_fields=[
+                "cheque_status", "dishonour_fee", "section_138_notice", "updated_by", "updated_at",
+            ])
+            if fee > 0:
+                PaymentService._post_dishonour_fee(receipt=rec, fee=fee, user=user)
+            from accounts.models import CompanyUser
+            from core.models import Notification
+            from core.services.notifications import NotificationService
+
+            for membership in CompanyUser.objects.filter(
+                company=rec.company, is_active=True, role=CompanyUser.Role.OWNER,
+            ).select_related("user"):
+                NotificationService.send(
+                    company=rec.company,
+                    channel=Notification.Channel.IN_APP,
+                    recipient=membership.user.email or str(membership.user_id),
+                    subject="Cheque bounced",
+                    body=f"Receipt {rec.number or rec.pk} bounced. Fee {fee}.",
+                    user=membership.user,
+                )
             return rec
         if cheque_status not in (ChequeStatus.PENDING_CLEARANCE, ChequeStatus.CLEARED):
             raise BusinessRuleError("Invalid cheque status.")
@@ -732,6 +915,7 @@ class PaymentService:
         pay.status = SupplierPaymentStatus.VOIDED
         pay.updated_by = user
         pay.save(update_fields=["notes", "status", "updated_by", "updated_at"])
+        record_document_event(document=pay, user=user, event="supplier_payment.voided")
         emit("document.voided", document=pay, user=user, event="supplier_payment.voided")
         return pay
 
@@ -740,11 +924,14 @@ class PaymentService:
         existing = BankAccount.objects.filter(company=company, is_default=True).first()
         if existing:
             return existing
-        name = "Cash" if not company.bank_account else (company.bank_name or "Primary Bank")
+        from planwave.crypto import reveal_bank_account
+
+        plain_account = reveal_bank_account(company.bank_account or "")
+        name = "Cash" if not plain_account else (company.bank_name or "Primary Bank")
         acct = BankAccount.objects.create(
             company=company,
             name=name or "Primary",
-            account_number_masked=(company.bank_account or "")[-4:].rjust(4, "*") if company.bank_account else "",
+            account_number_masked=plain_account[-4:].rjust(4, "*") if plain_account else "",
             ifsc=company.bank_ifsc or "",
             account_type="CASH_BOX" if not company.bank_account else "CURRENT",
             opening_balance=company.opening_cash_balance or Decimal("0"),
@@ -1285,6 +1472,13 @@ class PaymentService:
             document=link, user=user,
             event="payment_link.paid" if fully_paid else "payment_link.partially_paid",
         )
+        if fully_paid and receipt is not None:
+            from insights.telemetry import note_once
+
+            note_once(link.company, "receipt_from_link", user=user, journey="payment")
+        # A payment link collects a tenant's customer invoice. That money is the tenant's, not
+        # Bizboard's, so no platform GST invoice is issued here. issue_platform_gst_invoice is for
+        # a captured payment of a Bizboard subscription charge, which has its own path.
         return existing
 
     @staticmethod
@@ -1749,7 +1943,7 @@ class PaymentService:
     @staticmethod
     def share_payment_link(*, link, channel, recipient, user=None, public_base_url=""):
         from core.services.notifications import NotificationService
-        from sales.whatsapp_send import allow_cloud_for_customer, persist_invoice_whatsapp
+        from sales.whatsapp_send import cloud_allowed_for_recipient, persist_invoice_whatsapp
 
         if link.status in (PaymentLinkStatus.CANCELLED, PaymentLinkStatus.EXPIRED):
             raise BusinessRuleError("Cannot share a cancelled or expired link.")
@@ -1766,7 +1960,7 @@ class PaymentService:
         subject = f"Payment request — {link.company.name}"
         if (channel or "").upper() == "WHATSAPP":
             subject = "payment_reminder"
-            allow_cloud = allow_cloud_for_customer(customer)
+            allow_cloud = cloud_allowed_for_recipient(customer, recipient)
         notification = NotificationService.send(
             company=link.company,
             channel=channel,

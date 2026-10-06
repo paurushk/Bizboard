@@ -14,8 +14,10 @@ evidence:
   source:
   - docs/FREEZE_SCOPE.md B (ENABLE_WHATSAPP_CLOUD=0)
   - docs/reviews/18_COMPETITOR_ANALYSIS.md
+  - backend/tests/test_gp7_whatsapp_templates.py
   detail: Flagged off; the archetype 'Operating Model' explicitly names WhatsApp. Speculative pending
-    demand.
+    demand. The invoice-with-payment-link template and delivery honesty (SENT only with a message id,
+    failures recorded, links never reported as sent) are pinned by mock-based tests.
 scoring:
   reach: 4
   severity: 2

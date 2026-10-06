@@ -23,7 +23,7 @@ recommendation: Add the second-commit test named in L1. Fix the commit path only
 test_required: Second commit of one opening quantity leaves on-hand unchanged.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_second_tally_commit_does_not_change_opening_quantity
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

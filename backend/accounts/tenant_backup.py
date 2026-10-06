@@ -1864,7 +1864,10 @@ def delete_sandbox_company(company) -> None:
 
     with rls_bypass():
         wipe_logical_tenant_rows(company)
-        AuditEvent.objects.filter(company=company).update(company=None)
+        from core.audit_guard import audit_maintenance
+
+        with audit_maintenance("sandbox teardown detaches audit events from the deleted sandbox company"):
+            AuditEvent.objects.filter(company=company).update(company=None)
         MoneyFieldAudit.objects.filter(company=company).delete()
         StatutoryDocumentEvent.objects.filter(company=company).delete()
         User.objects.filter(active_company=company).update(active_company=None)

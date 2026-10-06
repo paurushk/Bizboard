@@ -1,6 +1,6 @@
 """Work-order release / complete / cancel with BOM snapshot + optional WIP GL."""
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 import logging
 
 from django.db import transaction
@@ -11,7 +11,35 @@ from core.exceptions import BusinessRuleError
 from inventory.models import MovementType, SerialNumber, StockBalance, StockMovement
 from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 
-from .models import WorkOrder, WorkOrderLine
+from .models import Bom, BomLine, WorkOrder, WorkOrderLine
+
+
+def assert_no_bom_cycle(company, root_product_id, component_ids, *, ignore_bom_id=None):
+    """Refuse a component path that walks back to the finished good.
+
+    Called before a BOM is saved and before a work order issues components.
+    """
+    root_id = getattr(root_product_id, "pk", root_product_id)
+    pending = []
+    for component in component_ids:
+        cid = getattr(component, "pk", component)
+        if cid == root_id:
+            raise BusinessRuleError("A BOM cannot list its finished good as a component.")
+        pending.append(cid)
+    children = {}
+    rows = BomLine.objects.filter(bom__company=company, bom__status=Bom.Status.ACTIVE)
+    if ignore_bom_id:
+        rows = rows.exclude(bom_id=ignore_bom_id)
+    for parent_id, child_id in rows.values_list("bom__product_id", "component_id"):
+        children.setdefault(parent_id, set()).add(child_id)
+    children[root_id] = set(pending)
+    stack = [(root_id, {root_id})]
+    while stack:
+        node, path = stack.pop()
+        for child in children.get(node, ()):
+            if child in path:
+                raise BusinessRuleError("This BOM contains a cycle.")
+            stack.append((child, path | {child}))
 
 
 def _component_requirements(wo):
@@ -50,7 +78,7 @@ def _issue_cost_total(wo) -> Decimal:
         movement_type=MovementType.MANUFACTURE_ISSUE,
     ):
         total += (move.unit_cost or Decimal("0")) * abs(move.quantity)
-    return total
+    return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def _issue_batches(wo, component, qty, line=None):
@@ -143,6 +171,12 @@ def release_work_order(wo, user, *, component_serials=None):
     assert_period_allows_money_amend(wo.company, gate_date)
     if wo.status != WorkOrder.Status.DRAFT:
         raise BusinessRuleError("Only draft work orders can be released.")
+    assert_no_bom_cycle(
+        wo.company,
+        wo.bom.product_id,
+        list(wo.bom.lines.values_list("component_id", flat=True)),
+        ignore_bom_id=wo.bom_id,
+    )
     if wo.bom.status != wo.bom.Status.ACTIVE:
         raise BusinessRuleError("BOM must be ACTIVE to release a work order.")
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)

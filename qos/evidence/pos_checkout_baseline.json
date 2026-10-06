@@ -1,0 +1,7 @@
+{
+  "catalogue_skus": 20000,
+  "cart_lines": 3,
+  "target_p95_ms": 200,
+  "baseline_p95_ms": null,
+  "note": "The nightly job fills baseline_p95_ms from a 20,000-SKU, 3-line checkout. A later run more than 15% slower fails that job. It is not part of the pull-request suite."
+}

@@ -1,0 +1,20 @@
+# G7 audit overlay. Blanks model-provider keys so a scheduled insights task
+# cannot call OpenAI or Anthropic even if a company flag were flipped.
+# Company AI consent stays off (provision_ux_audit never sets it).
+#
+#   $env:BB_FULL_DEMO = "1"; $env:BB_UX_G7 = "1"; .\scripts\compose-env.ps1 dev up -d
+#
+# Dev only. compose-env.ps1 refuses this on staging.
+services:
+  api:
+    environment:
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+  worker:
+    environment:
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+  beat:
+    environment:
+      OPENAI_API_KEY: ""
+      ANTHROPIC_API_KEY: ""

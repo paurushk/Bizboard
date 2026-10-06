@@ -1,18 +1,43 @@
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+
 from django.http import Http404
+from django.utils.dateparse import parse_datetime
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from core.exceptions import BusinessRuleError
 from core.idempotency import wrap_idempotent
 from core.permissions import CanCreateSales, HasCompany
 from core.services.feature_flags import flag_enabled
 from core.viewsets import CompanyScopedViewSet
-from inventory.models import SerialNumber
+from inventory.models import BatchLot, SerialNumber
 from masters.models import Product
 
-from .models import JobCard
-from .serializers import JobCardSerializer
-from .services import add_line, cancel_job, convert_to_invoice, create_job, start_job
+from .models import JobCard, ServiceBay
+from .serializers import JobCardLineSerializer, JobCardSerializer
+from .services import add_line, cancel_job, convert_to_invoice, create_job, schedule_job, start_job
+
+
+def _bay_for(company, raw):
+    if raw in (None, ""):
+        return None
+    try:
+        return ServiceBay.objects.filter(company=company, pk=raw).first()
+    except (TypeError, ValueError):
+        return None
+
+
+def _when(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value
+    parsed = parse_datetime(str(value))
+    if parsed is None:
+        raise BusinessRuleError("Start and end must be datetimes.")
+    return parsed
 
 
 class JobCardViewSet(CompanyScopedViewSet):
@@ -38,12 +63,27 @@ class JobCardViewSet(CompanyScopedViewSet):
                 from accounts.models import CompanyUser
 
                 tech = CompanyUser.objects.filter(company=self.company, pk=request.data["technician"]).first()
+            bay = _bay_for(self.company, request.data.get("service_bay"))
+            odometer = request.data.get("odometer_reading")
+            if odometer in ("", None):
+                odometer = None
+            else:
+                try:
+                    odometer = Decimal(str(odometer))
+                except (InvalidOperation, TypeError, ValueError):
+                    raise BusinessRuleError("Odometer reading must be a number.") from None
             job = create_job(
                 self.company,
                 request.user,
                 customer=customer,
                 complaint=request.data.get("complaint") or "",
                 technician=tech,
+                registration_no=request.data.get("registration_no") or "",
+                vehicle_model=request.data.get("vehicle_model") or request.data.get("model") or "",
+                odometer_reading=odometer,
+                service_bay=bay,
+                scheduled_start=_when(request.data.get("scheduled_start")),
+                scheduled_end=_when(request.data.get("scheduled_end")),
             )
             return Response(self.get_serializer(job).data, status=201)
 
@@ -61,16 +101,42 @@ class JobCardViewSet(CompanyScopedViewSet):
         serial = None
         if request.data.get("serial"):
             serial = SerialNumber.objects.filter(company=self.company, pk=request.data["serial"]).first()
+        batch = None
+        if request.data.get("batch"):
+            batch = BatchLot.objects.filter(company=self.company, pk=request.data["batch"]).first()
+        line_check = JobCardLineSerializer(data={
+            "kind": request.data.get("kind") or JobCardLineSerializer.Meta.model.Kind.PART,
+            "product": getattr(product, "pk", None),
+            "quantity": request.data.get("quantity"),
+            "unit_price": request.data.get("unit_price"),
+        })
+        line_check.is_valid(raise_exception=True)
         add_line(
             job,
             request.user,
             kind=request.data.get("kind"),
             product=product,
-            quantity=request.data.get("quantity"),
-            unit_price=request.data.get("unit_price"),
+            quantity=line_check.validated_data["quantity"],
+            unit_price=line_check.validated_data["unit_price"],
             serial=serial,
+            batch=batch,
+            batch_no=request.data.get("batch_no") or "",
+            labour_minutes=request.data.get("labour_minutes") or 0,
+            technician_commission_percent=request.data.get("technician_commission_percent") or 0,
         )
         job.refresh_from_db()
+        return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["post"])
+    def schedule(self, request, pk=None):
+        bay = _bay_for(self.company, request.data.get("service_bay"))
+        job = schedule_job(
+            self.get_object(),
+            request.user,
+            service_bay=bay,
+            scheduled_start=_when(request.data.get("scheduled_start")),
+            scheduled_end=_when(request.data.get("scheduled_end")),
+        )
         return Response(self.get_serializer(job).data)
 
     @action(detail=True, methods=["post"])
@@ -84,6 +150,7 @@ class JobCardViewSet(CompanyScopedViewSet):
             job = self.get_object()
             data = self.get_serializer(job).data
             data["sales_invoice"] = invoice.id
+            data["invoice_status"] = invoice.status
             return Response(data)
 
         return wrap_idempotent(

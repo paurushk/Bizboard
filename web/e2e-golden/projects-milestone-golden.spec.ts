@@ -20,12 +20,12 @@ test('a project milestone is added in the browser after the projects flag is gra
   await page.getByRole('combobox', { name: 'Customer', exact: true }).fill(customerName);
   await page.getByRole('option', { name: new RegExp(customerName) }).click();
   await page.getByLabel('Name', { exact: true }).fill(`Fit-out ${id}`);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Start project' }).click();
   await expect(page.getByText(/PRJ-/)).toBeVisible({ timeout: 20_000 });
   await page.getByLabel('Milestone').fill('First visit');
   await page.getByLabel('Amount').fill('1500');
   await page.getByLabel('Service').fill(serviceName);
   await page.getByRole('option', { name: new RegExp(serviceName) }).click();
   await page.getByRole('button', { name: 'Add milestone' }).click();
-  await expect(page.getByText(/First visit · PLANNED/)).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/First visit .* PLANNED/)).toBeVisible({ timeout: 20_000 });
 });

@@ -504,7 +504,22 @@ def test_payment_webhook_parks_unexpected_error_and_replays(tenant_a):
             HTTP_X_SANDBOX_SIGNATURE=sig,
         )
     assert parked.status_code == 202, parked.content
-    event = DeadLetterEvent.objects.get(payload__kind="payment_webhook")
+    from payments.models import ProcessedWebhookEvent
+
+    assert ProcessedWebhookEvent.objects.count() == 0
+    with patch(
+        "payments.webhook_views.PaymentService.finalize_gateway_payment",
+        side_effect=RuntimeError("processor crash"),
+    ):
+        again = Client().post(
+            f"/api/v1/webhooks/payments/sandbox/?company_id={tenant_a.company.id}",
+            data=raw,
+            content_type="application/json",
+            HTTP_X_SANDBOX_SIGNATURE=sig,
+        )
+    assert again.status_code == 202, again.content
+    assert b'"duplicate"' not in again.content
+    event = DeadLetterEvent.objects.filter(payload__kind="payment_webhook").order_by("id").first()
     assert event.status == DeadLetterEvent.Status.PENDING
     replay_dead_letter(event, user=tenant_a.owner)
     event.refresh_from_db()

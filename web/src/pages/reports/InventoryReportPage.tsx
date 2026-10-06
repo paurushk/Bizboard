@@ -48,37 +48,37 @@ type InventoryRow = {
 
 const COLUMNS: {
   key: keyof InventoryRow;
-  label: string;
+  labelKey: string;
   money?: boolean;
   render?: (row: Record<string, unknown>) => React.ReactNode;
 }[] = [
-  { key: 'product', label: 'Product' },
-  { key: 'sku', label: 'SKU' },
-  { key: 'warehouse', label: 'Godown' },
-  { key: 'onHand', label: 'On hand' },
-  { key: 'reserved', label: 'Reserved' },
-  { key: 'available', label: 'Available' },
-  { key: 'reorderLevel', label: 'Reorder' },
-  { key: 'stockValue', label: 'Stock value', money: true },
+  { key: 'product', labelKey: 'cog.colProduct' },
+  { key: 'sku', labelKey: 'cog.colSku' },
+  { key: 'warehouse', labelKey: 'cog.colGodown' },
+  { key: 'onHand', labelKey: 'cog.colOnHand' },
+  { key: 'reserved', labelKey: 'cog.colReserved' },
+  { key: 'available', labelKey: 'cog.colAvailable' },
+  { key: 'reorderLevel', labelKey: 'cog.colReorder' },
+  { key: 'stockValue', labelKey: 'cog.colStockValue', money: true },
   {
     key: 'status',
-    label: 'Status',
+    labelKey: 'cog.colStatus',
     render: (row) => {
       const bDrift = Boolean(row.balanceDrift);
       const rDrift = Boolean(row.reservedDrift);
       if (!bDrift && !rDrift) {
-        return <Chip size="small" label="Healthy" color="success" variant="outlined" />;
+        return <Chip size="small" label={t('sweep.healthy')} color="success" variant="outlined" />;
       }
       return (
         <Stack direction="row" spacing={0.5}>
           {bDrift ? (
-            <Tooltip title={`Cache drift: StockBalance has ${String(row.balanceOnHand ?? 'unknown')}`}>
-              <Chip size="small" label="Balance Drift" color="warning" />
+            <Tooltip title={t('cog.cacheDrift', { qty: String(row.balanceOnHand ?? '—') })}>
+              <Chip size="small" label={t('sweep.balanceDrift')} color="warning" />
             </Tooltip>
           ) : null}
           {rDrift ? (
-            <Tooltip title="Reserved quantity exceeds physical stock or is negative">
-              <Chip size="small" label="Reserved Drift" color="error" />
+            <Tooltip title={t('sweep.reservedDriftHelp')}>
+              <Chip size="small" label={t('sweep.reservedDrift')} color="error" />
             </Tooltip>
           ) : null}
         </Stack>
@@ -149,7 +149,7 @@ export function InventoryReportPage() {
             onClick={() => {
               const url = exportMutation.data?.url;
               if (url) {
-                window.location.href = `mailto:?subject=${encodeURIComponent('Inventory')}&body=${encodeURIComponent(url)}`;
+                window.location.href = `mailto:?subject=${encodeURIComponent(t('nav.inventoryReports'))}&body=${encodeURIComponent(url)}`;
               } else {
                 exportMutation.mutate();
               }
@@ -178,7 +178,12 @@ export function InventoryReportPage() {
       {rows.length > 0 ? (
         // F3-017: one row per product/warehouse company-wide — window the
         // DOM rows via phaseShared.DataTable's virtualized mode.
-        <DataTable rows={rows} columns={COLUMNS} empty={t('empty.reports')} virtualized />
+        <DataTable
+          rows={rows}
+          columns={COLUMNS.map((column) => ({ ...column, label: t(column.labelKey) }))}
+          empty={t('empty.reports')}
+          virtualized
+        />
       ) : null}
     </Stack>
   );

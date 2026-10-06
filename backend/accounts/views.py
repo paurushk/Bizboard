@@ -36,6 +36,14 @@ from .models import (
     Company, CompanyGstin, CompanyStatutoryLicence, CompanyUser, InviteJti, OtpChallenge,
     PasswordResetJti, User,
 )
+from .mfa_service import (
+    check_second_factor,
+    enrolment_required,
+    mfa_challenge_response,
+    mfa_enrollment_response,
+    mfa_is_enabled,
+    user_has_money_role,
+)
 from .otp_utils import hash_otp, normalize_e164, phone_lookup_values, resolve_user_by_phone, verify_otp
 from .serializers import (
     CompanyGstinSerializer,
@@ -50,8 +58,13 @@ from .serializers import (
 
 
 def _tokens_for_user(user):
-    """Issue access + refresh JWTs. Refresh is cookie-only in API responses (BB-000257)."""
+    """Issue access + refresh JWTs. Refresh is cookie-only in API responses (BB-000257).
+
+    ``sv`` is the user's session version. A later deactivation bumps it and
+    every token still carrying the old value is rejected.
+    """
     refresh = RefreshToken.for_user(user)
+    refresh["sv"] = int(getattr(user, "session_version", 0) or 0)
     return {"refresh": str(refresh), "access": str(refresh.access_token)}
 
 
@@ -146,13 +159,25 @@ def _active_membership(user):
         m = qs.filter(company_id=user.active_company_id).order_by("id").first()
         if m:
             return m
+        # BUG-SEC-017: a stale active company must not fall through to another
+        # membership. Clear it and require an explicit pick. Sign-in repairs a stale id first
+        # (_ensure_active_company), so a user who still has another live membership is not
+        # refused once before this runs.
+        try:
+            user.active_company_id = None
+            user.save(update_fields=["active_company_id"])
+        except Exception:  # noqa: BLE001 — audit must not switch companies
+            pass
+        return None
     return qs.order_by("id").first()
 
 
 def _ensure_active_company(user):
-    """Default active company to first membership when unset."""
+    """Default active company to first membership when unset, or when it points at a company
+    where this user no longer has an active membership (so sign-in does not fail once)."""
     if user.active_company_id:
-        return
+        if user.company_memberships.filter(is_active=True, company_id=user.active_company_id).exists():
+            return
     membership = user.company_memberships.filter(is_active=True).order_by("id").first()
     if membership:
         user.active_company_id = membership.company_id
@@ -506,6 +531,96 @@ def _access_in_json_body_allowed() -> bool:
     return env in ("development", "test", "")
 
 
+def _complete_login(request, response, user):
+    """Turn a successful credential check into a session: active company, LOGIN audit,
+    access in the body only where allowed, refresh + access httpOnly cookies, CSRF cookie.
+
+    ``response.data`` must carry the SimpleJWT ``access``/``refresh`` pair. Shared by the
+    password login and the MFA second step so both issue sessions identically.
+    """
+    _ensure_active_company(user)
+    membership = _active_membership(user)
+    AuditService.log(
+        company=membership.company if membership else None,
+        user=user, action="LOGIN", entity_type="User", entity_id=user.id,
+    )
+    _stamp_session_version(response, user)
+    if membership:
+        refresh = response.data.get("refresh", "")
+        access = response.data.get("access", "")
+        # BB-000407 / BB-000471: cookie-only access when not local DEBUG.
+        body = {"user": MeSerializer(membership).data}
+        body["access"] = access if _access_in_json_body_allowed() else None
+        response.data = body
+        if refresh:
+            _set_refresh_cookie(response, refresh)
+        if access:
+            _set_access_cookie(response, access)
+        _ensure_csrf_cookie(request)
+    else:
+        response.data = {
+            "detail": "No active company membership. Ask an owner to invite you."
+        }
+        response.status_code = status.HTTP_403_FORBIDDEN
+    return response
+
+
+def _stamp_session_version(response, user) -> None:
+    """Put the user's session version on tokens SimpleJWT minted without it.
+
+    The password login view mints its pair in TokenObtainPairSerializer, which knows
+    nothing about ``sv``. Without the claim a user whose sessions were revoked once
+    would get an access token that authentication rejects on the first request.
+    """
+    data = getattr(response, "data", None)
+    raw = data.get("refresh") if isinstance(data, dict) else None
+    if not raw:
+        return
+    try:
+        token = RefreshToken(str(raw))
+    except TokenError:
+        return
+    sv = int(getattr(user, "session_version", 0) or 0)
+    if int(token.get("sv", 0) or 0) == sv and "sv" in token:
+        return
+    token["sv"] = sv
+    data["refresh"] = str(token)
+    data["access"] = str(token.access_token)
+
+
+def _blacklist_minted_refresh(response) -> None:
+    """Invalidate the refresh JWT TokenObtainPairView just stored (BUG-SEC-011)."""
+    data = getattr(response, "data", None)
+    raw = data.get("refresh") if isinstance(data, dict) else None
+    if not raw:
+        return
+    try:
+        RefreshToken(str(raw)).blacklist()
+    except TokenError:
+        return
+
+
+def _mfa_waiver_skips_enrolment(user) -> bool:
+    return bool(
+        getattr(settings, "MFA_ENFORCE_WAIVER", False)
+        and not getattr(settings, "MFA_ENFORCE_FOR_MONEY_ROLES", False)
+        and not mfa_is_enabled(user)
+        and user_has_money_role(user)
+    )
+
+
+def _audit_mfa_waiver(request, user) -> None:
+    membership = _active_membership(user)
+    AuditService.log(
+        company=membership.company if membership else None,
+        user=user,
+        action="MFA_ENFORCE_WAIVER",
+        entity_type="User",
+        entity_id=user.id,
+        description="Login allowed without an authenticator because MFA_ENFORCE_WAIVER is set.",
+    )
+
+
 class LoginView(TokenObtainPairView):
     """Email + password JWT login with LOGIN audit. Access in body; refresh cookie only."""
 
@@ -545,30 +660,20 @@ class LoginView(TokenObtainPairView):
                 )
             cache.delete(fail_key)
             cache.delete(ip_fail_key)
+            if user and (mfa_is_enabled(user) or enrolment_required(user)):
+                # BUG-SEC-011: the parent view already inserted an OutstandingToken.
+                # Blacklist it before the challenge so the row cannot skip MFA.
+                _blacklist_minted_refresh(response)
+            if user and mfa_is_enabled(user):
+                # F-SEC-02: password was right, but a second factor is enrolled. Issue NO
+                # tokens/cookies and write no LOGIN audit yet - /auth/mfa/verify/ finishes it.
+                return mfa_challenge_response(user)
+            if user and enrolment_required(user):
+                return mfa_enrollment_response(user)
+            if user and _mfa_waiver_skips_enrolment(user):
+                _audit_mfa_waiver(request, user)
             if user:
-                _ensure_active_company(user)
-                membership = _active_membership(user)
-                AuditService.log(
-                    company=membership.company if membership else None,
-                    user=user, action="LOGIN", entity_type="User", entity_id=user.id,
-                )
-                if membership:
-                    refresh = response.data.get("refresh", "")
-                    access = response.data.get("access", "")
-                    # BB-000407 / BB-000471: cookie-only access when not local DEBUG.
-                    body = {"user": MeSerializer(membership).data}
-                    body["access"] = access if _access_in_json_body_allowed() else None
-                    response.data = body
-                    if refresh:
-                        _set_refresh_cookie(response, refresh)
-                    if access:
-                        _set_access_cookie(response, access)
-                    _ensure_csrf_cookie(request)
-                else:
-                    response.data = {
-                        "detail": "No active company membership. Ask an owner to invite you."
-                    }
-                    response.status_code = status.HTTP_403_FORBIDDEN
+                _complete_login(request, response, user)
         return response
 
 
@@ -614,6 +719,12 @@ class CookieTokenRefreshView(APIView):
                 raise AuthenticationFailed("Invalid refresh token.") from exc
             if not CompanyUser.objects.filter(user=user, is_active=True).exists():
                 raise AuthenticationFailed("No active company membership.")
+            if enrolment_required(user):
+                # A refresh cookie alone must not hand out an enrol token: that would let a stolen
+                # cookie bind the attacker's authenticator and lock the real user out. The presented
+                # refresh is already blacklisted; the user signs in with a password, which issues the
+                # enrol token (BUG-SEC-010).
+                raise AuthenticationFailed("Sign in again to set up two-step verification.")
             tokens = _tokens_for_user(user)
             env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
             access_body = tokens["access"] if _access_in_json_body_allowed() else None
@@ -772,6 +883,12 @@ class VerifyOtpView(APIView):
         membership = _active_membership(user)
         if membership is None:
             raise OtpExpiredError()
+        if mfa_is_enabled(user):
+            # F-SEC-02: a phone OTP is one factor. With MFA enrolled it must not mint a
+            # session by itself, otherwise it is a way around the authenticator code.
+            return mfa_challenge_response(user)
+        if enrolment_required(user):
+            return mfa_enrollment_response(user)
         AuditService.log(
             company=membership.company if membership else None,
             user=user, action="LOGIN", entity_type="User", entity_id=user.id,
@@ -1018,6 +1135,7 @@ class ChangePasswordView(APIView):
         request.user.save(update_fields=["password"])
         for token in OutstandingToken.objects.filter(user=request.user):
             BlacklistedToken.objects.get_or_create(token=token)
+        _bump_session_version(request.user)
         membership = _active_membership(request.user)
         AuditService.log(
             company=membership.company if membership else None,
@@ -1115,6 +1233,44 @@ class AcceptInviteView(APIView):
             entity_id=user.id,
             description="Invite accepted; membership activated",
         )
+        if mfa_is_enabled(user):
+            # A current TOTP or recovery code is required before a session, including when
+            # the caller is already signed in as this user. A missing or wrong code is 200
+            # with mfa_required so the client does not refresh. Membership stays active.
+            from .models import UserMfa
+
+            from django.core.cache import cache
+
+            from .mfa_views import MFA_FAIL_LIMIT, _fail_key, _incr_with_ttl
+
+            code = str(request.data.get("code") or "")
+            recovery = str(request.data.get("recovery_code") or request.data.get("recoveryCode") or "")
+            # The same wrong-code limit as the sign-in verify step: six digits must not be guessable
+            # through this endpoint just because it is reached with an invite token.
+            if (code or recovery) and cache.get(_fail_key(user.pk), 0) >= MFA_FAIL_LIMIT:
+                raise TooManyLoginAttemptsError()
+            with transaction.atomic():
+                rec = (
+                    UserMfa.objects.select_for_update()
+                    .filter(user=user, confirmed_at__isnull=False)
+                    .first()
+                )
+                ok = bool(rec) and bool(code or recovery) and check_second_factor(
+                    rec, code=code, recovery_code=recovery,
+                )
+            if code or recovery:
+                if ok:
+                    cache.delete(_fail_key(user.pk))
+                else:
+                    _incr_with_ttl(_fail_key(user.pk))
+            if not ok:
+                challenge = mfa_challenge_response(user)
+                challenge.data["detail"] = "Invite accepted. Enter your authenticator code to continue."
+                challenge.data["company_id"] = membership.company_id
+                challenge.data["email"] = user.email
+                return challenge
+        elif enrolment_required(user):
+            return mfa_enrollment_response(user)
         tokens = _tokens_for_user(user)
         payload = {
             "detail": "Invite accepted.",
@@ -1138,6 +1294,7 @@ class LogoutAllView(APIView):
     def post(self, request):
         for token in OutstandingToken.objects.filter(user=request.user):
             BlacklistedToken.objects.get_or_create(token=token)
+        _bump_session_version(request.user)
         membership = _active_membership(request.user)
         AuditService.log(
             company=membership.company if membership else None,
@@ -1155,6 +1312,12 @@ def _active_owner_count(company, exclude_pk=None):
     return qs.count()
 
 
+def _bump_session_version(user) -> None:
+    """Kill the access tokens already issued: they carry the old version and are refused."""
+    user.session_version = int(getattr(user, "session_version", 0) or 0) + 1
+    user.save(update_fields=["session_version"])
+
+
 def _revoke_sessions_if_last_active_membership(user) -> None:
     """B6-017: a deactivated CompanyUser row alone leaves the user's current
     access JWT usable for its remaining lifetime, and refresh only gets cut at
@@ -1166,8 +1329,13 @@ def _revoke_sessions_if_last_active_membership(user) -> None:
     """
     if user.company_memberships.filter(is_active=True).exists():
         return
+    user.session_version = int(getattr(user, "session_version", 0) or 0) + 1
+    user.save(update_fields=["session_version"])
     for token in OutstandingToken.objects.filter(user=user):
         BlacklistedToken.objects.get_or_create(token=token)
+    from planwave.sockets import drop_user_sockets
+
+    drop_user_sockets(user)
 
 
 def _staff_invite_caps(data: dict) -> dict:

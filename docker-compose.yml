@@ -91,7 +91,7 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A config worker -l info --concurrency=${CELERY_CONCURRENCY:-2}
+    command: celery -A config worker -l info -Q celery,high_priority,media_heavy,reports --concurrency=${CELERY_CONCURRENCY:-2}
     # BB-000314: required:false for local/dev; a prod overlay should set required:true.
     env_file:
       - path: .env
@@ -198,7 +198,7 @@ services:
         condition: service_healthy
 
   # Backend test suite / linters in a throwaway container — Python 3.14 comes from
-  # the ./backend base image (python:3.14-slim-bookworm), matching CI. Never starts
+  # the ./backend base image (python:3.13-slim-bookworm), matching CI. Never starts
   # on `docker compose up` (profile-gated). Dev-only tooling (pytest/ruff) is layered
   # in at run time from requirements-dev.txt and cached in the pip_cache volume.
   #   docker compose --profile test build test                        # REQUIRED after any backend/ code change (run does not rebuild)

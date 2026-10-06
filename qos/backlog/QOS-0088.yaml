@@ -23,7 +23,7 @@ recommendation: Draft invoice for the converted customer, same Idempotency-Key r
 test_required: One customer, one invoice, including a PostgreSQL double-submit race.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_won_lead_creates_one_draft_invoice
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

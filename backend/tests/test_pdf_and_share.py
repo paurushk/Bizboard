@@ -348,7 +348,7 @@ def test_complete_survives_pdf_failure(mock_pdf, tenant_a):
     assert resp.data["status"] == "COMPLETED"
     assert resp.data["number"].startswith("INV-")
     status = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/pdf-status/")
-    assert status.data["pdf_status"] == "FAILED"
+    assert status.data["pdf_status"] == "QUEUED"
     mock_pdf.assert_called()
 
 

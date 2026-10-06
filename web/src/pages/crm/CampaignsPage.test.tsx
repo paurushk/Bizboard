@@ -66,8 +66,10 @@ describe('CampaignsPage', () => {
   it('lists campaigns and creates a new one with the expected payload', async () => {
     const user = userEvent.setup();
     wrap();
-    expect(await screen.findByText(/Diwali · DIGITAL · ACTIVE/)).toBeInTheDocument();
+    expect(await screen.findByText(/Diwali · Digital · Active/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Name')).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'New campaign' }));
     await user.type(screen.getByLabelText('Name'), 'Holi');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
@@ -89,7 +91,7 @@ describe('CampaignsPage', () => {
 
     await waitFor(() => expect(getCampaignFunnel).toHaveBeenCalledWith(1));
     expect(await screen.findByText(/Leads: 4/)).toBeInTheDocument();
-    expect(screen.getByText(/Revenue: 650.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Revenue: .*650.00/)).toBeInTheDocument();
     expect(screen.getByText(/ROI 0.6500/)).toBeInTheDocument();
   });
 });

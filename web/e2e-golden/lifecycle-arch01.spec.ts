@@ -46,7 +46,7 @@ test('lifecycle ARCH-01: POS checkout -> history badge -> Owner sales return -> 
   const invoiceRow = page.getByRole('row').filter({ hasText: /Paid|Completed/ }).first();
   await expect(invoiceRow).toContainText(/₹/);
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   await completeSalesReturn(page, invoiceNumber!);

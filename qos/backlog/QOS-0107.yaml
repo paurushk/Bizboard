@@ -1,0 +1,32 @@
+id: "QOS-0107"
+category: "PERFORMANCE"
+title: "No latency histogram on /metrics and no frontend bundle budget"
+persona:
+- "P1"
+- "P2"
+journey: "Measure p95 from the server; keep first load fast on a phone"
+problem: "/metrics exposed only a duration sum and count (no p95) with per-process counters, and nothing enforced a bundle-size limit. Measured initial load is 482 KB gzip (entry 288 + react 59 + query 14 + mui 121), larger than the 250 KB previously assumed from the entry chunk alone."
+evidence:
+  strength: "measured"
+  source:
+  - "backend/core/ops_metrics.py"
+  - "web/scripts/check-bundle-budget.mjs"
+  - "web/bundle-budget.json"
+  detail: "Built web/dist on 2026-10-02 and gzipped the files referenced by index.html: 481.7 KB. Budget set at 530 KB as a ratchet; the largest lazy chunk is 124 KB gzip against a 150 KB limit."
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 4
+  impact_band: "Medium"
+business_metric: "activation"
+priority: "P1"
+priority_rationale: "Medium impact; measured. Supports the SLO measurement work in QOS-0003."
+effort: "S"
+recommendation: "Done: a bizboard_http_latency_ms histogram (edges at 500/800/2000/8000 ms) with a pid label, and the bundle budget in CI. The histogram is still per-process; true aggregation needs prometheus_client multiprocess mode."
+test_required: "backend/tests/test_ops_metrics_histogram.py; node web/scripts/check-bundle-budget.mjs"
+guard_ref:
+  test: "backend/tests/test_ops_metrics_histogram.py"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-02"
+closed: "2026-10-02"

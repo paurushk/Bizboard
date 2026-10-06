@@ -3,6 +3,7 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { Link as RouterLink } from 'react-router-dom';
+import { t } from '@/i18n';
 
 /**
  * BB-000751: unknown routes previously fell through to a silent redirect to
@@ -24,7 +25,7 @@ export function NotFoundPage() {
         <Typography variant="h2" fontWeight={700} color="text.secondary">
           404
         </Typography>
-        <Typography variant="h6">Page not found</Typography>
+        <Typography variant="h6">{t('sweep2.pageNotFound')}</Typography>
         <Typography color="text.secondary" sx={{ maxWidth: 420 }}>
           There's nothing at{' '}
           <Typography component="span" fontFamily="monospace">
@@ -33,7 +34,7 @@ export function NotFoundPage() {
           . It may have moved, or the link might be out of date.
         </Typography>
         <Button component={RouterLink} to="/" variant="contained">
-          Back to Dashboard
+          {t('sweep2.backToDashboard')}
         </Button>
       </Stack>
     </Box>

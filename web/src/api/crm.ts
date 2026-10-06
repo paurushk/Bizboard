@@ -94,6 +94,14 @@ export async function convertLead(
   return unwrapData<LeadConvertResult>(data);
 }
 
+export async function draftOpportunityInvoice(id: number): Promise<{ id: number }> {
+  // One key per opportunity: a double click replays the first draft instead of creating a second.
+  const { data } = await apiClient.post(`/crm/opportunities/${id}/draft-invoice/`, {}, {
+    headers: idempotencyHeaders(`opportunity-draft-${id}`),
+  });
+  return unwrapData<{ id: number }>(data);
+}
+
 export async function listLeadActivities(leadId: number): Promise<LeadActivity[]> {
   const { data } = await apiClient.get(`${BASE}/leads/${leadId}/activities/`);
   const body = unwrapData<LeadActivity[] | { results: LeadActivity[] }>(data);
@@ -169,6 +177,18 @@ export function whatsappWebhookUrl(token: string): string {
 
 export async function issueWhatsappWebhookToken(rotate = false): Promise<{ token: string }> {
   const { data } = await apiClient.post(`${BASE}/leads/whatsapp-token/`, rotate ? { rotate: true } : {});
+  return unwrapData(data);
+}
+
+export async function createInvoiceFromOpportunity(
+  id: number,
+  items?: { product: number; quantity: string; unit_price: string; gst_rate?: string }[],
+): Promise<{ id: number }> {
+  const { data } = await apiClient.post(
+    `${BASE}/opportunities/${id}/draft-invoice/`,
+    items ? { items } : {},
+    { headers: idempotencyHeaders() },
+  );
   return unwrapData(data);
 }
 

@@ -326,7 +326,7 @@ def _gst_rate_exposure_rows(company, as_of: date) -> list[dict]:
             f"{count} completed invoice line(s) billed a rate that is not the table rate "
             f"on the document date. Estimated tax delta ₹{scan.get('estimated_exposure')}."
         ),
-        action_label="Open rate back-scan",
+        action_label="Review GST rates on these bills",
         action_href="/reports/gst-rate-exposure",
         source_ticket="B-06",
         entity_type="company",

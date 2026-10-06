@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -15,6 +16,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { partyOrLinesDirty } from '@/pages/moneyFormDirty';
 import {
   cancelDeliveryChallan,
   completeDeliveryChallan,
@@ -71,6 +74,7 @@ export function DeliveryChallanEditorPage() {
   const [transporterName, setTransporterName] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
   const [pendingQty, setPendingQty] = useState('1');
 
@@ -101,13 +105,16 @@ export function DeliveryChallanEditorPage() {
     selectedCustomer?.gstin || selectedCustomer?.state,
   );
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoaded(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
 
-  useEffect(() => {
-    if (!existing.data || loaded) return;
+  // Hydrate the form from the saved challan once. Not re-run on intraState (see the re-tax block below),
+  // which would clobber in-progress edits.
+  if (existing.data && !loaded) {
     const c = existing.data;
     setEditingStatus(c.status);
     setCustomerId(c.customer);
@@ -151,17 +158,19 @@ export function DeliveryChallanEditorPage() {
       }),
     );
     setLoaded(true);
-    // F2-040: intentionally NOT keyed on intraState — see the effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing.data, loaded]);
+  }
 
   // F2-040: the selected customer (and so intraState) may not have resolved yet at
   // hydration time, leaving every line at zero tax; also covers switching the
   // customer after lines already exist, which otherwise leaves them stale.
-  useEffect(() => {
-    if (!loaded) return;
-    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
-  }, [intraState, loaded]);
+  const retaxKey = loaded ? String(intraState) : null;
+  const [seenRetaxKey, setSeenRetaxKey] = useState<string | null>(null);
+  if (seenRetaxKey !== retaxKey) {
+    setSeenRetaxKey(retaxKey);
+    if (retaxKey !== null) {
+      setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+    }
+  }
 
   const onOrderPick = async (order: SalesOrder | null) => {
     setSalesOrderId(order?.id ?? '');
@@ -292,6 +301,7 @@ export function DeliveryChallanEditorPage() {
     },
     onSuccess: (doc) => {
       setMessage(t('phase1.saved'));
+      flushSync(() => setSkipLeaveGuard(true));
       void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
       if (!isEdit) void navigate(`/sales/delivery-challans/${doc.id}`, { replace: true });
       else setEditingStatus(doc.status);
@@ -301,13 +311,17 @@ export function DeliveryChallanEditorPage() {
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelDeliveryChallan(editId as number),
-    onSuccess: () => void navigate('/sales/delivery-challans'),
+    onSuccess: () => {
+      flushSync(() => setSkipLeaveGuard(true));
+      void navigate('/sales/delivery-challans');
+    },
     onError: (err) => flashError(getErrorMessage(err)),
   });
 
   const convertMutation = useMutation({
     mutationFn: () => convertDeliveryChallan(editId as number),
     onSuccess: (invoice) => {
+      flushSync(() => setSkipLeaveGuard(true));
       void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
       void navigate(`/sales/history/${invoice.id}/edit`);
@@ -321,6 +335,8 @@ export function DeliveryChallanEditorPage() {
   }
 
   return (
+    <>
+    <UnsavedChangesGuard when={!skipLeaveGuard && partyOrLinesDirty(customerId, lines.length)} />
     <DocumentEditorShell
       title={t(isEdit ? 'phase1.editDeliveryChallan' : 'phase1.newDeliveryChallan')}
       primarySave={primarySave}
@@ -411,7 +427,7 @@ export function DeliveryChallanEditorPage() {
         <TextField label={t('billing.addNotes')} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} multiline minRows={2} fullWidth />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -465,8 +481,8 @@ export function DeliveryChallanEditorPage() {
                   </TableCell>
                   {!readOnly ? (
                     <TableCell align="right">
-                      <IconButton size="small" onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
-                        <DeleteIcon fontSize="small" />
+                      <IconButton size="small" aria-label={t('common.delete')} onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
+                        <DeleteIcon fontSize="small" aria-label={t('common.delete')} />
                       </IconButton>
                     </TableCell>
                   ) : null}
@@ -519,5 +535,6 @@ export function DeliveryChallanEditorPage() {
         ) : null}
       </Stack>
     </DocumentEditorShell>
+    </>
   );
 }

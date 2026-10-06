@@ -2,7 +2,7 @@
 
 Remaining skips are only where freeze says LIM (OCR UI) or a later flow does
 not exist. Redirected ids are unskipped structural pointers (no ``assert True``).
-Live-gateway E2E stays WF-37/38 in ``test_wf_extended_stubs.py``.
+Live-gateway E2E stays WF-37/38 in ``test_wf_extended.py``.
 """
 
 from __future__ import annotations
@@ -1032,7 +1032,7 @@ def test_wf20_period_close_then_sanctioned_correction():
     tests = Path(__file__).resolve().parents[1]
     _pointer({
         tests / "personas" / "test_pj_stubs.py": "test_pj_wholesale_accountant_period_close",
-        tests / "workflows" / "test_wf_extended_stubs.py": "test_wf44_invoice_amendment_h9",
+        tests / "workflows" / "test_wf_extended.py": "test_wf44_invoice_amendment_h9",
     })
 
 
@@ -1070,12 +1070,16 @@ def test_wf21_stock_transfer_between_godowns(tenant_a, assert_consistent):
 
     done = tenant_a.client.post(f"/api/v1/inventory/transfers/{transfer_id}/complete/")
     assert done.status_code == 200, done.data
+    received = tenant_a.client.post(f"/api/v1/inventory/transfers/{transfer_id}/receive/")
+    assert received.status_code == 200, received.data
 
     out_move = StockMovement.objects.get(
-        company=company, reference_type="stock_transfer", reference_id=str(transfer_id), movement_type=MovementType.TRANSFER_OUT
+        company=company, reference_type="stock_transfer", reference_id=str(transfer_id),
+        movement_type=MovementType.TRANSFER_OUT, warehouse=wh1,
     )
     in_move = StockMovement.objects.get(
-        company=company, reference_type="stock_transfer", reference_id=str(transfer_id), movement_type=MovementType.TRANSFER_IN
+        company=company, reference_type="stock_transfer", reference_id=str(transfer_id),
+        movement_type=MovementType.TRANSFER_IN, warehouse=wh2,
     )
     assert out_move.quantity == Decimal("-6.000")
     assert in_move.quantity == Decimal("6.000")

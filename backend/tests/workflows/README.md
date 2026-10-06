@@ -55,7 +55,7 @@ settings matrix.
 - Purchase History, Suppliers: list/CRUD → `tenancy` + RBAC.
 
 ### Extended chains — pending FREEZE_SCOPE §G disposition
-Stubs in `test_wf_extended_stubs.py`. These assume the §G "proposed" column
+Stubs in `test_wf_extended.py`. These assume the §G "proposed" column
 (D5=ON ⇒ accounting core SUP; D2=ON ⇒ TDS/TCS core SUP; D3=ON ⇒ refunds/recon
 SUP). Cut the stub if the founder marks the flow OUT/LIM.
 - **WF-29** manual journal entry · **WF-30** chart of accounts · **WF-31** FY close ·

@@ -224,6 +224,8 @@ export type PosUpiPendingSnapshot = {
   upiQr: Record<string, string> | null;
   lines?: InvoiceDraftLine[];
   confirmBlankPos?: boolean;
+  invoiceDiscount?: number;
+  additionalCharges?: number;
 };
 
 export function upiPendingStorageKey(companyId: number, userId: number): string {
@@ -262,6 +264,12 @@ export function parseUpiPending(raw: string | null | undefined): PosUpiPendingSn
       lines: Array.isArray(parsed.lines) ? (parsed.lines as InvoiceDraftLine[]) : undefined,
       confirmBlankPos:
         typeof parsed.confirmBlankPos === 'boolean' ? parsed.confirmBlankPos : undefined,
+      invoiceDiscount: Number.isFinite(Number(parsed.invoiceDiscount))
+        ? Number(parsed.invoiceDiscount)
+        : undefined,
+      additionalCharges: Number.isFinite(Number(parsed.additionalCharges))
+        ? Number(parsed.additionalCharges)
+        : undefined,
     };
   } catch {
     return null;

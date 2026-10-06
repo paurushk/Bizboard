@@ -8,6 +8,18 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 app = Celery("bizboard")
 app.config_from_object("django.conf:settings", namespace="CELERY")
+# BUG-PERF-002: route fast OTP / payment work off the media and report queues.
+# settings.py is owned by another change, so the routes live on the Celery app.
+app.conf.task_routes = {
+    "core.tasks.send_otp_*": {"queue": "high_priority"},
+    "core.tasks.send_email_notification": {"queue": "high_priority"},
+    "payments.tasks.process_webhook_*": {"queue": "high_priority"},
+    "payments.tasks.execute_gateway_refund": {"queue": "high_priority"},
+    "payments.tasks.reconcile_gateway_captures_task": {"queue": "high_priority"},
+    "sales.tasks.generate_invoice_pdf": {"queue": "media_heavy"},
+    "ocr.tasks.process_bill_image": {"queue": "media_heavy"},
+    "reporting.tasks.*": {"queue": "reports"},
+}
 app.autodiscover_tasks()
 
 # BB-000709: include note/challan/notification ids; prefer company_id in kwargs

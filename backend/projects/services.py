@@ -26,7 +26,7 @@ def create_project(company, user, *, customer, name):
 
 
 @transaction.atomic
-def add_milestone(project, user, *, name, amount, service_product, sequence=1):
+def add_milestone(project, user, *, name, amount, service_product, sequence=1, target_completion_date=None):
     if project.status != Project.Status.OPEN:
         raise BusinessRuleError("Milestones can be added only on an open project.")
     if service_product is None or service_product.company_id != project.company_id:
@@ -41,10 +41,41 @@ def add_milestone(project, user, *, name, amount, service_product, sequence=1):
         name=name,
         sequence=sequence,
         amount=amount,
+        target_completion_date=target_completion_date,
         service_product=service_product,
         created_by=user,
         updated_by=user,
     )
+
+
+@transaction.atomic
+def update_milestone(
+    milestone, user, *, name=None, amount=None, target_completion_date=None, sequence=None, set_target=False,
+):
+    milestone = ProjectMilestone.objects.select_for_update().get(pk=milestone.pk)
+    if milestone.status != ProjectMilestone.Status.PLANNED or milestone.sales_invoice_id:
+        raise BusinessRuleError("Only a planned milestone can be edited.")
+    if name is not None:
+        milestone.name = name
+    if amount is not None:
+        if Decimal(str(amount)) <= 0:
+            raise BusinessRuleError("Milestone amount must be positive.")
+        milestone.amount = amount
+    if sequence is not None:
+        milestone.sequence = sequence
+    if set_target:
+        milestone.target_completion_date = target_completion_date
+    milestone.updated_by = user
+    milestone.save()
+    return milestone
+
+
+@transaction.atomic
+def delete_milestone(milestone, user):
+    milestone = ProjectMilestone.objects.select_for_update().get(pk=milestone.pk)
+    if milestone.status != ProjectMilestone.Status.PLANNED or milestone.sales_invoice_id:
+        raise BusinessRuleError("Only a planned milestone can be deleted.")
+    milestone.delete()
 
 
 @transaction.atomic
@@ -129,9 +160,9 @@ def close_project(project, user):
     incomplete = project.milestones.filter(sales_invoice__isnull=False).exclude(
         sales_invoice__status=SalesInvoice.Status.COMPLETED,
     )
-    unbilled = project.milestones.filter(
-        status=ProjectMilestone.Status.READY, sales_invoice__isnull=True,
-    )
+    unbilled = project.milestones.exclude(
+        status=ProjectMilestone.Status.INVOICED,
+    ).filter(sales_invoice__isnull=True)
     if incomplete.exists() or unbilled.exists():
         raise BusinessRuleError("Complete milestone invoices before closing the project.")
     project.milestones.filter(sales_invoice__status=SalesInvoice.Status.COMPLETED).update(

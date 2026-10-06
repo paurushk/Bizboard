@@ -55,6 +55,9 @@ DEBUG = _parse_debug_flag(os.environ.get("DJANGO_DEBUG", "0"))
 # DJANGO_ENV is env-only (default development for local). Do not derive from DEBUG.
 _DJANGO_ENV_EXPLICIT = "DJANGO_ENV" in os.environ
 DJANGO_ENV = (os.environ.get("DJANGO_ENV") or "development").strip().lower()
+PLANWAVE_RATE_LIMIT = os.environ.get(
+    "PLANWAVE_RATE_LIMIT", "0" if DJANGO_ENV == "test" else "1",
+) == "1"
 # BB-000441: containers must set DJANGO_ENV explicitly (no silent development default).
 if Path("/.dockerenv").exists() and "DJANGO_ENV" not in os.environ:
     raise ImproperlyConfigured(
@@ -187,6 +190,7 @@ INSTALLED_APPS = [
     "banking",
     "billing",
     "ops",
+    "planwave",
 ]
 
 MIDDLEWARE = [
@@ -203,6 +207,7 @@ MIDDLEWARE = [
     "core.middleware.PostgresRlsMiddleware",
     "billing.middleware.SubscriptionWriteGateMiddleware",
     "core.middleware.ContentSecurityPolicyMiddleware",  # QOS-0011
+    "planwave.ratelimit.PlanRateLimitMiddleware",
 ]
 
 CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY")  # None -> middleware default
@@ -303,6 +308,18 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Golden e2e registers and signs in once per spec. The production sign-up
+# budgets (5/min) 429 that suite. Opt in only with DEBUG, so a deployed
+# process cannot widen these limits by setting the env var alone.
+_E2E_AUTH_THROTTLE = (
+    "1000/min" if DEBUG and _env_bool("E2E_RELAX_AUTH_THROTTLE") else None
+)
+if _E2E_AUTH_THROTTLE:
+    # Planwave counts every /auth/register* call, including OTP request, in a
+    # 5/hour IP bucket. Golden signs up once per spec and would 429 after a
+    # handful of tests. Same DEBUG gate as the DRF rates above.
+    PLANWAVE_RATE_LIMIT = False
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "core.authentication.CookieJWTAuthentication",
@@ -333,9 +350,9 @@ REST_FRAMEWORK = {
         "core.throttles.TenantPlanRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
-        "anon": "120/min",
+        "anon": _E2E_AUTH_THROTTLE or "120/min",
         "user": "600/min",
-        "login": "10/min",
+        "login": _E2E_AUTH_THROTTLE or "10/min",
         # UXW2-003: token refresh used to share "login"'s budget, but refresh
         # fires automatically (on 401 retry, on boot, on rapid navigation) and
         # isn't a credential-guessing surface (it requires an existing valid
@@ -350,9 +367,9 @@ REST_FRAMEWORK = {
         # slightly looser budget so it doesn't share a bucket with sending
         # and get exhausted by the OTP_MAX_ATTEMPTS=5 lockout path itself.
         "otp_verify": "20/min",
-        "register": "5/min",
+        "register": _E2E_AUTH_THROTTLE or "5/min",
         # Sign-up email verification code — same shape as "otp" (send budget).
-        "register_otp": "5/min",
+        "register_otp": _E2E_AUTH_THROTTLE or "5/min",
         # B6-012: tight budget for current-password verification (change-password
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
@@ -539,6 +556,14 @@ EMAIL_TIMEOUT = _env_int("EMAIL_TIMEOUT", 10)
 # interpreted in CELERY_TIMEZONE (Asia/Kolkata). All wall-clock comments here
 # are therefore IST. (A previous comment claimed "06:00 IST ≈ 00:30 UTC" while
 # the crontab said 00:30 — with enable_utc off that actually ran at 00:30 IST.)
+# Bills priced under purchase cost are refused unless the company allows them or an owner
+# records a reason (BUG-SALES-006). A company setting overrides this process default.
+ALLOW_BELOW_COST_SALES_DEFAULT = _env_bool("ALLOW_BELOW_COST_SALES_DEFAULT")
+
+# Hours a stock reservation stays before the beat task releases it. 0 (the default)
+# means reservations never expire: a confirmed sales order holds its stock until it is
+# delivered or cancelled. A company can opt in with feature_flags.reservation_ttl_hours.
+STOCK_RESERVATION_TTL_HOURS = _env_int("STOCK_RESERVATION_TTL_HOURS", 0)
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
 CELERY_ENABLE_UTC = _env_bool("CELERY_ENABLE_UTC")
 CELERY_BEAT_SCHEDULE = {
@@ -563,6 +588,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "inventory.tasks.record_expiry_bands_task",
         "schedule": crontab(hour=7, minute=0),
     },
+    "inventory-release-expired-reservations": {
+        "task": "inventory.tasks.release_expired_reservations_task",
+        "schedule": crontab(minute="*/15"),
+    },
     "reporting-itc-expiry-digest": {
         "task": "reporting.tasks.send_itc_expiry_digests_task",
         "schedule": crontab(hour=7, minute=30),
@@ -582,6 +611,10 @@ CELERY_BEAT_SCHEDULE = {
     "sales-recurring-invoices": {
         "task": "sales.tasks.generate_recurring_invoices_task",
         "schedule": crontab(minute=15),
+    },
+    "sales-requeue-stale-pdfs": {
+        "task": "sales.tasks.requeue_stale_invoice_pdfs",
+        "schedule": crontab(minute="*/15"),
     },
     "payments-gateway-refund-outbox": {
         "task": "payments.tasks.retry_pending_gateway_refunds",
@@ -623,6 +656,11 @@ CELERY_BEAT_SCHEDULE = {
     "core-nightly-invariants": {
         "task": "core.tasks.nightly_invariants_task",
         "schedule": crontab(hour=2, minute=20),
+    },
+    # F-SEC-03: seal new audit events into the hash chain, then verify it end to end.
+    "core-seal-audit-chain": {
+        "task": "core.tasks.seal_audit_chain_task",
+        "schedule": crontab(hour=2, minute=40),
     },
 }
 # Coverage Copilot is a real, billed LLM call — off by default so it never
@@ -799,6 +837,82 @@ if str(JWT_REFRESH_COOKIE_SAMESITE).lower() == "none" and os.environ.get(
         "and a CSRF-protected refresh deploy. Prefer SameSite=Lax with same-site SPA/API."
     )
 
+# F-SEC-02: TOTP secrets are Fernet-encrypted at rest. Comma-separated keys, newest first,
+# allow rotation. Empty is allowed only in development and test; production and staging
+# must set MFA_ENCRYPTION_KEY (BUG-SEC-014). Do not derive it from SECRET_KEY there.
+# A reused Idempotency-Key with a different request body is rejected (422) instead of silently
+# replaying the first response. Set IDEMPOTENCY_STRICT_FINGERPRINT=0 only to roll back quickly.
+IDEMPOTENCY_STRICT_FINGERPRINT = _env_bool("IDEMPOTENCY_STRICT_FINGERPRINT", "1")
+MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY", "")
+# AES-256-GCM key (url-safe base64 of 32 bytes) for bank account numbers and tax-portal secrets.
+# Required in production and staging. planwave.crypto reads it from settings; without this line
+# the setting never existed and every save of a bank number raised there.
+PLANWAVE_DATA_KEY = os.environ.get("PLANWAVE_DATA_KEY", "")
+# Where the nightly books-integrity failures are mailed (read by core.tasks).
+OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "")
+
+
+def _assert_mfa_encryption_key(*, django_env: str, key: str) -> None:
+    if django_env in ("production", "staging") and not (key or "").strip():
+        raise ImproperlyConfigured(
+            "MFA_ENCRYPTION_KEY is required when DJANGO_ENV is production or staging "
+            "(do not derive it from SECRET_KEY)."
+        )
+
+
+def _assert_mfa_key_format(key: str) -> None:
+    """A typo or a trimmed character must stop the boot, not surface as a 500 at first login."""
+    from cryptography.fernet import Fernet
+
+    for part in (key or "").split(","):
+        if part.strip():
+            try:
+                Fernet(part.strip().encode("utf-8"))
+            except Exception as exc:  # noqa: BLE001
+                raise ImproperlyConfigured("MFA_ENCRYPTION_KEY has a value that is not a valid Fernet key.") from exc
+
+
+def _assert_planwave_data_key(*, django_env: str, key: str) -> None:
+    import base64
+
+    if not (key or "").strip():
+        if django_env in ("production", "staging"):
+            raise ImproperlyConfigured("PLANWAVE_DATA_KEY is required when DJANGO_ENV is production or staging.")
+        return
+    try:
+        raw = base64.urlsafe_b64decode(key.strip() + "=" * (-len(key.strip()) % 4))
+    except Exception as exc:  # noqa: BLE001
+        raise ImproperlyConfigured("PLANWAVE_DATA_KEY is not url-safe base64.") from exc
+    if len(raw) != 32:
+        raise ImproperlyConfigured("PLANWAVE_DATA_KEY must decode to 32 bytes.")
+
+
+def _assert_mfa_enforcement(*, django_env: str, enforce: bool, waiver: bool) -> None:
+    """Env-only. Production or staging may turn enforcement off only with a waiver."""
+    if django_env in ("production", "staging") and not enforce and not waiver:
+        raise ImproperlyConfigured(
+            "MFA_ENFORCE_FOR_MONEY_ROLES=0 in production or staging requires MFA_ENFORCE_WAIVER=1."
+        )
+
+
+def resolve_mfa_enforce(*, django_env: str, raw: str) -> bool:
+    """Unset means on everywhere except an explicit test environment (BUG-SEC-004)."""
+    if not (raw or "").strip():
+        return django_env != "test"
+    return _parse_debug_flag(raw)
+
+
+_assert_mfa_encryption_key(django_env=DJANGO_ENV, key=MFA_ENCRYPTION_KEY)
+_assert_mfa_key_format(MFA_ENCRYPTION_KEY)
+_assert_planwave_data_key(django_env=DJANGO_ENV, key=PLANWAVE_DATA_KEY)
+_mfa_enforce_raw = (os.environ.get("MFA_ENFORCE_FOR_MONEY_ROLES") or "").strip()
+MFA_ENFORCE_FOR_MONEY_ROLES = resolve_mfa_enforce(django_env=DJANGO_ENV, raw=_mfa_enforce_raw)
+MFA_ENFORCE_WAIVER = _env_bool("MFA_ENFORCE_WAIVER", "0")
+_assert_mfa_enforcement(
+    django_env=DJANGO_ENV,
+    enforce=MFA_ENFORCE_FOR_MONEY_ROLES,
+    waiver=MFA_ENFORCE_WAIVER,
+)
 REFRESH_TOKEN_DAYS = _env_int("JWT_REFRESH_DAYS", 7)
 SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"] = timedelta(days=REFRESH_TOKEN_DAYS)
 SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"] = timedelta(minutes=_env_int("JWT_ACCESS_MINUTES", 15))
@@ -939,10 +1053,38 @@ TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 
 # SYS-01 — Postgres Row-Level Security (defense-in-depth tenant isolation).
 # Migration core.0020 puts a company_id policy on every tenant table (FORCE RLS).
-# Default OFF to match docker-compose and README until proven (CI postgres-rls sets 1).
+# Default OFF so development, empty DJANGO_ENV, the test suite, and SQLite keep
+# booting. Production and staging on PostgreSQL refuse to start while this is
+# off (BUG-SEC-019). Celery tenant context (BUG-SEC-001) is already in place.
 # PostgresRlsMiddleware SETs app.company_id per request and clears GUCs afterwards.
-# No-op on SQLite. Set POSTGRES_RLS_ENABLED=1 on staging after webhook RLS (R-005) soaks.
 POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED", "0")
+
+
+def _assert_postgres_rls_required(*, django_env: str, engine: str, rls_enabled: bool) -> None:
+    """Fail startup when production or staging uses PostgreSQL with RLS off.
+
+    ``test``, ``development``, an empty ``DJANGO_ENV``, and any non-PostgreSQL
+    engine (including SQLite) do not raise. This does not turn RLS on.
+    """
+    env = (django_env or "").strip().lower()
+    if env not in ("production", "staging"):
+        return
+    eng = (engine or "").lower()
+    if "postgresql" not in eng and "postgres" not in eng:
+        return
+    if rls_enabled:
+        return
+    raise ImproperlyConfigured(
+        "POSTGRES_RLS_ENABLED must be on when DJANGO_ENV is production or staging "
+        "and the database engine is PostgreSQL."
+    )
+
+
+_assert_postgres_rls_required(
+    django_env=DJANGO_ENV,
+    engine=_db_engine,
+    rls_enabled=POSTGRES_RLS_ENABLED,
+)
 # Emergency rollback for R-002/R-003: set 0 to restore startswith("refund.") → REFUNDED.
 PAYMENTS_REFUND_EVENT_MAP_V2 = _env_bool("PAYMENTS_REFUND_EVENT_MAP_V2", "1")
 # Login lock / rate-limit client IP: hop index from the right of X-Forwarded-For.
@@ -1024,12 +1166,19 @@ ENABLE_TELEGRAM = _env_bool("ENABLE_TELEGRAM")
 ENABLE_ACCOUNT_AGGREGATOR = _env_bool("ENABLE_ACCOUNT_AGGREGATOR")
 ENABLE_CASHFREE = _env_bool("ENABLE_CASHFREE")
 ENABLE_PAYU = _env_bool("ENABLE_PAYU")
+# Bizboard's own GSTIN and state for tenant subscription invoices. Blank GSTIN
+# still produces the invoice; it is not treated as filed.
+PLATFORM_GSTIN = _env_value("PLATFORM_GSTIN")
+PLATFORM_STATE = _env_value("PLATFORM_STATE")
 ENABLE_POS = _env_bool("ENABLE_POS")
 ENABLE_SETUP_WIZARD = _env_bool("ENABLE_SETUP_WIZARD")
 # Comma-separated company ids that always get Help v2 (internal / pilot).
 HELP_V2_COMPANY_ALLOWLIST = os.environ.get("HELP_V2_COMPANY_ALLOWLIST", "")
 # BB-000741: GSTR / Tally can unlock UI when VITE bake-off is false (CD).
 ENABLE_GSTR = _env_bool("ENABLE_GSTR")
+# Nav for GSTR-2B/4/6/7/8/9 worksheets. The frozen release shows GSTR-1 and 3B only;
+# demo/staging turn this on (env ceiling, or a company grant).
+ENABLE_GSTR_EXTENDED = _env_bool("ENABLE_GSTR_EXTENDED")
 ENABLE_TALLY = _env_bool("ENABLE_TALLY")
 ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
 # Scope revision 2026-09-09b: D6 (fixed assets + depreciation) and D10 (Bill of

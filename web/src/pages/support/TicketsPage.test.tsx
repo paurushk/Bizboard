@@ -78,20 +78,21 @@ describe('TicketsPage', () => {
     wrap();
     expect(await screen.findByText(/TKT-000001 · Pump leaking/)).toBeInTheDocument();
     expect(screen.getByText(/TKT-000002 · Login issue/)).toBeInTheDocument();
-    expect(screen.getByText('Assignee: Priya Staff')).toBeInTheDocument();
-    expect(screen.getByText('Assignee: Unassigned')).toBeInTheDocument();
-    expect(screen.getByText('SLA breached')).toBeInTheDocument();
+    expect(screen.getByText(/^Assignee: Priya Staff/)).toBeInTheDocument();
+    expect(screen.getByText(/^Assignee: Unassigned/)).toBeInTheDocument();
+    expect(screen.getByText(/^Breached by .+ · Elapsed .+/)).toBeInTheDocument();
   });
 
   it('creates a ticket with the picked customer, subject, and priority', async () => {
     const user = userEvent.setup();
     wrap();
+    await user.click(await screen.findByRole('button', { name: 'New ticket' }));
     await user.click(await screen.findByRole('button', { name: 'pick-customer' }));
     await user.type(screen.getByLabelText('Subject'), 'New issue');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Open ticket' }));
 
     await waitFor(() => expect(createTicket).toHaveBeenCalledWith({
-      customer: 5, subject: 'New issue', priority: 'MEDIUM',
+      customer: 5, subject: 'New issue', priority: 'MEDIUM', category: 'GENERAL', assigned_to: null,
     }));
   });
 
@@ -99,10 +100,10 @@ describe('TicketsPage', () => {
     const user = userEvent.setup();
     wrap();
     await user.click(await screen.findByText(/TKT-000001/));
-    expect(await screen.findByRole('button', { name: 'Move to IN_PROGRESS' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Move to WAITING' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Move to In progress' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move to Waiting on customer' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Move to IN_PROGRESS' }));
+    await user.click(screen.getByRole('button', { name: 'Move to In progress' }));
     await waitFor(() => expect(transitionTicket).toHaveBeenCalledWith(1, 'IN_PROGRESS'));
   });
 });

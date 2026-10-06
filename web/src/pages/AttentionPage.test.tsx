@@ -42,7 +42,7 @@ vi.mock('@/api/resources', () => ({
 }));
 
 describe('AttentionPage', () => {
-  it('shows the learning report and dismisses a row without snoozing it', async () => {
+  it('lists a problem and dismisses it without snoozing', async () => {
     const user = userEvent.setup();
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
@@ -52,11 +52,7 @@ describe('AttentionPage', () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
-    expect(await screen.findByText(/Learning report/)).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByText(/Learning report/).textContent).toMatch(/Acted inside 7 days\s+2/);
-      expect(screen.getByText(/Learning report/).textContent).toMatch(/Metric improved\s+1/);
-    });
+    expect(screen.queryByText(/Learning report/)).not.toBeInTheDocument();
     expect(await screen.findByText('Dead stock')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(dismissAttentionRow).toHaveBeenCalledWith('DEAD_STOCK:3'));

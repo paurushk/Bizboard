@@ -18,7 +18,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { assignAttentionRow, dismissAttentionRow, getLearningReport, listAttentionRows, listCompanyUsers, snoozeAttentionRow } from '@/api/resources';
+import { assignAttentionRow, dismissAttentionRow, listAttentionRows, listCompanyUsers, snoozeAttentionRow } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { DisclaimerBanner, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -50,7 +50,6 @@ export function AttentionPage() {
   const [assigning, setAssigning] = useState<AttentionRow | null>(null);
   const [assignee, setAssignee] = useState('');
   const [dueDate, setDueDate] = useState('');
-  const report = useQuery({ queryKey: ['learning-report'], queryFn: getLearningReport });
   const dismiss = useMutation({
     mutationFn: (key: string) => dismissAttentionRow(key),
     onSuccess: () => {
@@ -87,9 +86,6 @@ export function AttentionPage() {
         </Button>
       ) : null}
       <DisclaimerBanner>{t('attention.disclaimer')}</DisclaimerBanner>
-      <Typography variant="body2">
-        {t('attention.learningReport')}: {t('attention.learningActed')} {report.data?.acted ?? 0} · {t('attention.learningMetric')} {report.data?.metricImproved ?? 0}
-      </Typography>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -98,7 +94,7 @@ export function AttentionPage() {
         <EmptyState description={t('attention.empty')} />
       ) : null}
       {(query.data?.length ?? 0) > 0 ? (
-        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+        <Paper variant="outlined" tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -136,16 +132,18 @@ export function AttentionPage() {
                       '—'
                     )}
                   </TableCell>
-                  <TableCell>
-                    <Typography variant="caption" color="text.secondary">
+                  <TableCell sx={{ whiteSpace: 'normal', maxWidth: 360 }}>
+                    <Typography variant="body2" sx={{ whiteSpace: 'normal' }}>
                       {row.reason}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     <Stack direction="row" spacing={1} justifyContent="flex-end">
                       <Button component={RouterLink} to={safeAppPath(row.actionHref, "/attention")} size="small" variant="contained">
-                        {row.actionLabel || t('attention.fix')}
+                        {row.actionLabel === 'Open rate back-scan' ? t('attention.reviewGstRates') : row.actionLabel || t('attention.fix')}
                       </Button>
+                      {/gstin/i.test(`${row.code} ${row.title}`) ? null : (
+                        <>
                       {assignmentOn ? (
                         <Button size="small" onClick={() => {
                           setAssigning(row);
@@ -161,6 +159,8 @@ export function AttentionPage() {
                       <Button size="small" onClick={() => dismiss.mutate(row.dedupeKey)}>
                         {t('attention.dismiss')}
                       </Button>
+                        </>
+                      )}
                     </Stack>
                   </TableCell>
                 </TableRow>

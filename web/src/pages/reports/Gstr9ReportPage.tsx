@@ -67,7 +67,7 @@ export function Gstr9ReportPage() {
             label={t('reports.fy')}
             value={fy}
             onChange={(e) => setFy(e.target.value)}
-            helperText="e.g. 2025-26"
+            helperText={t('sweep.fyExample')}
           />
           {canExport(user) ? (
             <Button

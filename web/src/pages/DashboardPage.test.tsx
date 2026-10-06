@@ -74,10 +74,14 @@ vi.mock('@/lib/telemetry', () => ({
   },
 }));
 
+const { listLowStock } = vi.hoisted(() => ({
+  listLowStock: vi.fn(async () => [] as Array<{ productName: string; available: number; reorderLevel: number }>),
+}));
+
 vi.mock('@/api/resources', () => ({
   getDashboard: async () => DASHBOARD_DATA,
   getCompany: async () => ({ id: 9, name: 'Acme', onboarding: { activationDone: true } }),
-  listLowStock: async () => [],
+  listLowStock: () => listLowStock(),
   getDailySummary: vi.fn(async () => ({})),
   listBusinessAlerts: vi.fn(async () => []),
   getBusinessHealth: vi.fn(async () => ({ score: 80, grade: 'A' })),
@@ -108,5 +112,17 @@ describe('DashboardPage recent-sales badge — G-17', () => {
     expect(screen.getByText('10')).toBeInTheDocument();
     expect(screen.getByText('validation: 1')).toBeInTheDocument();
     expect(screen.getByText('5xx: 1')).toBeInTheDocument();
+  });
+
+  it('uses the loaded low-stock list length instead of the dashboard count', async () => {
+    listLowStock.mockResolvedValueOnce([
+      { productName: 'Tea', available: 1, reorderLevel: 5 },
+      { productName: 'Rice', available: 0, reorderLevel: 2 },
+    ]);
+    wrap(<DashboardPage />);
+    const label = await screen.findByText('Low stock');
+    const card = label.closest('.MuiPaper-root');
+    expect(card).toBeTruthy();
+    expect(within(card as HTMLElement).getByText('2')).toBeTruthy();
   });
 });

@@ -42,6 +42,7 @@ import {
 test('golden path: repeat last invoice copies lines into a new editable draft, original invoice untouched', async ({
   page,
 }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E Repeat ${id}`;
   const email = `e2e-repeat-${id}@example.test`;
@@ -68,7 +69,7 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   await saveAndCompleteSalesInvoice(page, new RegExp(customerName));
   const originalInvoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).first();
   const originalCells = await originalInvoiceRow.locator('td').allTextContents();
-  const originalInvoiceNumber = originalCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const originalInvoiceNumber = originalCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(originalInvoiceNumber).toMatch(/^INV-/);
 
   // 3. Navigate to the customer's 360 page via the real UI entry point (the
@@ -99,7 +100,9 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   await draftRow.getByLabel('QTY').fill('5');
   await expect(page.getByText('₹500.00').first()).toBeVisible();
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // The draft editor already lives under /sales/history/:id/edit, so a bare
+  // /sales/history match would pass while Save is still running.
+  await expect(page).toHaveURL(/\/sales\/history\/?(?:\?.*)?$/, { timeout: 30_000 });
   let newInvoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).filter({ hasText: '₹500.00' });
   await expect(newInvoiceRow).toBeVisible({ timeout: 15_000 });
   // Same transient SQLite "database is locked" retry as
@@ -107,7 +110,7 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   // helper directly here since it takes a single name matcher and two
   // invoices now share this customer's name).
   const completedNow = await newInvoiceRow
-    .getByText('Completed')
+    .getByText(/^(Completed|Unpaid|Paid)$/)
     .isVisible()
     .catch(() => false);
   if (!completedNow) {
@@ -115,12 +118,12 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
     await page.getByRole('link', { name: 'Edit', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeVisible({ timeout: 15_000 });
     await page.getByRole('button', { name: 'Save & Complete' }).click();
-    await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/sales\/history\/?(?:\?.*)?$/, { timeout: 30_000 });
     newInvoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).filter({ hasText: '₹500.00' });
   }
-  await expect(newInvoiceRow).toContainText('Completed', { timeout: 15_000 });
+  await expect(newInvoiceRow).toContainText(/Unpaid|Paid|Completed/, { timeout: 15_000 });
   const newCells = await newInvoiceRow.locator('td').allTextContents();
-  const newInvoiceNumber = newCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const newInvoiceNumber = newCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(newInvoiceNumber).toMatch(/^INV-/);
   expect(newInvoiceNumber).not.toBe(originalInvoiceNumber);
 

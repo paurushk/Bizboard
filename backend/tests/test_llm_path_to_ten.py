@@ -57,6 +57,8 @@ def _grant(tenant, flag):
 def _crm(tenant):
     flags = dict(tenant.company.feature_flags or {})
     flags["ENABLE_CRM"] = True
+    # CRM is a dark module: bare JSON no longer turns it on, the insurance pack grant does.
+    flags["pack_grant"] = "insurance"
     tenant.company.feature_flags = flags
     tenant.company.save(update_fields=["feature_flags"])
     _clear_flag_cache(tenant.company)
@@ -341,7 +343,7 @@ def test_portal_complaint_is_idempotent_and_length_capped(tenant_a, tenant_b):
     assert created.data["id"] not in {row["id"] for row in foreign_list.data["complaints"]}
 
 
-def test_referral_paid_drafts_one_credit_note(tenant_a):
+def test_referral_paid_records_settlement_without_a_credit_note(tenant_a):
     _crm(tenant_a)
     hidden = tenant_a.client.get("/api/v1/crm/referrals/rewards/")
     assert hidden.status_code == 404
@@ -390,27 +392,21 @@ def test_referral_paid_drafts_one_credit_note(tenant_a):
         {}, format="json", HTTP_IDEMPOTENCY_KEY="reward-paid-1",
     )
     assert first.status_code == 200, first.data
+    assert first.data["reward_status"] == "PAID"
+    assert first.data["credit_note"] is not None
     second = tenant_a.client.post(
         f"/api/v1/crm/referrals/rewards/{reward.id}/mark-paid/",
         {}, format="json", HTTP_IDEMPOTENCY_KEY="reward-paid-1",
     )
+    assert second.status_code == 200, second.data
     assert second.data["credit_note"] == first.data["credit_note"]
     reward.refresh_from_db()
-    assert reward.credit_note_id == first.data["credit_note"]
-    assert SalesCreditNote.objects.filter(company=tenant_a.company, customer=referrer).count() == 1
-    note = reward.credit_note
+    assert reward.reward_status == ReferralReward.Status.PAID
+    note = SalesCreditNote.objects.get(company=tenant_a.company, customer=referrer)
     assert note.status == SalesCreditNote.Status.DRAFT
-    line = note.items.get()
-    assert line.source_item_id is not None
-    assert line.quantity == Decimal("1")
+    assert reward.credit_note_id == note.id
+    # The draft is not posted, so the referrer's outstanding stays put.
     assert LedgerService.customer_outstanding(tenant_a.company, referrer) == before
-    completed = tenant_a.client.post(
-        f"/api/v1/sales/credit-notes/{note.id}/complete/",
-        {"confirm_paid_invoice": True, "confirm_price_override": True},
-        format="json",
-    )
-    assert completed.status_code == 200, completed.data
-    assert LedgerService.customer_outstanding(tenant_a.company, referrer) < before
 
 
 def test_won_amount_sits_next_to_invoices(tenant_a, tenant_b):
@@ -666,7 +662,12 @@ def test_referral_credit_note_race(tenant_a):
         thread.start()
     for thread in threads:
         thread.join(timeout=30)
-    assert SalesCreditNote.objects.filter(company=tenant_a.company, customer=referrer).count() == 1
+    notes = SalesCreditNote.objects.filter(company=tenant_a.company, customer=referrer)
+    assert notes.count() == 1
+    assert notes.get().status == SalesCreditNote.Status.DRAFT
+    reward.refresh_from_db()
+    assert reward.reward_status == ReferralReward.Status.PAID
+    assert reward.credit_note_id == notes.get().id
 
 
 @pytest.mark.django_db(transaction=True)

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -64,7 +65,7 @@ export function PurchaseOrderEditorPage() {
   const [loaded, setLoaded] = useState(false);
   // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/convert/cancel — those aren't "discarding" anything.
-  const skipLeaveGuard = useRef(false);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
@@ -77,10 +78,12 @@ export function PurchaseOrderEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  useEffect(() => {
-    if (isEdit || purchaseTypeTouched || !company.data) return;
+  // New orders default to the company's usual purchase type until the user picks one.
+  const [seenCompanyForType, setSeenCompanyForType] = useState<typeof company.data>(undefined);
+  if (!isEdit && !purchaseTypeTouched && company.data && company.data !== seenCompanyForType) {
+    setSeenCompanyForType(company.data);
     setPurchaseType(preferredInvoiceType(company.data.registrationType));
-  }, [company.data, isEdit, purchaseTypeTouched]);
+  }
   // F2-025: server-searched supplier picker (was listSuppliers() pulling every
   // row into the Autocomplete) — selectedSupplierQuery keeps the already-set
   // party resolved even when it falls outside the current search results.
@@ -111,15 +114,24 @@ export function PurchaseOrderEditorPage() {
     selectedSupplier?.gstin || selectedSupplier?.state,
   );
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoaded(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
+
+  // Apply ?supplier= once the company has loaded. Once only, so a supplier the user picks
+  // afterwards is not put back.
+  const [supplierPrefilled, setSupplierPrefilled] = useState(false);
+  if (!isEdit && !supplierPrefilled && company.data) {
+    setSupplierPrefilled(true);
+    const supplierParam = searchParams.get('supplier');
+    if (supplierParam) setSupplierId(Number(supplierParam));
+  }
 
   useEffect(() => {
     if (isEdit || prefilled.current || !company.data) return;
-    const supplierParam = searchParams.get('supplier');
-    if (supplierParam) setSupplierId(Number(supplierParam));
     const linesParam = searchParams.get('lines');
     const productId = searchParams.get('product');
     if (!linesParam && !productId) return;
@@ -153,8 +165,9 @@ export function PurchaseOrderEditorPage() {
     });
   }, [company.data, isEdit, searchParams, selectedSupplier]);
 
-  useEffect(() => {
-    if (!existing.data || loaded) return;
+  // Hydrate the form from the saved order once. Not re-run on intraState (see the re-tax block below),
+  // which would clobber in-progress edits.
+  if (existing.data && !loaded) {
     const o = existing.data;
     setEditingStatus(o.status);
     setSupplierId(o.supplier);
@@ -197,17 +210,19 @@ export function PurchaseOrderEditorPage() {
       }),
     );
     setLoaded(true);
-    // F2-040: intentionally NOT keyed on intraState — see the effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing.data, loaded]);
+  }
 
   // F2-040: the selected supplier (and so intraState) may not have resolved
   // yet at hydration time, leaving every line at zero tax; also covers switching the
   // supplier after lines already exist, which otherwise leaves them stale.
-  useEffect(() => {
-    if (!loaded) return;
-    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
-  }, [intraState, loaded]);
+  const retaxKey = loaded ? String(intraState) : null;
+  const [seenRetaxKey, setSeenRetaxKey] = useState<string | null>(null);
+  if (seenRetaxKey !== retaxKey) {
+    setSeenRetaxKey(retaxKey);
+    if (retaxKey !== null) {
+      setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+    }
+  }
 
   const lineTaxes = useMemo(
     () =>
@@ -274,7 +289,7 @@ export function PurchaseOrderEditorPage() {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       if (!isEdit) {
-        skipLeaveGuard.current = true;
+        flushSync(() => setSkipLeaveGuard(true));
         void navigate(`/purchases/orders/${order.id}`, { replace: true });
       } else {
         setEditingStatus(order.status);
@@ -287,7 +302,7 @@ export function PurchaseOrderEditorPage() {
     mutationFn: () => convertPurchaseOrder(editId as number),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate('/purchases/history');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -296,7 +311,7 @@ export function PurchaseOrderEditorPage() {
   const cancelMutation = useMutation({
     mutationFn: () => cancelPurchaseOrder(editId as number),
     onSuccess: () => {
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate('/purchases/orders');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -341,7 +356,7 @@ export function PurchaseOrderEditorPage() {
         </>
       }
     >
-      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(supplierId))} />
+      <UnsavedChangesGuard when={!skipLeaveGuard && (lines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={supplierSearch.options}
@@ -386,7 +401,7 @@ export function PurchaseOrderEditorPage() {
             sx={{ minWidth: 140 }}
           >
             {company.data?.registrationType === 'REGULAR' ? <MenuItem value="GST">GST</MenuItem> : null}
-            <MenuItem value="NON_GST">Non-GST</MenuItem>
+            <MenuItem value="NON_GST">{t('sweep2.nonGst')}</MenuItem>
           </TextField>
           <TextField type="date" label={t('common.date')} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
           <TextField type="date" label={t('phase1.expectedDelivery')} value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
@@ -394,7 +409,7 @@ export function PurchaseOrderEditorPage() {
         <TextField label={t('billing.addNotes')} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} multiline minRows={2} fullWidth />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -478,7 +493,7 @@ export function PurchaseOrderEditorPage() {
                   </TableCell>
                   {!readOnly ? (
                     <TableCell align="right">
-                      <IconButton size="small" onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
+                      <IconButton size="small" aria-label={t('common.delete')} onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>

@@ -1,11 +1,13 @@
 import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { exportReport, getPurchaseRegister } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { dateRangeForPreset } from '@/components/HistoryFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
@@ -39,7 +41,7 @@ export function PurchaseReportPage() {
         label: formatColumnHeader(key),
         money: isMoneyColumn(key),
       })),
-    [query.data?.rows],
+    [query.data],
   );
 
   return (
@@ -47,6 +49,13 @@ export function PurchaseReportPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <PageTitle>{t('nav.purchaseReports')}</PageTitle>
         <Stack direction="row" spacing={1} alignItems="center">
+          {(['currentFY', 'previousFY', 'q1', 'q2', 'q3', 'q4'] as const).map((preset) => (
+            <Chip key={preset} size="small" label={t(`history.preset.${preset}`)} onClick={() => {
+              const range = dateRangeForPreset(preset);
+              setDateFrom(range.dateFrom);
+              setDateTo(range.dateTo);
+            }} />
+          ))}
           <TextField
             type="date"
             size="small"

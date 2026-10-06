@@ -3,9 +3,31 @@ import { mockStock } from '@/mocks/data';
 import type { StockAdjustment, StockBalance } from '@/types/domain';
 import { withMocks, fetchAllPagesMasters } from './common';
 
-export async function listStock(params?: { q?: string; cf?: Record<string, string[]> }): Promise<StockBalance[]> {
+const STOCK_ID_CHUNK = 250;
+
+export async function listStock(params?: {
+  q?: string;
+  cf?: Record<string, string[]>;
+  productIds?: number[];
+}): Promise<StockBalance[]> {
+  const allIds = params?.productIds?.filter((id) => Number.isFinite(id));
+  if (allIds && allIds.length > STOCK_ID_CHUNK) {
+    // The query string takes at most STOCK_ID_CHUNK ids. Dropping the rest would return rows for
+    // only part of the list with no error, so ask in chunks and join the answers.
+    const parts: StockBalance[][] = [];
+    for (let i = 0; i < allIds.length; i += STOCK_ID_CHUNK) {
+      parts.push(await listStock({ ...params, productIds: allIds.slice(i, i + STOCK_ID_CHUNK) }));
+    }
+    return parts.flat();
+  }
+  const productIds = allIds;
+  const query = {
+    q: params?.q,
+    cf: params?.cf,
+    ...(productIds?.length ? { product_ids: productIds.join(',') } : {}),
+  };
   return withMocks(
-    async () => fetchAllPagesMasters<StockBalance>('/inventory/balances/', params),
+    async () => fetchAllPagesMasters<StockBalance>('/inventory/balances/', query),
     () => {
       let rows = mockStock;
       if (params?.q) {
@@ -64,6 +86,10 @@ export const createTransfer = (payload: Record<string, unknown>) => apiClient.po
 export const completeTransfer = (id: number, options?: { idempotencyKey?: string }) =>
   apiClient
     .post(`/inventory/transfers/${id}/complete/`, {}, { headers: idempotencyHeaders(options?.idempotencyKey) })
+    .then(({ data }) => unwrapData(data));
+export const receiveTransfer = (id: number, options?: { idempotencyKey?: string }) =>
+  apiClient
+    .post(`/inventory/transfers/${id}/receive/`, {}, { headers: idempotencyHeaders(options?.idempotencyKey) })
     .then(({ data }) => unwrapData(data));
 export const cancelTransfer = (id: number) => apiClient.post(`/inventory/transfers/${id}/cancel/`).then(({ data }) => unwrapData(data));
 export const listSerials = (params?: Record<string, string>) =>

@@ -5,7 +5,7 @@ KNOWN LIMITATIONS. The pilot flag profile turns both flags off. This asserts
 that even the OWNER persona — the highest-privilege role in any archetype —
 gets a 404 (route not mounted), not a 403, from those endpoints.
 
-The flag-on behaviour lives in tests/workflows/test_wf_extended_stubs.py
+The flag-on behaviour lives in tests/workflows/test_wf_extended.py
 (WF-53, WF-57) and tests/workflows/test_wf_limitation_guards.py.
 """
 

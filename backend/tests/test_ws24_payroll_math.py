@@ -111,7 +111,7 @@ def test_post_pay_run_gl_catch_up(tenant_a):
         company=tenant_a.company, period="2026-06",
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
-    run = complete_pay_run(run, tenant_a.owner)
+    run = complete_pay_run(run, tenant_a.owner, pay_from_cash=True)
     assert run.status == PayRun.Status.COMPLETED
     assert not JournalEntry.objects.filter(
         company=tenant_a.company, source_type="PAY_RUN", source_id=run.id

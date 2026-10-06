@@ -81,6 +81,81 @@ def _ledger_covered_by_order(company, orders, open_statuses, challan_model) -> d
     return covered
 
 
+def company_allows_below_cost(company) -> bool:
+    """Whether bills under purchase cost may complete without an owner's reason.
+
+    A company setting decides, True or False. With nothing set, the process default applies
+    (``settings.ALLOW_BELOW_COST_SALES_DEFAULT``, False in production: an owner records a reason).
+    """
+    from django.conf import settings
+
+    for name in ("allow_below_cost_sales", "allow_below_cost"):
+        value = getattr(company, name, None)
+        if value is True or value is False:
+            return value
+    flags = getattr(company, "feature_flags", None) or {}
+    if isinstance(flags, dict):
+        for key in ("allow_below_cost_sales", "allow_below_cost", "ALLOW_BELOW_COST_SALES"):
+            if flags.get(key) is True:
+                return True
+            if flags.get(key) is False:
+                return False
+    return bool(getattr(settings, "ALLOW_BELOW_COST_SALES_DEFAULT", False))
+
+
+def _net_unit_price(item) -> Decimal:
+    price = Decimal(str(getattr(item, "unit_price", 0) or 0))
+    discount = Decimal(str(getattr(item, "discount_percent", 0) or 0))
+    return price * (Decimal("1") - discount / Decimal("100"))
+
+
+def below_cost_lines(items) -> list[str]:
+    """Names of lines priced under purchase cost (net of the line discount)."""
+    names = []
+    for item in items:
+        product = getattr(item, "product", None)
+        if product is None:
+            continue
+        cost = Decimal(str(getattr(product, "purchase_price", 0) or 0))
+        if cost <= 0:
+            continue
+        net = _net_unit_price(item)
+        unit_name = getattr(item, "unit_name", None)
+        if unit_name:
+            # A price per box compared with a cost per piece would flag (or pass) the wrong sales:
+            # bring the price to the base unit the cost is stated in.
+            try:
+                from inventory.item_stock import base_unit_cost
+
+                net = base_unit_cost(product, net, unit_name)
+            except Exception:  # noqa: BLE001 - an unreadable unit falls back to the stated price
+                pass
+        if net < cost:
+            names.append(getattr(product, "name", "item"))
+    return names
+
+
+def assert_below_cost_blocked(company, items, *, override_reason: str = "", can_override: bool = False) -> list[str]:
+    """Refuse to complete a bill priced under purchase cost.
+
+    Allowed when the company opted in (``feature_flags.allow_below_cost_sales``) or when an
+    owner/admin records a reason on this document. Returns the below-cost line names that
+    were allowed through, so the caller can write them to the audit trail.
+    """
+    if company_allows_below_cost(company):
+        return []
+    names = below_cost_lines(items)
+    if not names:
+        return []
+    if can_override and (override_reason or "").strip():
+        return names
+    raise BusinessRuleError(
+        f"Cannot bill '{names[0]}' below purchase cost."
+        + (" An owner can complete it with a reason." if len(names) else ""),
+        code="below_cost",
+    )
+
+
 def margin_warnings(order, items) -> list[dict]:
     warnings = []
     for item in items:

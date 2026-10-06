@@ -35,6 +35,7 @@ class ProjectMilestone(CompanyScopedModel):
     name = models.CharField(max_length=200)
     sequence = models.PositiveIntegerField(default=1)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
+    target_completion_date = models.DateField(null=True, blank=True)
     service_product = models.ForeignKey(
         "masters.Product", on_delete=models.PROTECT, related_name="project_milestones",
     )

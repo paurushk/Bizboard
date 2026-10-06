@@ -19,7 +19,8 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { Company } from '@/types/domain';
-import { isValidIfsc, isValidPincode, isValidUpiVpa } from '@/utils/gst';
+import { isValidIfsc, isValidUpiVpa } from '@/utils/gst';
+import { isValidIndianPincode } from '@/utils/pincode';
 import { canManageUsers } from '@/utils/permissions';
 
 import { StateSelect } from '@/components/StateSelect';
@@ -91,8 +92,9 @@ export function CompanySettingsPage() {
   const mutation = useMutation({
     mutationFn: (values: CompanyForm) => {
       const pin = (values.pincode ?? '').trim();
-      if (pin && !isValidPincode(pin)) {
-        throw new Error('PIN code must be exactly 6 digits.');
+      const loadedPin = (query.data?.pincode ?? '').trim();
+      if (pin !== loadedPin && !isValidIndianPincode(values.pincode ?? '')) {
+        throw new Error(t('validation.pincode'));
       }
       const ifsc = (values.bankIfsc ?? '').trim().toUpperCase();
       if (ifsc && !isValidIfsc(ifsc)) {
@@ -105,7 +107,7 @@ export function CompanySettingsPage() {
       const { dunningDaysText, ...rest } = values;
       return updateCompany({
         ...rest,
-        pincode: pin || values.pincode,
+        pincode: pin,
         bankIfsc: ifsc || values.bankIfsc,
         upiId: upi || values.upiId,
         dunningEnabled: values.dunningEnabled,
@@ -178,7 +180,7 @@ export function CompanySettingsPage() {
       </Stack>
       {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
         <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
-          Company settings saved
+          {t('sweep2.companySaved')}
         </Alert>
       ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
@@ -191,28 +193,28 @@ export function CompanySettingsPage() {
             name="name"
             control={control}
             render={({ field }) => (
-              <TextField label="Trade / Shop Display Name" {...field} value={field.value ?? ''} required />
+              <TextField label={t('sweep.shopDisplayName')} {...field} value={field.value ?? ''} required />
             )}
           />
           <Controller
             name="legalName"
             control={control}
             render={({ field }) => (
-              <TextField label="Legal Business Name (as on GST/PAN)" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.legalName')} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
             name="address"
             control={control}
             render={({ field }) => (
-              <TextField label="Shop / Billing Address" multiline minRows={2} {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.shopAddress')} multiline minRows={2} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
             name="city"
             control={control}
             render={({ field }) => (
-              <TextField label="City" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.city')} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
@@ -226,7 +228,7 @@ export function CompanySettingsPage() {
             name="pincode"
             control={control}
             render={({ field }) => (
-              <TextField label="PIN Code (6 digits)" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.pinCode')} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
@@ -259,8 +261,8 @@ export function CompanySettingsPage() {
             control={control}
             render={({ field }) => (
               <TextField
-                label="UPI ID / VPA (e.g. yourshop@oksbi)"
-                helperText="Generates automatic dynamic QR code on bills"
+                label={t('sweep.upiId')}
+                helperText={t('sweep.upiQrHelp')}
                 {...field}
                 value={field.value ?? ''}
               />
@@ -270,21 +272,21 @@ export function CompanySettingsPage() {
             name="bankName"
             control={control}
             render={({ field }) => (
-              <TextField label="Bank Name (e.g. State Bank of India)" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.bankName')} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
             name="bankAccount"
             control={control}
             render={({ field }) => (
-              <TextField label="Bank Account Number" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.bankAccountNumber')} {...field} value={field.value ?? ''} />
             )}
           />
           <Controller
             name="bankIfsc"
             control={control}
             render={({ field }) => (
-              <TextField label="Bank IFSC Code (e.g. SBIN0001234)" {...field} value={field.value ?? ''} />
+              <TextField label={t('sweep.bankIfsc')} {...field} value={field.value ?? ''} />
             )}
           />
           <Typography variant="h6" fontWeight={600} sx={{ pt: 1 }}>

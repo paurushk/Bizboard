@@ -226,6 +226,7 @@ def test_r052_cloud_http_400_is_failed_and_passes_locale(mock_post, tenant_a):
             "invoice_ready",
             ["INV-1"],
             company=tenant_a.company,
+            opt_in=True,
         )
     assert result.mode == "failed"
     assert not (result.share_link or "").startswith("https://wa.me/")

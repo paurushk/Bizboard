@@ -60,8 +60,11 @@ def configured_days(company) -> list[int]:
 
 def in_quiet_hours(company, now: datetime | None = None) -> bool:
     local = _ist_now(now)
-    start = int(getattr(company, "dunning_quiet_hours_start", 21) or 21) % 24
-    end = int(getattr(company, "dunning_quiet_hours_end", 8) or 8) % 24
+    # 0 is a real hour (midnight). `value or default` would turn a configured 0 into the default.
+    start_raw = getattr(company, "dunning_quiet_hours_start", None)
+    end_raw = getattr(company, "dunning_quiet_hours_end", None)
+    start = (21 if start_raw is None else int(start_raw)) % 24
+    end = (8 if end_raw is None else int(end_raw)) % 24
     hour = local.hour
     if start == end:
         return False
@@ -225,13 +228,13 @@ def _record(invoice, *, sent_on, days_overdue, channel, status, error="", now=No
 def _send_whatsapp(invoice, body) -> bool:
     from core.models import Notification
     from core.services.notifications import NotificationService
-    from sales.whatsapp_send import allow_cloud_for_customer
+    from sales.whatsapp_send import cloud_allowed_for_recipient
 
     customer = invoice.customer
     phone = (customer.phone or "").strip()
     if not phone:
         return False
-    if not allow_cloud_for_customer(customer):
+    if not cloud_allowed_for_recipient(customer, phone):
         return False
     n = NotificationService.send(
         company=invoice.company,

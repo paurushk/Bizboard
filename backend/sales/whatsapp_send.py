@@ -56,6 +56,28 @@ def allow_cloud_for_customer(customer) -> bool:
     return bool(getattr(customer, "whatsapp_opt_in", False))
 
 
+def cloud_allowed_for_recipient(customer, recipient) -> bool:
+    """Cloud POST only when the customer opted in and the recipient is that phone.
+
+    A mismatch returns False. The caller still returns a wa.me link. Digit
+    forms are compared after E.164 canonicalization so ``9876543210`` and
+    ``919876543210`` are the same number. A number that cannot be
+    canonicalized stays a link and is not a 400.
+    """
+    if customer is None or not allow_cloud_for_customer(customer):
+        return False
+    from accounts.otp_utils import canonicalize_user_phone
+
+    try:
+        stored = canonicalize_user_phone(getattr(customer, "phone", "") or "")
+        given = canonicalize_user_phone(recipient or "")
+    except ValueError:
+        return False
+    if not stored or not given:
+        return False
+    return stored == given
+
+
 def persist_invoice_whatsapp(invoice: SalesInvoice, notification: Notification) -> None:
     mode = getattr(notification, "delivery_mode", None)
     now = timezone.now()

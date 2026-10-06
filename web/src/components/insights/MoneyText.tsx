@@ -1,4 +1,5 @@
 import Typography, { type TypographyProps } from '@mui/material/Typography';
+import { usePrivacyMaskOptional } from '@/privacy/PrivacyMask';
 import { formatMoney } from '@/utils/money';
 
 /**
@@ -14,6 +15,7 @@ export function MoneyText({
   currency?: string;
   align?: 'inherit' | 'left' | 'center' | 'right';
 } & Omit<TypographyProps, 'children' | 'align'>) {
+  const { privacyMask } = usePrivacyMaskOptional();
   return (
     <Typography
       component="span"
@@ -26,7 +28,7 @@ export function MoneyText({
       }}
       {...props}
     >
-      {formatMoney(value, currency)}
+      {privacyMask ? '••••' : formatMoney(value, currency)}
     </Typography>
   );
 }

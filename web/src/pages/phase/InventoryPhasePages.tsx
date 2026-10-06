@@ -74,7 +74,7 @@ export function WarehousesPage() {
       subtitle={t('phase.godownsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          Add godown
+          {t('sweep2.addGodown')}
         </Button>
       }
     >
@@ -99,7 +99,7 @@ export function WarehousesPage() {
                 if (!window.confirm(t('phase.confirmDeactivateWarehouse'))) return;
                 deactivate.mutate(Number(row.id));
               }} disabled={writesBlocked || deactivate.isPending}>
-                Deactivate
+                {t('sweep2.deactivate')}
               </Button>
             ) : null}
             {!row.isDefault ? (
@@ -107,26 +107,26 @@ export function WarehousesPage() {
                 if (!window.confirm(t('phase.confirmDeleteGodown'))) return;
                 remove.mutate(Number(row.id));
               }} disabled={writesBlocked || remove.isPending}>
-                Delete
+                {t('sweep2.delete')}
               </Button>
             ) : null}
           </Stack>
         )}
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>New godown</DialogTitle>
+        <DialogTitle>{t('sweep2.newGodown')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} />
+            <TextField label={t('sweep.name')} value={name} onChange={(e) => setName(e.target.value)} />
+            <TextField label={t('sweep.code')} value={code} onChange={(e) => setCode(e.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
           <Tooltip title={!name.trim() ? 'Enter godown name to save' : ''}>
             <span>
               <Button variant="contained" disabled={writesBlocked || !name.trim() || create.isPending} onClick={() => create.mutate()}>
-                Save
+                {t('sweep2.save')}
               </Button>
             </span>
           </Tooltip>
@@ -155,12 +155,18 @@ export function StockTransferPage() {
   const [qty, setQty] = useState('1');
   const [searchParams] = useSearchParams();
   const [plannedLines, setPlannedLines] = useState<Array<{ product: number; quantity: string }> | null>(null);
-  useEffect(() => {
-    const productId = searchParams.get('product');
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
-    const presetQty = searchParams.get('qty');
-    const linesParam = searchParams.get('lines');
+  // Prefill the transfer from the address bar (?product, ?from, ?to, ?qty, ?lines). The state is set
+  // here; the product lookups it needs run in the effect below.
+  const prefillKey = searchParams.toString();
+  const [seenPrefillKey, setSeenPrefillKey] = useState<string | null>(null);
+  if (seenPrefillKey !== prefillKey) {
+    setSeenPrefillKey(prefillKey);
+    const params = new URLSearchParams(prefillKey);
+    const productId = params.get('product');
+    const from = params.get('from');
+    const to = params.get('to');
+    const presetQty = params.get('qty');
+    const linesParam = params.get('lines');
     if (from) setFromWh(from);
     if (to) setToWh(to);
     if (presetQty) setQty(presetQty);
@@ -170,18 +176,35 @@ export function StockTransferPage() {
         if (parsed.length) {
           setPlannedLines(parsed.map((line) => ({ product: Number(line.productId), quantity: String(line.qty) })));
           if (parsed[0].warehouseId) setToWh(String(parsed[0].warehouseId));
-          void api.getProduct(parsed[0].productId).then((product) => setSelectedProduct(product));
           setOpen(true);
         }
       } catch {
         setPlannedLines(null);
       }
     }
+    if (productId && from && to) setOpen(true);
+  }
+
+  useEffect(() => {
+    const params = new URLSearchParams(prefillKey);
+    const productId = params.get('product');
+    const linesParam = params.get('lines');
+    let firstLineProductId: number | null = null;
+    if (linesParam) {
+      try {
+        const parsed = JSON.parse(linesParam) as Array<{ productId: number }>;
+        if (parsed.length) firstLineProductId = parsed[0].productId;
+      } catch {
+        // ignored: the prefill above already cleared the planned lines
+      }
+    }
+    if (firstLineProductId != null) {
+      void api.getProduct(firstLineProductId).then((product) => setSelectedProduct(product));
+    }
     if (productId) {
       void api.getProduct(productId).then((product) => setSelectedProduct(product));
     }
-    if (productId && from && to) setOpen(true);
-  }, [searchParams]);
+  }, [prefillKey]);
   const trackSerial = Boolean(selectedProduct?.trackSerial);
   const [error, setError] = useState('');
   const create = useMutation({
@@ -243,6 +266,15 @@ export function StockTransferPage() {
     },
     onError: (e) => setError(getErrorMessage(e)),
   });
+  const receive = useMutation({
+    mutationFn: (id: number) =>
+      api.receiveTransfer(id, { idempotencyKey: `stock-transfer-receive-${id}` }),
+    onSuccess: () => {
+      setError('');
+      void qc.invalidateQueries({ queryKey: ['transfers'] });
+    },
+    onError: (e) => setError(getErrorMessage(e)),
+  });
   const cancel = useMutation({
     mutationFn: (id: number) => api.cancelTransfer(id),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['transfers'] }),
@@ -293,6 +325,10 @@ export function StockTransferPage() {
             <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => complete.mutate(Number(r.id))}>
               {t('common.complete')}
             </Button>
+          ) : r.status === 'DISPATCHED' ? (
+            <Button size="small" variant="contained" disabled={writesBlocked || receive.isPending} onClick={() => receive.mutate(Number(r.id))}>
+              {t('phase.receiveTransfer')}
+            </Button>
           ) : r.status === 'COMPLETED' ? (
             <Button size="small" color="error" disabled={writesBlocked} onClick={() => {
               if (!window.confirm(t('phase.confirmCancelTransfer'))) return;
@@ -310,6 +346,14 @@ export function StockTransferPage() {
             {plannedLines?.length ? (
               <Typography variant="body2">{t('osPlan.plannedLines', { count: plannedLines.length })}</Typography>
             ) : null}
+            {(warehouses.data ?? []).filter((w) => w.isActive !== false).length < 2 ? (
+              <Typography variant="body2">
+                {t('cog.transferNeedsTwo', {
+                  name: (warehouses.data ?? []).find((w) => w.isActive !== false)?.name ?? '',
+                })}
+              </Typography>
+            ) : (
+              <>
             <TextField
               select
               label={t('phase.fromGodown')}
@@ -319,7 +363,7 @@ export function StockTransferPage() {
                 if (toWh === e.target.value) setToWh('');
               }}
             >
-              {(warehouses.data ?? []).map((w) => (
+              {(warehouses.data ?? []).filter((w) => w.isActive !== false).map((w) => (
                 <MenuItem key={w.id} value={String(w.id)}>
                   {w.name}
                 </MenuItem>
@@ -327,13 +371,15 @@ export function StockTransferPage() {
             </TextField>
             <TextField select label={t('phase.toGodown')} value={toWh} onChange={(e) => setToWh(e.target.value)}>
               {(warehouses.data ?? [])
-                .filter((w) => String(w.id) !== fromWh)
+                .filter((w) => w.isActive !== false && String(w.id) !== fromWh)
                 .map((w) => (
                 <MenuItem key={w.id} value={String(w.id)}>
                   {w.name}
                 </MenuItem>
               ))}
             </TextField>
+              </>
+            )}
             <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
             <Autocomplete<Product>
               options={productSearch.options}
@@ -444,12 +490,12 @@ export function ExpiryAlertsPage() {
           <TextField
             select
             size="small"
-            label="Godown"
+            label={t('sweep.godown')}
             value={warehouseId}
             onChange={(e) => setWarehouseId(e.target.value)}
             sx={{ minWidth: 180 }}
           >
-            <MenuItem value="">All godowns</MenuItem>
+            <MenuItem value="">{t('sweep2.allGodowns')}</MenuItem>
             {(warehouses.data ?? []).map((warehouse) => (
               <MenuItem key={warehouse.id} value={String(warehouse.id)}>
                 {warehouse.name}
@@ -486,7 +532,7 @@ export function ExpiryAlertsPage() {
               writeOff.mutate(row);
             }}
           >
-            Write off
+            {t('sweep2.writeOff')}
           </Button>
         )}
       />
@@ -527,12 +573,12 @@ export function SerialsPage() {
         <TextField
           select
           size="small"
-          label="Status"
+          label={t('sweep.status')}
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           sx={{ minWidth: 160 }}
         >
-          <MenuItem value="">All</MenuItem>
+          <MenuItem value="">{t('sweep2.all')}</MenuItem>
           {['AVAILABLE', 'SOLD', 'RETURNED', 'SCRAPPED'].map((s) => (
             <MenuItem key={s} value={s}>
               {s}
@@ -559,7 +605,7 @@ export function SerialsPage() {
           const target = status === 'AVAILABLE' ? 'SOLD' : status === 'SOLD' ? 'RETURNED' : status === 'RETURNED' ? 'SCRAPPED' : null;
           return (
             <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="caption" color="text.secondary" title="Current status">
+              <Typography variant="caption" color="text.secondary" title={t('sweep.currentStatus')}>
                 Last: {status}
               </Typography>
               {target ? (
@@ -612,7 +658,7 @@ export function StockValuationPage() {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
           <Paper variant="outlined" sx={{ px: 2, py: 1 }}>
             <Typography variant="caption" color="text.secondary" display="block">
-              Total stock value
+              {t('sweep2.totalStockValue')}
             </Typography>
             <Typography variant="h6" sx={{ fontWeight: 700 }}>
               {formatMoney(totalValue)}
@@ -621,14 +667,14 @@ export function StockValuationPage() {
           <TextField
             select
             size="small"
-            label="Value stock at"
+            label={t('sweep.valueStockAt')}
             value={basis}
             onChange={(e) => setBasis(e.target.value)}
             sx={{ minWidth: 200 }}
           >
-            <MenuItem value="cost">Cost (WAVG / FIFO)</MenuItem>
-            <MenuItem value="purchase">Purchase price</MenuItem>
-            <MenuItem value="selling">Selling price</MenuItem>
+            <MenuItem value="cost">{t('sweep2.costWavgFifo')}</MenuItem>
+            <MenuItem value="purchase">{t('sweep2.purchasePrice')}</MenuItem>
+            <MenuItem value="selling">{t('sweep2.sellingPriceText')}</MenuItem>
             <MenuItem value="mrp">MRP</MenuItem>
           </TextField>
         </Stack>
@@ -740,10 +786,13 @@ export function PriceListsPage() {
       subtitle={t('phase.priceListsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          New list
+          {t('sweep2.newList')}
         </Button>
       }
     >
+      <Alert severity="info" sx={{ mb: 2 }}>
+        {t('integrations.priceListsLocal')}
+      </Alert>
       <Alert severity="info" sx={{ mb: 2 }}>
         Quantity slabs (e.g. 1–10 @ ₹100, 11+ @ ₹92) apply at line qty. Assign a list on the customer.
         Credit notes keep the original invoice rate.
@@ -783,14 +832,14 @@ export function PriceListsPage() {
         ))}
       </Stack>
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>New price list</DialogTitle>
+        <DialogTitle>{t('sweep2.newPriceList')}</DialogTitle>
         <DialogContent>
-          <TextField fullWidth sx={{ mt: 1 }} label="Name" value={name} onChange={(e) => setName(e.target.value)} />
+          <TextField fullWidth sx={{ mt: 1 }} label={t('sweep.name')} value={name} onChange={(e) => setName(e.target.value)} />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
           <Button variant="contained" disabled={writesBlocked || !name || create.isPending} onClick={() => create.mutate()}>
-            Create
+            {t('sweep2.create')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -803,7 +852,7 @@ export function PriceListsPage() {
               <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
                   select
-                  label="Product"
+                  label={t('sweep.product')}
                   value={row.product}
                   onChange={(e) =>
                     setEdit((cur) =>
@@ -829,7 +878,7 @@ export function PriceListsPage() {
                   ))}
                 </TextField>
                 <TextField
-                  label="Min qty"
+                  label={t('sweep.minQty')}
                   value={row.minQty}
                   onChange={(e) =>
                     setEdit((cur) =>
@@ -840,8 +889,8 @@ export function PriceListsPage() {
                   }
                 />
                 <TextField
-                  label="Max qty"
-                  placeholder="open"
+                  label={t('sweep.maxQty')}
+                  placeholder={t('sweep.openEnded')}
                   value={row.maxQty}
                   onChange={(e) =>
                     setEdit((cur) =>
@@ -852,7 +901,7 @@ export function PriceListsPage() {
                   }
                 />
                 <TextField
-                  label="Unit price"
+                  label={t('sweep.unitPrice')}
                   value={row.unitPrice}
                   onChange={(e) =>
                     setEdit((cur) =>
@@ -874,7 +923,7 @@ export function PriceListsPage() {
                     )
                   }
                 >
-                  Remove
+                  {t('sweep2.remove')}
                 </Button>
               </Stack>
             ))}
@@ -892,14 +941,14 @@ export function PriceListsPage() {
                 )
               }
             >
-              Add slab
+              {t('sweep2.addSlab')}
             </Button>
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEdit(null)}>Cancel</Button>
+          <Button onClick={() => setEdit(null)}>{t('sweep2.cancel')}</Button>
           <Button variant="contained" disabled={writesBlocked || save.isPending} onClick={() => save.mutate()}>
-            Save slabs
+            {t('sweep2.saveSlabs')}
           </Button>
         </DialogActions>
       </Dialog>

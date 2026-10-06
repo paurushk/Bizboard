@@ -25,6 +25,7 @@ export function paidAwareStatus(
   if (balance != null && Number(balance) === 0) {
     return 'PAID';
   }
+  if (balance != null && Number(balance) > 0) return 'UNPAID';
   return normalized;
 }
 
@@ -39,6 +40,8 @@ export function documentStatusTone(status: DocumentStatus | string): ChipTone {
     case 'DRAFT':
       return 'default';
     case 'RETURNED':
+      return 'warning';
+    case 'UNPAID':
       return 'warning';
     case 'CANCELLED':
       return 'error';

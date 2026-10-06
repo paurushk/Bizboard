@@ -98,3 +98,17 @@ def test_register_emits_signup_funnel_event():
     summary = client.get("/api/v1/insights/telemetry/")
     assert summary.status_code == 200, summary.data
     assert summary.data["funnel"]["signup_completed"] >= 1
+
+
+def test_task_success_events_are_accepted(tenant_a):
+    for event in ("form_abandoned", "draft_restored", "document_voided", "form_validation_failed"):
+        posted = tenant_a.client.post(
+            "/api/v1/insights/telemetry/",
+            {"event": event, "feature": "form"},
+            format="json",
+        )
+        assert posted.status_code == 201, posted.data
+    assert ShopFloorEvent.objects.filter(company=tenant_a.company, event="form_abandoned").count() == 1
+    assert ShopFloorEvent.objects.filter(company=tenant_a.company, event="draft_restored").count() == 1
+    assert ShopFloorEvent.objects.filter(company=tenant_a.company, event="document_voided").count() == 1
+    assert ShopFloorEvent.objects.filter(company=tenant_a.company, event="form_validation_failed").count() == 1

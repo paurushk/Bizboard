@@ -73,6 +73,11 @@ def test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it(tenan
     product = make_product(tenant_a.company, sku="SCN-1")
     receipts_before = CustomerReceipt.objects.count()
     payments_before = SupplierPayment.objects.count()
+    tenant_a.client.post(
+        f"/api/v1/complaints/supplier/{complaint_id}/transition/",
+        {"status": "APPROVED"},
+        format="json",
+    )
     made = tenant_a.client.post(
         f"/api/v1/complaints/supplier/{complaint_id}/create-debit-note/",
         {"items": [{"product": product.id, "quantity": "1", "unit_price": "10"}]},
@@ -94,11 +99,6 @@ def test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it(tenan
     assert again.data["id"] == made.data["id"]
     assert PurchaseDebitNote.objects.filter(company=tenant_a.company).count() == 1
 
-    tenant_a.client.post(
-        f"/api/v1/complaints/supplier/{complaint_id}/transition/",
-        {"status": "APPROVED"},
-        format="json",
-    )
     blocked = tenant_a.client.post(
         f"/api/v1/complaints/supplier/{complaint_id}/transition/",
         {"status": "RESOLVED"},

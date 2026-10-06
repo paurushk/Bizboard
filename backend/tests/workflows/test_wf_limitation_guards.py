@@ -11,7 +11,7 @@ These guards prove the "route 404s in the pilot profile" claim. The remaining
 demoted flows (D7 TDS/TCS returns, D8 RCM, D9 composition/CMP-08, D11 plan
 limits) have no separate flag — per section C they are screened out / handled
 out of band and are NOT freeze-gated; their behaviour coverage lives in
-test_wf_extended_stubs.py, relabelled as LIMITATION coverage (not a blocker).
+test_wf_extended.py, relabelled as LIMITATION coverage (not a blocker).
 """
 
 from __future__ import annotations

@@ -216,5 +216,42 @@ def reconcile_gateway_captures_task():
         posted += p
         attempted += a
     set_rls_company(None)
-    logger.info("Gateway holding reconcile attempted=%s posted=%s", attempted, posted)
-    return {"attempted": attempted, "posted": posted}
+    replayed = _replay_pending_payment_dead_letters()
+    logger.info(
+        "Gateway holding reconcile attempted=%s posted=%s dead_letters_replayed=%s",
+        attempted, posted, replayed,
+    )
+    return {"attempted": attempted, "posted": posted, "dead_letters_replayed": replayed}
+
+
+def _replay_pending_payment_dead_letters(*, limit: int = 20) -> int:
+    """Retry parked payment captures. The webhook no longer consumes its
+    dedup key on failure, and this sweep covers a provider that does not retry."""
+    from billing.models import DeadLetterEvent
+    from billing.services import replay_dead_letter
+
+    replayed = 0
+    # Park stores attempts=1 for the original crash. Five replay failures
+    # take the counter to 6, which is the first discard.
+    pending = DeadLetterEvent.objects.filter(
+        status=DeadLetterEvent.Status.PENDING,
+        attempts__lt=6,
+        payload__kind="payment_webhook",
+    ).order_by("id")[:limit]
+    for event in pending:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        if payload.get("kind") != "payment_webhook":
+            continue
+        try:
+            replay_dead_letter(event)
+            replayed += 1
+        except Exception:
+            logger.exception("payment dead letter replay failed id=%s", event.pk)
+            event.refresh_from_db(fields=["attempts", "status"])
+            if event.status != DeadLetterEvent.Status.PENDING:
+                continue
+            event.attempts = int(event.attempts or 0) + 1
+            if event.attempts >= 6:
+                event.status = DeadLetterEvent.Status.DISCARDED
+            event.save(update_fields=["attempts", "status", "updated_at"])
+    return replayed

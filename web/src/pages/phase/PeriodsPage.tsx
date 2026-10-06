@@ -3,6 +3,7 @@ import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
@@ -16,11 +17,6 @@ import { nextIndianFyEnd } from '@/utils/fy';
 import { BooksCloseSection } from '@/pages/phase/BooksCloseSection';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-
-function periodMonth(row: Record<string, unknown>): string {
-  const raw = String(row.startDate ?? row.start_date ?? '');
-  return raw.length >= 7 ? raw.slice(0, 7) : '';
-}
 
 function warningCodes(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return [];
@@ -77,17 +73,16 @@ export function PeriodsPage() {
       setError(getErrorMessage(e));
     },
   });
-  const gstSoftClose = useMutation({
-    mutationFn: (period: string) => {
-      if (!window.confirm(t('phase.confirmSoftCloseGst'))) {
+  const closeTogether = useMutation({
+    mutationFn: (id: number) => {
+      if (!window.confirm(t('phase.confirmClosePeriodTogether'))) {
         throw new Error('Cancelled');
       }
-      return api.softCloseGstPeriod(period);
+      return api.closeAccountingAndGstPeriod(id);
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       setError('');
-      const codes = warningCodes(data);
-      setWarning(codes.includes('accounting_period_open') ? t('phase.accountingPeriodOpen') : '');
+      setWarning('');
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
     onError: (e) => {
@@ -126,6 +121,10 @@ export function PeriodsPage() {
   });
   return <PageShell title={t('phase.periods')} subtitle={t('phase.periodsSubtitle')}>
     <BooksCloseSection />
+    <Alert severity="info">
+      <Typography variant="body2">{t('phase.closeEffectSoft')}</Typography>
+      <Typography variant="body2">{t('phase.closeEffectHard')}</Typography>
+    </Alert>
     {error ? <HelpErrorAlert message={error} /> : null}
     {warning ? <Alert severity="warning">{warning}</Alert> : null}
     {gstStillOpen ? <Alert severity="warning">{t('phase.gstPeriodOpen')}</Alert> : null}
@@ -142,9 +141,8 @@ export function PeriodsPage() {
       { key: 'name', label: t('phase.periodName') }, { key: 'startDate', label: t('phase.periodStart') }, { key: 'endDate', label: t('phase.periodEnd') }, { key: 'status', label: t('phase.periodStatus'), status: true },
     ]} actions={(row) => owner && (row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN')) ? <Stack direction="row" spacing={1} justifyContent="flex-end">
       {row.status === 'OPEN' ? <Button size="small" disabled={writesBlocked} onClick={() => setStatus.mutate({ id: Number(row.id), status: 'SOFT_CLOSED' })}>{t('phase.softClose')}</Button> : null}
-      {row.status !== 'CLOSED' ? <Button size="small" color="error" disabled={writesBlocked} onClick={() => setStatus.mutate({ id: Number(row.id), status: 'CLOSED' })}>{t('phase.closePeriod')}</Button> : null}
-      {gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN' && periodMonth(row) ? (
-        <Button size="small" disabled={writesBlocked || gstSoftClose.isPending} onClick={() => gstSoftClose.mutate(periodMonth(row))}>{t('phase.softCloseGst')}</Button>
+      {row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN') ? (
+        <Button size="small" color="error" disabled={writesBlocked || closeTogether.isPending} onClick={() => closeTogether.mutate(Number(row.id))}>{t('phase.closePeriodTogether')}</Button>
       ) : null}
     </Stack> : null} />
   </PageShell>;

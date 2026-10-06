@@ -37,6 +37,9 @@ def mark_period_dirty_if_snapshotted(company, doc_date) -> GstReturnPeriod | Non
 
 
 def soft_close_period(company, period: str, user) -> GstReturnPeriod:
+    from planwave.services import assert_books_clear
+
+    assert_books_clear(company)
     # B5-022: period lock no longer auto-ACCEPTs IMS rows (ITC needs an explicit
     # decision) — the old deemed_accept_on_period_lock() call was a dead no-op.
     # CR-104: lock the period row so concurrent Complete cannot race soft-close.
@@ -53,10 +56,21 @@ def soft_close_period(company, period: str, user) -> GstReturnPeriod:
     from insights.telemetry import record_event
 
     record_event(company, "period_closed", user=user)
+    from core.services.audit import AuditService
+
+    AuditService.log(
+        company=company,
+        user=user,
+        action="UPDATE",
+        entity_type="GstReturnPeriod",
+        entity_id=obj.pk,
+        description="period.locked",
+        metadata={"before": {"status": "OPEN"}, "after": {"status": str(obj.status)}, "period": period},
+    )
     return obj
 
 
-def reopen_period(company, period: str) -> GstReturnPeriod:
+def reopen_period(company, period: str, user=None) -> GstReturnPeriod:
     from django.db import transaction
 
     with transaction.atomic():
@@ -71,24 +85,24 @@ def reopen_period(company, period: str) -> GstReturnPeriod:
     # posts nothing) and intentionally stay. Record the reopen in the audit trail.
     import logging
 
-    from core.models import AuditEvent
-
     logging.getLogger(__name__).info(
         "GST period %s reopened for company %s.", period, getattr(company, "id", None),
     )
-    try:
-        AuditEvent.objects.create(
-            company=company,
-            action="gst_period.reopen",
-            entity_type="GstReturnPeriod",
-            entity_id=str(obj.pk),
-            description=(
-                f"Reopened GST period {period}. Any ITC-reclass journals from "
-                "explicit IMS decisions are retained (not reversed)."
-            ),
-        )
-    except Exception:  # noqa: BLE001 — audit write must not break the reopen
-        pass
+    from core.services.audit import AuditService
+
+    AuditService.log(
+        company=company,
+        user=user,
+        action="UPDATE",
+        entity_type="GstReturnPeriod",
+        entity_id=obj.pk,
+        description="period.reopened",
+        metadata={
+            "before": {"status": "SOFT_CLOSED"},
+            "after": {"status": str(obj.status)},
+            "period": period,
+        },
+    )
     return obj
 
 

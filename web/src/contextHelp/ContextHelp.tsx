@@ -143,9 +143,12 @@ export function ContextHelp({ page }: { page?: string }) {
   const drawerId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
+  // Close the drawer when the page changes.
+  const [seenPathname, setSeenPathname] = useState(location.pathname);
+  if (seenPathname !== location.pathname) {
+    setSeenPathname(location.pathname);
     setOpen(false);
-  }, [location.pathname]);
+  }
 
   useEffect(() => {
     if (open) closeRef.current?.focus();

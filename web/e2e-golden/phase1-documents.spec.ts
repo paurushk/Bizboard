@@ -28,6 +28,7 @@ async function completeInvoiceWithProducts(
 ) {
   await page.goto('/sales/new');
   await selectPartyOnDocument(page, customerName);
+  await page.getByRole('button', { name: 'Change bill type' }).click();
   await page.getByLabel('Invoice type').click();
   await page.getByRole('option', { name: /Non-GST/i }).click();
 
@@ -35,16 +36,17 @@ async function completeInvoiceWithProducts(
     await addInvoiceItem(page, sku);
   }
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).first();
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^(INV|BOS)-/.test(c));
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^(INV|BOS)-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toBeTruthy();
   return invoiceNumber!;
 }
 
 test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E P1 ${id}`;
   const email = `e2e-p1-${id}@example.test`;
@@ -69,8 +71,11 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await page.getByRole('option', { name: new RegExp(invoiceNumber) }).click();
   const checkboxes = page.getByRole('checkbox');
   await expect(checkboxes).toHaveCount(2, { timeout: 10_000 });
-  await checkboxes.nth(0).check();
-  await checkboxes.nth(1).check();
+  // MUI's visually hidden checkbox input can stall Playwright's check action.
+  for (const box of [checkboxes.nth(0), checkboxes.nth(1)]) {
+    await box.evaluate((el) => (el as HTMLInputElement).click());
+    await expect(box).toBeChecked();
+  }
   await page.getByLabel('Reason').fill('Multi-line return e2e');
   await page.getByRole('button', { name: 'Complete' }).click();
   await expect(page.getByText(/Sales return completed/i)).toBeVisible({ timeout: 15_000 });
@@ -82,7 +87,9 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await source.click();
   await source.fill(cnSource);
   await page.getByRole('option', { name: new RegExp(cnSource) }).click();
-  await page.getByRole('button', { name: new RegExp(a.productName) }).click();
+  await expect(page.getByRole('cell', { name: new RegExp(a.productName) })).toBeVisible({ timeout: 15_000 });
+  const creditQty = page.locator('table').getByRole('spinbutton', { name: /^(qty|quantity)$/i }).first();
+  await creditQty.fill('1');
   await page.getByRole('button', { name: /Save & Complete/i }).click();
   await expect(page.getByRole('button', { name: /Download|Print/i }).first()).toBeVisible({
     timeout: 45_000,
@@ -102,5 +109,5 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/sales\/orders\/\d+/);
   await page.getByRole('button', { name: /Convert/ }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 });

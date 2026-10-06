@@ -17,8 +17,12 @@ evidence:
   - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-100 (High, Status: OPEN)'
   - 'docs/reviews/FUNCTIONAL_CODE_REVIEW_FINDINGS.md CR-101 (High, Status: OPEN)'
   - docs/TESTING_STRATEGY.md#6.9 (dashboard KPI == drill-down)
-  detail: Direct read of the 2026-09-08 functional review; both entries marked OPEN, both High; not re-verified
-    against the current tree.
+  detail: 'Direct read of the 2026-09-08 functional review (both entries High). Re-verified 2026-10-02: the fix
+    was already in the tree, and backend/tests/test_ar_ap_agreement_matrix.py now checks 14 scenarios x books
+    on/off against a hand-computed oracle (unpaid, part-paid, fully paid, credit/debit note, note after part
+    payment, unallocated advance, two parties): dashboard == aging == per-document outstanding == oracle, and
+    with books on the 1200/2100 control accounts and the tagged party ledgers tie to the same figure. All 28
+    pass; the oracle was shown to fail when AP aging is perturbed.'
 scoring:
   reach: 3
   severity: 3
@@ -34,8 +38,8 @@ recommendation: 'Mirror the sales-side aging filters on the purchase paths: _com
   surfaces only.'
 test_required: test_cr100_purchase_invoice_outstanding_ignores_receipt_allocations + test_cr101_dashboard_payables_equals_aging_sum
 guard_ref:
-  test: backend/tests/test_a15_cr090_plus.py::test_cr101_dashboard_payables_equals_aging_sum
+  test: backend/tests/test_ar_ap_agreement_matrix.py
 lifecycle: verified
 owner: backend
 opened: '2026-09-10'
-closed: null
+closed: '2026-10-02'

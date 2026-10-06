@@ -52,16 +52,10 @@ export function TelegramSettingsPage() {
   return (
     <Stack spacing={2} sx={{ maxWidth: 640 }}>
       <PageTitle>{t('nav.telegram')}</PageTitle>
-      <Typography color="text.secondary">
-        Connect your Telegram account to receive alerts here — expiry/low-stock warnings, payment
-        confirmations and overdue reminders — in addition to email.
-      </Typography>
+      <Typography color="text.secondary">{t('integrations.telegramIntro')}</Typography>
 
       {!status?.enabled ? (
-        <Alert severity="info">
-          Telegram notifications are not enabled for this company yet. Ask your Bizboard admin to
-          turn on the Telegram integration.
-        </Alert>
+        <Alert severity="warning">{t('integrations.telegramClosed')}</Alert>
       ) : null}
 
       {linkMutation.isError ? <HelpErrorAlert error={linkMutation.error} /> : null}
@@ -70,10 +64,10 @@ export function TelegramSettingsPage() {
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack spacing={2}>
           <Stack direction="row" alignItems="center" spacing={1}>
-            <Typography variant="subtitle1">Status</Typography>
+            <Typography variant="subtitle1">{t('integrations.telegramStatus')}</Typography>
             <Chip
               size="small"
-              label={linked ? 'Connected' : 'Not connected'}
+              label={linked ? t('integrations.telegramConnected') : t('integrations.telegramNotConnected')}
               color={linked ? 'success' : 'default'}
             />
           </Stack>
@@ -86,7 +80,7 @@ export function TelegramSettingsPage() {
               onClick={() => unlinkMutation.mutate()}
               sx={{ alignSelf: 'flex-start' }}
             >
-              Disconnect
+              {t('integrations.telegramDisconnect')}
             </Button>
           ) : (
             <Stack spacing={1} alignItems="flex-start">
@@ -95,14 +89,13 @@ export function TelegramSettingsPage() {
                 disabled={!status?.enabled || linkMutation.isPending}
                 onClick={() => linkMutation.mutate()}
               >
-                Connect Telegram
+                {t('integrations.telegramConnect')}
               </Button>
               {deepLink ? (
                 <Typography variant="body2" color="text.secondary">
-                  Opened Telegram in a new tab — send the pre-filled /start message to finish
-                  connecting.{' '}
+                  {t('integrations.telegramOpened')}{' '}
                   <a href={deepLink} target="_blank" rel="noopener noreferrer">
-                    Open again
+                    {t('integrations.telegramOpenAgain')}
                   </a>
                 </Typography>
               ) : null}

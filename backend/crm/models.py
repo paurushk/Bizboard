@@ -250,8 +250,7 @@ class ReferralReward(CompanyScopedModel):
         PENDING = "PENDING"
         APPROVED = "APPROVED"
         REJECTED = "REJECTED"
-        # Paid drafts a credit note. Completing that note adjusts the customer
-        # balance. Marking PAID does not send cash.
+        # PAID is set only after a draft credit note is linked. The note is not posted.
         PAID = "PAID"
 
     referral_code = models.ForeignKey(ReferralCode, on_delete=models.PROTECT, related_name="rewards")

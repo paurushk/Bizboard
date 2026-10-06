@@ -1,0 +1,232 @@
+[
+ {
+  "WI ID": "WI-069",
+  "Register task": null,
+  "Work item": "Decide Postgres host, RPO/RTO and backup-key custody",
+  "Wave": 1,
+  "Scope (quality-first)": "Founder chooses the provider (default: managed Postgres in an India region with point-in-time recovery), confirms RPO 5 min and RTO 1 h, and names the key administrator.",
+  "Planned test file": null,
+  "Kind": "decision",
+  "Plan key": "DEC-HOST"
+ },
+ {
+  "WI ID": "WI-002",
+  "Register task": "X-0432",
+  "Work item": "Critical transaction → immutable audit trail exists",
+  "Wave": 1,
+  "Scope (quality-first)": "Delivered with P-0115.",
+  "Planned test file": "backend/tests/test_register_audit_coverage.py",
+  "Kind": "feature",
+  "Plan key": "X-0432"
+ },
+ {
+  "WI ID": "WI-005",
+  "Register task": "S-0561",
+  "Work item": "Automated background trial balance zero-sum verification worker",
+  "Wave": 1,
+  "Scope (quality-first)": "Nightly worker runs these invariants: trial balance zero; every journal balanced; AR/AP control accounts equal customer/supplier outstanding; stock ledger equals movements; allocations within payments; ledger output tax equals invoice tax. A violation creates a quarantine record, blocks period close and GST export until cleared (billing continues), and alerts Owner, Accountant and the ops mailbox.",
+  "Planned test file": "backend/tests/test_plan_s_0561.py; backend/tests/test_register_integrity_gaps.py (invariant tests)",
+  "Kind": "feature",
+  "Plan key": "S-0561"
+ },
+ {
+  "WI ID": "WI-008",
+  "Register task": "S-0572",
+  "Work item": "Distributed Redis token bucket rate limiting on public-facing API endpoints",
+  "Wave": 1,
+  "Scope (quality-first)": "Redis token bucket. Login 10/min per IP and 5/min per account; OTP 3/min and 10/h per target; register 5/h per IP; portal 60/min per token; authenticated API 600/min per tenant (burst 100); webhooks signature-verified with a higher limit. Redis down: login and OTP fail closed on a strict in-process limit, the general API fails open, with an alert.",
+  "Planned test file": "backend/tests/test_plan_s_0572.py",
+  "Kind": "feature",
+  "Plan key": "S-0572"
+ },
+ {
+  "WI ID": "WI-011",
+  "Register task": "SEC-0625",
+  "Work item": "Instant user deactivation and immediate JWT session revocation",
+  "Wave": 1,
+  "Scope (quality-first)": "Per-user session version checked on each request (Redis with database fallback) plus the existing refresh blacklist, so access and refresh tokens both die on deactivation. Websocket drop only if a channel layer exists.",
+  "Planned test file": "backend/tests/test_plan_sec_0625.py",
+  "Kind": "feature",
+  "Plan key": "SEC-0625"
+ },
+ {
+  "WI ID": "WI-014",
+  "Register task": "X-0715",
+  "Work item": "Customer changes legal name and registered address: system updates master while preserving historical invoices",
+  "Wave": 1,
+  "Scope (quality-first)": "Snapshot legal name, trade name, billing and shipping address and GSTIN at completion on sales invoices, credit and debit notes and purchase bills. Backfill flags rows as backfill_from_master and uses the audit-history name as of the invoice date where a rename exists.",
+  "Planned test file": "backend/tests/test_plan_x_0715.py",
+  "Kind": "feature",
+  "Plan key": "X-0715"
+ },
+ {
+  "WI ID": "WI-017",
+  "Register task": "C-0603",
+  "Work item": "Section 16(4) time-barring automated alert and ITC exclusion engine",
+  "Wave": 1,
+  "Scope (quality-first)": "Warnings 60 and 7 days before the s.16(4) deadline (30 Nov after the invoice's financial year, or annual return date if earlier); TIME_BARRED after it for unclaimed ITC, excluded from claimable. Claimed ITC is flagged for the CA, not reversed.",
+  "Planned test file": "backend/tests/test_plan_c_0603.py",
+  "Kind": "feature",
+  "Plan key": "C-0603"
+ },
+ {
+  "WI ID": "WI-020",
+  "Register task": "C-0607",
+  "Work item": "Section 50 CGST Act delayed tax payment interest calculator (18% & 24% p.a.)",
+  "Wave": 1,
+  "Scope (quality-first)": "Section 50 worksheet and CSV: 18% a year on late-paid tax, 24% on undue or excess ITC; net cash liability basis for late-filed returns (Rule 88B), unpaid amount otherwise. Rates in a dated table. No journal posted. CA confirms.",
+  "Planned test file": "backend/tests/test_plan_c_0607.py",
+  "Kind": "feature",
+  "Plan key": "C-0607"
+ },
+ {
+  "WI ID": "WI-023",
+  "Register task": "X-0713",
+  "Work item": "Customer cheque dishonoured after 5 days: automated accounting reversal and bank fee debit",
+  "Wave": 1,
+  "Scope (quality-first)": "Section 138 notice draft only: written demand within 30 days of the bank memo, 15 days to pay, dates from the memo, disclaimer that an advocate must review. No reversal or fee logic here.",
+  "Planned test file": "backend/tests/test_plan_x_0713.py",
+  "Kind": "feature",
+  "Plan key": "X-0713"
+ },
+ {
+  "WI ID": "WI-026",
+  "Register task": "P-0152",
+  "Work item": "Adjust stock with authorization",
+  "Wave": 1,
+  "Scope (quality-first)": "Stock adjustment needs a second user when value at cost is Rs 10,000 or more, or quantity is 10% or more of on-hand (both configurable per company), using the approval queue.",
+  "Planned test file": "backend/tests/test_plan_p_0152.py",
+  "Kind": "feature",
+  "Plan key": "P-0152"
+ },
+ {
+  "WI ID": "WI-029",
+  "Register task": "X-0514",
+  "Work item": "Update transport vehicle number / Transporter ID on active E-Way Bill during breakdown",
+  "Wave": 1,
+  "Scope (quality-first)": "Part B vehicle update as a stub action against the GSP adapter interface with a fake provider, plus stored vehicle history, behind GSP_LIVE_ENABLED=0. Live use needs sandbox credentials and a freeze exception.",
+  "Planned test file": "backend/tests/test_plan_x_0514.py",
+  "Kind": "feature",
+  "Plan key": "X-0514"
+ },
+ {
+  "WI ID": "WI-032",
+  "Register task": "C-0606",
+  "Work item": "Rule 138 CGST Rules mandatory E-Way Bill distance calculation via postal PIN codes",
+  "Wave": 1,
+  "Scope (quality-first)": "Validity computed from the user-entered distance using a configurable slab table with effective dates that the CA confirms. PIN-to-PIN distance lookup is deferred (needs NIC).",
+  "Planned test file": "backend/tests/test_plan_c_0606.py",
+  "Kind": "feature",
+  "Plan key": "C-0606"
+ },
+ {
+  "WI ID": "WI-034",
+  "Register task": "S-0579",
+  "Work item": "Production check and alert for the nightly audit-chain seal",
+  "Wave": 1,
+  "Scope (quality-first)": "The seal task is already on the Celery beat at 02:40. A verify failure only logs an error (Sentry if configured); nothing notices a night that never ran, and there is no seal email. Add a missed-run check that logs an error and sends the Owner the same in-app notification the nightly invariant task already uses.",
+  "Planned test file": "drill log in qos/evidence/ (restore or alert drill)",
+  "Kind": "infra drill",
+  "Plan key": "S-0579"
+ },
+ {
+  "WI ID": "WI-036",
+  "Register task": "P-0046",
+  "Work item": "Search medicines while billing",
+  "Wave": 2,
+  "Scope (quality-first)": "Optional salt, composition and manufacturer fields on products, searchable at billing with a trigram index inside the checkout latency budget (query-budget test).",
+  "Planned test file": "backend/tests/test_plan_p_0046.py",
+  "Kind": "feature",
+  "Plan key": "P-0046"
+ },
+ {
+  "WI ID": "WI-039",
+  "Register task": "P-0089",
+  "Work item": "View all shops from one dashboard",
+  "Wave": 2,
+  "Scope (quality-first)": "Per-warehouse breakdown and switching inside one company on the dashboard, inside the dashboard query budget (test). Multi-company GSTIN stays out of scope.",
+  "Planned test file": "backend/tests/test_plan_p_0089.py",
+  "Kind": "feature",
+  "Plan key": "P-0089"
+ },
+ {
+  "WI ID": "WI-042",
+  "Register task": "X-0706",
+  "Work item": "Inter-godown transfer vehicle breakdown: goods transshipped to new tempo with E-Way Bill Part B update",
+  "Wave": 2,
+  "Scope (quality-first)": "Transfer vehicle-breakdown Part B workflow on stock transfers as a stub action plus stored fields (GSP flag off).",
+  "Planned test file": "backend/tests/test_plan_x_0706.py",
+  "Kind": "feature",
+  "Plan key": "X-0706"
+ },
+ {
+  "WI ID": "WI-045",
+  "Register task": "I-0655",
+  "Work item": "Barcode scanner HID USB wedge and 2D QR camera barcode reader",
+  "Wave": 2,
+  "Scope (quality-first)": "USB keyboard-wedge timing heuristic. Browser camera scanner deferred (mobile camera scan already works).",
+  "Planned test file": "web/src/__tests__/i_0655.test.tsx",
+  "Kind": "web",
+  "Plan key": "I-0655"
+ },
+ {
+  "WI ID": "WI-048",
+  "Register task": "GOS-0737",
+  "Work item": "End-to-end test: complaint to credit note, return or replacement",
+  "Wave": 2,
+  "Scope (quality-first)": "End-to-end test with stock and ledger check; credit note created exactly once.",
+  "Planned test file": "backend/tests/test_plan_gos_0737.py",
+  "Kind": "feature",
+  "Plan key": "GOS-0737"
+ },
+ {
+  "WI ID": "WI-051",
+  "Register task": "S-0562",
+  "Work item": "Release orphaned stock allocations on expired cart sessions",
+  "Wave": 2,
+  "Scope (quality-first)": "No cart session or timeout exists. POS drafts are device-local and do not reserve stock. Add a company-configurable expiry (default 24 hours, confirm before starting) on confirmed sales-order reservations and on POS holds from UX-0582: release the allocation and mark the hold expired, keeping the row.",
+  "Planned test file": "backend/tests/test_plan_s_0562.py",
+  "Kind": "feature",
+  "Plan key": "S-0562"
+ },
+ {
+  "WI ID": "WI-054",
+  "Register task": "UX-0586",
+  "Work item": "Ctrl+K omnibar",
+  "Wave": 2,
+  "Scope (quality-first)": "Global command palette with search and actions.",
+  "Planned test file": "web/src/__tests__/ux_0586.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0586"
+ },
+ {
+  "WI ID": "WI-057",
+  "Register task": "UX-0591",
+  "Work item": "Privacy mask for rupee figures",
+  "Wave": 2,
+  "Scope (quality-first)": "Personal on-screen toggle, separate from role masking; not a security control.",
+  "Planned test file": "web/src/__tests__/ux_0591.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0591"
+ },
+ {
+  "WI ID": "WI-060",
+  "Register task": "D-0690",
+  "Work item": "Automated GSTR-2B 'Smart Reconciler' with fuzzy name and fractional rounding matching",
+  "Wave": 3,
+  "Scope (quality-first)": "Score at least 0.95 with equal GSTIN and tax within tolerance links automatically; 0.80 to 0.95 suggests; below 0.80 shows nothing. Runs on uploaded 2B data after P-0503.",
+  "Planned test file": "backend/tests/test_plan_d_0690.py",
+  "Kind": "feature",
+  "Plan key": "D-0690"
+ },
+ {
+  "WI ID": "WI-067",
+  "Register task": null,
+  "Work item": "Wave 3 verification: full suite on Postgres, register sync, drift check, Later gate review",
+  "Wave": 3,
+  "Scope (quality-first)": "Run the full backend suite on Postgres, register_sync.py and register_drift.py, recalculate the workbook and review every wave item against its pass condition.",
+  "Planned test file": null,
+  "Kind": "gate",
+  "Plan key": "VER-3"
+ }
+]

@@ -273,7 +273,8 @@ def test_freeze_journeys_pdf_payment_signup_funnel(tenant_a):
         [{"product": product.id, "quantity": "1", "unit_price": "10.00", "gst_rate": "0"}],
     )
     with patch("sales.pdf.render_gst_tax_invoice", side_effect=RuntimeError("render down")):
-        generate_invoice_pdf.run(inv["id"], company_id=tenant_a.company.id)
+        with pytest.raises(RuntimeError):
+            generate_invoice_pdf.run(inv["id"], company_id=tenant_a.company.id)
 
     record_pdf_started(tenant_a.company)
     record_pdf_failed(tenant_a.company)

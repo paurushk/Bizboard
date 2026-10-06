@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { dialogAmountDirty } from '@/pages/moneyFormDirty';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -32,7 +34,8 @@ import { ChequePaymentFields, type ChequePaymentValues } from '@/components/Cheq
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { todayIso } from '@/components/billing';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
+import { trackShopFloor } from '@/lib/telemetry';
 import type { PaymentMode, PurchaseInvoice, Supplier } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -40,6 +43,7 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 const PAGE_SIZE = 50;
 
 export function SupplierPaymentsPage() {
+  useLocale();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const query = useQuery({
@@ -67,21 +71,29 @@ export function SupplierPaymentsPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const paymentDirty = dialogAmountDirty(open, Boolean(supplier), amount);
+  const requestClose = () => {
+    if (paymentDirty) setDiscardPrompt(true);
+    else setOpen(false);
+  };
 
   // F2-049: keep the allocation default clamped to min(payment, invoice balance)
   // as the payment amount / selected purchase change, instead of a one-shot
   // snapshot taken when the purchase was picked.
-  useEffect(() => {
+  const [seenAllocInputs, setSeenAllocInputs] = useState<{ amount: string; purchase: typeof purchase }>({
+    amount,
+    purchase,
+  });
+  if (seenAllocInputs.amount !== amount || seenAllocInputs.purchase !== purchase) {
+    setSeenAllocInputs({ amount, purchase });
     if (!purchase) {
       setAllocAmount('');
-      return;
+    } else {
+      const cap = Math.min(toNumber(amount), toNumber(purchase.balance));
+      setAllocAmount(cap > 0 ? String(cap) : '');
     }
-    const cap = Math.min(
-      toNumber(amount),
-      toNumber(purchase.balance),
-    );
-    setAllocAmount(cap > 0 ? String(cap) : '');
-  }, [amount, purchase]);
+  }
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -133,7 +145,7 @@ export function SupplierPaymentsPage() {
     },
     onSuccess: () => {
       setOpen(false);
-      setMessage('Supplier payment created');
+      setMessage(t('billing.supplierPaymentCreated'));
       // BUG-530: reset the form so reopening doesn't show stale values —
       // ReceiptsPage already did this, this page didn't.
       setSupplier(null);
@@ -152,7 +164,8 @@ export function SupplierPaymentsPage() {
   const voidMutation = useMutation({
     mutationFn: (id: number) => voidSupplierPayment(id),
     onSuccess: () => {
-      setMessage('Payment voided');
+      trackShopFloor('document_voided', { feature: 'form' });
+      setMessage(t('billing.paymentVoided'));
       void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       void qc.invalidateQueries({ queryKey: ['purchases'] });
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
@@ -207,16 +220,16 @@ export function SupplierPaymentsPage() {
         />
       ) : null}
       {payments.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>{t('common.number')}</TableCell>
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t('billing.supplier')}</TableCell>
-                <TableCell>Mode</TableCell>
+                <TableCell>{t('sweep2.mode')}</TableCell>
                 <TableCell align="right">{t('common.amount')}</TableCell>
-                <TableCell align="right">Allocated</TableCell>
+                <TableCell align="right">{t('sweep2.allocated')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
@@ -270,7 +283,7 @@ export function SupplierPaymentsPage() {
                             }
                           }}
                         >
-                          Void
+                          {t('billing.void')}
                         </Button>
                       </Stack>
                     )}
@@ -300,8 +313,19 @@ export function SupplierPaymentsPage() {
         </Stack>
       ) : null}
 
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>New supplier payment</DialogTitle>
+      <UnsavedChangesGuard
+        when={paymentDirty}
+        prompt={discardPrompt}
+        onStay={() => setDiscardPrompt(false)}
+        onLeave={() => {
+          setDiscardPrompt(false);
+          setOpen(false);
+          setAmount('');
+          setSupplier(null);
+        }}
+      />
+      <Dialog open={open} onClose={requestClose} fullWidth maxWidth="sm">
+        <DialogTitle>{t('billing.newSupplierPayment')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Autocomplete
@@ -317,10 +341,10 @@ export function SupplierPaymentsPage() {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
-            <TextField select label="Mode" value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
+            <TextField select label={t('billing.paymentMode')} value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
               {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT', 'CHEQUE'] as const).map((m) => (
                 <MenuItem key={m} value={m}>
-                  {m}
+                  {t(`billing.payMode.${m}`)}
                 </MenuItem>
               ))}
             </TextField>
@@ -331,7 +355,7 @@ export function SupplierPaymentsPage() {
               value={purchase}
               onChange={(_, v) => setPurchase(v)}
               renderInput={(params) => (
-                <TextField {...params} label="Allocate to purchase (optional)" />
+                <TextField {...params} label={t('billing.allocateToPurchase')} />
               )}
             />
             {purchase ? (
@@ -345,7 +369,7 @@ export function SupplierPaymentsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={requestClose}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={!supplier || !amount || createMutation.isPending}

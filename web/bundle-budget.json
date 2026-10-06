@@ -1,0 +1,6 @@
+{
+  "_comment": "Gzip budgets enforced by scripts/check-bundle-budget.mjs. Ratchet: set at measured + ~10 percent (2026-10-02 measured: initial 481.7 KB); lower when the bundle shrinks, never raise to make a failure pass.",
+  "initialGzipKB": 530,
+  "perChunkGzipKB": 150,
+  "allowLargeChunks": []
+}

@@ -15,16 +15,20 @@ import { getErrorMessage } from '@/api/client';
 import { getCashflowForecast } from '@/api/resources';
 import { DisclaimerBanner, MoneyText, PageHeader } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import { t } from '@/i18n';
 import { toNumber } from '@/utils/money';
 
 export function InsightsCashflowPage() {
+  const consentOn = useAiConsentOn();
   const [horizon, setHorizon] = useState(14);
   const query = useQuery({
     queryKey: ['insights-cashflow', horizon],
     queryFn: () => getCashflowForecast(horizon),
+    enabled: consentOn,
   });
 
+  if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsCashflow')} />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
     return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -154,17 +158,17 @@ export function InsightsCashflowPage() {
         </Box>
       </Paper>
 
-      <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+      <Paper variant="outlined" tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
-              <TableCell>Date</TableCell>
-              <TableCell align="right">Inflow</TableCell>
-              <TableCell align="right">Outflow</TableCell>
-              <TableCell align="right">Net</TableCell>
-              <TableCell align="right">Cumulative</TableCell>
-              <TableCell align="right">Low</TableCell>
-              <TableCell align="right">High</TableCell>
+              <TableCell>{t('sweep2.date')}</TableCell>
+              <TableCell align="right">{t('sweep2.inflow')}</TableCell>
+              <TableCell align="right">{t('sweep2.outflow')}</TableCell>
+              <TableCell align="right">{t('sweep2.net')}</TableCell>
+              <TableCell align="right">{t('sweep2.cumulative')}</TableCell>
+              <TableCell align="right">{t('sweep2.low')}</TableCell>
+              <TableCell align="right">{t('sweep2.high')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>

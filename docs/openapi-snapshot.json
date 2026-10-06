@@ -655,6 +655,327 @@
                 }
             }
         },
+        "/api/v1/accounting/cash-shifts/": {
+            "get": {
+                "operationId": "accounting_cash_shifts_list",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedCashShiftRegisterList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_cash_shifts_create",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cash-shifts/{id}/": {
+            "get": {
+                "operationId": "accounting_cash_shifts_retrieve",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "accounting_cash_shifts_update",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "accounting_cash_shifts_partial_update",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCashShiftRegister"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCashShiftRegister"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCashShiftRegister"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "accounting_cash_shifts_destroy",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cash-shifts/{id}/close/": {
+            "post": {
+                "operationId": "accounting_cash_shifts_close_create",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/accounting/cost-centers/": {
             "get": {
                 "operationId": "accounting_cost_centers_list",
@@ -2111,6 +2432,63 @@
                 }
             }
         },
+        "/api/v1/accounting/periods/{id}/close-period/": {
+            "post": {
+                "operationId": "accounting_periods_close_period_create",
+                "description": "Close the books for the month, then the GST period. Two steps, one call.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this accounting period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/accounting/periods/{id}/soft-close/": {
             "post": {
                 "operationId": "accounting_periods_soft_close_create",
@@ -2460,6 +2838,118 @@
                     {
                         "jwtAuth": []
                     }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/confirm/": {
+            "post": {
+                "operationId": "auth_mfa_confirm_create",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/disable/": {
+            "post": {
+                "operationId": "auth_mfa_disable_create",
+                "description": "Disabling or regenerating needs the password AND a current second factor, so a\nstolen session alone cannot remove the protection.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/recovery-codes/": {
+            "post": {
+                "operationId": "auth_mfa_recovery_codes_create",
+                "description": "Disabling or regenerating needs the password AND a current second factor, so a\nstolen session alone cannot remove the protection.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/setup/": {
+            "post": {
+                "operationId": "auth_mfa_setup_create",
+                "description": "Start (or restart) enrolment: returns a fresh secret + QR. Nothing is enforced\nuntil /auth/mfa/confirm/ proves the user can generate codes.\n\nAn enrol token is accepted here and only here (plus confirm). It is not a session.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/status/": {
+            "get": {
+                "operationId": "auth_mfa_status_retrieve",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/mfa/verify/": {
+            "post": {
+                "operationId": "auth_mfa_verify_create",
+                "description": "Second step of login. Body: ``mfa_token`` + (``code`` | ``recovery_code``).",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {}
                 ],
                 "responses": {
                     "200": {
@@ -10610,6 +11100,70 @@
                 }
             }
         },
+        "/api/v1/integrations/shopify/connection/": {
+            "get": {
+                "operationId": "integrations_shopify_connection_retrieve",
+                "description": "Owner connection for a Shopify store: domain, secret, godown, and customer.",
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "put": {
+                "operationId": "integrations_shopify_connection_update",
+                "description": "Owner connection for a Shopify store: domain, secret, godown, and customer.",
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/shopify/pending/{item_key}/apply/": {
+            "post": {
+                "operationId": "integrations_shopify_pending_apply_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "item_key",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/integrations/shopify/webhook/": {
             "post": {
                 "operationId": "integrations_shopify_webhook_create",
@@ -11289,6 +11843,24 @@
                 }
             }
         },
+        "/api/v1/inventory/labels.zpl": {
+            "get": {
+                "operationId": "inventory_labels.zpl_retrieve",
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/inventory/movements/": {
             "get": {
                 "operationId": "inventory_movements_list",
@@ -11326,6 +11898,32 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PaginatedStockMovementList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/inventory/movements/export/": {
+            "get": {
+                "operationId": "inventory_movements_export_retrieve",
+                "description": "BUG-SEC-005: stream movement rows instead of building one in-memory list.",
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockMovement"
                                 }
                             }
                         },
@@ -12294,6 +12892,43 @@
                 }
             }
         },
+        "/api/v1/inventory/stock-counts/{id}/counter/": {
+            "get": {
+                "operationId": "inventory_stock_counts_counter_retrieve",
+                "description": "Count screen. A blind session omits the expected quantity.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this stock count session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockCountSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/inventory/stock-counts/{id}/post/": {
             "post": {
                 "operationId": "inventory_stock_counts_post_create",
@@ -12332,6 +12967,43 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockCountSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/inventory/stock-counts/{id}/review/": {
+            "get": {
+                "operationId": "inventory_stock_counts_review_retrieve",
+                "description": "Review screen. Variance is visible even when the session is blind.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this stock count session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -12675,7 +13347,64 @@
         "/api/v1/inventory/transfers/{id}/complete/": {
             "post": {
                 "operationId": "inventory_transfers_complete_create",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "Dispatch: stock leaves the source and sits in transit.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this stock transfer.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockTransfer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/inventory/transfers/{id}/receive/": {
+            "post": {
+                "operationId": "inventory_transfers_receive_create",
+                "description": "Land in-transit stock at the destination godown.",
                 "parameters": [
                     {
                         "in": "path",
@@ -18523,6 +19252,63 @@
                 }
             }
         },
+        "/api/v1/payroll/pay-runs/{id}/components/": {
+            "post": {
+                "operationId": "payroll_pay_runs_components_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this pay run.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payroll"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PayRun"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PayRun"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PayRun"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PayRun"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/payroll/pay-runs/{id}/lop/": {
             "post": {
                 "operationId": "payroll_pay_runs_lop_create",
@@ -18633,6 +19419,518 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/anomalies/": {
+            "get": {
+                "operationId": "plan_anomalies_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/approvals/": {
+            "post": {
+                "operationId": "plan_approvals_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/approvals/{id}/decide/": {
+            "post": {
+                "operationId": "plan_approvals_decide_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/bulk-invoices/": {
+            "post": {
+                "operationId": "plan_bulk_invoices_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/bulk-invoices/commit/": {
+            "post": {
+                "operationId": "plan_bulk_invoices_commit_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/cashflow/": {
+            "get": {
+                "operationId": "plan_cashflow_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/catalog/": {
+            "get": {
+                "operationId": "plan_catalog_retrieve",
+                "description": "CSV and PDF item list. Cost columns are omitted for roles that must not see them.",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/certification/": {
+            "get": {
+                "operationId": "plan_certification_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/eway/": {
+            "post": {
+                "operationId": "plan_eway_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/godowns/": {
+            "get": {
+                "operationId": "plan_godowns_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/gstr2b/score/": {
+            "post": {
+                "operationId": "plan_gstr2b_score_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/itc/": {
+            "post": {
+                "operationId": "plan_itc_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/itc/summary/": {
+            "get": {
+                "operationId": "plan_itc_summary_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "plan_itc_summary_create",
+                "description": "Send the deadline alerts (once per bill per day). A read never sends anything.",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/overdue/": {
+            "get": {
+                "operationId": "plan_overdue_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/pharmacy/": {
+            "post": {
+                "operationId": "plan_pharmacy_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/pharmacy/register/": {
+            "get": {
+                "operationId": "plan_pharmacy_register_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/pos-holds/": {
+            "get": {
+                "operationId": "plan_pos_holds_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "plan_pos_holds_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/print/": {
+            "post": {
+                "operationId": "plan_print_create",
+                "description": "Network ESC/POS is used when a printer is configured. Otherwise the PDF is the receipt.",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/quarantine/": {
+            "get": {
+                "operationId": "plan_quarantine_retrieve",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "plan_quarantine_destroy",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/restore/": {
+            "post": {
+                "operationId": "plan_restore_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/section-50/": {
+            "post": {
+                "operationId": "plan_section_50_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/section-50.csv": {
+            "post": {
+                "operationId": "plan_section_50.csv_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/tally-commit/": {
+            "post": {
+                "operationId": "plan_tally_commit_create",
+                "description": "Stores the mapped file only. Live Tally stays off until a freeze exception.",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/tally-map/": {
+            "post": {
+                "operationId": "plan_tally_map_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/plan/warehouse-access/": {
+            "post": {
+                "operationId": "plan_warehouse_access_create",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -19221,6 +20519,138 @@
                             "type": "integer"
                         },
                         "description": "A unique integer value identifying this project.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/milestones/{milestone_id}/delete/": {
+            "post": {
+                "operationId": "projects_milestones_delete_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "milestone_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9]+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "projects"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Project"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Project"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/projects/{id}/milestones/{milestone_id}/edit/": {
+            "post": {
+                "operationId": "projects_milestones_edit_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this project.",
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "milestone_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9]+$"
+                        },
                         "required": true
                     }
                 ],
@@ -27312,6 +28742,62 @@
                 }
             }
         },
+        "/api/v1/sales/delivery-routes/{id}/issue-otp/": {
+            "post": {
+                "operationId": "sales_delivery_routes_issue_otp_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/delivery-routes/{id}/manifest/": {
             "get": {
                 "operationId": "sales_delivery_routes_manifest_retrieve",
@@ -27559,6 +29045,62 @@
         "/api/v1/sales/delivery-routes/{id}/suggest-sequence/": {
             "post": {
                 "operationId": "sales_delivery_routes_suggest_sequence_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/verify-handover/": {
+            "post": {
+                "operationId": "sales_delivery_routes_verify_handover_create",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "parameters": [
                     {
@@ -28188,6 +29730,63 @@
         "/api/v1/sales/invoices/{id}/complete/": {
             "post": {
                 "operationId": "sales_invoices_complete_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/extend-eway-validity/": {
+            "post": {
+                "operationId": "sales_invoices_extend_eway_validity_create",
                 "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
                 "parameters": [
                     {
@@ -28941,6 +30540,63 @@
                 "tags": [
                     "sales"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/update-eway-vehicle/": {
+            "post": {
+                "operationId": "sales_invoices_update_eway_vehicle_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -29853,6 +31509,24 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/pos/batch-sync/": {
+            "post": {
+                "operationId": "sales_pos_batch_sync_create",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -32769,6 +34443,63 @@
                 }
             }
         },
+        "/api/v1/workshop/job-cards/{id}/schedule/": {
+            "post": {
+                "operationId": "workshop_job_cards_schedule_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this job card.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "workshop"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobCard"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobCard"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JobCard"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JobCard"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/workshop/job-cards/{id}/start/": {
             "post": {
                 "operationId": "workshop_job_cards_start_create",
@@ -33179,7 +34910,7 @@
                         "type": "integer"
                     },
                     "status": {
-                        "$ref": "#/components/schemas/BankReconSessionStatusEnum"
+                        "$ref": "#/components/schemas/StatusAa5Enum"
                     },
                     "gl_balance": {
                         "type": "string",
@@ -33190,21 +34921,23 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "match_kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "other_recon_path": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "account",
                     "id",
+                    "match_kind",
+                    "other_recon_path",
                     "statement"
                 ]
-            },
-            "BankReconSessionStatusEnum": {
-                "enum": [
-                    "OPEN",
-                    "CLOSED"
-                ],
-                "type": "string",
-                "description": "* `OPEN` - Open\n* `CLOSED` - Closed"
             },
             "BankStatement": {
                 "type": "object",
@@ -33766,6 +35499,86 @@
                 "type": "string",
                 "description": "* `DIGITAL` - Digital\n* `REFERRAL` - Referral\n* `EVENT` - Event\n* `MARKET_VISIT` - Market Visit"
             },
+            "CashShiftRegister": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "cashier": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "business_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "opening_float": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "denominations": {
+                        "readOnly": true
+                    },
+                    "expected_cash": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "counted_cash": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "variance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusAa5Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "locked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "business_date",
+                    "cashier",
+                    "counted_cash",
+                    "created_at",
+                    "denominations",
+                    "expected_cash",
+                    "id",
+                    "locked_at",
+                    "status",
+                    "updated_at",
+                    "variance"
+                ]
+            },
             "Category": {
                 "type": "object",
                 "properties": {
@@ -33783,7 +35596,7 @@
                     "name"
                 ]
             },
-            "CategoryEnum": {
+            "Category5e0Enum": {
                 "enum": [
                     "DAMAGED",
                     "WRONG_DELIVERY",
@@ -33888,6 +35701,10 @@
                     "gstin": {
                         "type": "string",
                         "maxLength": 15
+                    },
+                    "series_gstin": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "registration_type": {
                         "$ref": "#/components/schemas/RegistrationTypeEnum"
@@ -34012,7 +35829,8 @@
                     "id",
                     "is_gst_registered",
                     "item_custom_field_defs",
-                    "name"
+                    "name",
+                    "series_gstin"
                 ]
             },
             "CompanyStatutoryLicence": {
@@ -34191,7 +36009,7 @@
                         "nullable": true
                     },
                     "category": {
-                        "$ref": "#/components/schemas/CategoryEnum"
+                        "$ref": "#/components/schemas/Category5e0Enum"
                     },
                     "description": {
                         "type": "string"
@@ -34528,8 +36346,7 @@
                         "maxLength": 100
                     },
                     "party_bank_account": {
-                        "type": "string",
-                        "maxLength": 32
+                        "type": "string"
                     },
                     "party_bank_ifsc": {
                         "type": "string",
@@ -34544,6 +36361,10 @@
                     "outstanding": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "version": {
+                        "type": "integer",
+                        "readOnly": true
                     }
                 },
                 "required": [
@@ -34554,7 +36375,8 @@
                     "id",
                     "name",
                     "outstanding",
-                    "updated_at"
+                    "updated_at",
+                    "version"
                 ]
             },
             "CustomerReceipt": {
@@ -34678,6 +36500,17 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "dishonour_fee": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "section_138_notice": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -34687,9 +36520,11 @@
                     "created_at",
                     "customer",
                     "customer_name",
+                    "dishonour_fee",
                     "gateway_payment",
                     "id",
                     "number",
+                    "section_138_notice",
                     "source",
                     "status",
                     "unallocated",
@@ -35387,6 +37222,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "cash_handover": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -35399,6 +37238,7 @@
                     }
                 },
                 "required": [
+                    "cash_handover",
                     "created_at",
                     "id",
                     "invoiced_stop_count",
@@ -35485,6 +37325,20 @@
                     "customer_receipt": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "collected_cash": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "collected_upi": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "upi_reference": {
+                        "type": "string",
+                        "maxLength": 64
                     }
                 },
                 "required": [
@@ -35501,10 +37355,11 @@
                     "PENDING",
                     "DELIVERED",
                     "FAILED",
+                    "REJECTED",
                     "RETURNED"
                 ],
                 "type": "string",
-                "description": "* `PENDING` - Pending\n* `DELIVERED` - Delivered\n* `FAILED` - Failed\n* `RETURNED` - Returned"
+                "description": "* `PENDING` - Pending\n* `DELIVERED` - Delivered\n* `FAILED` - Failed\n* `REJECTED` - Rejected\n* `RETURNED` - Returned"
             },
             "EinvoiceStatusEnum": {
                 "enum": [
@@ -35860,6 +37715,10 @@
                         "type": "string",
                         "maxLength": 64
                     },
+                    "depreciation_catchup_months": {
+                        "type": "string",
+                        "maxLength": 800
+                    },
                     "created_by": {
                         "type": "integer",
                         "nullable": true
@@ -36109,7 +37968,26 @@
                     "rejection_reason": {
                         "type": "string",
                         "maxLength": 255
-                    }
+                    },
+                    "batch": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "batch_no": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "mfg_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "exp_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "serial_numbers": {}
                 },
                 "required": [
                     "id",
@@ -36479,6 +38357,34 @@
                     "complaint": {
                         "type": "string"
                     },
+                    "registration_no": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "vehicle_model": {
+                        "type": "string",
+                        "maxLength": 80
+                    },
+                    "odometer_reading": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,1})?$",
+                        "nullable": true
+                    },
+                    "service_bay": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "scheduled_start": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "scheduled_end": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
                     "sales_invoice": {
                         "type": "integer",
                         "readOnly": true,
@@ -36535,12 +38441,36 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
                     },
+                    "labour_minutes": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64"
+                    },
+                    "technician_commission_percent": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,4}(?:\\.\\d{0,2})?$"
+                    },
+                    "commission_amount": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "serial": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "batch": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "batch_no": {
+                        "type": "string",
+                        "maxLength": 64
                     }
                 },
                 "required": [
+                    "commission_amount",
                     "id",
                     "kind",
                     "product",
@@ -37522,6 +39452,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Campaign"
+                        }
+                    }
+                }
+            },
+            "PaginatedCashShiftRegisterList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CashShiftRegister"
                         }
                     }
                 }
@@ -39796,7 +41757,7 @@
                         "type": "integer"
                     },
                     "status": {
-                        "$ref": "#/components/schemas/BankReconSessionStatusEnum"
+                        "$ref": "#/components/schemas/StatusAa5Enum"
                     },
                     "gl_balance": {
                         "type": "string",
@@ -39807,6 +41768,14 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "match_kind": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "other_recon_path": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 }
             },
@@ -40060,6 +42029,73 @@
                     }
                 }
             },
+            "PatchedCashShiftRegister": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "cashier": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "business_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "opening_float": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "denominations": {
+                        "readOnly": true
+                    },
+                    "expected_cash": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "counted_cash": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "variance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/StatusAa5Enum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "locked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                }
+            },
             "PatchedCategory": {
                 "type": "object",
                 "properties": {
@@ -40141,6 +42177,10 @@
                     "gstin": {
                         "type": "string",
                         "maxLength": 15
+                    },
+                    "series_gstin": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "registration_type": {
                         "$ref": "#/components/schemas/RegistrationTypeEnum"
@@ -40400,7 +42440,7 @@
                         "nullable": true
                     },
                     "category": {
-                        "$ref": "#/components/schemas/CategoryEnum"
+                        "$ref": "#/components/schemas/Category5e0Enum"
                     },
                     "description": {
                         "type": "string"
@@ -40678,8 +42718,7 @@
                         "maxLength": 100
                     },
                     "party_bank_account": {
-                        "type": "string",
-                        "maxLength": 32
+                        "type": "string"
                     },
                     "party_bank_ifsc": {
                         "type": "string",
@@ -40693,6 +42732,10 @@
                     },
                     "outstanding": {
                         "type": "string",
+                        "readOnly": true
+                    },
+                    "version": {
+                        "type": "integer",
                         "readOnly": true
                     }
                 }
@@ -41108,6 +43151,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "cash_handover": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -41360,6 +43407,10 @@
                     "block_key": {
                         "type": "string",
                         "maxLength": 64
+                    },
+                    "depreciation_catchup_months": {
+                        "type": "string",
+                        "maxLength": 800
                     },
                     "created_by": {
                         "type": "integer",
@@ -42159,6 +44210,26 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "salt": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "composition": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "manufacturer": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "drug_schedule": {
+                        "type": "string",
+                        "maxLength": 8
+                    },
+                    "rack_code": {
+                        "type": "string",
+                        "maxLength": 32
                     }
                 }
             },
@@ -43847,6 +45918,10 @@
                         "type": "string",
                         "maxLength": 64
                     },
+                    "pos_assumed_local": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
@@ -44449,6 +46524,10 @@
                         ],
                         "readOnly": true
                     },
+                    "blind": {
+                        "type": "boolean",
+                        "description": "When set, counter responses omit the expected quantity until review."
+                    },
                     "counted_on": {
                         "type": "string",
                         "format": "date",
@@ -44509,10 +46588,14 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusD0fEnum"
+                                "$ref": "#/components/schemas/StockTransferStatusEnum"
                             }
                         ],
                         "readOnly": true
+                    },
+                    "transfer_date": {
+                        "type": "string",
+                        "format": "date"
                     },
                     "notes": {
                         "type": "string"
@@ -44586,6 +46669,10 @@
                         "type": "string",
                         "maxLength": 64
                     },
+                    "country": {
+                        "type": "string",
+                        "maxLength": 2
+                    },
                     "is_active": {
                         "type": "boolean"
                     },
@@ -44651,7 +46738,7 @@
                         "nullable": true
                     },
                     "category": {
-                        "$ref": "#/components/schemas/CategoryEnum"
+                        "$ref": "#/components/schemas/Category5e0Enum"
                     },
                     "description": {
                         "type": "string"
@@ -44733,6 +46820,9 @@
                     "description": {
                         "type": "string"
                     },
+                    "category": {
+                        "$ref": "#/components/schemas/TicketCategoryEnum"
+                    },
                     "priority": {
                         "$ref": "#/components/schemas/PriorityEnum"
                     },
@@ -44749,6 +46839,10 @@
                         "nullable": true
                     },
                     "assignee_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "share_available": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -44820,6 +46914,14 @@
                     },
                     "address": {
                         "type": "string"
+                    },
+                    "contact_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "contact_phone": {
+                        "type": "string",
+                        "maxLength": 20
                     },
                     "is_default": {
                         "type": "boolean"
@@ -45788,6 +47890,26 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "salt": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "composition": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "manufacturer": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "drug_schedule": {
+                        "type": "string",
+                        "maxLength": 8
+                    },
+                    "rack_code": {
+                        "type": "string",
+                        "maxLength": 32
                     }
                 },
                 "required": [
@@ -45881,6 +48003,11 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "target_completion_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
                     },
                     "service_product": {
                         "type": "integer"
@@ -48961,6 +51088,10 @@
                         "type": "string",
                         "maxLength": 64
                     },
+                    "pos_assumed_local": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
@@ -49217,6 +51348,7 @@
                     "payment_state",
                     "pdf_file",
                     "pdf_status",
+                    "pos_assumed_local",
                     "rcm_cess",
                     "rcm_cgst",
                     "rcm_igst",
@@ -49728,11 +51860,12 @@
                 "enum": [
                     "DRAFT",
                     "CONFIRMED",
+                    "PARTIALLY_CONVERTED",
                     "CONVERTED",
                     "CANCELLED"
                 ],
                 "type": "string",
-                "description": "* `DRAFT` - Draft\n* `CONFIRMED` - Confirmed\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
+                "description": "* `DRAFT` - Draft\n* `CONFIRMED` - Confirmed\n* `PARTIALLY_CONVERTED` - Partially Converted\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
             },
             "SalesReturn": {
                 "type": "object",
@@ -49919,6 +52052,10 @@
                     "condition": {
                         "$ref": "#/components/schemas/ConditionEnum"
                     },
+                    "source_item": {
+                        "type": "integer",
+                        "nullable": true
+                    },
                     "taxable_amount": {
                         "type": "string",
                         "format": "decimal",
@@ -50086,6 +52223,14 @@
                 "type": "string",
                 "description": "* `DRAFT` - Draft\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled\n* `RETURNED` - Returned"
             },
+            "StatusAa5Enum": {
+                "enum": [
+                    "OPEN",
+                    "CLOSED"
+                ],
+                "type": "string",
+                "description": "* `OPEN` - Open\n* `CLOSED` - Closed"
+            },
             "StatusBbdEnum": {
                 "enum": [
                     "OPEN",
@@ -50189,6 +52334,11 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "rack_code": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "custom_fields": {
                         "readOnly": true
                     },
@@ -50221,6 +52371,7 @@
                     "nearest_expiry",
                     "product",
                     "product_name",
+                    "rack_code",
                     "reorder_level",
                     "sku",
                     "warehouse",
@@ -50300,6 +52451,10 @@
                             }
                         ],
                         "readOnly": true
+                    },
+                    "blind": {
+                        "type": "boolean",
+                        "description": "When set, counter responses omit the expected quantity until review."
                     },
                     "counted_on": {
                         "type": "string",
@@ -50447,10 +52602,14 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusD0fEnum"
+                                "$ref": "#/components/schemas/StockTransferStatusEnum"
                             }
                         ],
                         "readOnly": true
+                    },
+                    "transfer_date": {
+                        "type": "string",
+                        "format": "date"
                     },
                     "notes": {
                         "type": "string"
@@ -50526,6 +52685,16 @@
                     "quantity"
                 ]
             },
+            "StockTransferStatusEnum": {
+                "enum": [
+                    "DRAFT",
+                    "DISPATCHED",
+                    "COMPLETED",
+                    "CANCELLED"
+                ],
+                "type": "string",
+                "description": "* `DRAFT` - Draft\n* `DISPATCHED` - Dispatched\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled"
+            },
             "StopStageEnum": {
                 "enum": [
                     "INVOICE",
@@ -50573,6 +52742,10 @@
                     "state": {
                         "type": "string",
                         "maxLength": 64
+                    },
+                    "country": {
+                        "type": "string",
+                        "maxLength": 2
                     },
                     "is_active": {
                         "type": "boolean"
@@ -50649,7 +52822,7 @@
                         "nullable": true
                     },
                     "category": {
-                        "$ref": "#/components/schemas/CategoryEnum"
+                        "$ref": "#/components/schemas/Category5e0Enum"
                     },
                     "description": {
                         "type": "string"
@@ -50937,6 +53110,9 @@
                     "description": {
                         "type": "string"
                     },
+                    "category": {
+                        "$ref": "#/components/schemas/TicketCategoryEnum"
+                    },
                     "priority": {
                         "$ref": "#/components/schemas/PriorityEnum"
                     },
@@ -50953,6 +53129,10 @@
                         "nullable": true
                     },
                     "assignee_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "share_available": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -50992,12 +53172,21 @@
                     "id",
                     "number",
                     "resolved_at",
+                    "share_available",
                     "sla_due_at",
                     "status",
                     "subject",
                     "updated_at",
                     "waiting_since"
                 ]
+            },
+            "TicketCategoryEnum": {
+                "enum": [
+                    "GENERAL",
+                    "NUMBER_MISMATCH"
+                ],
+                "type": "string",
+                "description": "* `GENERAL` - General\n* `NUMBER_MISMATCH` - Number Mismatch"
             },
             "TicketStatusEnum": {
                 "enum": [
@@ -51134,6 +53323,14 @@
                     },
                     "address": {
                         "type": "string"
+                    },
+                    "contact_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "contact_phone": {
+                        "type": "string",
+                        "maxLength": 20
                     },
                     "is_default": {
                         "type": "boolean"

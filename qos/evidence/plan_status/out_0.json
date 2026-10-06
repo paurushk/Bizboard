@@ -1,0 +1,375 @@
+[
+ {
+  "wi_id": "WI-068",
+  "plan_key": "REG-WEB",
+  "register_task": null,
+  "implementation": "Built",
+  "code_refs": [
+   "qos/tools/register_sync.py:load_junit",
+   "qos/tools/register_sync.py:merge_junit"
+  ],
+  "test_ids": [
+   "qos/tools/tests/test_register_sync_web.py::test_parser_reads_pytest_vitest_and_playwright",
+   "qos/tools/tests/test_register_sync_web.py::test_failed_web_test_marks_the_row_fail_and_unknown_path_is_unmatched"
+  ],
+  "gaps": "",
+  "note": "Parser, path mapping to register rows and two tests exist; fixtures are hand-written JUnit samples rather than captured runner output."
+ },
+ {
+  "wi_id": "WI-001",
+  "plan_key": "P-0115",
+  "register_task": "P-0115",
+  "implementation": "Built",
+  "code_refs": [
+   "backend/core/services/audit.py:before_status_for_event",
+   "backend/planwave/services.py:AUDIT_COVERAGE"
+  ],
+  "test_ids": [
+   "backend/tests/test_register_audit_coverage.py::test_sales_invoice_complete_writes_audit_event",
+   "backend/tests/test_plan_above_items.py::test_period_lock_and_reopen_name_the_actor",
+   "backend/tests/test_plan_above_items.py::test_payroll_finalise_writes_an_audit_event",
+   "backend/tests/test_plan_above_items.py::test_amended_invoice_uses_the_coverage_event_name"
+  ],
+  "gaps": "",
+  "note": "All 18 listed actions have a test with real assertions (13 in test_register_audit_coverage plus debit note, journal reverse, period lock/reopen, payroll, amend in test_plan_above_items); IP and before/after are asserted; no xfails remain."
+ },
+ {
+  "wi_id": "WI-004",
+  "plan_key": "C-0616",
+  "register_task": "C-0616",
+  "implementation": "Built",
+  "code_refs": [
+   "backend/planwave/services.py:certification_export",
+   "backend/planwave/views.py:CertificationView",
+   "backend/planwave/models.py:LoggingWindow"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_remaining.py::test_certification_refuses_a_dark_window"
+  ],
+  "gaps": "",
+  "note": "Certification export checks chain integrity and logging windows and is tested for both the pass and the refusal."
+ },
+ {
+  "wi_id": "WI-007",
+  "plan_key": "S-0570",
+  "register_task": "S-0570",
+  "implementation": "Partial",
+  "code_refs": [
+   "scripts/backup.sh",
+   "scripts/restore_drill.sh",
+   ".github/workflows/backup-restore-drill.yml"
+  ],
+  "test_ids": [],
+  "gaps": "No WAL archiving or point-in-time recovery, no RPO 5 min / RTO 1 h configuration, no provider key-service integration (GPG/age recipient only), and no timed restore drill log in qos/evidence.",
+  "note": "Daily encrypted dump script and a restore drill workflow exist but the WAL/PITR half and the recorded timed drill do not."
+ },
+ {
+  "wi_id": "WI-010",
+  "plan_key": "SEC-0624",
+  "register_task": "SEC-0624",
+  "implementation": "Built",
+  "code_refs": [
+   "backend/accounts/mfa_service.py:user_has_money_role",
+   "backend/accounts/mfa_service.py:enrolment_required",
+   "backend/config/settings.py:_assert_mfa_enforcement"
+  ],
+  "test_ids": [
+   "backend/tests/test_mfa.py::test_flag_on_journal_poster_must_enrol",
+   "backend/tests/test_mfa.py::test_flag_on_sales_staff_still_gets_a_session",
+   "backend/tests/test_mfa.py::test_flag_on_owner_without_mfa_must_enrol",
+   "backend/tests/test_register_integrity_gaps.py::test_owner_without_mfa_cannot_complete_login_with_password_alone"
+  ],
+  "gaps": "",
+  "note": "Enforcement extended to can_post_journals memberships with positive and sales-staff-excluded tests; test_mfa_mandatory.py does not exist but the tests live in test_mfa.py."
+ },
+ {
+  "wi_id": "WI-013",
+  "plan_key": "SEC-0628",
+  "register_task": "SEC-0628",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/crypto.py:seal",
+   "backend/planwave/apps.py",
+   "backend/planwave/management/commands/seal_bank_accounts.py",
+   "backend/planwave/services.py:reseal_fernet_blob"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_remaining.py::test_bank_account_seals_and_rejects_tamper",
+   "backend/tests/test_plan_partials.py::test_party_bank_account_is_sealed_and_revealed",
+   "backend/tests/test_planwave_remaining.py::test_fernet_gateway_blob_moves_to_gcm"
+  ],
+  "gaps": "AES-GCM with key id covers company and customer bank accounts only; tax-portal secrets are not sealed in storage, encrypt_gsp_credentials still writes Fernet and nothing batch-migrates existing gateway blobs (only a reseal helper); the seal_bank_accounts command has no reverse path; last4 helper exists but no display field uses it.",
+  "note": "Bank-account sealing and a Fernet-to-GCM helper exist and are tested, but new gateway writes, tax secrets, reversible migration and last-four display are missing."
+ },
+ {
+  "wi_id": "WI-016",
+  "plan_key": "C-0602",
+  "register_task": "C-0602",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/models.py:ItcBillCheck",
+   "backend/planwave/finish.py:classify_purchase_bill",
+   "backend/planwave/finish.py:itc_summary",
+   "backend/planwave/services.py:itc_claimable"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_finish.py::test_unconfirmed_bill_is_excluded_from_claimable_itc"
+  ],
+  "gaps": "Only the negative case is tested (no test that a fully attested bill is claimable or that the 180-day check works); no per-bill warning or checklist UI in the web app; ITC attestation API untested.",
+  "note": "Model, hook at purchase completion, claimable summary and an exclusion test exist but the positive path, 180-day test and bill-level warning are unproven or absent."
+ },
+ {
+  "wi_id": "WI-019",
+  "plan_key": "P-0503",
+  "register_task": "P-0503",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/finish.py:score_2b_rows",
+   "backend/planwave/services.py:blocked_credit_match",
+   "backend/planwave/models.py:BlockedCreditRule"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_finish.py::test_2b_blocked_invoice_is_not_eligible"
+  ],
+  "gaps": "Blocked-credit classification is not added to the existing reporting/gstr2b.py reconciliation of uploaded 2B files; it only scores caller-supplied rows via /plan/gstr2b/score/ with a caller-supplied blocked_credit flag.",
+  "note": "The blocked-credit rule table and a standalone scorer exist but are not wired into the uploaded-2B reconciliation."
+ },
+ {
+  "wi_id": "WI-022",
+  "plan_key": "X-0530",
+  "register_task": "X-0530",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/payments/services.py:PaymentService.set_cheque_status",
+   "backend/payments/services.py:PaymentService._post_dishonour_fee"
+  ],
+  "test_ids": [
+   "backend/tests/test_bug_open_pay.py::test_bug_pay_001_fee_post_is_atomic",
+   "backend/tests/test_cheque_payment.py::test_cheque_receipt_starts_pending_and_bounce_voids",
+   "backend/tests/test_cheque_payment.py::test_set_cheque_status_http_bounce_voids"
+  ],
+  "gaps": "No configurable GST-on-recovery flag (code explicitly adds no GST); no Rs 500 suggestion (fee defaults to 0 unless a bank charge or cheque_dishonour_charge flag is set); owner alert is sent but no test asserts it.",
+  "note": "Void, allocation reversal, customer-debited fee and owner notification are implemented and mostly tested; the GST flag and suggested default are missing."
+ },
+ {
+  "wi_id": "WI-025",
+  "plan_key": "P-0128",
+  "register_task": "P-0128",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/models.py:ApprovalRequest",
+   "backend/planwave/services.py:_consume_approval",
+   "backend/sales/views.py:SalesInvoiceViewSet.cancel",
+   "backend/inventory/views.py"
+  ],
+  "test_ids": [
+   "backend/tests/test_plan_partials.py::test_completed_invoice_cancel_waits_for_a_second_owner",
+   "backend/tests/test_planwave_remaining.py::test_large_stock_adjustment_waits_for_a_second_user",
+   "backend/tests/test_planwave_remaining.py::test_approvals_reject_self_and_expired_tokens"
+  ],
+  "gaps": "The approval queue is enforced only for invoice cancel and large stock adjustment; not wired for credit-limit override (separate unlock), invoice amend, discount, returns/credit notes, backdating/period reopen, supplier payment, write-off or bulk import commit; no per-action configurable approver; no web UI.",
+  "note": "Generic queue with 72 h expiry and no-self-approval exists, but only two of the nine listed actions are gated."
+ },
+ {
+  "wi_id": "WI-028",
+  "plan_key": "R-0636",
+  "register_task": "R-0636",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/perf/checkout_bench.py:exceeds_baseline",
+   "backend/perf/test_r_0636_benchmark.py",
+   "qos/evidence/pos_checkout_baseline.json",
+   ".github/workflows/pos-checkout-nightly.yml"
+  ],
+  "test_ids": [
+   "backend/perf/test_r_0636_benchmark.py::test_checkout_p95_on_the_catalogue",
+   "backend/tests/test_plan_above_items.py::test_checkout_p95_regression_is_fifteen_percent"
+  ],
+  "gaps": "baseline_p95_ms is null so no baseline has been recorded; the benchmark skips unless POS_BENCH=1; the 2 vCPU / 4 GB container constraint is not evidenced.",
+  "note": "Harness and nightly workflow exist outside the PR suite but the recorded baseline is empty."
+ },
+ {
+  "wi_id": "WI-031",
+  "plan_key": "C-0618",
+  "register_task": "C-0618",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/services.py:record_eway_stub",
+   "backend/planwave/models.py:EwayStubAction",
+   "backend/planwave/views.py:EwayStubView"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_remaining.py::test_eway_stub_and_distance"
+  ],
+  "gaps": "No Part B time-limit alert; multi-vehicle split is only a quantity check, with no per-vehicle storage and no test; no link to the e-way bill record or GSP flag.",
+  "note": "A stub action table with Part B/extend/split validation exists; the time-limit alert and tested split are missing."
+ },
+ {
+  "wi_id": "WI-033",
+  "plan_key": "CUST-LOCK",
+  "register_task": null,
+  "implementation": "Built",
+  "code_refs": [
+   "backend/masters/views.py:CustomerViewSet.update",
+   "backend/masters/views.py:CustomerViewSet.perform_update"
+  ],
+  "test_ids": [
+   "backend/tests/test_register_race_gaps.py::test_concurrent_customer_edits_of_different_fields_do_not_lose_updates",
+   "backend/tests/test_planwave_remaining.py::test_stale_customer_put_returns_409"
+  ],
+  "gaps": "",
+  "note": "PATCH merge under select_for_update, versioned PUT with 409, and the xfail is removed; the concurrency test is Postgres-only and test_plan_cust_lock.py does not exist."
+ },
+ {
+  "wi_id": "WI-035",
+  "plan_key": "VER-1",
+  "register_task": null,
+  "implementation": "Not built",
+  "code_refs": [],
+  "test_ids": [],
+  "gaps": "No wave 1 verification record or MVP gate review artefact exists in the repo.",
+  "note": "Gate item needs a recorded run and review and none is on disk."
+ },
+ {
+  "wi_id": "WI-038",
+  "plan_key": "P-0081",
+  "register_task": "P-0081",
+  "implementation": "Built",
+  "code_refs": [
+   "backend/inventory/services.py:StockTransferService._move",
+   "backend/inventory/services.py:StockTransferService.in_transit_warehouse",
+   "backend/inventory/models.py:StockTransferLine"
+  ],
+  "test_ids": [
+   "backend/tests/test_bug_wave3.py::test_bug_inv_001_transfer_holds_stock_in_transit",
+   "backend/tests/test_plan_partials.py::test_partial_receipt_records_the_shortage",
+   "backend/tests/test_code_review_2026_10_05_b.py::test_cancel_after_a_short_receipt_restores_stock_and_clears_transit"
+  ],
+  "gaps": "",
+  "note": "IN_TRANSIT warehouse and partial receipt with shortage reason are tested; transfers post no journal, though no test asserts the absence of a ledger entry."
+ },
+ {
+  "wi_id": "WI-041",
+  "plan_key": "P-0180",
+  "register_task": "P-0180",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/models.py:UserWarehouseAccess",
+   "backend/planwave/finish.py:grant_warehouse",
+   "backend/inventory/serializers.py:WarehouseSerializer"
+  ],
+  "test_ids": [],
+  "gaps": "Contact name and phone are blank=True (not required); the user-to-warehouse mapping is stored but nothing enforces or reads it; no test covers the mapping or the default rule.",
+  "note": "Mapping model and grant endpoint exist but the required-contact rule and any test are missing."
+ },
+ {
+  "wi_id": "WI-044",
+  "plan_key": "I-0651",
+  "register_task": "I-0651",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/views.py:PrintBridgeView",
+   "web/src/pages/pos/printPosThermal.ts:printPosThermalOrWarn"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_finish.py::test_print_bridge_falls_back_without_a_printer"
+  ],
+  "gaps": "The print bridge always returns a PDF fallback and never sends to a network printer; the web path uses native/Bluetooth printEscPos and does not call plan/print; no web/src/__tests__/i_0651.test.tsx; no real printer verification.",
+  "note": "Only the PDF fallback is real; the network ESC/POS bridge and printer verification are absent."
+ },
+ {
+  "wi_id": "WI-047",
+  "plan_key": "GOS-0721",
+  "register_task": "GOS-0721",
+  "implementation": "Built",
+  "code_refs": [
+   "backend/crm/pipeline.py:capture_lead",
+   "backend/crm/pipeline.py:DedupePrompt"
+  ],
+  "test_ids": [
+   "backend/tests/test_os_vision_plan.py::test_resolve_dedupe_new_clears_pending_review",
+   "backend/tests/test_plan_remaining_open.py::test_duplicate_lead_is_matched_and_not_created_silently",
+   "backend/tests/test_os_vision_plan.py::test_converted_lead_is_not_a_second_party_on_repeat_contact"
+  ],
+  "gaps": "",
+  "note": "Dedupe flow is exercised through the CRM API endpoints (create then resolve-dedupe) as well as the service; test_plan_gos_0721.py itself does not exist."
+ },
+ {
+  "wi_id": "WI-050",
+  "plan_key": "SaaS-0666",
+  "register_task": "SaaS-0666",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/accounts/views.py",
+   "backend/tests/test_plan_remaining_open.py"
+  ],
+  "test_ids": [
+   "backend/tests/test_plan_remaining_open.py::test_twenty_signups_stay_unique_and_under_ten_seconds"
+  ],
+  "gaps": "The test runs 20 sequential signups in the normal suite, not 20 concurrent out of 50, and not as a nightly or manual job; no signup-to-workspace end-to-end check beyond company creation.",
+  "note": "Uniqueness and p95 are asserted but under sequential load and inside the PR run."
+ },
+ {
+  "wi_id": "WI-053",
+  "plan_key": "UX-0582",
+  "register_task": "UX-0582",
+  "implementation": "Partial",
+  "code_refs": [
+   "web/src/pages/pos/PosPage.tsx",
+   "backend/planwave/finish.py:hold_pos_cart",
+   "backend/planwave/finish.py:release_expired_pos_holds"
+  ],
+  "test_ids": [
+   "web/src/pages/pos/PosPage.hotkeys.test.tsx (F8 and F9 hold cart and cycle between sessions)",
+   "backend/tests/test_planwave_finish.py::test_pos_hold_expires_and_the_row_remains"
+  ],
+  "gaps": "Multi-cart hold in the web is client-side sessionStorage only; the backend PosCartHold is not called by the web and creates no stock reservation, so reservation survival is unproven; no web/src/__tests__/ux_0582.test.tsx.",
+  "note": "Hold and recall of several carts works in the UI but does not reserve stock."
+ },
+ {
+  "wi_id": "WI-056",
+  "plan_key": "UX-0590",
+  "register_task": "UX-0590",
+  "implementation": "Partial",
+  "code_refs": [
+   "web/src/pages/settings/ImportPage.tsx"
+  ],
+  "test_ids": [],
+  "gaps": "A progress bar with an ETA exists but is a time-based estimate (0.05 s per row), not server progress, and has no test; no ux_0590.test.tsx.",
+  "note": "Visible progress and ETA exist in the import commit UI but it is estimated and untested."
+ },
+ {
+  "wi_id": "WI-059",
+  "plan_key": "D-0684",
+  "register_task": "D-0684",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/services.py:cashflow_forecast",
+   "backend/planwave/finish.py:debtor_delays",
+   "backend/planwave/finish.py:cashflow_for_customer"
+  ],
+  "test_ids": [
+   "backend/tests/test_plan_remaining_open.py::test_cashflow_uses_settled_invoices",
+   "backend/tests/test_planwave_remaining.py::test_provision_interest_anomaly_cashflow_and_2b"
+  ],
+  "gaps": "The 1,000 runs cycle the sample deterministically rather than bootstrap-resampling; under 5 invoices it uses the segment average rather than the ageing heuristic; no cash-flow aggregate or UI badge; percentile values are not asserted.",
+  "note": "Per-debtor delays from the last 12 settled invoices, shrinkage and a low-confidence flag exist, but the simulation is not a real bootstrap and nothing is shown to users."
+ },
+ {
+  "wi_id": "WI-064",
+  "plan_key": "S-0574",
+  "register_task": "S-0574",
+  "implementation": "Partial",
+  "code_refs": [
+   "backend/planwave/services.py:flag_anomaly",
+   "backend/planwave/finish.py:review_completed_sale",
+   "backend/planwave/models.py:AnomalyReview",
+   "backend/planwave/views.py:AnomalyList"
+  ],
+  "test_ids": [
+   "backend/tests/test_planwave_remaining.py::test_provision_interest_anomaly_cashflow_and_2b"
+  ],
+  "gaps": "The discount median is across all the customer's lines rather than the item's; the rupee floor is a code default, not per company; the review queue is list-only (no resolve) and has no UI; review_completed_sale and the queue endpoint are untested.",
+  "note": "Flagging rule and queue table exist with a unit test, but item-level median, per-company thresholds and an exercised queue are missing."
+ }
+]

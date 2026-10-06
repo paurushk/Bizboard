@@ -223,20 +223,25 @@ def payment_webhook(request, provider: str):
     # is the ProcessedWebhookEvent unique-constraint insert below, which is
     # correct even if the cache backend is per-process, evicted, or briefly
     # down (the exact gap that let a replayed `refund` event double-unwind).
-    if cache.get(_dedup_key):
-        return Response({"ok": True, "duplicate": True, "status": event.status})
     from django.db import IntegrityError
 
     from .models import ProcessedWebhookEvent
 
-    try:
-        ProcessedWebhookEvent.objects.create(
-            dedup_key=_dedup_key, provider=provider, company=company
-        )
-    except IntegrityError:
-        cache.set(_dedup_key, "1", timeout=24 * 60 * 60)
+    # FMEA-003: do not mark the event seen until the money path succeeds.
+    # A failure must leave the key free so the provider retry (and the
+    # holding reconcile) can post the receipt. A concurrent winner still
+    # loses on the unique key after its own success.
+    if cache.get(_dedup_key) or ProcessedWebhookEvent.objects.filter(dedup_key=_dedup_key).exists():
         return Response({"ok": True, "duplicate": True, "status": event.status})
-    cache.set(_dedup_key, "1", timeout=24 * 60 * 60)
+
+    def _mark_seen() -> None:
+        try:
+            ProcessedWebhookEvent.objects.create(
+                dedup_key=_dedup_key, provider=provider, company=company
+            )
+        except IntegrityError:
+            pass
+        cache.set(_dedup_key, "1", timeout=24 * 60 * 60)
 
     if event.status == "REFUNDED":
         from .models import GatewayPayment
@@ -247,6 +252,7 @@ def payment_webhook(request, provider: str):
             provider_payment_id=event.provider_payment_id,
         ).first()
         if gp is None:
+            _mark_seen()
             return Response({"ok": True, "ignored": True, "status": event.status})
         try:
             gp = PaymentService.refund_gateway_payment(
@@ -264,9 +270,11 @@ def payment_webhook(request, provider: str):
             )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
+        _mark_seen()
         return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
 
     if event.status != "CAPTURED":
+        _mark_seen()
         return Response({"ok": True, "ignored": True, "status": event.status})
 
     from payments.holding import (
@@ -311,6 +319,7 @@ def payment_webhook(request, provider: str):
                 )
             if gp.status != GatewayPaymentStatus.CAPTURED:
                 park_gateway_payment(gp, books_hold_reason(exc), err_detail(exc))
+            _mark_seen()
             return Response({"ok": True, "gateway_payment_id": gp.id, "status": gp.status})
         return Response({"detail": str(exc.detail)}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as exc:  # noqa: BLE001 — park after signature+dedupe, never 500
@@ -334,10 +343,24 @@ def payment_webhook(request, provider: str):
                 "status": event.status,
             },
         )
+        try:
+            from core.services.telegram import notify_company_owners
+
+            notify_company_owners(
+                company,
+                subject="Payment needs a replay",
+                body=(
+                    f"A {provider} capture for {event.amount} was parked "
+                    f"(dead letter {parked.pk}). It will be retried."
+                ),
+            )
+        except Exception:
+            logger.exception("Dead-letter notify failed for %s", parked.pk)
         return Response(
             {"ok": True, "parked": True, "dead_letter_id": parked.pk},
             status=status.HTTP_202_ACCEPTED,
         )
+    _mark_seen()
     try:
         from core.services.telegram import notify_company_owners
 

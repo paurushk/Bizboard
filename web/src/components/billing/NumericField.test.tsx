@@ -62,3 +62,31 @@ describe('NumericField max clamp', () => {
     expect(onValueChange).toHaveBeenCalledWith(100);
   });
 });
+
+describe('NumericField follows its value', () => {
+  const field = (value: number) => (
+    <NumericField value={value} onValueChange={() => {}} decimals={2} inputProps={{ 'aria-label': 'follow' }} />
+  );
+
+  it('shows a new value from outside while the field is not focused', () => {
+    const { rerender } = render(field(5));
+    const input = screen.getByLabelText('follow') as HTMLInputElement;
+    expect(input.value).toBe('5');
+    rerender(field(7.5));
+    expect(input.value).toBe('7.5');
+  });
+
+  it('never overwrites what the user is typing, even if the value changes from outside', () => {
+    const { rerender } = render(field(5));
+    const input = screen.getByLabelText('follow') as HTMLInputElement;
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: '12' } });
+    rerender(field(7));
+    expect(input.value).toBe('12');
+  });
+
+  it('shows an empty box for zero', () => {
+    render(field(0));
+    expect((screen.getByLabelText('follow') as HTMLInputElement).value).toBe('');
+  });
+});

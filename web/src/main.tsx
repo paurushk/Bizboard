@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { AuthProvider } from '@/auth/AuthContext';
+import { PrivacyMaskProvider } from '@/privacy/PrivacyMask';
 import { fetchFeatureFlags } from '@/config/featureFlags';
 import { shouldUseMocks, getLastRequestId } from '@/api/client';
 import { hasStoredSession } from '@/auth/session';
@@ -76,7 +77,9 @@ createRoot(document.getElementById('root')!).render(
           <CssBaseline />
           <BrowserRouter>
             <AuthProvider>
-              <App />
+              <PrivacyMaskProvider>
+                <App />
+              </PrivacyMaskProvider>
             </AuthProvider>
           </BrowserRouter>
         </ThemeProvider>

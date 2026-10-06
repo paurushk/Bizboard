@@ -2,11 +2,15 @@ import { useState, type DragEvent } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { createInvoiceFromOpportunity } from '@/api/crm';
 import {
   createOpportunityLine,
   deleteOpportunityLine,
@@ -17,11 +21,15 @@ import {
   patchOpportunity,
   type OpportunityRow,
 } from '@/api/growth';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { PageTitle } from '@/contextHelp';
+import { formatMoney } from '@/utils/money';
+import { enumLabel } from '@/utils/enumLabels';
 import { t } from '@/i18n';
 import { ModuleGate } from '@/pages/erp/erpShared';
 import { ProductField } from '@/pages/growth/widgets';
 import type { Product } from '@/types/domain';
+import { ErrorState, LoadingState } from '@/components/PageState';
 
 const STAGES = ['OPEN', 'QUALIFIED', 'NEGOTIATION', 'WON', 'LOST'] as const;
 const OPEN_STAGES = new Set(['OPEN', 'QUALIFIED', 'NEGOTIATION']);
@@ -41,7 +49,10 @@ export function OpportunityPipelinePage() {
 
 function PipelineInner() {
   const qc = useQueryClient();
+  const theme = useTheme();
+  const narrow = useMediaQuery(theme.breakpoints.down('md'));
   const [selected, setSelected] = useState<number | null>(null);
+  const [pendingStage, setPendingStage] = useState<{ id: number; stage: string; title: string } | null>(null);
   const [error, setError] = useState('');
   const list = useQuery({ queryKey: ['opportunities-board'], queryFn: () => listOpportunitiesPage({ pageSize: 100 }) });
   const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
@@ -69,6 +80,11 @@ function PipelineInner() {
     const id = Number(event.dataTransfer.getData('text/plain'));
     const row = rows.find((item) => item.id === id);
     if (!row || !OPEN_STAGES.has(row.stage) || stage === row.stage) return;
+    if (stage === 'WON' || stage === 'LOST') {
+      // Same confirmation (and the "won needs a customer" check) as the buttons.
+      setPendingStage({ id, stage, title: row.title });
+      return;
+    }
     move.mutate({ id, stage });
   };
 
@@ -79,6 +95,9 @@ function PipelineInner() {
       <Typography variant="caption" color="text.secondary">{t('growth.dragHint')}</Typography>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="subtitle2">{t('growth.forecast')}</Typography>
+        {forecast.isError ? (
+          <ErrorState message={getErrorMessage(forecast.error)} error={forecast.error} onRetry={() => void forecast.refetch()} />
+        ) : null}
         {months.map((row) => (
           <ForecastBar key={row.month} label={row.month} amount={row.amount} max={max} />
         ))}
@@ -100,6 +119,10 @@ function PipelineInner() {
         ) : null}
       </Paper>
       {error ? <Typography color="error">{error}</Typography> : null}
+      {list.isLoading ? <LoadingState /> : null}
+      {list.isError ? (
+        <ErrorState message={getErrorMessage(list.error)} error={list.error} onRetry={() => void list.refetch()} />
+      ) : null}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         {STAGES.map((stage) => (
           <Paper
@@ -109,19 +132,22 @@ function PipelineInner() {
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => dropOn(stage, event)}
           >
-            <Typography variant="subtitle2">{stage}</Typography>
+            <Typography variant="subtitle2">{enumLabel('opportunityStage', stage)}</Typography>
+            {rows.filter((row) => row.stage === stage).length === 0 ? (
+              <Typography variant="caption" color="text.secondary">{t('cog.emptyPipeline')}</Typography>
+            ) : null}
             {rows.filter((row) => row.stage === stage).map((row) => (
               <Paper
                 key={row.id}
                 variant="outlined"
-                draggable={OPEN_STAGES.has(row.stage)}
+                draggable={!narrow && OPEN_STAGES.has(row.stage)}
                 onDragStart={(event) => event.dataTransfer.setData('text/plain', String(row.id))}
                 onClick={() => setSelected(row.id)}
                 sx={{ p: 1, mt: 1, cursor: OPEN_STAGES.has(row.stage) ? 'grab' : 'pointer' }}
               >
                 <Typography variant="body2">{row.title}</Typography>
                 <Typography variant="caption" display="block">
-                  {row.amount} · {row.probability}%{row.expectedCloseDate ? ` · ${row.expectedCloseDate}` : ''}
+                  {formatMoney(row.amount)} · {row.probability}%{row.expectedCloseDate ? ` · ${new Date(row.expectedCloseDate).toLocaleDateString('en-IN')}` : ''}
                 </Typography>
                 {row.competitor ? (
                   <Typography variant="caption" display="block">{t('growth.competitor')}: {row.competitor}</Typography>
@@ -129,8 +155,15 @@ function PipelineInner() {
                 {OPEN_STAGES.has(row.stage) ? (
                   <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                     {(NEXT[row.stage] ?? []).map((next) => (
-                      <Button key={next} size="small" onClick={(event) => { event.stopPropagation(); move.mutate({ id: row.id, stage: next }); }}>
-                        {t('growth.moveTo')} {next}
+                      <Button key={next} size="small" onClick={(event) => {
+                        event.stopPropagation();
+                        if (next === 'WON' || next === 'LOST') {
+                          setPendingStage({ id: row.id, stage: next, title: row.title });
+                          return;
+                        }
+                        move.mutate({ id: row.id, stage: next });
+                      }}>
+                        {t('growth.moveTo')} {enumLabel('opportunityStage', next)}
                       </Button>
                     ))}
                   </Stack>
@@ -141,6 +174,26 @@ function PipelineInner() {
         ))}
       </Stack>
       {selectedRow ? <OpportunityDetail key={selectedRow.id} row={selectedRow} onError={setError} /> : null}
+      <ConfirmDialog
+        open={Boolean(pendingStage)}
+        title={pendingStage?.stage === 'LOST' ? t('cog.confirmLost', { name: pendingStage?.title ?? '' }) : t('cog.confirmWon', { name: pendingStage?.title ?? '' })}
+        body={pendingStage?.title ?? ''}
+        onClose={() => setPendingStage(null)}
+        onConfirm={() => {
+          if (pendingStage) {
+            if (pendingStage.stage === 'WON') {
+              const deal = rows.find((row) => row.id === pendingStage.id);
+              if (!deal?.customer) {
+                setError(t('growth.wonNeedsCustomer'));
+                setPendingStage(null);
+                return;
+              }
+            }
+            move.mutate({ id: pendingStage.id, stage: pendingStage.stage });
+          }
+          setPendingStage(null);
+        }}
+      />
     </Stack>
   );
 }
@@ -160,6 +213,7 @@ function ForecastBar({ label, amount, max }: { label: string; amount: string; ma
 
 function OpportunityDetail({ row, onError }: { row: OpportunityRow; onError: (message: string) => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [probability, setProbability] = useState(String(row.probability ?? 0));
   const [closeDate, setCloseDate] = useState(row.expectedCloseDate ?? '');
   const [competitor, setCompetitor] = useState(row.competitor ?? '');
@@ -215,6 +269,13 @@ function OpportunityDetail({ row, onError }: { row: OpportunityRow; onError: (me
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Typography variant="subtitle2">{row.title}</Typography>
+      {row.stage === 'WON' ? (
+        <Button size="small" sx={{ mt: 1 }} onClick={() => {
+          void createInvoiceFromOpportunity(row.id)
+            .then((invoice) => navigate(`/sales/history/${invoice.id}`))
+            .catch((err) => onError(getErrorMessage(err)));
+        }}>{t('growth.createDraftInvoice')}</Button>
+      ) : null}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }} alignItems={{ md: 'center' }}>
         <TextField size="small" type="number" label={t('growth.probability')} value={probability} onChange={(e) => setProbability(e.target.value)} inputProps={{ min: 0, max: 100 }} />
         <TextField size="small" type="date" label={t('growth.closeDate')} value={closeDate} onChange={(e) => setCloseDate(e.target.value)} InputLabelProps={{ shrink: true }} />

@@ -16,13 +16,16 @@ import {
   PageHeader,
 } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
+import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import { t } from '@/i18n';
 
 export function InsightsHealthPage() {
-  const health = useQuery({ queryKey: ['insights-health'], queryFn: getBusinessHealth });
-  const history = useQuery({ queryKey: ['insights-health-history'], queryFn: getBusinessHealthHistory });
-  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: listGrowthHints });
+  const consentOn = useAiConsentOn();
+  const health = useQuery({ queryKey: ['insights-health'], queryFn: getBusinessHealth, enabled: consentOn });
+  const history = useQuery({ queryKey: ['insights-health-history'], queryFn: getBusinessHealthHistory, enabled: consentOn });
+  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: listGrowthHints, enabled: consentOn });
 
+  if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsHealth')} />;
   if (health.isLoading) return <LoadingState />;
   if (health.isError) {
     return <ErrorState message={getErrorMessage(health.error)} error={health.error} onRetry={() => void health.refetch()} />;
@@ -61,7 +64,7 @@ export function InsightsHealthPage() {
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Factor breakdown
+          {t('sweep2.factorBreakdown')}
         </Typography>
         <FactorBreakdown factors={data.factors ?? []} />
       </Paper>
@@ -69,7 +72,7 @@ export function InsightsHealthPage() {
       {hist.length > 1 ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="h6" sx={{ mb: 1 }}>
-            Score history
+            {t('sweep2.scoreHistory')}
           </Typography>
           <Stack direction="row" spacing={0.5} alignItems="flex-end" sx={{ height: 80 }}>
             {hist.map((h) => {

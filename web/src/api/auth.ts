@@ -64,6 +64,42 @@ function tokensFromBody(body: { access?: string | null; refresh?: string }): Aut
   return { access: 'cookie', refresh: body.refresh };
 }
 
+/** Thrown by login()/verifyOtp() when the account has two-step verification enabled. */
+export class MfaRequiredError extends Error {
+  readonly mfaToken: string;
+  constructor(mfaToken: string) {
+    super('Two-step verification required');
+    this.name = 'MfaRequiredError';
+    this.mfaToken = mfaToken;
+  }
+}
+
+function throwIfMfaRequired(body: { mfaRequired?: boolean; mfaToken?: string }): void {
+  if (body.mfaRequired && body.mfaToken) throw new MfaRequiredError(body.mfaToken);
+}
+
+/** Thrown when a money role must enrol before any session is issued. */
+export class MfaEnrollmentRequiredError extends Error {
+  readonly enrolToken: string;
+  constructor(enrolToken: string) {
+    super('Two-step enrolment required');
+    this.name = 'MfaEnrollmentRequiredError';
+    this.enrolToken = enrolToken;
+  }
+}
+
+function throwIfEnrollment(body: {
+  mfaEnrollmentRequired?: boolean;
+  enrolToken?: string;
+  mfa_enrollment_required?: boolean;
+  enrol_token?: string;
+}): void {
+  const token = body.enrolToken || body.enrol_token;
+  if ((body.mfaEnrollmentRequired || body.mfa_enrollment_required) && token) {
+    throw new MfaEnrollmentRequiredError(token);
+  }
+}
+
 export async function login(payload: LoginPayload): Promise<{ user: User; tokens: AuthTokens }> {
   if (shouldUseMocks()) {
     await delay(300);
@@ -74,7 +110,17 @@ export async function login(payload: LoginPayload): Promise<{ user: User; tokens
   }
 
   const { data } = await apiClient.post('/auth/login/', payload);
-  const body = unwrapData<{ user: User; access: string; refresh?: string }>(data);
+  const body = unwrapData<{
+    user: User;
+    access: string;
+    refresh?: string;
+    mfaRequired?: boolean;
+    mfaToken?: string;
+    mfaEnrollmentRequired?: boolean;
+    enrolToken?: string;
+  }>(data);
+  throwIfEnrollment(body);
+  throwIfMfaRequired(body);
   const tokens = tokensFromBody(body);
   let user = body.user;
   if (!user) {
@@ -155,7 +201,17 @@ export async function verifyOtp(
     };
   }
   const { data } = await apiClient.post('/auth/otp/verify/', { phone, code });
-  const body = unwrapData<{ user?: User; access: string; refresh?: string }>(data);
+  const body = unwrapData<{
+    user?: User;
+    access: string;
+    refresh?: string;
+    mfaRequired?: boolean;
+    mfaToken?: string;
+    mfaEnrollmentRequired?: boolean;
+    enrolToken?: string;
+  }>(data);
+  throwIfEnrollment(body);
+  throwIfMfaRequired(body);
   const tokens = tokensFromBody(body);
   setAccessToken(tokens.access);
   let user = body.user;
@@ -163,6 +219,70 @@ export async function verifyOtp(
     user = await fetchCurrentUser();
   }
   return { user, tokens };
+}
+
+/** Second step of login: exchange the challenge token + authenticator (or recovery) code for a session. */
+export async function verifyMfaLogin(
+  mfaToken: string,
+  input: { code?: string; recoveryCode?: string },
+): Promise<{ user: User; tokens: AuthTokens }> {
+  if (shouldUseMocks()) {
+    return { user: mockUser, tokens: { access: 'mock-access', refresh: 'mock-refresh' } };
+  }
+  const { data } = await apiClient.post('/auth/mfa/verify/', {
+    mfaToken,
+    code: input.code,
+    recoveryCode: input.recoveryCode,
+  });
+  const body = unwrapData<{ user?: User; access: string | null; refresh?: string }>(data);
+  const tokens = tokensFromBody(body);
+  setAccessToken(tokens.access);
+  const user = body.user ?? (await fetchCurrentUser());
+  return { user, tokens };
+}
+
+export interface MfaStatus {
+  enabled: boolean;
+  pendingSetup: boolean;
+  recoveryCodesRemaining: number;
+}
+
+export interface MfaSetup {
+  secret: string;
+  otpauthUri: string;
+  qrPng: string;
+}
+
+export async function getMfaStatus(): Promise<MfaStatus> {
+  if (shouldUseMocks()) return { enabled: false, pendingSetup: false, recoveryCodesRemaining: 0 };
+  const { data } = await apiClient.get('/auth/mfa/status/');
+  return unwrapData<MfaStatus>(data);
+}
+
+export async function startMfaSetup(enrolToken?: string): Promise<MfaSetup> {
+  const { data } = await apiClient.post(
+    '/auth/mfa/setup/',
+    enrolToken ? { enrol_token: enrolToken } : {},
+  );
+  return unwrapData<MfaSetup>(data);
+}
+
+/** Returns the one-time recovery codes; they are never shown again. */
+export async function confirmMfa(code: string, enrolToken?: string): Promise<string[]> {
+  const { data } = await apiClient.post('/auth/mfa/confirm/', {
+    code,
+    ...(enrolToken ? { enrol_token: enrolToken } : {}),
+  });
+  return unwrapData<{ recoveryCodes: string[] }>(data).recoveryCodes;
+}
+
+export async function disableMfa(password: string, factor: { code?: string; recoveryCode?: string }): Promise<void> {
+  await apiClient.post('/auth/mfa/disable/', { password, code: factor.code, recoveryCode: factor.recoveryCode });
+}
+
+export async function regenerateMfaRecoveryCodes(password: string, code: string): Promise<string[]> {
+  const { data } = await apiClient.post('/auth/mfa/recovery-codes/', { password, code });
+  return unwrapData<{ recoveryCodes: string[] }>(data).recoveryCodes;
 }
 
 export async function fetchCurrentUser(): Promise<User> {

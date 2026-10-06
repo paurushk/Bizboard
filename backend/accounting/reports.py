@@ -9,9 +9,23 @@ from .models import Account, JournalEntry, JournalLine
 logger = logging.getLogger(__name__)
 
 
-def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=None, exclude_fy_close=False, exclude_fy_close_after=None):
+def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=None, exclude_fy_close=False, exclude_fy_close_after=None, cost_center_unassigned=False):
+    rolled = _balances_from_rollup(
+        company,
+        as_of=as_of,
+        date_from=date_from,
+        date_to=date_to,
+        cost_center=cost_center,
+        exclude_fy_close=exclude_fy_close,
+        exclude_fy_close_after=exclude_fy_close_after,
+        cost_center_unassigned=cost_center_unassigned,
+    )
+    if rolled is not None:
+        return rolled
+    # BUG-PERF-004: filter the denormalized company column instead of joining
+    # every line back to JournalEntry just to reach company_id.
     qs = JournalLine.objects.filter(
-        entry__company=company,
+        company=company,
         entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
     ).select_related("account")
     if as_of:
@@ -20,7 +34,9 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         qs = qs.filter(entry__entry_date__gte=date_from)
     if date_to:
         qs = qs.filter(entry__entry_date__lte=date_to)
-    if cost_center:
+    if cost_center_unassigned:
+        qs = qs.filter(cost_center__isnull=True)
+    elif cost_center:
         qs = qs.filter(cost_center_id=cost_center)
     if exclude_fy_close:
         qs = qs.exclude(entry__purpose="FY_CLOSE")
@@ -47,6 +63,164 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         row["balance"] = row["debit"] - row["credit"]
         rows.append(row)
     return rows
+
+
+def _balances_from_rollup(
+    company, *, as_of=None, date_from=None, date_to=None, cost_center=None,
+    exclude_fy_close=False, exclude_fy_close_after=None, cost_center_unassigned=False,
+):
+    """Use AccountMonthlyBalance when a fresh checkpoint exists.
+
+    Date-ranged, cost-centre, and FY-close-excluded reports stay on the live
+    query. Returns None when the rollup must not be used.
+    """
+    if date_from or date_to or cost_center or cost_center_unassigned or exclude_fy_close or exclude_fy_close_after:
+        return None
+    from django.db.models import Max
+
+    from .models import AccountBalanceRollup, AccountMonthlyBalance
+
+    state = AccountBalanceRollup.objects.filter(company=company).first()
+    if state is None:
+        return None
+    current_max = JournalLine.objects.filter(company=company).aggregate(m=Max("id"))["m"] or 0
+    if int(state.max_line_id or 0) != int(current_max):
+        return None
+    month_start = None
+    if as_of is not None:
+        month_start = as_of.replace(day=1)
+    qs = AccountMonthlyBalance.objects.filter(company=company).select_related("account")
+    if month_start is not None:
+        qs = qs.filter(period__lt=month_start)
+    merged: dict[int, dict] = {}
+    for row in qs:
+        slot = merged.setdefault(row.account_id, {
+            "account_id": row.account_id,
+            "account_code": row.account.code,
+            "account_name": row.account.name,
+            "account_type": row.account.type,
+            "debit": Decimal("0"),
+            "credit": Decimal("0"),
+        })
+        slot["debit"] += row.debit or Decimal("0")
+        slot["credit"] += row.credit or Decimal("0")
+    if month_start is not None:
+        live = JournalLine.objects.filter(
+            company=company,
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            entry__entry_date__gte=month_start,
+            entry__entry_date__lte=as_of,
+        )
+        for row in live.values(
+            "account_id",
+            account_code=F("account__code"),
+            account_name=F("account__name"),
+            account_type=F("account__type"),
+        ).annotate(debit=Sum("debit"), credit=Sum("credit")):
+            slot = merged.setdefault(row["account_id"], {
+                "account_id": row["account_id"],
+                "account_code": row["account_code"],
+                "account_name": row["account_name"],
+                "account_type": row["account_type"],
+                "debit": Decimal("0"),
+                "credit": Decimal("0"),
+            })
+            slot["debit"] += row["debit"] or Decimal("0")
+            slot["credit"] += row["credit"] or Decimal("0")
+    rows = []
+    for slot in merged.values():
+        slot["balance"] = slot["debit"] - slot["credit"]
+        rows.append(slot)
+    return rows
+
+
+def refresh_account_monthly_balances(company):
+    """Rebuild monthly account totals from posted lines (BUG-PERF-004).
+
+    One transaction, and the checkpoint is read first and the lines are bounded by it: a reader
+    never sees the table empty between the delete and the insert, and a line posted while this
+    runs is not marked as included.
+    """
+    from django.db import transaction
+    from django.db.models import Max
+    from django.db.models.functions import TruncMonth
+
+    from .models import AccountBalanceRollup, AccountMonthlyBalance
+
+    with transaction.atomic():
+        max_id = JournalLine.objects.filter(company=company).aggregate(m=Max("id"))["m"] or 0
+        grouped = (
+            JournalLine.objects.filter(
+                company=company,
+                id__lte=max_id,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            )
+            .annotate(period=TruncMonth("entry__entry_date"))
+            .values("account_id", "period")
+            .annotate(debit=Sum("debit"), credit=Sum("credit"))
+        )
+        AccountMonthlyBalance.objects.filter(company=company).delete()
+        batch = []
+        for row in grouped:
+            period = row["period"]
+            if period is None:
+                continue
+            if hasattr(period, "date"):
+                period = period.date().replace(day=1)
+            batch.append(AccountMonthlyBalance(
+                company=company,
+                account_id=row["account_id"],
+                period=period,
+                debit=row["debit"] or Decimal("0"),
+                credit=row["credit"] or Decimal("0"),
+            ))
+        if batch:
+            AccountMonthlyBalance.objects.bulk_create(batch)
+        AccountBalanceRollup.objects.update_or_create(
+            company=company, defaults={"max_line_id": max_id},
+        )
+    return {"months": len(batch), "max_line_id": max_id}
+
+
+def comparative_store_pnl(company, *, date_from=None, date_to=None):
+    """Side-by-side store P&L with shared overhead split evenly (BUG-ACC-007)."""
+    from .models import CostCenter
+
+    stores = list(CostCenter.objects.filter(company=company, is_active=True).order_by("code", "id"))
+    columns = []
+    for store in stores:
+        pnl = profit_and_loss(company, date_from=date_from, date_to=date_to, cost_center=store.pk)
+        columns.append({
+            "store_id": store.pk,
+            "store": store.name,
+            "code": store.code,
+            "income": pnl["income"],
+            "expenses": pnl["expenses"],
+            "net_profit": pnl["net_profit"],
+        })
+    shared_rows = _balances(
+        company,
+        date_from=date_from,
+        date_to=date_to,
+        cost_center_unassigned=True,
+        exclude_fy_close=True,
+    )
+    shared_overhead = sum(
+        (row["balance"] for row in shared_rows if row["account_type"] == Account.Type.EXPENSE),
+        Decimal("0"),
+    )
+    n = len(columns)
+    share = (shared_overhead / n) if n else Decimal("0")
+    share = share.quantize(Decimal("0.01")) if n else Decimal("0")
+    for col in columns:
+        col["allocated_overhead"] = share
+        col["net_profit_after_overhead"] = col["net_profit"] - share
+    return {
+        "date_from": date_from,
+        "date_to": date_to,
+        "shared_overhead": shared_overhead,
+        "stores": columns,
+    }
 
 
 def trial_balance(company, as_of=None):
@@ -110,7 +284,202 @@ def profit_and_loss(company, date_from=None, date_to=None, cost_center=None):
     income = sum((-row["balance"] for row in rows if row["account_type"] == Account.Type.INCOME), Decimal("0"))
     expenses = sum((row["balance"] for row in rows if row["account_type"] == Account.Type.EXPENSE), Decimal("0"))
     return {"date_from": date_from, "date_to": date_to, "cost_center": cost_center, "income": income, "expenses": expenses,
-            "net_profit": income - expenses, "rows": rows}
+            "net_profit": income - expenses, "rows": rows,
+            "schedule_iii": schedule_iii_profit_and_loss(rows)}
+
+
+def _code_in(code, exact, prefixes) -> bool:
+    if code in exact:
+        return True
+    return any(code.startswith(prefix) for prefix in prefixes)
+
+
+def _schedule_iii_sections(rows, spec, *, credit_normal_sections, credit_normal_lines=()):
+    """Bucket account rows into Schedule III headings. Empty headings stay."""
+    buckets = {}
+    for section_key, _section_label, lines in spec:
+        for line_key, _line_label, exact, prefixes in lines:
+            buckets[(section_key, line_key)] = {
+                "exact": exact,
+                "prefixes": prefixes,
+                "accounts": [],
+                "amount": Decimal("0"),
+            }
+    placed = set()
+    for row in rows:
+        code = str(row.get("account_code") or "")
+        for section_key, _section_label, lines in spec:
+            matched = False
+            for line_key, _line_label, exact, prefixes in lines:
+                if not exact and not prefixes:
+                    continue
+                if _code_in(code, exact, prefixes):
+                    slot = buckets[(section_key, line_key)]
+                    natural = Decimal(str(row.get("balance") or 0))
+                    if section_key in credit_normal_sections or line_key in credit_normal_lines:
+                        natural = -natural
+                    slot["amount"] += natural
+                    slot["accounts"].append({
+                        "code": code,
+                        "name": row.get("account_name") or "",
+                        "amount": natural,
+                    })
+                    placed.add(id(row))
+                    matched = True
+                    break
+            if matched:
+                break
+    # Accounts the chart does not name still appear, under the residual line
+    # of their section, so a filing export does not drop a balance.
+    for row in rows:
+        if id(row) in placed:
+            continue
+        code = str(row.get("account_code") or "")
+        account_type = row.get("account_type")
+        if account_type == Account.Type.ASSET:
+            key = ("current_assets", "other_current_assets")
+            natural = Decimal(str(row.get("balance") or 0))
+        elif account_type == Account.Type.LIABILITY:
+            key = ("current_liabilities", "other_current_liabilities")
+            natural = -Decimal(str(row.get("balance") or 0))
+        elif account_type == Account.Type.EQUITY:
+            key = ("equity", "other_equity")
+            natural = -Decimal(str(row.get("balance") or 0))
+        elif account_type == Account.Type.INCOME:
+            key = ("pnl", "other_income")
+            natural = -Decimal(str(row.get("balance") or 0))
+        elif account_type == Account.Type.EXPENSE:
+            key = ("pnl", "other_expenses")
+            natural = Decimal(str(row.get("balance") or 0))
+        else:
+            continue
+        slot = buckets.get(key)
+        if slot is None:
+            continue
+        slot["amount"] += natural
+        slot["accounts"].append({
+            "code": code,
+            "name": row.get("account_name") or "",
+            "amount": natural,
+        })
+    sections = []
+    for section_key, section_label, lines in spec:
+        built = []
+        section_amount = Decimal("0")
+        for line_key, line_label, _exact, _prefixes in lines:
+            slot = buckets[(section_key, line_key)]
+            section_amount += slot["amount"]
+            built.append({
+                "key": line_key,
+                "label": line_label,
+                "amount": slot["amount"],
+                "accounts": slot["accounts"],
+            })
+        sections.append({
+            "key": section_key,
+            "label": section_label,
+            "amount": section_amount,
+            "lines": built,
+        })
+    return {
+        "taxonomy": "MCA Schedule III",
+        "sections": sections,
+    }
+
+
+_SCHEDULE_III_BALANCE = (
+    ("non_current_assets", "Non-current assets", (
+        ("tangible_assets", "Tangible assets", {"1600", "1650"}, ()),
+        ("capital_work_in_progress", "Capital work-in-progress", set(), ()),
+        ("intangible_assets", "Intangible assets", set(), ()),
+        ("non_current_investments", "Non-current investments", set(), ()),
+        ("deferred_tax_assets", "Deferred tax assets", set(), ()),
+        ("long_term_loans_and_advances", "Long-term loans and advances", set(), ()),
+        ("other_non_current_assets", "Other non-current assets", set(), ()),
+    )),
+    ("current_assets", "Current assets", (
+        ("inventories", "Inventories", {"1400", "1450"}, ()),
+        ("trade_receivables", "Trade receivables", {"1200"}, ()),
+        ("cash_and_cash_equivalents", "Cash and cash equivalents", {"1100", "1500"}, ("1500-",)),
+        ("short_term_loans_and_advances", "Short-term loans and advances", {"1250"}, ()),
+        ("other_current_assets", "Other current assets", {"1365", "1370", "1390"}, ("13",)),
+    )),
+    ("equity", "Equity", (
+        ("share_capital", "Share capital", set(), ()),
+        ("other_equity", "Other equity", {"3000", "3100", "3200"}, ()),
+    )),
+    ("non_current_liabilities", "Non-current liabilities", (
+        ("long_term_borrowings", "Long-term borrowings", set(), ()),
+        ("deferred_tax_liabilities", "Deferred tax liabilities", set(), ()),
+        ("other_long_term_liabilities", "Other long-term liabilities", set(), ()),
+        ("long_term_provisions", "Long-term provisions", set(), ()),
+    )),
+    ("current_liabilities", "Current liabilities", (
+        ("short_term_borrowings", "Short-term borrowings", set(), ()),
+        ("trade_payables", "Trade payables", {"2100"}, ()),
+        ("other_current_liabilities", "Other current liabilities", {"2150", "2300"}, ("22",)),
+        ("short_term_provisions", "Short-term provisions", set(), ()),
+    )),
+)
+
+_SCHEDULE_III_PNL = (
+    ("pnl", "Statement of profit and loss", (
+        ("revenue_from_operations", "Revenue from operations", {"4100"}, ()),
+        ("other_income", "Other income", {"5700"}, ()),
+        ("cost_of_materials_consumed", "Cost of materials consumed", {"5100", "5110", "5400"}, ()),
+        ("employee_benefits_expense", "Employee benefits expense", {"5800"}, ()),
+        ("finance_costs", "Finance costs", {"5200"}, ()),
+        ("depreciation_and_amortisation", "Depreciation and amortisation expense", {"5300"}, ()),
+        ("other_expenses", "Other expenses", {"5150", "5250", "5450", "5500", "5600", "5900"}, ()),
+    )),
+)
+
+
+def schedule_iii_balance(rows, surplus=None):
+    """Schedule III balance sheet. ``surplus`` is the profit or loss not yet closed into equity.
+
+    Without it the equity side holds only the capital and reserve accounts, so total assets differ
+    from liabilities plus equity by the cumulative profit.
+    """
+    bs_rows = [
+        row for row in rows
+        if row.get("account_type") in (Account.Type.ASSET, Account.Type.LIABILITY, Account.Type.EQUITY)
+    ]
+    result = _schedule_iii_sections(
+        bs_rows,
+        _SCHEDULE_III_BALANCE,
+        credit_normal_sections={"equity", "non_current_liabilities", "current_liabilities"},
+    )
+    if surplus is not None:
+        amount = Decimal(str(surplus))
+        for section in result["sections"]:
+            if section["key"] == "equity":
+                section["lines"].append({
+                    "key": "surplus_in_profit_and_loss",
+                    "label": "Surplus in statement of profit and loss",
+                    "amount": amount,
+                    "accounts": [],
+                })
+                section["amount"] = section["amount"] + amount
+    return result
+
+
+def schedule_iii_profit_and_loss(rows):
+    result = _schedule_iii_sections(
+        rows,
+        _SCHEDULE_III_PNL,
+        credit_normal_sections=set(),
+        credit_normal_lines={"revenue_from_operations", "other_income"},
+    )
+    for section in result["sections"]:
+        # The section total is profit: income lines minus expense lines. Adding them all as
+        # positives produced a number that means nothing.
+        income = {"revenue_from_operations", "other_income"}
+        section["amount"] = sum(
+            (line["amount"] if line["key"] in income else -line["amount"] for line in section["lines"]),
+            Decimal("0"),
+        )
+    return result
 
 
 def balance_sheet(company, as_of=None, cost_center=None):
@@ -178,6 +547,7 @@ def balance_sheet(company, as_of=None, cost_center=None):
         # instead of an {ASSET: [...], LIABILITY: [...], ...} dict — the frontend's shared
         # report-table renderer expects an array here and crashed on the object shape.
         "rows": rows,
+        "schedule_iii": schedule_iii_balance(rows, surplus=pl),
     }
 
 
@@ -412,7 +782,7 @@ def close_financial_year(company, fy_end, user=None):
 
     from manufacturing.models import WorkOrder
 
-    if WorkOrder.objects.filter(
+    if BooksHealthService.manufacturing_books_required(company) and WorkOrder.objects.filter(
         company=company,
         status=WorkOrder.Status.RELEASED,
         released_at__lte=fy_end,

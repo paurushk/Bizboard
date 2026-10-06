@@ -126,9 +126,11 @@ export function QuotationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  // An inbound ?create=1 opens the dialog; the effect below then strips the param.
+  if (canCreate && searchParams.get('create') === '1' && !open) setOpen(true);
+
   useEffect(() => {
     if (!canCreate || searchParams.get('create') !== '1') return;
-    setOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete('create');
     setSearchParams(next, { replace: true });
@@ -350,7 +352,7 @@ export function QuotationsPage() {
       ) : null}
       {quotations.length === 0 && query.isSuccess ? <EmptyState description={t('empty.quotations')} /> : null}
       {quotations.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

@@ -76,6 +76,31 @@ python qos/tools/dashboard.py            # now the d7/d30 columns are populated
 `build_backlog.py` never reads history — the generated doc is deterministic
 regardless of what is in `qos/history/`.
 
+## Task Register tools (2026-10-04)
+
+The product Task Register (`Bizboard_Product_Task_Universe_Master.xlsx`) is a separate artefact from the QOS
+backlog. These tools keep it honest against the code and the test suite. They need `openpyxl` and `PyYAML`.
+
+| Tool | What it does |
+|---|---|
+| `tools/register_sync.py --junit <xml>` | Writes pytest JUnit results into `Verification result`, `Last verified`, `Verified by` for every row whose `Test case ID` names a test file or `file::test`. Any failure gives `Fail`; all passing gives `Pass` (a row marked `Partial` stays `Partial`). |
+| `tools/register_drift.py` | Fails (exit 1) when a status disagrees with the code: a `Mechanism not found` task whose pattern now matches code (D1), a `Validated`/`Code Complete` task whose pattern matches nothing (D2), a `Pass` with no test or date (D3), a `Test case ID` pointing at a missing file (D4). D5 warns on MVP tasks that are gaps. `--selftest` proves each check can fail. |
+| `register_claims.yaml` | The patterns the drift check uses. Add a row whenever you set a task to `Mechanism not found`, so the claim cannot go stale unnoticed. |
+| `tools/recalc_xlsx.ps1 -Path <xlsx> [-Mirror <xlsx>]` | Recalculates in desktop Excel and stores the values, so viewers that do not calculate (and `pandas`) see numbers, not blanks. Exits 1 on any formula error. |
+| `evidence/` | Raw evidence from the 2026-10-04 pass: JUnit XML and logs, per-task code-review verdicts, MVP test links, duplicate proposals, and `validate_verdicts.py`. |
+
+Running the suite against Postgres the way CI does (SQLite cannot run the `postgres`-marked concurrency tests):
+
+```bash
+docker run -d --name bb-evidence-pg -e POSTGRES_DB=bizboard_ci -e POSTGRES_USER=bizboard -e POSTGRES_PASSWORD=bizboard -p 127.0.0.1:5433:5432 postgres:17-alpine
+cd backend && CI=1 DATABASE_URL=postgresql://bizboard:bizboard@127.0.0.1:5433/bizboard_ci   python -m pytest tests -q --junitxml=../qos/evidence/pytest-junit.xml
+python ../qos/tools/register_sync.py --junit ../qos/evidence/pytest-junit.xml
+python ../qos/tools/register_drift.py
+```
+
+To gate this in CI the register must be committed (it is currently untracked). Then add to the `qos-lint` job:
+`python qos/tools/register_drift.py --selftest && python qos/tools/register_drift.py`.
+
 ## Lifecycle
 
 ```

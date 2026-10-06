@@ -24,11 +24,11 @@ from core.permissions import (
 )
 from core.viewsets import CompanyScopedViewSet
 
-from .models import Account, AccountingPeriod, BankReconSession, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
+from .models import Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
     AccountSerializer, AccountingPeriodSerializer, AccountingSettingsSerializer,
-    BankReconSessionSerializer, CostCenterSerializer, ExpenseSerializer,
+    BankReconSessionSerializer, CashShiftRegisterSerializer, CostCenterSerializer, ExpenseSerializer,
     FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
@@ -57,11 +57,13 @@ class AccountViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
+        self._audit("CREATE", serializer.instance)
 
     def perform_update(self, serializer):
         if serializer.instance.is_system:
             raise BusinessRuleError("System accounts cannot be edited.")
         serializer.save(updated_by=self.request.user, company=self.company)
+        self._audit("UPDATE", serializer.instance)
 
     def perform_destroy(self, instance):
         if instance.is_system:
@@ -82,7 +84,7 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 
     def get_permissions(self):
         # BB-000453: period CLOSE / mutate is Owner-only (not Accountant CanPostJournals).
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "soft_close", "close"):
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "soft_close", "close", "close_period"):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
@@ -93,6 +95,17 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         # B1-030: keep updated_by fresh and re-run the serializer overlap guard.
         serializer.save(company=self.company, updated_by=self.request.user)
 
+    def _refuse_if_earlier_open(self, period):
+        earlier_open = AccountingPeriod.objects.filter(
+            company=self.company,
+            end_date__lt=period.start_date,
+            status=AccountingPeriod.Status.OPEN,
+        ).order_by("start_date").first()
+        if earlier_open is not None:
+            raise BusinessRuleError(
+                f"Close {earlier_open.name} first — periods must be closed in order."
+            )
+
     @action(detail=True, methods=["post"], url_path="soft-close")
     @transaction.atomic
     def soft_close(self, request, pk=None):
@@ -102,6 +115,7 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         period = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
         if period.status != AccountingPeriod.Status.OPEN:
             raise BusinessRuleError("Only open periods can be soft closed.")
+        self._refuse_if_earlier_open(period)
         BooksHealthService.assert_period_close_allowed(
             self.company, period=BooksHealthService._period_label(period),
         )
@@ -127,15 +141,7 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             raise BusinessRuleError("Period is already closed.")
         # B1-022: no non-contiguous close — an earlier OPEN period would let
         # back-dated entries land in it after this one is "closed".
-        earlier_open = AccountingPeriod.objects.filter(
-            company=self.company,
-            end_date__lt=period.start_date,
-            status=AccountingPeriod.Status.OPEN,
-        ).order_by("start_date").first()
-        if earlier_open is not None:
-            raise BusinessRuleError(
-                f"Close {earlier_open.name} first — periods must be closed in order."
-            )
+        self._refuse_if_earlier_open(period)
         BooksHealthService.assert_period_close_allowed(
             self.company, period=BooksHealthService._period_label(period),
         )
@@ -148,6 +154,34 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         data["warnings"] = gst_period_open_warnings(
             self.company, period.start_date, period.end_date,
         )
+        return Response(data)
+
+    @action(detail=True, methods=["post"], url_path="close-period")
+    @transaction.atomic
+    def close_period(self, request, pk=None):
+        """Close the books for the month, then the GST period. Two steps, one call."""
+        from django.shortcuts import get_object_or_404
+
+        from reporting.gst_periods import soft_close_period
+        from reporting.models import GstReturnPeriod
+
+        period = get_object_or_404(self.get_queryset().select_for_update(), pk=pk)
+        if period.status != AccountingPeriod.Status.CLOSED:
+            self._refuse_if_earlier_open(period)
+            BooksHealthService.assert_period_close_allowed(
+                self.company, period=BooksHealthService._period_label(period),
+            )
+            period.status = AccountingPeriod.Status.CLOSED
+            period.updated_by = request.user
+            period.save(update_fields=["status", "updated_by", "updated_at"])
+        month = f"{period.start_date:%Y-%m}"
+        gst = GstReturnPeriod.objects.filter(company=self.company, period=month).first()
+        if gst is None or gst.status == GstReturnPeriod.Status.OPEN:
+            gst = soft_close_period(self.company, month, request.user)
+        data = self.get_serializer(period).data
+        data["gst_period_status"] = gst.status
+        data["books_closed"] = period.status == AccountingPeriod.Status.CLOSED
+        data["gst_closed"] = gst.status != GstReturnPeriod.Status.OPEN
         return Response(data)
 
 
@@ -258,6 +292,17 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         entry.source_type, entry.source_id, entry.purpose = "MANUAL_JOURNAL", entry.id, "POST"
         entry.posted_at, entry.posted_by = timezone.now(), request.user
         entry.save(update_fields=["status", "source_type", "source_id", "purpose", "posted_at", "posted_by", "updated_at"])
+        # The rollup checkpoint is keyed on line ids and a draft's lines already existed, so posting
+        # one adds no new id. Drop the checkpoint so the next report rebuilds instead of trusting it.
+        from .models import AccountBalanceRollup
+
+        AccountBalanceRollup.objects.filter(company=self.company).delete()
+        from core.services.audit import record_document_event
+
+        record_document_event(
+            document=entry, user=request.user, event="journal.posted",
+            before={"status": "DRAFT"},
+        )
         return Response(self.get_serializer(entry).data)
 
     @action(detail=True, methods=["post"])
@@ -329,16 +374,27 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         )
 
     @action(detail=True, methods=["post"])
+    @transaction.atomic
     def match(self, request, pk=None):
         from payments.models import BankStatementLine
 
         session = self.get_object()
-        line = JournalLine.objects.filter(entry__company=self.company, pk=request.data.get("journal_line"),
-            account=session.account, bank_statement_line__isnull=True).first()
+        line = (
+            JournalLine.objects.select_for_update()
+            .filter(
+                entry__company=self.company,
+                pk=request.data.get("journal_line"),
+                account=session.account,
+                bank_statement_line__isnull=True,
+            )
+            .first()
+        )
         bank_line_id = request.data.get("bank_statement_line")
         # BB-000203: scope bank statement line to this company (IDOR).
         bank_line = (
-            BankStatementLine.objects.filter(company=self.company, pk=bank_line_id).first()
+            BankStatementLine.objects.select_for_update()
+            .filter(company=self.company, pk=bank_line_id)
+            .first()
             if bank_line_id
             else None
         )
@@ -360,7 +416,11 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         if bank_line.match_status != BankLineMatchStatus.MATCHED:
             bank_line.match_status = BankLineMatchStatus.MATCHED
             bank_line.save(update_fields=["match_status", "updated_at"])
-        return Response({"ok": True})
+        return Response({
+            "ok": True,
+            "match_kind": "gl_statement_line",
+            "other_recon_path": "/payments/reconciliation",
+        })
 
 
 class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
@@ -402,6 +462,9 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         """BB-000459: dispose with optional proceeds; NBV never hits Depreciation (5300)."""
         from django.db import transaction
 
+        confirm = request.data.get("confirm")
+        if confirm not in (True, "true", "True", 1, "1"):
+            raise BusinessRuleError("confirm must be true to dispose a fixed asset.")
         with transaction.atomic():
             asset = FixedAsset.objects.select_for_update().get(pk=self.get_object().pk, company=self.company)
             if asset.status != FixedAsset.Status.ACTIVE:
@@ -621,6 +684,16 @@ class AccountingBackfillView(APIView):
         return Response(cached, status=status.HTTP_202_ACCEPTED)
 
 
+def _backfill_ready(company, skipped_by_period) -> bool:
+    if skipped_by_period:
+        return False
+    BooksHealthService.clear_gl_basis_cache(company)
+    try:
+        return bool(BooksHealthService._gl_basis_ready_uncached(company))
+    except Exception:  # noqa: BLE001 — a health failure must not leave books on
+        return False
+
+
 def perform_accounting_backfill(
     company, user, *, dry_run: bool, sales_count=None, purchase_count=None, closed=False,
 ) -> dict:
@@ -635,15 +708,23 @@ def perform_accounting_backfill(
         sales_count = SalesInvoice.objects.filter(company=company).count()
     if purchase_count is None:
         purchase_count = PurchaseInvoice.objects.filter(company=company).count()
+    enabled_for_posting = False
     if not dry_run and not company.accounting_enabled:
+        # Posting reads the saved flag. Keep books on only when the pass is clean.
         company.accounting_enabled = True
         company.save(update_fields=["accounting_enabled", "updated_at"])
+        enabled_for_posting = True
     if company.accounting_enabled:
         seed_chart_of_accounts(company, user)
     command = Command()
     command.stdout = _NullStream()
     command.stderr = _NullStream()
     posted, skipped, would = command._backfill_company(company, dry_run=dry_run)
+    skipped_by_period = getattr(command, "skipped_by_period", {}) or {}
+    if enabled_for_posting and (skipped_by_period or not _backfill_ready(company, skipped_by_period)):
+        company.accounting_enabled = False
+        company.save(update_fields=["accounting_enabled", "updated_at"])
+        BooksHealthService.clear_gl_basis_cache(company)
     if not dry_run:
         command._retag_party_lines(company)
     BooksHealthService.clear_gl_basis_cache(company)
@@ -658,6 +739,7 @@ def perform_accounting_backfill(
         "dry_run": dry_run,
         "posted": posted,
         "skipped": skipped,
+        "skipped_by_period": skipped_by_period,
         "would_post": would,
         "sales_invoices": sales_count,
         "purchase_invoices": purchase_count,
@@ -843,6 +925,63 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         )
         response["Content-Disposition"] = f'attachment; filename="{report}.xlsx"'
         return response
+
+
+class CashShiftRegisterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
+    """Daily till: opening float, note count, expected cash, and a day lock."""
+
+    queryset = CashShiftRegister.objects.all()
+    serializer_class = CashShiftRegisterSerializer
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "close_shift"):
+            return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def perform_create(self, serializer):
+        from decimal import ROUND_HALF_UP
+
+        business_date = serializer.validated_data.get("business_date") or timezone.localdate()
+        opening = Decimal(str(serializer.validated_data.get("opening_float") or 0)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP,
+        )
+        if CashShiftRegister.objects.filter(
+            company=self.company, cashier=self.request.user, business_date=business_date,
+        ).exists():
+            raise BusinessRuleError("This cashier already has a cash register for that day.")
+        serializer.save(
+            company=self.company,
+            cashier=self.request.user,
+            business_date=business_date,
+            opening_float=opening,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        if serializer.instance.locked_at or serializer.instance.status == CashShiftRegister.Status.CLOSED:
+            raise BusinessRuleError("A locked cash register cannot be edited.")
+        serializer.save(updated_by=self.request.user, company=self.company)
+
+    def perform_destroy(self, instance):
+        if instance.locked_at or instance.status == CashShiftRegister.Status.CLOSED:
+            raise BusinessRuleError("A locked cash register cannot be edited.")
+        super().perform_destroy(instance)
+
+    @action(detail=True, methods=["post"], url_path="close")
+    def close_shift(self, request, pk=None):
+        from core.permissions import get_company_user
+
+        from .cash_shifts import close_cash_shift
+
+        shift = self.get_object()
+        member = get_company_user(request)
+        # One cashier's till is closed by that cashier, or by a manager. Any other payment-capable
+        # user could otherwise lock someone's drawer with counts that hide a real variance.
+        if shift.cashier_id != request.user.pk and getattr(member, "role", "") not in ("OWNER", "MANAGER", "ACCOUNTANT"):
+            raise BusinessRuleError("Only the cashier who opened this till, or a manager, can close it.")
+        shift = close_cash_shift(shift, request.data.get("denominations") or {}, request.user)
+        return Response(self.get_serializer(shift).data)
 
 
 class ExpenseViewSet(CompanyScopedViewSet):

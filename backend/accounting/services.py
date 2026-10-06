@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 from django.db.models import Sum
@@ -7,6 +7,65 @@ from django.utils import timezone
 from core.exceptions import BusinessRuleError
 
 from .models import Account, AccountingPeriod, JournalEntry, JournalLine
+
+# Statutory TDS sections used on purchase bills. Pair is (individual/HUF, company).
+TDS_SECTION_RATES = {
+    "194C": (Decimal("1"), Decimal("2")),
+    "194J": (Decimal("10"), Decimal("2")),
+    "194I": (Decimal("10"), Decimal("2")),
+    "194Q": (Decimal("0.1"), Decimal("0.1")),
+}
+
+
+def pan_entity_is_company(gstin_or_pan: str) -> bool:
+    import re
+
+    raw = re.sub(r"[^A-Z0-9]", "", (gstin_or_pan or "").upper())
+    if len(raw) == 15:
+        raw = raw[2:12]
+    return len(raw) >= 4 and raw[3] == "C"
+
+
+def higher_withholding_rate(standard: Decimal) -> Decimal:
+    """Section 206AB / 206CCA: higher of twice the rate or 5%."""
+    doubled = (Decimal(standard) * Decimal("2")).quantize(Decimal("0.001"))
+    return max(doubled, Decimal("5"))
+
+
+def tds_rate_for_section(
+    section: str, *, specified_person: bool = False, vendor_is_company: bool = False
+) -> Decimal:
+    key = (section or "").strip().upper().replace(" ", "").replace("-", "")
+    if key.startswith("SEC"):
+        key = key[3:]
+    pair = TDS_SECTION_RATES.get(key)
+    if pair is None:
+        raise BusinessRuleError("TDS section must be one of 194C, 194J, 194I, or 194Q.")
+    rate = pair[1] if vendor_is_company else pair[0]
+    if specified_person:
+        rate = higher_withholding_rate(rate)
+    return rate
+
+
+def apply_specified_person_tds(invoice):
+    """Raise withholding to the 206AB/206CCA rate when the vendor is a non-filer."""
+    supplier = getattr(invoice, "supplier", None)
+    if supplier is None or not getattr(supplier, "income_tax_specified_person", False):
+        return invoice
+    section = (getattr(invoice, "tds_section", "") or "").strip()
+    if not section:
+        return invoice
+    rate = tds_rate_for_section(
+        section,
+        specified_person=True,
+        vendor_is_company=pan_entity_is_company(getattr(supplier, "gstin", "") or ""),
+    )
+    invoice.tds_rate = rate
+    base = Decimal(str(getattr(invoice, "taxable_total", 0) or 0))
+    if base <= 0:
+        base = Decimal(str(getattr(invoice, "grand_total", 0) or 0))
+    invoice.tds_amount = (base * rate / Decimal("100")).quantize(Decimal("0.01"))
+    return invoice
 
 
 CHART = (
@@ -46,8 +105,11 @@ CHART = (
     ("4100", "Sales", "INCOME", True), ("5000", "Expenses", "EXPENSE", False),
     ("5100", "Purchases", "EXPENSE", True),
     ("5110", "Purchase Charges", "EXPENSE", True),
+    ("5150", "Settlement Discounts", "EXPENSE", True),
     ("5200", "Bank Charges", "EXPENSE", True),
+    ("5250", "Non-Deductible Tax Expense", "EXPENSE", True),
     ("5300", "Depreciation", "EXPENSE", True), ("5400", "Cost of Goods Sold", "EXPENSE", True),
+    ("5450", "Inventory Scrap & Shrinkage Loss", "EXPENSE", True),
     # BB-000322: explicit rounding suspense so Complete-time paise round-off is
     # never silently absorbed into Sales/Purchases/Inventory.
     ("5500", "Round Off", "EXPENSE", True),
@@ -67,6 +129,7 @@ CHART = (
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),
     ("1250", "Supplier Advances", "ASSET", True),
+    ("1260", "Employee Advances", "ASSET", True),
 )
 
 # Leaf GST accounts under their xx00 parent header.
@@ -81,6 +144,9 @@ _CHART_PARENTS = {
     "1450": "1000",
     "2150": "2000",
     "5800": "5000",
+    "5150": "5000",
+    "5250": "5000",
+    "5450": "5000",
 }
 
 
@@ -120,6 +186,25 @@ def reclass_rejected_itc(invoice, *, user=None):
     return PostingService.reclass_rejected_itc(invoice, user=user)
 
 
+def _settlement_discount_share(allocation) -> Decimal:
+    """Paise of this allocation's receipt discount that clears accounts receivable."""
+    from decimal import ROUND_HALF_UP
+
+    receipt = getattr(allocation, "receipt", None)
+    if receipt is None:
+        return Decimal("0")
+    discount = Decimal(str(getattr(receipt, "settlement_discount", 0) or 0))
+    base = Decimal(str(getattr(receipt, "amount", 0) or 0))
+    if discount <= 0 or base <= 0:
+        return Decimal("0")
+    share = (Decimal(str(allocation.amount or 0)) / base * discount).quantize(
+        Decimal("0.01"), rounding=ROUND_HALF_UP
+    )
+    if share > discount:
+        share = discount
+    return share
+
+
 class PostingService:
     """Creates immutable, idempotent projections of operational documents.
 
@@ -139,9 +224,12 @@ class PostingService:
             "1450",  # manufacturing WIP
             "2150", "5800",  # payroll wages payable + salary expense
             "5600", "5700",  # BB-000459 disposal P&L
+            "5250", "5450",  # ineligible ITC and inventory scrap — not asset disposal
             "2265", "2266", "1365", "1390",  # BB-000670 TDS/TCS + unreviewed ITC suspense
             "3100", "3200",
             "5900",  # ACC-14 FX gain/loss
+            "5150",  # settlement discount write-off
+            "1260",  # employee advances recovered through payroll
         )
         existing = set(
             Account.objects.filter(company=company, code__in=required, is_active=True)
@@ -415,10 +503,10 @@ class PostingService:
 
     @classmethod
     def reclass_rejected_itc(cls, invoice, *, user=None):
-        """B-03 REJECT: clear parked 1390 into 1400, or reverse claimable Input GST to 5600.
+        """B-03 REJECT: clear parked 1390 into 1400/5400, or reverse claimable Input GST to 5250.
 
         After IMS ACCEPT, tax sits on 1310/1320/1330 (not 1390). REJECT must then
-        credit those Input GST accounts and debit ineligible expense 5600.
+        credit those Input GST accounts and debit non-deductible tax expense 5250.
         """
         if not invoice.company.accounting_enabled:
             return None
@@ -451,9 +539,16 @@ class PostingService:
             )
             narration = f"IMS reject — capitalize unreviewed ITC {invoice.number or invoice.id}"
         elif cls._claimable_input_gst_parked(invoice) > 0:
-            # ACCEPT already moved 1390 → Input GST; reverse claimable ITC to expense.
+            # ACCEPT already moved 1390 → Input GST. Ineligible tax is an
+            # expense (5250), never fixed-asset disposal (5600).
+            q2 = Decimal("0.01")
+            cgst = Decimal(str(invoice.cgst_total or 0)).quantize(q2, rounding=ROUND_HALF_UP)
+            sgst = Decimal(str(invoice.sgst_total or 0)).quantize(q2, rounding=ROUND_HALF_UP)
+            igst = Decimal(str(invoice.igst_total or 0)).quantize(q2, rounding=ROUND_HALF_UP)
+            cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0)).quantize(q2, rounding=ROUND_HALF_UP)
+            tax = cgst + sgst + igst + cess
             debit_lines = cls._tax_component_lines(
-                invoice.company, (("5600", tax),), side="debit",
+                invoice.company, (("5250", tax),), side="debit",
             )
             credit_lines = cls._tax_component_lines(
                 invoice.company,
@@ -1008,8 +1103,9 @@ class PostingService:
 
     @classmethod
     def post_sales_return_scrap(cls, sales_return, amount, user=None):
-        """Post scrap write-off for damaged return goods — Dr 5600 Loss / Cr 1400 Inventory."""
-        if not amount:
+        """Post scrap write-off — Dr 5450 shrinkage / Cr 1400 Inventory. Not asset disposal."""
+        amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amount <= 0:
             return None
         company = sales_return.company
         cls._ensure_chart(company)
@@ -1023,7 +1119,7 @@ class PostingService:
             user=user,
             narration=f"Damaged scrap write-off: {sales_return.number}",
             lines=[
-                {"account": cls._account(company, "5600"), "debit": amount, "cost_center": cc},
+                {"account": cls._account(company, "5450"), "debit": amount, "cost_center": cc},
                 {"account": cls._account(company, "1400"), "credit": amount, "cost_center": cc},
             ],
         )
@@ -1125,6 +1221,17 @@ class PostingService:
         receipt = allocation.receipt if allocation.receipt_id else None
         customer = receipt.customer if receipt is not None else None
         entry_date = receipt.receipt_date if receipt is not None else timezone.localdate()
+        discount = _settlement_discount_share(allocation)
+        lines = [
+            {"account": cls._account(company, "2300"), "debit": amount, "customer": customer},
+            {
+                "account": cls._account(company, "1200"),
+                "credit": amount + discount,
+                "customer": customer,
+            },
+        ]
+        if discount > 0:
+            lines.append({"account": cls._account(company, "5150"), "debit": discount})
         return cls.post(
             company=company,
             source_type="PAYMENT_ALLOCATION",
@@ -1133,10 +1240,7 @@ class PostingService:
             entry_date=entry_date,
             user=user,
             narration=f"Allocate receipt {allocation.receipt_id} → SI {allocation.sales_invoice_id}",
-            lines=[
-                {"account": cls._account(company, "2300"), "debit": amount, "customer": customer},
-                {"account": cls._account(company, "1200"), "credit": amount, "customer": customer},
-            ],
+            lines=lines,
         )
 
     @classmethod
@@ -1738,7 +1842,7 @@ class PostingService:
 
     @classmethod
     def post_work_order_release(cls, wo, amount, user=None):
-        amt = Decimal(str(amount or 0))
+        amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if amt <= 0 or not getattr(wo.company, "accounting_enabled", False):
             return None
         cls._ensure_chart(wo.company)
@@ -1827,6 +1931,9 @@ class PostingService:
         entry.reversed_entry = reversal
         entry.status = JournalEntry.Status.REVERSED
         entry.save(update_fields=["reversed_entry", "status", "updated_at"])
+        from core.services.audit import record_document_event
+
+        record_document_event(document=entry, user=user, event="journal.reversed", before={"status": "POSTED"})
         return reversal
 
 
@@ -1921,14 +2028,40 @@ class BooksHealthService:
             company=company,
             status=FixedAsset.Status.ACTIVE,
         ).exclude(last_depreciation_error="")
-        if not failed.exists():
-            return []
-        count = failed.count()
-        return [{
-            "code": "DEPRECIATION_FAILED",
-            "severity": "warning",
-            "message": f"{count} fixed asset(s) have depreciation posting errors.",
-        }]
+        alerts = []
+        if failed.exists():
+            count = failed.count()
+            alerts.append({
+                "code": "DEPRECIATION_FAILED",
+                "severity": "warning",
+                "message": f"{count} fixed asset(s) have depreciation posting errors.",
+            })
+        catchup = FixedAsset.objects.filter(
+            company=company,
+            status=FixedAsset.Status.ACTIVE,
+        ).exclude(depreciation_catchup_months="")
+        if catchup.exists():
+            alerts.append({
+                "code": "DEPRECIATION_CATCHUP",
+                "severity": "warning",
+                "message": (
+                    f"{catchup.count()} fixed asset(s) have depreciation months older "
+                    "than the automatic window. Run the depreciation backfill."
+                ),
+            })
+        return alerts
+
+    @staticmethod
+    def manufacturing_books_required(company) -> bool:
+        """Work orders belong in the books only while manufacturing is on."""
+        try:
+            from core.services.feature_flags import build_feature_flags
+
+            return bool(build_feature_flags(company=company).get("ENABLE_MANUFACTURING"))
+        except Exception:  # noqa: BLE001 — never let flag resolution block a close
+            from django.conf import settings
+
+            return bool(getattr(settings, "ENABLE_MANUFACTURING", False))
 
     @staticmethod
     def period_close_blockers(company, *, period: str | None = None) -> list[dict]:
@@ -1957,14 +2090,7 @@ class BooksHealthService:
         # ACC-15: only block the close on open WIP when the Manufacturing module
         # is enabled for this tenant. A tenant that turned the module off with a
         # stale RELEASED work order must still be able to close periods.
-        try:
-            from core.services.feature_flags import build_feature_flags
-
-            mfg_on = bool(build_feature_flags(company=company).get("ENABLE_MANUFACTURING"))
-        except Exception:  # noqa: BLE001 — never let flag resolution block a close
-            from django.conf import settings
-
-            mfg_on = bool(getattr(settings, "ENABLE_MANUFACTURING", False))
+        mfg_on = BooksHealthService.manufacturing_books_required(company)
         wo_qs = (
             WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
             if mfg_on
@@ -2222,13 +2348,16 @@ class BooksHealthService:
                     "PAY_RUN",
                     "PAYROLL",
                 )
-                or _has_missing(
-                    WorkOrder.objects.filter(
-                        company=company,
-                        status__in=(WorkOrder.Status.RELEASED, WorkOrder.Status.COMPLETED),
-                    ),
-                    "WORK_ORDER",
-                    None,
+                or (
+                    BooksHealthService.manufacturing_books_required(company)
+                    and _has_missing(
+                        WorkOrder.objects.filter(
+                            company=company,
+                            status__in=(WorkOrder.Status.RELEASED, WorkOrder.Status.COMPLETED),
+                        ),
+                        "WORK_ORDER",
+                        None,
+                    )
                 )
             )
             expanded = (
@@ -2295,6 +2424,8 @@ class BooksHealthService:
                     "missing-posting cutoff have no journal entry."
                 ),
             })
+        if company.accounting_enabled:
+            alerts.extend(BooksHealthService._unposted_pay_run_alerts(company))
         alerts.extend(BooksHealthService._depreciation_alerts(company))
         alerts.extend(BooksHealthService._advance_recon_alerts(company))
         # CR-082: document invoice outstanding vs tagged AR/AP control (1200/2100).
@@ -2302,6 +2433,56 @@ class BooksHealthService:
             alerts.extend(BooksHealthService._docs_gl_party_alerts(company, expected_ar, expected_ap))
         return {"ar": {"gl": ar, "ledger": expected_ar, "healthy": ar_healthy},
                 "ap": {"gl": ap, "ledger": expected_ap, "healthy": ap_healthy}, "alerts": alerts}
+
+    @staticmethod
+    def _unposted_pay_run_alerts(company) -> list[dict]:
+        """Completed pay runs finished while books were off have slips and no journal."""
+        from accounting.models import JournalEntry
+        from payroll.models import PayRun
+
+        posted_ids = set(
+            JournalEntry.objects.filter(
+                company=company,
+                source_type="PAY_RUN",
+                purpose="PAYROLL",
+                status=JournalEntry.Status.POSTED,
+            ).values_list("source_id", flat=True)
+        )
+        missing = (
+            PayRun.objects.filter(company=company, status=PayRun.Status.COMPLETED)
+            .exclude(pk__in=posted_ids or [-1])
+            .filter(slips__net__gt=0)
+            .distinct()
+            .order_by("period")
+        )
+        alerts = [
+            {
+                "code": "PAY_RUN_UNPOSTED",
+                "severity": "error",
+                "message": (
+                    f"Pay run {run.period} is completed but has no payroll journal. "
+                    "Post it from the pay run while the month is still open."
+                ),
+            }
+            for run in missing
+        ]
+        open_with_journal = (
+            PayRun.objects.filter(company=company, pk__in=posted_ids or [-1])
+            .exclude(status=PayRun.Status.COMPLETED)
+            .order_by("period")
+        )
+        alerts.extend(
+            {
+                "code": "PAY_RUN_JOURNAL_OPEN",
+                "severity": "error",
+                "message": (
+                    f"Pay run {run.period} is {run.status} but still has a posted payroll journal. "
+                    "Turn accounting on and reverse that journal before re-completing."
+                ),
+            }
+            for run in open_with_journal
+        )
+        return alerts
 
     @staticmethod
     def _docs_gl_party_alerts(company, gl_ar, gl_ap):

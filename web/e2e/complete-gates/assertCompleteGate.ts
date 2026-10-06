@@ -11,7 +11,7 @@ export async function assertDraftEnabledCompleteDisabled(
   page: Page,
   reason: RegExp | string,
 ) {
-  await expect(page.getByRole('button', { name: /save draft/i })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeEnabled();
   await expect(page.getByRole('button', { name: /save & complete/i })).toBeDisabled();
   await expect(page.getByText(reason).first()).toBeVisible();
 }

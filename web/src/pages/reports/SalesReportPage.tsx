@@ -9,6 +9,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { exportReport, getSalesRegister, getSalesSummary } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { dateRangeForPreset } from '@/components/HistoryFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
@@ -47,7 +48,7 @@ export function SalesReportPage() {
         label: formatColumnHeader(key),
         money: isMoneyColumn(key),
       })),
-    [query.data?.rows],
+    [query.data],
   );
 
   const byDateRows = useMemo(() => {
@@ -65,6 +66,18 @@ export function SalesReportPage() {
       <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
         <PageTitle>{t('nav.salesReports')}</PageTitle>
         <Stack direction="row" spacing={1} alignItems="center">
+          {(['currentFY', 'previousFY', 'q1', 'q2', 'q3', 'q4'] as const).map((preset) => (
+            <Chip
+              key={preset}
+              size="small"
+              label={t(`history.preset.${preset}`)}
+              onClick={() => {
+                const range = dateRangeForPreset(preset);
+                setDateFrom(range.dateFrom);
+                setDateTo(range.dateTo);
+              }}
+            />
+          ))}
           <TextField
             type="date"
             size="small"
@@ -134,7 +147,7 @@ export function SalesReportPage() {
         </Stack>
       ) : null}
       {byDateRows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Typography variant="subtitle2" sx={{ p: 2, pb: 1 }}>{t('reports.revenueByDate')}</Typography>
           <DataTable
             rows={byDateRows}

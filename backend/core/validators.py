@@ -17,6 +17,8 @@ HSN_RE = re.compile(r"^\d{2}(\d{2})?(\d{2})?(\d{2})?$")
 # allows one or more of the safe set; PSP handle allows digits (some bank
 # handles are numeric-suffixed).
 UPI_VPA_RE = re.compile(r"^[a-zA-Z0-9.\-_]{1,256}@[a-zA-Z0-9]{2,64}$")
+# India Post PIN: six digits, first digit 1–9. 000000 is not a PIN.
+INDIAN_PINCODE_RE = re.compile(r"^[1-9][0-9]{5}$")
 
 ALLOWED_GST_RATES = ("0", "0.25", "3", "5", "12", "18", "28", "40")
 
@@ -96,6 +98,34 @@ def validate_gst_rate(value):
         raise ValidationError(
             f"Invalid GST rate {value}. Allowed: {', '.join(ALLOWED_GST_RATES)}%."
         )
+
+
+def normalize_indian_pincode(value) -> str:
+    """Blank stays blank. Otherwise require a 6-digit India Post PIN."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if not INDIAN_PINCODE_RE.fullmatch(text):
+        raise ValidationError("Enter a 6-digit PIN code.")
+    return text
+
+
+def assign_pincode(attrs, instance, field="pincode"):
+    """Normalize a changed PIN. An unchanged stored value, even if legacy-invalid, stays.
+
+    Callers must only invoke this when the client sent `field`. A phone-only
+    update that omits pincode never reaches here.
+    """
+    if field not in attrs:
+        return
+    raw = str(attrs.get(field) or "").strip()
+    stored = ""
+    if instance is not None:
+        stored = getattr(instance, field, "") or ""
+    if raw == str(stored).strip():
+        attrs[field] = stored
+        return
+    attrs[field] = normalize_indian_pincode(raw)
 
 
 def validate_upi_vpa(value):

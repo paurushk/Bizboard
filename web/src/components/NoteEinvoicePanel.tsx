@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -51,9 +51,12 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
   const [lastPayload, setLastPayload] = useState<unknown>(null);
   const queryKey = kind === 'credit' ? 'sales-credit-notes' : 'sales-debit-notes';
 
-  useEffect(() => {
+  // A different note starts with no prepared payload.
+  const [seenNoteId, setSeenNoteId] = useState(note.id);
+  if (seenNoteId !== note.id) {
+    setSeenNoteId(note.id);
     setLastPayload(null);
-  }, [note.id]);
+  }
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: [queryKey, note.id] });
 
@@ -95,7 +98,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
   return (
     <Paper sx={{ p: 2 }} data-testid="note-einvoice-panel">
       <Typography variant="h6" sx={{ mb: 1 }}>
-        Credit/debit note e-Invoice
+        {t('sweep2.noteEinvoice')}
       </Typography>
       <Alert severity="info" sx={{ mb: 2 }}>
         {t('common.sandboxGstnBanner')}. Prepare JSON for portal filing, or submit a sandbox IRN
@@ -118,7 +121,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
             disabled={prepareMutation.isPending}
             onClick={() => prepareMutation.mutate()}
           >
-            Prepare payload
+            {t('einvoice.preparePayload')}
           </Button>
           {canSubmit ? (
             <Button
@@ -127,7 +130,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
               disabled={submitMutation.isPending || generated}
               onClick={() => submitMutation.mutate()}
             >
-              Submit (sandbox)
+              {t('sweep2.submitSandbox')}
             </Button>
           ) : null}
           {generated ? (
@@ -138,7 +141,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
               disabled={cancelMutation.isPending}
               onClick={() => cancelMutation.mutate()}
             >
-              Cancel IRN
+              {t('sweep2.cancelIrn')}
             </Button>
           ) : null}
           {lastPayload ? (
@@ -150,7 +153,7 @@ export function NoteEinvoicePanel({ kind, note, onError, onMessage }: Props) {
                 triggerBlobDownload(blob, `${base}_einvoice.json`);
               }}
             >
-              Download JSON
+              {t('sweep2.downloadJson')}
             </Button>
           ) : null}
         </Stack>

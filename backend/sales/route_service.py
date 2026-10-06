@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import secrets
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from django.db import transaction
@@ -12,8 +14,13 @@ from core.services.document_numbers import DocumentNumberService, resolve_series
 from core.services.feature_flags import flag_enabled
 
 from .expected_profit import expected_profit_for_order
-from .models import DeliveryRoute, DeliveryRouteStop, SalesOrder
+from .models import DeliveryRoute, DeliveryRouteStop, RouteCashHandover, SalesOrder
 from .route_optimization import SequencedStop, StopInput, get_route_optimizer
+
+logger = logging.getLogger(__name__)
+
+POD_OTP_MAX_ATTEMPTS = 5
+POD_OTP_LOCK_SECONDS = 15 * 60
 
 
 class RouteService:
@@ -131,6 +138,9 @@ class RouteService:
         received_by_name: str = "",
         pod_photo=None,
         customer_receipt=None,
+        collected_cash=None,
+        collected_upi=None,
+        upi_reference=None,
     ):
         route = DeliveryRoute.objects.select_for_update().get(pk=route.pk)
         stop = DeliveryRouteStop.objects.select_for_update().get(pk=stop.pk, route=route)
@@ -146,13 +156,29 @@ class RouteService:
         source = (completion_source or "").upper()
         if source and source not in ("PHONE", "OFFICE"):
             raise BusinessRuleError("completion_source must be PHONE or OFFICE.")
-        # FAILED leaves stock reserved. A return is a separate document.
+        previous = stop.status
         stop.status = status
         stop.updated_by = user
         if source:
             stop.completion_source = source
-        if otp_code:
-            stop.otp_code = str(otp_code)[:8]
+        if status == DeliveryRouteStop.StopStatus.DELIVERED:
+            RouteService._verify_delivery_otp(stop, otp_code)
+        cash = RouteService._optional_money(collected_cash, "collected cash")
+        upi = RouteService._optional_money(collected_upi, "collected UPI")
+        if cash is not None:
+            if cash < 0:
+                raise BusinessRuleError("Collected cash cannot be negative.")
+            stop.collected_cash = cash
+        if upi is not None:
+            if upi < 0:
+                raise BusinessRuleError("Collected UPI cannot be negative.")
+            stop.collected_upi = upi
+        if upi_reference is not None:
+            stop.upi_reference = str(upi_reference).strip()[:64]
+        upi_total = stop.collected_upi if upi is None else upi
+        ref = stop.upi_reference if upi_reference is None else str(upi_reference).strip()
+        if upi_total and upi_total > 0 and not ref:
+            raise BusinessRuleError("A UPI reference is required for a UPI collection.")
         if pod_note:
             stop.pod_note = pod_note
         if status == DeliveryRouteStop.StopStatus.DELIVERED:
@@ -175,7 +201,78 @@ class RouteService:
         if source == "PHONE" and route.completion_source != "PHONE":
             route.completion_source = "PHONE"
             route.save(update_fields=["completion_source", "updated_at"])
+        failed = status in (
+            DeliveryRouteStop.StopStatus.FAILED,
+            DeliveryRouteStop.StopStatus.REJECTED,
+        )
+        was_failed = previous in (
+            DeliveryRouteStop.StopStatus.FAILED,
+            DeliveryRouteStop.StopStatus.REJECTED,
+        )
+        if failed and not was_failed:
+            RouteService._release_failed_stop(stop, user)
         return stop
+
+    @staticmethod
+    def _release_failed_stop(stop, user):
+        """A refused delivery must not keep the goods reserved, and opens a return."""
+        from inventory.services import InventoryService
+
+        from .challan_return import ChallanReturnService
+        from .models import DeliveryChallan, DeliveryChallanReturn, SalesOrder
+
+        order = SalesOrder.objects.select_for_update().get(pk=stop.sales_order_id)
+        if stop.stock_released_at is not None:
+            return
+        from django.utils import timezone as _tz
+
+        stop.stock_released_at = _tz.now()
+        stop.save(update_fields=["stock_released_at"])
+        if order.status in (SalesOrder.Status.CONFIRMED, SalesOrder.Status.PARTIALLY_CONVERTED):
+            warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
+            for item in order.items.select_related("product"):
+                open_qty = Decimal(str(item.quantity or 0)) - Decimal(str(item.shipped_quantity or 0))
+                if open_qty <= 0:
+                    # Fully shipped on a challan: the challan still holds the whole
+                    # reservation until the goods are delivered, so release it all.
+                    open_qty = Decimal(str(item.quantity or 0))
+                InventoryService.release_reservation(
+                    order.company, warehouse, item.product, open_qty, user,
+                )
+        challan = (
+            DeliveryChallan.objects.filter(sales_order=order, company_id=order.company_id)
+            .exclude(status=DeliveryChallan.Status.CANCELLED)
+            .order_by("-id")
+            .first()
+        )
+        if challan is None:
+            return
+        if DeliveryChallanReturn.objects.filter(
+            company_id=order.company_id,
+            challan=challan,
+            reason__startswith="Stop ",
+        ).exclude(status=DeliveryChallanReturn.Status.CANCELLED).exists():
+            return
+        challan_return = DeliveryChallanReturn.objects.create(
+            company=order.company,
+            customer=order.customer,
+            challan=challan,
+            reason=f"Stop {stop.status}",
+            created_by=user,
+            updated_by=user,
+        )
+        lines = []
+        for item in challan.items.select_related("product"):
+            lines.append({
+                "product": item.product,
+                "description": item.description,
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "discount_percent": item.discount_percent,
+                "gst_rate": item.gst_rate,
+            })
+        if lines:
+            ChallanReturnService.set_items(challan_return, lines, user)
 
     @staticmethod
     @transaction.atomic
@@ -219,8 +316,177 @@ class RouteService:
             route.realized_profit = financials.realized_profit
             route.invoiced_stop_count = financials.invoiced_stop_count
             route.stop_count = financials.stop_count
+        RouteService._require_cashier_handover(route)
         route.save()
         return route
+
+    @staticmethod
+    def _optional_money(raw, label):
+        if raw is None or raw == "":
+            return None
+        try:
+            return Decimal(str(raw)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (InvalidOperation, ValueError) as exc:
+            raise BusinessRuleError(f"Invalid {label}.") from exc
+
+    @staticmethod
+    def _verify_delivery_otp(stop, otp_code):
+        """Refuse an arbitrary OTP. A blank code is allowed only when none was issued."""
+        from accounts.otp_utils import verify_otp
+
+        supplied = (otp_code or "").strip()
+        stored = (stop.delivery_otp_hash or "").strip()
+        if not supplied and not stored:
+            return
+        from django.core.cache import cache
+
+        fail_key = f"pod_otp_fail:{stop.pk}"
+        if int(cache.get(fail_key, 0) or 0) >= POD_OTP_MAX_ATTEMPTS:
+            raise BusinessRuleError(
+                "Too many wrong delivery codes. Ask the customer for a new code.",
+                code="pod_otp_locked",
+            )
+        if not stored or not verify_otp(stored, supplied):
+            # A six-digit code must not be guessable by retrying.
+            try:
+                cache.add(fail_key, 0, timeout=POD_OTP_LOCK_SECONDS)
+                cache.incr(fail_key)
+            except Exception:  # noqa: BLE001 - a cache outage must not block a delivery
+                pass
+            raise BusinessRuleError(
+                "Proof of delivery OTP does not match the code sent to the customer.",
+                code="pod_otp_mismatch",
+            )
+        cache.delete(fail_key)
+        # One code proves one delivery: spend it, so the same code cannot confirm it again later.
+        if stored:
+            DeliveryRouteStop.objects.filter(pk=stop.pk).update(delivery_otp_hash="")
+            stop.delivery_otp_hash = ""
+
+    @staticmethod
+    @transaction.atomic
+    def issue_delivery_otp(route: DeliveryRoute, stop: DeliveryRouteStop, user):
+        """Issue a customer OTP and store only its hash."""
+        from accounts.otp_utils import hash_otp
+
+        route = DeliveryRoute.objects.select_for_update().get(pk=route.pk)
+        stop = DeliveryRouteStop.objects.select_for_update().get(pk=stop.pk, route=route)
+        if route.status in (DeliveryRoute.Status.COMPLETED, DeliveryRoute.Status.CANCELLED):
+            raise BusinessRuleError("Cannot issue a delivery OTP on a closed route.")
+        code = f"{secrets.randbelow(900000) + 100000}"
+        stop.delivery_otp_hash = hash_otp(code)
+        from django.core.cache import cache
+
+        cache.delete(f"pod_otp_fail:{stop.pk}")
+        stop.otp_code = ""
+        stop.updated_by = user
+        stop.save(update_fields=["delivery_otp_hash", "otp_code", "updated_by", "updated_at"])
+        RouteService._dispatch_delivery_otp(stop, code)
+        return code
+
+    @staticmethod
+    def _dispatch_delivery_otp(stop, code):
+        customer = stop.sales_order.customer
+        phone = (getattr(customer, "phone", "") or "").strip()
+        if not phone or not getattr(customer, "whatsapp_opt_in", False):
+            return
+        try:
+            from core.services.whatsapp import send_whatsapp_template
+
+            send_whatsapp_template(
+                phone,
+                "delivery_otp",
+                [code],
+                company=stop.company,
+                allow_cloud=True,
+                opt_in=True,
+            )
+        except Exception:
+            logger.exception("delivery OTP dispatch failed for stop %s", stop.pk)
+
+    @staticmethod
+    def _collection_totals(route):
+        cash = Decimal("0")
+        upi = Decimal("0")
+        for stop in route.stops.all():
+            cash += Decimal(str(stop.collected_cash or 0))
+            upi += Decimal(str(stop.collected_upi or 0))
+        cash = cash.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        upi = upi.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        return cash, upi
+
+    @staticmethod
+    def _require_cashier_handover(route):
+        expected_cash, expected_upi = RouteService._collection_totals(route)
+        if expected_cash <= 0 and expected_upi <= 0:
+            return
+        try:
+            handover = route.cash_handover
+        except RouteCashHandover.DoesNotExist:
+            handover = None
+        if handover is None or handover.status not in (
+            RouteCashHandover.Status.VERIFIED,
+            RouteCashHandover.Status.VARIANCE,
+        ):
+            raise BusinessRuleError(
+                "Cashier must verify driver cash and UPI before closing the route."
+            )
+        if handover.expected_cash != expected_cash or handover.expected_upi != expected_upi:
+            raise BusinessRuleError(
+                "Driver collections changed after cashier verification. Verify the drawer again."
+            )
+
+    @staticmethod
+    @transaction.atomic
+    def verify_cashier_handover(route: DeliveryRoute, user, *, cash_counted, upi_counted):
+        """Record the cashier's count. Does not post a receipt or a cash journal."""
+        route = DeliveryRoute.objects.select_for_update().get(pk=route.pk)
+        if route.status in (DeliveryRoute.Status.COMPLETED, DeliveryRoute.Status.CANCELLED):
+            raise BusinessRuleError("Cannot verify cash on a closed route.")
+        counted_cash = RouteService._optional_money(cash_counted, "counted cash")
+        counted_upi = RouteService._optional_money(upi_counted, "counted UPI")
+        if counted_cash is None or counted_upi is None:
+            raise BusinessRuleError("Counted cash and counted UPI are required.")
+        if counted_cash < 0 or counted_upi < 0:
+            raise BusinessRuleError("Counted amounts cannot be negative.")
+        # The person who recorded the collections must not also be the one who verifies the count,
+        # or a short count can be signed off by the same hands. An owner or manager may.
+        from accounts.models import CompanyUser
+
+        recorded_by_user = route.stops.filter(updated_by=user).exclude(
+            collected_cash=0, collected_upi=0
+        ).exists()
+        if recorded_by_user and not CompanyUser.objects.filter(
+            company=route.company, user=user, is_active=True, role__in=["OWNER", "MANAGER"],
+        ).exists():
+            raise BusinessRuleError(
+                "A different person must verify the cash count. Ask the cashier, a manager or the owner.",
+                code="handover_same_person",
+            )
+        expected_cash, expected_upi = RouteService._collection_totals(route)
+        variance = (counted_cash - expected_cash) + (counted_upi - expected_upi)
+        variance = variance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        status = (
+            RouteCashHandover.Status.VERIFIED if variance == 0 else RouteCashHandover.Status.VARIANCE
+        )
+        handover, _created = RouteCashHandover.objects.update_or_create(
+            route=route,
+            defaults={
+                "company": route.company,
+                "status": status,
+                "expected_cash": expected_cash,
+                "expected_upi": expected_upi,
+                "counted_cash": counted_cash,
+                "counted_upi": counted_upi,
+                "variance_amount": variance,
+                "verified_at": timezone.now(),
+                "updated_by": user,
+            },
+        )
+        if handover.created_by_id is None:
+            handover.created_by = user
+            handover.save(update_fields=["created_by"])
+        return handover
 
     @staticmethod
     def suggest_stop_sequence(route: DeliveryRoute, strategy_name: str | None = None) -> list[SequencedStop]:

@@ -375,7 +375,11 @@ def test_fa_dispose_creates_gl_journal(books):
         acquisition_date="2026-01-01", acquisition_cost=Decimal("12000.00"),
         useful_life_months=36, depreciated_amount=Decimal("2000.00"),
     )
-    resp = books.client.post(f"/api/v1/accounting/fixed-assets/{asset.id}/dispose/")
+    resp = books.client.post(
+        f"/api/v1/accounting/fixed-assets/{asset.id}/dispose/",
+        {"confirm": True},
+        format="json",
+    )
     assert resp.status_code == 200, resp.data
     entry = JournalEntry.objects.get(
         company=books.company, source_type="FIXED_ASSET", source_id=asset.id, purpose="DISPOSAL",
@@ -512,7 +516,7 @@ def test_fa_dispose_with_proceeds_gain(books):
     # NBV=800; proceeds=1000 → gain 200
     resp = books.client.post(
         f"/api/v1/accounting/fixed-assets/{asset.id}/dispose/",
-        {"proceeds": "1000.00"},
+        {"proceeds": "1000.00", "confirm": True},
         format="json",
     )
     assert resp.status_code == 200, resp.data

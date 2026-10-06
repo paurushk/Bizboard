@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -7,7 +8,8 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { prefillReturnLines } from '@/cognitive/loadHelpers';
 import { getErrorMessage } from '@/api/client';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
@@ -74,13 +76,15 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const fromInvoiceId = searchParams.get('fromInvoice');
   const qc = useQueryClient();
   const { message, error, clearFeedback, flashError, setMessage } = useBillingSaveFeedback();
 
   const [loaded, setLoaded] = useState(false);
   // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/cancel — those aren't "discarding" anything.
-  const skipLeaveGuard = useRef(false);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const createdNoteId = useRef<number | null>(null);
   const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
@@ -127,26 +131,57 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoaded(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
 
-  useEffect(() => {
-    if (!existing.data || loaded) return;
+  // Hydrate the form from the saved note once; the source invoice it needs is fetched in the
+  // effect below, keyed on this one hydration so a background refetch cannot re-run it.
+  const [hydratedDoc, setHydratedDoc] = useState<typeof existing.data>(undefined);
+  if (existing.data && !loaded) {
     const doc = existing.data;
     setEditingStatus(doc.status);
     setNoteDate(doc.noteDate);
     setReason(doc.reason);
     setReasonDetail(doc.reasonDetail ?? '');
     setNotes(doc.notes ?? '');
-    void getSalesInvoice(doc.salesInvoice).then((inv) => {
+    setHydratedDoc(doc);
+    setLoaded(true);
+  }
+
+  useEffect(() => {
+    if (!hydratedDoc) return;
+    let cancelled = false;
+    void getSalesInvoice(hydratedDoc.salesInvoice).then((inv) => {
+      if (cancelled) return;
       setInvoice(inv);
-      setLines(noteItemsToSourceLines(doc.items, inv.items));
+      setLines(noteItemsToSourceLines(hydratedDoc.items, inv.items));
       setPool(invoiceItemsToSourceLines(inv.items));
     });
-    setLoaded(true);
-  }, [existing.data, loaded]);
+    return () => {
+      cancelled = true;
+    };
+  }, [hydratedDoc]);
+
+  useEffect(() => {
+    if (isEdit || !fromInvoiceId) return;
+    const invoiceId = Number(fromInvoiceId);
+    if (!Number.isFinite(invoiceId)) return;
+    let cancelled = false;
+    void getSalesInvoice(invoiceId).then((inv) => {
+      if (cancelled) return;
+      const src = invoiceItemsToSourceLines(inv.items);
+      setInvoice(inv);
+      setPool(src);
+      setLines(prefillReturnLines(src));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [fromInvoiceId, isEdit]);
 
   const onInvoicePick = async (inv: SalesInvoice | null) => {
     setInvoice(inv);
@@ -159,7 +194,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     setInvoice(full);
     const src = invoiceItemsToSourceLines(full.items);
     setPool(src);
-    setLines([]);
+    setLines(prefillReturnLines(src));
   };
 
   const partyState = invoice?.customer
@@ -268,7 +303,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
       if (!isEdit) {
-        skipLeaveGuard.current = true;
+        flushSync(() => setSkipLeaveGuard(true));
         void navigate(`${listPath}/${doc.id}`, { replace: true });
       } else {
         setEditingStatus(doc.status);
@@ -283,7 +318,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     onSuccess: () => {
       setMessage(t('phase1.cancelled'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate(listPath);
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -384,7 +419,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       }
     >
       <UnsavedChangesGuard
-        when={!skipLeaveGuard.current && (Boolean(invoice) || activeSourceLines(lines).length > 0)}
+        when={!skipLeaveGuard && (Boolean(invoice) || activeSourceLines(lines).length > 0)}
       />
       <Stack spacing={2}>
         {editingStatus === 'COMPLETED' && isEdit ? (
@@ -458,6 +493,11 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
         />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
+        {kind === 'credit' && !readOnly ? (
+          <Button size="small" variant="outlined" onClick={() => setLines((prev) => prefillReturnLines(prev, true))}>
+            {t('cog.fullReturn')}
+          </Button>
+        ) : null}
         <InvoiceSourceLineTable
           lines={lines}
           onChange={setLines}

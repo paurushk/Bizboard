@@ -69,6 +69,16 @@ class OpportunitySerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Amount is derived from line items.")
         return value
 
+    def validate(self, attrs):
+        stage = attrs.get("stage", getattr(self.instance, "stage", None))
+        if "customer" in attrs:
+            customer = attrs.get("customer")
+        else:
+            customer = getattr(self.instance, "customer", None)
+        if stage == Opportunity.Stage.WON and customer is None:
+            raise serializers.ValidationError({"customer": "A won deal needs a customer."})
+        return attrs
+
     def create(self, validated_data):
         stage = validated_data.get("stage")
         if stage in (Opportunity.Stage.WON, Opportunity.Stage.LOST):

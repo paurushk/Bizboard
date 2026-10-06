@@ -1,0 +1,30 @@
+id: "QOS-0103"
+category: "SECURITY_PRIVACY"
+title: "No multi-factor authentication; phone-OTP and invite paths would have bypassed one"
+persona:
+- "P1"
+- "P5"
+journey: "Owner or accountant signs in to a company that moves money"
+problem: "Sign-in was password (or phone OTP) only, so a phished OWNER credential could record payments, change masters and export tenant data. Adding TOTP naively would also have left two single-factor session paths open: phone-OTP login and invite acceptance."
+evidence:
+  strength: "heuristic"
+  source:
+  - "backend/accounts/views.py"
+  - "docs/reviews/ISO25010_QUALITY_ASSESSMENT_2026-10-02.md"
+  detail: "Code read 2026-10-02: no TOTP or WebAuthn anywhere; VerifyOtpView and AcceptInviteView mint sessions from one factor."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "High impact (4x4x3=48) but heuristic evidence caps at P1."
+effort: "L"
+recommendation: "Shipped: opt-in TOTP (RFC 6238, stdlib), encrypted secret, single-use recovery codes, replay protection, 5-failure lockout, a login challenge, the OTP and invite paths gated, a login second step, and an enrolment panel on the owner Users page. NOT done and needs a founder decision: make MFA mandatory for OWNER/ACCOUNTANT, add a per-user account page so non-owners can enrol, and set MFA_ENCRYPTION_KEY in production."
+test_required: "backend/tests/test_mfa.py, web/src/pages/LoginPage.mfa.test.tsx, web/src/components/TwoStepVerificationPanel.test.tsx"
+guard_ref:
+  test: "backend/tests/test_mfa.py"
+lifecycle: "in_progress"
+owner: "founder"
+opened: "2026-10-02"

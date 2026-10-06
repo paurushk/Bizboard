@@ -84,7 +84,8 @@ def test_staging_compose_defaults_rls_on_for_soak():
     staging = (ROOT / "docker-compose.staging.yml").read_text(encoding="utf-8")
     assert "${POSTGRES_RLS_ENABLED:-1}" in staging
     prod_env = (ROOT / ".env.production.example").read_text(encoding="utf-8")
-    assert "POSTGRES_RLS_ENABLED=0" in prod_env
+    # production on PostgreSQL refuses to start with RLS off (BUG-SEC-019), so the example is on
+    assert "POSTGRES_RLS_ENABLED=1" in prod_env
     staging_env = (ROOT / ".env.staging.example").read_text(encoding="utf-8")
     assert "POSTGRES_RLS_ENABLED=1" in staging_env
 

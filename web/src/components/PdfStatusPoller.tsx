@@ -74,12 +74,17 @@ export function PdfStatusPoller({
     },
   });
 
-  useEffect(() => {
+  // Count one poll per fetch (keyed on the fetch timestamp) and restart the count on retry.
+  const [seenRetryToken, setSeenRetryToken] = useState(retryToken);
+  const [seenUpdatedAt, setSeenUpdatedAt] = useState(0);
+  if (seenRetryToken !== retryToken) {
+    setSeenRetryToken(retryToken);
     setPollCount(0);
-  }, [retryToken]);
-  useEffect(() => {
-    if (query.dataUpdatedAt) setPollCount((n) => n + 1);
-  }, [query.dataUpdatedAt]);
+  }
+  if (query.dataUpdatedAt && seenUpdatedAt !== query.dataUpdatedAt) {
+    setSeenUpdatedAt(query.dataUpdatedAt);
+    setPollCount((n) => n + 1);
+  }
 
   const status = (query.data?.pdfStatus ?? 'QUEUED') as PdfStatus;
 

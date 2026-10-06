@@ -301,12 +301,16 @@ class SalesOrderViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):
-        invoice = SalesNotesService.convert_sales_order(self.get_object(), request.user)
+        invoice = SalesNotesService.convert_sales_order(
+            self.get_object(), request.user, line_quantities=request.data.get("line_quantities"),
+        )
         return Response(SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"], url_path="convert-to-challan")
     def convert_to_challan(self, request, pk=None):
-        challan = SalesNotesService.convert_sales_order_to_challan(self.get_object(), request.user)
+        challan = SalesNotesService.convert_sales_order_to_challan(
+            self.get_object(), request.user, line_quantities=request.data.get("line_quantities"),
+        )
         return Response(DeliveryChallanSerializer(challan, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])

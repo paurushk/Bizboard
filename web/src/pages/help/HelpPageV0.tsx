@@ -27,15 +27,20 @@ export function HelpPageV0() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Deep link: /help#unit-conversion-rate opens that entry and scrolls to it.
+  const hash = location.hash.replace('#', '');
+  const deepLink = hash && FAQ_ITEMS.some((item) => item.id === hash) ? hash : null;
+  const [seenDeepLink, setSeenDeepLink] = useState<string | null>(null);
+  if (seenDeepLink !== deepLink) {
+    setSeenDeepLink(deepLink);
+    if (deepLink) setExpanded(deepLink);
+  }
   useEffect(() => {
-    const hash = location.hash.replace('#', '');
-    if (hash && FAQ_ITEMS.some((item) => item.id === hash)) {
-      setExpanded(hash);
-      window.requestAnimationFrame(() => {
-        document.getElementById(hash)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-    }
-  }, [location.hash]);
+    if (!deepLink) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(deepLink)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [deepLink]);
 
   const grouped = useMemo(() => {
     const visible = FAQ_ITEMS.filter((item) => matches(item, query));
@@ -47,7 +52,7 @@ export function HelpPageV0() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('help.title')}</Typography>
+      <Typography variant="h4" component="h1">{t('help.title')}</Typography>
       <Typography variant="body2" color="text.secondary">
         {t('help.subtitle')}
       </Typography>

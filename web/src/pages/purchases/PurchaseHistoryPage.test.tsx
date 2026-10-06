@@ -28,6 +28,8 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
+  listCustomersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
+  listSuppliersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
   listPurchasesPage: async () => ({ results: ROWS, count: ROWS.length, next: null, previous: null }),
 }));
 

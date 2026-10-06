@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import LinearProgress from '@mui/material/LinearProgress';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -186,22 +187,23 @@ export function ImportPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorSource, setErrorSource] = useState<unknown>(null);
   const [commitKey, setCommitKey] = useState(() => newIdempotencyKey());
-  const [uploadKey, setUploadKey] = useState('');
+  // The upload key is only valid for the file and kind it was computed for.
+  const [uploadKeyFor, setUploadKeyFor] = useState<{ file: File; kind: typeof kind; key: string } | null>(null);
+  const uploadKey = file && uploadKeyFor?.file === file && uploadKeyFor.kind === kind ? uploadKeyFor.key : '';
   const [commitElapsed, setCommitElapsed] = useState(0);
   const [voidingSku, setVoidingSku] = useState<string | null>(null);
 
-  useEffect(() => {
+  const [seenInitialKind, setSeenInitialKind] = useState(initialKind);
+  if (seenInitialKind !== initialKind) {
+    setSeenInitialKind(initialKind);
     setKind(initialKind);
-  }, [initialKind]);
+  }
 
   useEffect(() => {
     let cancelled = false;
-    if (!file) {
-      setUploadKey('');
-      return;
-    }
+    if (!file) return;
     void stableUploadKey(file, kind).then((key) => {
-      if (!cancelled) setUploadKey(key);
+      if (!cancelled) setUploadKeyFor({ file, kind, key });
     });
     return () => {
       cancelled = true;
@@ -249,11 +251,10 @@ export function ImportPage() {
     },
   });
 
+  if (!commitMutation.isPending && commitElapsed !== 0) setCommitElapsed(0);
+
   useEffect(() => {
-    if (!commitMutation.isPending) {
-      setCommitElapsed(0);
-      return;
-    }
+    if (!commitMutation.isPending) return;
     const started = Date.now();
     const id = window.setInterval(() => {
       setCommitElapsed(Math.floor((Date.now() - started) / 1000));
@@ -390,10 +391,10 @@ export function ImportPage() {
             }}
             sx={{ maxWidth: 320 }}
           >
-            <MenuItem value="PRODUCTS">Products</MenuItem>
-            <MenuItem value="CUSTOMERS">Customers</MenuItem>
-            <MenuItem value="SUPPLIERS">Suppliers</MenuItem>
-            <MenuItem value="OPENING_STOCK">Opening stock</MenuItem>
+            <MenuItem value="PRODUCTS">{t('sweep2.products')}</MenuItem>
+            <MenuItem value="CUSTOMERS">{t('sweep2.customers')}</MenuItem>
+            <MenuItem value="SUPPLIERS">{t('sweep2.suppliers')}</MenuItem>
+            <MenuItem value="OPENING_STOCK">{t('sweep2.openingStock')}</MenuItem>
           </TextField>
 
           <Typography variant="body2" color="text.secondary">
@@ -478,6 +479,19 @@ export function ImportPage() {
                 : t('common.commit')}
             </Button>
           </Stack>
+          {commitMutation.isPending ? (
+            <Stack spacing={0.5}>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(95, (commitElapsed / Math.max(3, Math.ceil((job?.validRows ?? 1) * 0.05))) * 100)}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {t('import.etaRemaining', {
+                  seconds: Math.max(0, Math.ceil((job?.validRows ?? 1) * 0.05) - commitElapsed),
+                })}
+              </Typography>
+            </Stack>
+          ) : null}
           {commitMutation.isPending && (job?.validRows ?? 0) >= COMMIT_HINT_ROWS ? (
             <Typography variant="body2" color="text.secondary">
               {t('import.committingHint')}
@@ -635,7 +649,7 @@ export function ImportPage() {
                 <TableHead>
                   <TableRow sx={{ bgcolor: 'action.hover' }}>
                     <TableCell sx={{ width: 60 }}>#</TableCell>
-                    <TableCell>Details</TableCell>
+                    <TableCell>{t('sweep2.details')}</TableCell>
                     {job.status === 'COMMITTED' && needsStockConfirm ? (
                       <TableCell sx={{ width: 140 }} />
                     ) : null}
@@ -721,12 +735,12 @@ export function ImportPage() {
           ) : null}
           {job.status === 'COMMITTED' && kind === 'CUSTOMERS' ? (
             <Button component={RouterLink} to="/sales/customers" variant="outlined" sx={{ mt: 1 }}>
-              View Customers
+              {t('sweep2.viewCustomers')}
             </Button>
           ) : null}
           {job.status === 'COMMITTED' && kind === 'SUPPLIERS' ? (
             <Button component={RouterLink} to="/purchases/suppliers" variant="outlined" sx={{ mt: 1 }}>
-              View Suppliers
+              {t('sweep2.viewSuppliers')}
             </Button>
           ) : null}
         </Paper>

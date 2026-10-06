@@ -72,7 +72,8 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
     def get_permissions(self):
         action = getattr(self, "action", None)
         if action in ("create", "update", "partial_update", "destroy", "add_orders", "remove_stop",
-                      "set_stop_status", "start", "complete", "suggest_sequence", "apply_sequence"):
+                      "set_stop_status", "start", "complete", "suggest_sequence", "apply_sequence",
+                      "issue_otp", "verify_handover"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
 
@@ -154,6 +155,15 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
             received_by_name=request.data.get("received_by_name") or request.data.get("receivedByName") or "",
             pod_photo=photo,
             customer_receipt=receipt,
+            collected_cash=request.data.get("collected_cash", request.data.get("collectedCash", None))
+            if ("collected_cash" in request.data or "collectedCash" in request.data)
+            else None,
+            collected_upi=request.data.get("collected_upi", request.data.get("collectedUpi", None))
+            if ("collected_upi" in request.data or "collectedUpi" in request.data)
+            else None,
+            upi_reference=request.data.get("upi_reference", request.data.get("upiReference", None))
+            if ("upi_reference" in request.data or "upiReference" in request.data)
+            else None,
         )
         return Response(self.get_serializer(self.get_object()).data)
 
@@ -169,6 +179,28 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
             self.get_object(), request.user, actual_logistics_cost=cost,
         )
         return Response(self.get_serializer(route).data)
+
+    @action(detail=True, methods=["post"], url_path="issue-otp")
+    def issue_otp(self, request, pk=None):
+        stop_id = request.data.get("stop_id") or request.data.get("stopId")
+        route = self.get_object()
+        stop = DeliveryRouteStop.objects.filter(pk=stop_id, route=route).first()
+        if stop is None:
+            raise BusinessRuleError("Stop was not found on this route.")
+        RouteService.issue_delivery_otp(route, stop, request.user)
+        return Response({"sent": True})
+
+    @action(detail=True, methods=["post"], url_path="verify-handover")
+    def verify_handover(self, request, pk=None):
+        if "cash_counted" not in request.data or "upi_counted" not in request.data:
+            raise BusinessRuleError("Counted cash and counted UPI are required.")
+        RouteService.verify_cashier_handover(
+            self.get_object(),
+            request.user,
+            cash_counted=request.data.get("cash_counted"),
+            upi_counted=request.data.get("upi_counted"),
+        )
+        return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=False, methods=["get"], url_path="completion-baseline")
     def completion_baseline(self, request):

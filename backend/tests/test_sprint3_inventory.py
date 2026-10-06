@@ -65,6 +65,7 @@ def test_bb_000601_transfer_preserves_out_cost(tenant_a):
     transfer = StockTransfer.objects.create(company=company, from_warehouse=source, to_warehouse=dest)
     StockTransferLine.objects.create(transfer=transfer, product=product, quantity="2")
     StockTransferService.complete(transfer, tenant_a.owner)
+    StockTransferService.receive(transfer, tenant_a.owner)
     in_layer = InventoryCostLayer.objects.filter(
         company=company, product=product, warehouse=dest, qty_remaining__gt=0
     ).first()

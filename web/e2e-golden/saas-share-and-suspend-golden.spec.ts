@@ -20,7 +20,15 @@ test('shared tickets stay empty, and suspend records a win-back after a reason',
   await expect(suspend).toBeDisabled();
   await page.getByLabel('Churn reason').fill('Closed the shop');
   await expect(suspend).toBeEnabled();
+  const suspended = page.waitForResponse(
+    (res) => res.url().includes('/billing/subscription/') && res.request().method() === 'POST',
+  );
+  page.once('dialog', (dialog) => dialog.accept());
   await suspend.click();
+  const response = await suspended;
+  const raw = await response.text();
+  expect(response.ok(), raw).toBeTruthy();
+  const body = JSON.parse(raw) as { data?: { winBackName?: string } };
+  expect(body.data?.winBackName).toBe(`Win-back ${companyName}`);
   await expect(page.getByText(/status: suspended/i)).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(`Win-back ${companyName}`)).toBeVisible();
 });

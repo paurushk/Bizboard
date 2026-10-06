@@ -97,6 +97,8 @@ export interface PosCheckoutResult {
 export async function posCheckout(
   payload: {
     invoice: Record<string, unknown>;
+    /** Cashier confirmed a walk-in sale with no place of supply (assume local). */
+    confirm_blank_pos?: boolean;
     payment?: {
       mode?: string;
       amount?: number | string;
@@ -333,6 +335,8 @@ export async function completeSalesInvoice(
     confirmBlankPos?: boolean;
     confirmGstinTotalChange?: boolean;
     gstGuardOverrideReason?: string;
+    /** Owner only: why this bill is priced under purchase cost. */
+    belowCostOverrideReason?: string;
     idempotencyKey?: string;
   },
 ): Promise<SalesInvoice> {
@@ -345,6 +349,9 @@ export async function completeSalesInvoice(
         confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
         ...(options?.gstGuardOverrideReason
           ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
+          : {}),
+        ...(options?.belowCostOverrideReason
+          ? { belowCostOverrideReason: options.belowCostOverrideReason }
           : {}),
       },
       { headers: idempotencyHeaders(options?.idempotencyKey) },
@@ -869,6 +876,23 @@ export async function submitInvoiceEinvoice(id: number) {
   }, { ...mockInvoices[0], id, einvoiceStatus: 'GENERATED', irn: 'MOCK-IRN-001', ackNo: 'MOCK-ACK-001' });
 }
 
+export async function postPlanEwayStub(body: {
+  action: 'PART_B' | 'EXTEND' | 'SPLIT' | 'TRANSFER_PART_B';
+  documentId: number | string;
+  documentType?: string;
+  billStatus?: string;
+  payload?: Record<string, unknown>;
+}) {
+  const { data } = await apiClient.post('/plan/eway/', {
+    action: body.action,
+    document_id: String(body.documentId),
+    document_type: body.documentType ?? 'invoice',
+    bill_status: body.billStatus ?? 'ACTIVE',
+    payload: body.payload ?? {},
+  });
+  return unwrapData<{ id: number }>(data);
+}
+
 export async function submitInvoiceEway(id: number, payload?: Record<string, unknown>) {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/invoices/${id}/submit-eway/`, payload ?? {});
@@ -1336,8 +1360,14 @@ export async function getInvoiceHsnSummary(id: number) {
   return unwrapData<{ invoiceId: number; rows: Record<string, unknown>[] }>(data);
 }
 
-export async function recordInvoicePayment(id: number, payload: Record<string, unknown>) {
-  const { data } = await apiClient.post(`/sales/invoices/${id}/record-payment/`, payload);
+export async function recordInvoicePayment(
+  id: number,
+  payload: Record<string, unknown>,
+  options?: { idempotencyKey?: string },
+) {
+  const { data } = await apiClient.post(`/sales/invoices/${id}/record-payment/`, payload, {
+    headers: idempotencyHeaders(options?.idempotencyKey),
+  });
   return unwrapData<SalesInvoice>(data);
 }
 

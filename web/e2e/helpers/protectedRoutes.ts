@@ -32,6 +32,8 @@ export const PROTECTED_ROUTES = [
   '/insights',
   '/offline-outbox',
   '/settings/company',
+  '/settings/items',
+  '/settings/users',
   '/workshop/jobs',
   '/projects',
   '/insurance',

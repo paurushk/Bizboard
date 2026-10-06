@@ -25,10 +25,23 @@ class Command(BaseCommand):
         parser.add_argument("--reason", default="", help="Recorded on the erasure log.")
         parser.add_argument("--requested-by", default="cli", help="Email / identifier of the requester.")
         parser.add_argument("--skip-export", action="store_true", help="Do not build the pre-erasure export.")
+        parser.add_argument(
+            "--force",
+            action="store_true",
+            help="Required when DJANGO_ENV is production or staging.",
+        )
 
     def handle(self, *args, **options):
+        from django.conf import settings
+
         from accounts.erasure import assert_erasure_model_coverage, erase_company
         from accounts.models import Company
+
+        if settings.DJANGO_ENV in ("production", "staging") and not options["force"]:
+            raise CommandError(
+                "erase_company refuses to run when DJANGO_ENV is "
+                f"{settings.DJANGO_ENV} unless --force is passed."
+            )
 
         # fail fast if the wipe set has drifted
         assert_erasure_model_coverage()

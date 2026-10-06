@@ -243,6 +243,11 @@ class GoodsReceiptItemSerializer(CompanyScopedSerializerMixin, serializers.Model
             "quantity_rejected",
             "unit_price",
             "rejection_reason",
+            "batch",
+            "batch_no",
+            "mfg_date",
+            "exp_date",
+            "serial_numbers",
         ]
 
 

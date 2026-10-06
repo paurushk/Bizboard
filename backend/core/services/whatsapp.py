@@ -13,6 +13,9 @@ import requests
 from core.services.feature_flags import build_feature_flags
 
 APPROVED_WHATSAPP_TEMPLATES = frozenset({
+    # GD-25: the invoice that carries a payment link is the first template.
+    # payment_reminder stays second and is not a campaign send.
+    "invoice_with_payment_link",
     "invoice_ready",
     "payment_reminder",
     "invoice_share",
@@ -98,9 +101,13 @@ def send_whatsapp_template(
     *,
     company=None,
     allow_cloud: bool = True,
+    opt_in: bool = False,
     language_code: str | None = None,
 ) -> WhatsAppSendResult:
-    """Send an approved WhatsApp template via Cloud API, else explicit wa.me link."""
+    """Send an approved WhatsApp template via Cloud API, else explicit wa.me link.
+
+    ``opt_in`` is required for a Cloud POST. ``allow_cloud`` alone is not consent.
+    """
     phone = _normalize_phone(to_phone)
     body_text = _format_template_body(template_name, params)
     link_result = WhatsAppSendResult(
@@ -109,7 +116,7 @@ def send_whatsapp_template(
     )
 
     flags = build_feature_flags(company=company)
-    if not allow_cloud or not flags.get("ENABLE_WHATSAPP_CLOUD"):
+    if not allow_cloud or not opt_in or not flags.get("ENABLE_WHATSAPP_CLOUD"):
         return link_result
     approved = {name.lower() for name in APPROVED_WHATSAPP_TEMPLATES}
     if (template_name or "").strip().lower() not in approved:
@@ -144,12 +151,20 @@ def send_whatsapp_template(
         },
     }
     url = f"https://graph.facebook.com/v19.0/{phone_number_id}/messages"
-    resp = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=30,
-    )
+    try:
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json=payload,
+            timeout=30,
+        )
+    except requests.RequestException as exc:
+        logger.warning("WhatsApp Cloud request failed for template %s: %s", template_name, exc)
+        return WhatsAppSendResult(
+            mode="failed",
+            share_link=_wa_me_link(phone=phone, text=body_text),
+            raw={"error": str(exc)},
+        )
     if resp.status_code >= 400:
         logger.warning(
             "WhatsApp Cloud HTTP %s for template %s", resp.status_code, template_name

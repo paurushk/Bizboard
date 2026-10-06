@@ -15,7 +15,7 @@ _ALLOWED = {
     Complaint.Status.REJECTED: set(),
     Complaint.Status.RESOLVED: set(),
 }
-_DOC_STATUSES = {Complaint.Status.INSPECTING, Complaint.Status.APPROVED}
+_DOC_STATUSES = {Complaint.Status.APPROVED}
 
 
 def create_complaint(company, user, *, customer, category, description, source_invoice=None):
@@ -87,7 +87,7 @@ def _write_status(complaint, user, *, new_status, inspection_notes, action, enti
 
 def assert_document_status(complaint):
     if complaint.status not in _DOC_STATUSES:
-        raise BusinessRuleError("Create a document only while the complaint is inspecting or approved.")
+        raise BusinessRuleError("Create a document only after the complaint is approved.")
 
 
 _SUPPLIER_ALLOWED = {

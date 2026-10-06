@@ -6,11 +6,12 @@ from django.conf import settings
 
 
 # "Dark" preview modules (see SPECTACULAR_SETTINGS description). The env flag is
-# a hard deployment ceiling; a tenant only gets one via an explicit grant
-# (company feature_flags JSON, or a subscription plan module). Once a company
-# JSON names ANY module key, the other dark modules it did not name are off
-# (opt-in once you touch them). Help-only keys (helpV2, item_custom_fields_v2)
-# never trip that — a `{"helpV2": true}` pilot must not turn Manufacturing off.
+# a hard deployment ceiling. A tenant gets one from a subscription plan that
+# names it, from pack_grant=insurance (CRM), or from manufacturing_pack_grant.
+# Bare company JSON ENABLE_MANUFACTURING / ENABLE_PAYROLL / ENABLE_CRM does not
+# turn them on. Payroll has no pack key. Once a company JSON names ANY module
+# key, the env no longer blanket-grants the dark modules it did not name.
+# Help-only keys (helpV2, item_custom_fields_v2) never trip that.
 DARK_MODULE_KEYS = (
     "ENABLE_MANUFACTURING",
     "ENABLE_PAYROLL",
@@ -29,8 +30,8 @@ NON_MODULE_OVERRIDE_KEYS = frozenset({"helpV2", "help_v2", "item_custom_fields_v
 ROLLOUT_GRANTABLE_KEYS = frozenset({
     "ENABLE_POS",
     "ENABLE_GSTR",
+    "ENABLE_GSTR_EXTENDED",
     "ENABLE_TALLY",
-    "ENABLE_GSTN_JSON",
     "ENABLE_SETUP_WIZARD",
     "ENABLE_TDS",
     "ENABLE_REPLENISHMENT",
@@ -69,6 +70,7 @@ ENV_FLAG_KEYS = (
     "ENABLE_POS",
     "ENABLE_SETUP_WIZARD",
     "ENABLE_GSTR",
+    "ENABLE_GSTR_EXTENDED",
     "ENABLE_TALLY",
     "ENABLE_GSTN_JSON",
     "ENABLE_FIXED_ASSETS",
@@ -200,22 +202,23 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
                 # Dark preview modules. A subscribed plan is authoritative: a
                 # module it names wins both ways, and a module a subscribed plan
                 # omits is not entitled — a stale company feature_flags grant
-                # must not keep a paid module alive for free (BB-000671). Only
-                # with no plan info at all (None — no subscription / billing
-                # outage) does the company JSON grant apply, falling back to
-                # env-only for legacy tenants that never touched a module flag.
+                # must not keep a paid module alive for free (BB-000671). With
+                # no plan, bare ENABLE_* JSON does not grant the module. Env
+                # still covers a legacy tenant that never named a module key.
+                # pack_grant and manufacturing_pack_grant are the JSON grants.
                 if isinstance(plan_modules, dict) and key in plan_modules:
                     val = bool(plan_modules[key])
                 elif isinstance(plan_modules, dict):
                     # Subscribed plan that omits this module is not entitled.
                     val = False
-                elif key in overrides:
-                    val = bool(overrides[key])
                 else:
+                    # No plan. Bare JSON cannot turn a dark module on. Env
+                    # remains a ceiling for a legacy tenant that never named
+                    # a module key.
                     legacy_env_only = not module_keys_touched
                     val = env[key] and legacy_env_only
                 # INS-1: the insurance pack is the only pack grant for CRM.
-                # A bare {"ENABLE_CRM": true} on a subscribed company stays off.
+                # A bare {"ENABLE_CRM": true} stays off.
                 if key == "ENABLE_CRM" and overrides.get("pack_grant") == "insurance":
                     val = True
                 if key == "ENABLE_MANUFACTURING" and overrides.get("manufacturing_pack_grant") is True:

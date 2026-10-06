@@ -67,7 +67,7 @@ def test_completed_invoice_audited_edit_allows_line_change(tenant_a):
 
     diff_event = AuditEvent.objects.filter(
         entity_type="SalesInvoice", entity_id=str(data["id"]),
-        description="Completed document edited",
+        description="sales_invoice.amended",
     ).latest("created_at")
     assert Decimal(diff_event.metadata["before"]["grand_total"]) == Decimal("236.00")
     assert Decimal(diff_event.metadata["after"]["grand_total"]) == Decimal("212.00")

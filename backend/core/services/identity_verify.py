@@ -6,6 +6,13 @@ never stamps VALID / verified_at (same honesty rule as GSTIN).
 
 from __future__ import annotations
 
+import http.client
+import ipaddress
+import socket
+import ssl
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 
 from django.utils import timezone
@@ -70,23 +77,139 @@ def get_identity_provider():
     return NullIdentityProvider()
 
 
+class _RedirectRefused(urllib.request.HTTPError):
+    """Raised by the opener so a 302 cannot hop to a link-local address."""
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        url = newurl or getattr(req, "full_url", "") or ""
+        raise _RedirectRefused(url, code, "redirect refused", headers, fp)
+
+
+def _unwrap(ip: ipaddress.IPv4Address | ipaddress.IPv6Address):
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+def _address_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    ip = _unwrap(ip)
+    return bool(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    )
+
+
+def _localhost_exception(host: str) -> bool:
+    from django.conf import settings
+
+    env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
+    if env in ("production", "staging"):
+        return False
+    return host in ("localhost", "127.0.0.1", "::1")
+
+
+def _pin_target(url: str) -> tuple[str, str, int, str] | dict:
+    """Return (hostname, ip, port, scheme) or an error dict. Does not connect."""
+    parsed = urllib.parse.urlparse(url)
+    host = (parsed.hostname or "").strip("[]")
+    scheme = (parsed.scheme or "").lower()
+    if scheme not in ("https", "http") or not host:
+        return {"error": "lookup_failed"}
+    if scheme == "http" and not _localhost_exception(host):
+        return {"error": "lookup_failed"}
+    if scheme == "https" and _address_blocked_host(host) and not _localhost_exception(host):
+        return {"error": "lookup_failed"}
+    try:
+        port = parsed.port or (443 if scheme == "https" else 80)
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return {"error": "lookup_failed"}
+    ips = []
+    for info in infos:
+        raw = info[4][0]
+        try:
+            ip = ipaddress.ip_address(raw)
+        except ValueError:
+            return {"error": "lookup_failed"}
+        if _address_blocked(ip) and not _localhost_exception(host):
+            return {"error": "lookup_failed"}
+        ips.append(raw)
+    if not ips:
+        return {"error": "lookup_failed"}
+    return host, ips[0], port, scheme
+
+
+def _address_blocked_host(host: str) -> bool:
+    try:
+        return _address_blocked(ipaddress.ip_address(host))
+    except ValueError:
+        return False
+
+
+def open_pinned_url(url: str, timeout: int = 8) -> str:
+    """GET ``url`` at the resolved address. Refuses redirects and private targets.
+
+    Returns the response body text, or raises ``ValueError`` / ``urllib.error.URLError``.
+    The TCP connection uses the address from ``getaddrinfo``, not a second lookup.
+    """
+    pinned = _pin_target(url)
+    if isinstance(pinned, dict):
+        raise ValueError("lookup_failed")
+    host, ip, port, scheme = pinned
+    if scheme == "https":
+        context = ssl.create_default_context()
+
+        class Conn(http.client.HTTPSConnection):
+            def connect(self):
+                raw = socket.create_connection((ip, port), self.timeout)
+                self.sock = self._context.wrap_socket(raw, server_hostname=host)
+
+        handler = urllib.request.HTTPSHandler(context=context)
+        opener = urllib.request.build_opener(_NoRedirect, handler)
+
+        def https_open(req):
+            return handler.do_open(Conn, req)
+
+        handler.https_open = https_open  # type: ignore[method-assign]
+    else:
+
+        class Conn(http.client.HTTPConnection):
+            def connect(self):
+                self.sock = socket.create_connection((ip, port), self.timeout)
+
+        handler = urllib.request.HTTPHandler()
+        opener = urllib.request.build_opener(_NoRedirect, handler)
+
+        def http_open(req):
+            return handler.do_open(Conn, req)
+
+        handler.http_open = http_open  # type: ignore[method-assign]
+    req = urllib.request.Request(url, method="GET", headers={"Host": host})
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read().decode("utf-8")
+
+
 class HttpIdentityProvider:
     """Optional HTTP PAN/UDYAM lookup. Fail-closed: missing URL or HTTP error → UNVERIFIED."""
 
     def _get(self, path: str) -> dict | None:
         from django.conf import settings
         import json
-        import urllib.error
-        import urllib.request
 
         base = (getattr(settings, "IDENTITY_SANDBOX_BASE_URL", "") or "").rstrip("/")
         if not base:
             return None
+        url = f"{base}{path}"
         try:
-            req = urllib.request.Request(f"{base}{path}", method="GET")
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                return json.loads(resp.read().decode("utf-8") or "{}")
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+            body = open_pinned_url(url, timeout=8)
+            return json.loads(body or "{}")
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError):
             return {"error": "lookup_failed"}
 
     def lookup_pan(self, pan: str) -> IdentityLookupResult:

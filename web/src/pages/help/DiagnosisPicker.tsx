@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
@@ -44,9 +44,11 @@ export function DiagnosisPicker({
   );
   const [path, setPath] = useState<HelpDiagnosisLeaf[]>(startPath);
 
-  useEffect(() => {
+  const [seenStartPath, setSeenStartPath] = useState(startPath);
+  if (seenStartPath !== startPath) {
+    setSeenStartPath(startPath);
     setPath(startPath);
-  }, [startPath]);
+  }
   const level = path.length === 0 ? intent.diagnosis ?? [] : path[path.length - 1]?.children ?? [];
   const leaf = path.length ? path[path.length - 1] : null;
   const atLeaf = Boolean(leaf && (!leaf.children || leaf.children.length === 0));

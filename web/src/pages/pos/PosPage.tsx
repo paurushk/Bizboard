@@ -2,7 +2,7 @@
  * Wave 18D — POS MVP counter mode (BB-000181).
  * Not a full retail suite; uses standard sales invoice + receipt APIs.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import Alert from '@mui/material/Alert';
 import AlertTitle from '@mui/material/AlertTitle';
 import Autocomplete from '@mui/material/Autocomplete';
@@ -36,7 +36,15 @@ import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { HonestyBanner } from '@/components/HonestyBanner';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { legacyPosCartKey, readDraft, removeDraft as removeDeviceDraft, writeDraft } from '@/lib/deviceDraft';
+import { buildAtomicPosInvoicePayload } from '@/pages/pos/posCheckoutPayload';
+import { choosePosEnter } from '@/pages/pos/posEnter';
+import { isScannerBurst, parseQtyBarcode } from '@/pages/pos/scanInput';
+import { playScanTone } from '@/pages/pos/scanSounds';
+import { omitQueuedHeldSessions, repriceLines } from '@/pages/pos/posRestore';
 import {
   clearCashPendingStorage,
   clearUpiPendingStorage,
@@ -54,6 +62,7 @@ import {
   type PosUpiPendingSnapshot,
 } from '@/pages/pos/posStatus';
 import { printPosThermalOrWarn } from '@/pages/pos/printPosThermal';
+import { DRAWER_KICK, printEscPos, readScaleWeight } from '@/lib/native';
 import {
   completeSalesInvoice,
   createAllocation,
@@ -63,8 +72,10 @@ import {
   deleteSalesInvoice,
   getCompany,
   getCustomer,
+  getProduct,
   getSalesInvoice,
   getUpiQr,
+  listBatches,
   listCustomersPage,
   listPriceLists,
   listStock,
@@ -87,6 +98,7 @@ import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { isAtomicPosCheckoutEnabled, isPosEnabled } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { NumericField, parseSerialNumbersText, todayIso, useDebouncedValue } from '@/components/billing';
+import { availablePosBatches, expiryForChosenBatch } from '@/pages/pos/posBatchExpiry';
 import { LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -237,6 +249,35 @@ async function fetchPosPreviewGrandTotal(args: {
   return preview.grandTotal;
 }
 
+function HotkeyBadge({ text }: { text: string }) {
+  return (
+    <Box
+      component="span"
+      sx={{
+        ml: 1,
+        px: 0.6,
+        py: 0.1,
+        borderRadius: 0.75,
+        border: '1px solid',
+        borderColor: 'inherit',
+        opacity: 0.8,
+        fontSize: '0.7rem',
+        fontWeight: 700,
+        letterSpacing: 0.5,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        lineHeight: 1,
+      }}
+    >
+      {text}
+    </Box>
+  );
+}
+
+/** Keystroke clock for scanner-burst detection. Module level so the render rules see no impure call. */
+const scanClockMs = () => performance.now();
+
 export function PosPage() {
   useLocale();
   const { user } = useAuth();
@@ -244,8 +285,23 @@ export function PosPage() {
   const companyId = user?.companyId ?? 0;
   const userId = user?.id ?? 0;
   const searchRef = useRef<HTMLInputElement>(null);
+  const scanGaps = useRef<number[]>([]);
+  const scanLast = useRef(0);
+  const scanBuf = useRef('');
+  const customerSelectRef = useRef<HTMLInputElement>(null);
+  const cartRef = useRef<CartLine[]>([]);
+  const heldLineCountRef = useRef(0);
+  const sessionIdsRef = useRef<string[]>(['primary']);
+  const activeSessionIdRef = useRef('primary');
+  const restoreSessionRef = useRef<(snap: PosBillSession) => void>(() => {});
+  const highlightedRef = useRef<Product | null>(null);
+  const [scanListOpen, setScanListOpen] = useState(false);
+  const [nameOnlySale, setNameOnlySale] = useState(false);
+  const [serialsOpen, setSerialsOpen] = useState(false);
+  const [draftWriteFailed, setDraftWriteFailed] = useState(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const pricedRef = useRef(false);
 
-  const POS_ACTIVE_CART_STORAGE_KEY = 'bizboard:pos-active-cart';
   // QOS-0040: remember the till's last-used tender so the common case (a till
   // that is ~all UPI, or ~all cash) does not re-pick it every sale. Emphasis +
   // autofocus move to the remembered button; it stays a one-key change.
@@ -269,33 +325,45 @@ export function PosPage() {
       // quota / private mode — non-fatal
     }
   };
-  const [cart, setCart] = useState<CartLine[]>(() => {
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed)) return parsed;
-        }
-      } catch {
-        // ignore parse error
-      }
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    if (typeof localStorage === 'undefined' || !companyId) return;
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [heldCarts, setHeldCarts] = useState<{ id: string; label: string; cart: CartLine[]; at: number }[]>(() => {
     try {
-      if (cart.length > 0) {
-        localStorage.setItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`, JSON.stringify(cart));
-      } else {
-        localStorage.removeItem(`${POS_ACTIVE_CART_STORAGE_KEY}:${companyId}`);
-      }
+      const raw = sessionStorage.getItem(`bb_pos_holds:${companyId}:${userId}`);
+      const parsed = raw ? JSON.parse(raw) as { id: string; label: string; cart: CartLine[]; at: number }[] : [];
+      const fresh = parsed.filter((row) => Date.now() - row.at < 24 * 60 * 60 * 1000);
+      return fresh;
     } catch {
-      // quota or private mode
+      return [];
     }
-  }, [cart, companyId]);
+  });
+  const rememberHolds = (rows: { id: string; label: string; cart: CartLine[]; at: number }[]) => {
+    setHeldCarts(rows);
+    try {
+      // Per company and user: another login in this tab must not recall these carts.
+      sessionStorage.setItem(`bb_pos_holds:${companyId}:${userId}`, JSON.stringify(rows));
+    } catch {
+      // quota / private mode: the held carts still work for this page view
+    }
+  };
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'F2') {
+        event.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const batchProductIds = useMemo(
+    () => [...new Set(cart.filter((line) => line.product.trackBatch).map((line) => line.product.id))],
+    [cart],
+  );
+  const batchLots = useQuery({
+    queryKey: ['pos-batch-lots', batchProductIds],
+    enabled: batchProductIds.length > 0,
+    queryFn: async () => (await Promise.all(batchProductIds.map((id) => listBatches(id)))).flat(),
+  });
 
   const [productQuery, setProductQuery] = useState('');
   const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
@@ -303,6 +371,7 @@ export function PosPage() {
   const debouncedQuery = useDebouncedValue(productQuery, 250);
   const [customerId, setCustomerId] = useState<number | ''>('');
   const [busy, setBusy] = useState(false);
+  const [confirmClearCartOpen, setConfirmClearCartOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Dedicated credit-limit-exceeded banner (not the generic error toast) —
@@ -340,6 +409,7 @@ export function PosPage() {
   const [walkInConfirmMode, setWalkInConfirmMode] = useState<PaymentMode | null>(null);
   const [walkInName, setWalkInName] = useState('');
   const [saleJustCompleted, setSaleJustCompleted] = useState(false);
+  const lastCompletedSaleRef = useRef<{ id: number; number?: string | null; whatsappOffer?: { phone?: string } } | null>(null);
   const [serialInput, setSerialInput] = useState('');
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [serialBatchError, setSerialBatchError] = useState<{
@@ -443,11 +513,10 @@ export function PosPage() {
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
 
-  useEffect(() => {
-    if (warehouseId) return;
-    const fallback = (warehouses.data ?? []).find((row) => row.isDefault) ?? warehouses.data?.[0];
-    if (fallback) setWarehouseId(fallback.id);
-  }, [warehouseId, warehouses.data]);
+  if (!warehouseId && warehouses.data?.length) {
+    const fallback = warehouses.data.find((row) => row.isDefault) ?? warehouses.data[0];
+    if (fallback && warehouseId !== fallback.id) setWarehouseId(fallback.id);
+  }
   const availableByProduct = useMemo(() => {
     const map = new Map<number, number>();
     for (const s of stockBalances.data ?? []) {
@@ -456,6 +525,21 @@ export function PosPage() {
     }
     return map;
   }, [stockBalances.data]);
+
+  useEffect(() => {
+    if (!stockBalances.data || warehouseId === '') return;
+    setCart((prev) => {
+      let changed = false;
+      const next = prev.map((line) => {
+        if (!line.product.trackBatch || String(line.batchNo ?? '').trim()) return line;
+        const lots = availablePosBatches(stockBalances.data ?? [], line.product.id, warehouseId);
+        if (lots.length !== 1) return line;
+        changed = true;
+        return { ...line, batchNo: lots[0].batchNo };
+      });
+      return changed ? next : prev;
+    });
+  }, [stockBalances.data, warehouseId]);
 
   const posStockBlocked = useMemo(() => {
     if (company.data?.negativeStockPolicy !== 'BLOCK') return false;
@@ -488,18 +572,58 @@ export function PosPage() {
     [activeCustomers],
   );
 
-  useEffect(() => {
-    if (!customerId && walkInCustomer?.id) {
-      setCustomerId(walkInCustomer.id);
-    }
-  }, [walkInCustomer, customerId]);
+  // Not while the cashier chose "name only": that choice is exactly "no saved customer".
+  if (!customerId && !nameOnlySale && walkInCustomer?.id) setCustomerId(walkInCustomer.id);
 
   useEffect(() => {
     void listDrafts(companyId, userId).then((drafts) => {
       setHasOutboxItems(drafts.some((row) => row.kind === 'pos' || row.kind === 'invoice'));
+      const queuedKeys = new Set(drafts.map((row) => row.idempotencyKey).filter(Boolean));
+      const purged = omitQueuedHeldSessions(
+        sessionStore.current,
+        sessionIdsRef.current,
+        activeSessionIdRef.current,
+        queuedKeys,
+      );
+      if (purged.droppedCount > 0) {
+        if (purged.sessionIds.length === 0) {
+          const emptyId = 'primary';
+          const empty: PosBillSession = {
+            id: emptyId,
+            cart: [],
+            customerId: '',
+            warehouseId: '',
+            cashTendered: '',
+            idempotencyKey: null,
+            upiPending: null,
+            cashPending: null,
+            walkInName: '',
+            serverTenderTotal: null,
+            cheque: EMPTY_CHEQUE,
+            invoiceDiscount: 0,
+            additionalCharges: 0,
+          };
+          sessionStore.current = { [emptyId]: empty };
+          setSessionIds([emptyId]);
+          setActiveSessionId(emptyId);
+          restoreSessionRef.current(empty);
+          heldLineCountRef.current = 0;
+        } else {
+          sessionStore.current = purged.sessions;
+          setSessionIds(purged.sessionIds);
+          setActiveSessionId(purged.activeSessionId);
+          const snap = purged.sessions[purged.activeSessionId];
+          if (snap) {
+            restoreSessionRef.current(snap);
+            heldLineCountRef.current = snap.cart.length;
+          }
+        }
+      }
       const draft = [...drafts].reverse().find((row) => row.kind === 'pos');
       if (!draft || navigator.onLine) return;
       if (!draft.lines?.length) return;
+      if (draft.idempotencyKey && purged.droppedKeys.includes(draft.idempotencyKey)) return;
+      if (heldLineCountRef.current > 0) return;
       setIdempotencyKey(draft.idempotencyKey);
       if (draft.customerId) setCustomerId(draft.customerId);
       const pendingName = String(draft.pendingCustomerName || draft.payload?.pendingCustomerName || '').trim();
@@ -629,11 +753,131 @@ export function PosPage() {
     setUpiPending(snap.upiPending);
     setCashPending(snap.cashPending);
     setWalkInName(snap.walkInName);
+    setNameOnlySale(Boolean(snap.walkInName) && snap.customerId === '');
     setServerTenderTotal(snap.serverTenderTotal);
     setCheque(snap.cheque);
     setInvoiceDiscount(snap.invoiceDiscount);
     setAdditionalCharges(snap.additionalCharges);
   }, []);
+  useLayoutEffect(() => {
+    cartRef.current = cart;
+    sessionIdsRef.current = sessionIds;
+    activeSessionIdRef.current = activeSessionId;
+    restoreSessionRef.current = restoreSession;
+  });
+
+  useEffect(() => {
+    if (!companyId || !userId || draftReady) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+    if (cancelled) return;
+    const read = readDraft<{
+      sessions: Record<string, PosBillSession>;
+      activeSessionId: string;
+      sessionIds: string[];
+    }>(companyId, userId, 'pos-sessions');
+    if (read.ok) {
+      sessionStore.current = read.payload.sessions ?? {};
+      const ids = (read.payload.sessionIds?.length ? read.payload.sessionIds : [read.payload.activeSessionId]).filter(Boolean);
+      sessionIdsRef.current = ids;
+      setSessionIds(ids);
+      const snap = read.payload.sessions?.[read.payload.activeSessionId];
+      if (snap) {
+        trackShopFloor('draft_restored', { feature: 'pos' });
+        const activeId = snap.id || read.payload.activeSessionId;
+        activeSessionIdRef.current = activeId;
+        restoreSession(snap);
+        setActiveSessionId(activeId);
+        heldLineCountRef.current = snap.cart?.length ?? 0;
+      } else {
+        heldLineCountRef.current = 0;
+      }
+    } else {
+      try {
+        const rawLegacy = localStorage.getItem(legacyPosCartKey(companyId));
+        if (rawLegacy) {
+          const parsed = JSON.parse(rawLegacy);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            trackShopFloor('draft_restored', { feature: 'pos' });
+            setCart(parsed);
+            heldLineCountRef.current = parsed.length;
+          }
+        }
+      } catch {
+        /* ignore legacy parse error */
+      }
+    }
+    setDraftReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, userId, draftReady, restoreSession]);
+
+  useEffect(() => {
+    if (!draftReady || !companyId || !userId) return;
+    sessionStore.current[activeSessionId] = captureSession();
+    const result = writeDraft(companyId, userId, 'pos-sessions', {
+      sessions: sessionStore.current,
+      activeSessionId,
+      sessionIds,
+    });
+    setDraftWriteFailed(!result.ok);
+  }, [draftReady, companyId, userId, activeSessionId, sessionIds, captureSession]);
+
+  useEffect(() => {
+    if (!draftReady || pricedRef.current) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    const ids = new Set<number>();
+    for (const snap of Object.values(sessionStore.current)) {
+      for (const line of snap.cart ?? []) ids.add(line.product.id);
+    }
+    for (const line of cartRef.current) ids.add(line.product.id);
+    if (ids.size === 0) {
+      pricedRef.current = true;
+      return;
+    }
+    pricedRef.current = true;
+    void (async () => {
+      const fresh = new Map<number, Product>();
+      await Promise.all(
+        [...ids].map(async (id) => {
+          try {
+            fresh.set(id, await getProduct(id));
+          } catch (err) {
+            const status =
+              err && typeof err === 'object' && 'response' in err
+                ? (err as { response?: { status?: number } }).response?.status
+                : undefined;
+            if (status === 404) return;
+            const prior =
+              cartRef.current.find((line) => line.product.id === id)?.product ??
+              Object.values(sessionStore.current)
+                .flatMap((snap) => snap.cart)
+                .find((line) => line.product.id === id)?.product;
+            if (prior) fresh.set(id, prior);
+          }
+        }),
+      );
+      const activeId = activeSessionIdRef.current;
+      let inactiveChanged = false;
+      const nextStore: Record<string, PosBillSession> = { ...sessionStore.current };
+      for (const [id, snap] of Object.entries(sessionStore.current)) {
+        if (id === activeId) continue;
+        const priced = repriceLines(snap.cart, fresh);
+        if (priced.changed) inactiveChanged = true;
+        nextStore[id] = { ...snap, cart: priced.lines };
+      }
+      sessionStore.current = nextStore;
+      setCart((prev) => {
+        const priced = repriceLines(prev, fresh);
+        if (priced.changed || inactiveChanged) {
+          queueMicrotask(() => setMessage(t('pos.pricesUpdated')));
+        }
+        return priced.lines;
+      });
+    })();
+  }, [draftReady]);
 
   const switchSession = useCallback((id: string) => {
     if (id === activeSessionId) return;
@@ -681,30 +925,12 @@ export function PosPage() {
     setActiveSessionId(id);
   }, [activeSessionId, captureSession, restoreSession, warehouseId]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-      if (e.key === 'b' || e.key === 'B') {
-        e.preventDefault();
-        holdAndCreateSession();
-        return;
-      }
-      const n = Number(e.key);
-      if (n >= 1 && n <= 9) {
-        const id = sessionIds[n - 1];
-        if (id) {
-          e.preventDefault();
-          switchSession(id);
-        }
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [holdAndCreateSession, sessionIds, switchSession]);
-
   // CR-091 / CR-106 / CR-108 / CR-109: restore mid-settlement after reload.
   useEffect(() => {
     if (!companyId || !userId) return;
+    let cancelled = false;
+    queueMicrotask(() => {
+    if (cancelled) return;
     const restoredCash = restoreCashPending(companyId, userId);
     if (restoredCash) {
       setCashPending(restoredCash);
@@ -719,18 +945,13 @@ export function PosPage() {
       const recovered = unpaidRecoverFromAbort(restoredUpi);
       if (recovered) setUnpaidRecover(recovered);
     }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [companyId, userId]);
 
   const changeDue = Math.max(0, tenderedAmount - gateTotal);
-
-  // CR-109: restore UPI mid-settlement for this company+user only.
-  useEffect(() => {
-    if (!companyId || !userId) return;
-    const restored = restoreUpiPending(companyId, userId);
-    if (!restored) return;
-    setUpiPending(restored);
-    if (restored.key) setIdempotencyKey(restored.key);
-  }, [companyId, userId]);
 
   useEffect(() => {
     // SR-54 / H-02: count pointer (mouse / touch / pen) presses on the POS page.
@@ -741,12 +962,15 @@ export function PosPage() {
     return () => window.removeEventListener('pointerdown', onPointer);
   }, []);
 
-  useEffect(() => {
+  const tenderResetKey = `${cart.length}:${customerId}:${totals.grandTotal}`;
+  const [seenTenderKey, setSeenTenderKey] = useState(tenderResetKey);
+  if (seenTenderKey !== tenderResetKey) {
+    setSeenTenderKey(tenderResetKey);
     setServerTenderTotal(null);
     setTenderPreviewFailed(false);
-  }, [cart, customerId, totals.grandTotal]);
+  }
 
-  const addProduct = (product: Product | null) => {
+  const addProduct = (product: Product | null, quantity = 1, opts?: { fromScan?: boolean }) => {
     if (!product || product.status !== 'ACTIVE') return;
     if (cashPending || upiPending) {
       setError(t('pos.finishPendingSettlement'));
@@ -770,7 +994,7 @@ export function PosPage() {
           l.key === existing.key
             ? {
                 ...l,
-                quantity: l.quantity + 1,
+                quantity: l.quantity + quantity,
                 serialNumbers: incomingSerials
                   ? [...(l.serialNumbers ?? []), ...incomingSerials]
                   : l.serialNumbers,
@@ -778,26 +1002,52 @@ export function PosPage() {
             : l,
         );
       }
+      const lots = product.trackBatch
+        ? availablePosBatches(stockBalances.data ?? [], product.id, warehouseId)
+        : [];
       return [
         ...prev,
         {
           key: `${product.id}-${Date.now()}`,
           product,
-          quantity: 1,
+          quantity,
           discountPercent: 0,
           unitName: product.unitName || 'PCS',
           serialNumbers: incomingSerials,
+          batchNo: lots.length === 1 ? lots[0].batchNo : undefined,
         },
       ];
     });
     setSerialInput('');
     setProductQuery('');
     setError(null);
-    searchRef.current?.focus();
+    const active = typeof document !== 'undefined' ? document.activeElement : null;
+    const isEditingLine = active && (active.tagName === 'INPUT' || active.tagName === 'SELECT') && active !== searchRef.current;
+    if (opts?.fromScan || !isEditingLine) {
+      searchRef.current?.focus();
+    }
+  };
+
+  const noteScanKey = (key: string) => {
+    const now = scanClockMs();
+    if (scanLast.current) scanGaps.current.push(now - scanLast.current);
+    scanLast.current = now;
+    if (key === 'Enter') {
+      const burst = isScannerBurst(scanGaps.current);
+      const raw = scanBuf.current;
+      scanGaps.current = [];
+      scanBuf.current = '';
+      scanLast.current = 0;
+      return { burst, raw };
+    }
+    if (key.length === 1) scanBuf.current += key;
+    return null;
   };
 
   const tryAddByBarcode = async (raw?: string) => {
-    const q = (raw ?? productQuery).trim();
+    const parsed = parseQtyBarcode((raw ?? productQuery).trim());
+    const q = parsed?.code ?? (raw ?? productQuery).trim();
+    const qty = parsed?.quantity ?? 1;
     if (!q) return;
     let matches: Product[] = [];
     try {
@@ -811,7 +1061,12 @@ export function PosPage() {
       matches.find((p) => (p.barcode ?? '').toLowerCase() === q.toLowerCase()) ??
       matches.find((p) => p.sku.toLowerCase() === q.toLowerCase());
     if (exact) {
-      addProduct(exact);
+      addProduct(exact, qty, { fromScan: true });
+      try {
+        playScanTone('ok');
+      } catch {
+        /* audio blocked */
+      }
       return;
     }
     setError(t('pos.barcodeNotFound', { q }));
@@ -922,6 +1177,7 @@ export function PosPage() {
 
   const finishSale = useCallback(
     async (completed: { id: number; number?: string | null; whatsappOffer?: { phone?: string } }, key?: string) => {
+      lastCompletedSaleRef.current = completed;
       const warn = await printPosThermalOrWarn(completed);
       setThermalWarn(warn);
       if (key) await removeDraft(companyId, userId, key);
@@ -935,6 +1191,7 @@ export function PosPage() {
       setServerTenderTotal(null);
       setMessage(t('pos.saleComplete', { number: completed.number ?? `#${completed.id}` }));
       setSaleJustCompleted(true);
+      searchRef.current?.focus();
       const phone = (
         completed.whatsappOffer?.phone ||
         selectedCustomer.data?.phone ||
@@ -1112,30 +1369,18 @@ export function PosPage() {
           try {
             const atomicRes = await posCheckout(
               {
-                invoice: {
+                confirm_blank_pos: confirmBlankPos,
+                invoice: buildAtomicPosInvoicePayload({
                   customer,
-                  invoice_type: posInvoiceType,
-                  price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-                  invoice_date: invoiceDate,
-                  due_date: invoiceDate,
-                  payment_terms_days: 0,
-                  auto_round_off: true,
-                  warehouse: warehouseId ? Number(warehouseId) : undefined,
-                  invoice_discount: invoiceDiscount || undefined,
-                  additional_charges: additionalCharges || undefined,
-                  items: lines.map((line) => ({
-                    product: line.productId,
-                    description: line.productName,
-                    quantity: line.quantity,
-                    unit_price: line.unitPrice,
-                    unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
-                    gst_rate: taxEnabled ? line.gstRate : 0,
-                    cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
-                    discount_percent: line.discountPercent ?? 0,
-                    unit_name: line.unitName || undefined,
-                    ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
-                  })),
-                },
+                  invoiceType: posInvoiceType,
+                  priceModeInclusive: isInclusive,
+                  invoiceDate,
+                  warehouseId: warehouseId ? Number(warehouseId) : undefined,
+                  taxEnabled,
+                  lines,
+                  invoiceDiscount,
+                  additionalCharges,
+                }),
                 payment: {
                   mode: extras?.paymentMode ?? 'CASH',
                   tendered_amount: tenderedVal,
@@ -1155,7 +1400,7 @@ export function PosPage() {
             );
             trackInvoiceComplete(Date.now() - started, pointerCount.current);
             pointerCount.current = 0;
-            completed = atomicRes.invoice;
+            completed = atomicRes?.invoice ?? atomicRes;
             await finishSale(completed, key);
             return;
           } catch (err) {
@@ -1180,16 +1425,20 @@ export function PosPage() {
         const invoiceDate = todayIso();
         const receiptKey = key ? `${key}-receipt` : undefined;
         const invoiceTotal = toNumber(completed.grandTotal);
+        const collected =
+          extras?.shortCollectAmount != null && extras.shortCollectAmount > 0
+            ? extras.shortCollectAmount
+            : invoiceTotal;
         const tenderedVal = cashTendered ? Number(cashTendered) : 0;
         let receiptNotes = `POS — ${completed.number ?? completed.id}`;
-        if (tenderedVal > invoiceTotal) {
-          const changeVal = (tenderedVal - invoiceTotal).toFixed(2);
+        if (tenderedVal > collected) {
+          const changeVal = (tenderedVal - collected).toFixed(2);
           receiptNotes += ` · Tendered: ₹${tenderedVal.toFixed(2)}, Change: ₹${changeVal}`;
         }
         const receipt = await createReceipt(
           {
             customer,
-            amount: invoiceTotal,
+            amount: collected,
             mode: 'CASH',
             receiptDate: invoiceDate,
             notes: receiptNotes,
@@ -1200,7 +1449,7 @@ export function PosPage() {
           {
             receipt: receipt.id,
             salesInvoice: completed.id,
-            amount: invoiceTotal,
+            amount: collected,
           },
           { idempotencyKey: key ? `${key}-alloc` : undefined },
         );
@@ -1222,7 +1471,7 @@ export function PosPage() {
       additionalCharges,
       cashPending,
       cashTendered,
-      company.data?.priceMode,
+      company.data,
       companyId,
       createCompletedInvoice,
       finishSale,
@@ -1255,6 +1504,8 @@ export function PosPage() {
           upiQr,
           lines,
           confirmBlankPos,
+          invoiceDiscount,
+          additionalCharges,
         };
         setUpiPending(pending);
         persistUpiPending(companyId, userId, pending);
@@ -1265,7 +1516,7 @@ export function PosPage() {
         setBusy(false);
       }
     },
-    [companyId, gateTotal, userId],
+    [additionalCharges, companyId, gateTotal, invoiceDiscount, userId],
   );
 
   const confirmUpiPayment = useCallback(async () => {
@@ -1311,28 +1562,18 @@ export function PosPage() {
         try {
           const atomicRes = await posCheckout(
             {
-              invoice: {
+              confirm_blank_pos: Boolean(upiPending.confirmBlankPos),
+              invoice: buildAtomicPosInvoicePayload({
                 customer: upiPending.customer,
-                invoice_type: posInvoiceType,
-                price_mode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-                invoice_date: invoiceDate,
-                due_date: invoiceDate,
-                payment_terms_days: 0,
-                auto_round_off: true,
-                warehouse: warehouseId ? Number(warehouseId) : undefined,
-                items: checkoutLines.map((line) => ({
-                  product: line.productId,
-                  description: line.productName,
-                  quantity: line.quantity,
-                  unit_price: line.unitPrice,
-                  unit_price_inclusive: isInclusive ? line.unitPrice : undefined,
-                  gst_rate: taxEnabled ? line.gstRate : 0,
-                  cess_rate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
-                  discount_percent: line.discountPercent ?? 0,
-                  unit_name: line.unitName || undefined,
-                  ...(line.serials?.length ? { serial_numbers: line.serials } : {}),
-                })),
-              },
+                invoiceType: posInvoiceType,
+                priceModeInclusive: isInclusive,
+                invoiceDate,
+                warehouseId: warehouseId ? Number(warehouseId) : undefined,
+                taxEnabled,
+                lines: checkoutLines,
+                invoiceDiscount: upiPending.invoiceDiscount ?? invoiceDiscount,
+                additionalCharges: upiPending.additionalCharges ?? additionalCharges,
+              }),
               payment: {
                 mode: 'UPI',
                 amount: upiPending.amount,
@@ -1363,11 +1604,13 @@ export function PosPage() {
       setBusy(false);
     }
   }, [
+    additionalCharges,
     cart,
-    company.data?.priceMode,
+    company.data,
     companyId,
     finishSale,
     handleCheckoutError,
+    invoiceDiscount,
     posInvoiceType,
     taxEnabled,
     unitPriceFor,
@@ -1758,7 +2001,7 @@ export function PosPage() {
       cashPending,
       cashTendered,
       cheque,
-      company.data?.priceMode,
+      company.data,
       companyId,
       customerId,
       gateTotal,
@@ -1820,6 +2063,121 @@ export function PosPage() {
     missingSerial: posMissingSerial,
   });
 
+  // F1-F10 Keyboard-First POS Turbo Engine
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Never steal keys while a confirmation dialog is open
+      if (document.querySelector('[role="dialog"]')) return;
+      // A held key must not re-fire a payment or clear the cart.
+      if (e.repeat) return;
+
+      const el = document.activeElement as HTMLElement | null;
+      const inBatch = el?.getAttribute('data-pos-batch') === '1';
+
+      if (e.key === 'F2') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (inBatch) return;
+
+      if (e.key === 'F1') {
+        e.preventDefault();
+        if (!cashPayDisabled && (cart.length > 0 || cashPending)) {
+          rememberMethod('CASH');
+          void checkout('CASH');
+        }
+        return;
+      }
+      if (e.key === 'F3') {
+        e.preventDefault();
+        customerSelectRef.current?.focus();
+        return;
+      }
+      if (e.key === 'F4') {
+        e.preventDefault();
+        if (!cashPayDisabled && cart.length > 0) {
+          rememberMethod('CARD');
+          void checkout('CARD');
+        }
+        return;
+      }
+      if (e.key === 'F5' || e.key === 'F6') {
+        e.preventDefault();
+        if (!upiPayDisabled && cart.length > 0) {
+          rememberMethod('UPI');
+          void checkout('UPI');
+        }
+        return;
+      }
+      if (e.key === 'F7') {
+        e.preventDefault();
+        if (!cashPayDisabled && cart.length > 0) {
+          rememberMethod('CREDIT');
+          void checkout('CREDIT');
+        }
+        return;
+      }
+      if (e.key === 'F8') {
+        e.preventDefault();
+        holdAndCreateSession();
+        return;
+      }
+      if (e.key === 'F9') {
+        e.preventDefault();
+        if (sessionIds.length > 1) {
+          const idx = sessionIds.indexOf(activeSessionId);
+          const nextId = sessionIds[(idx + 1) % sessionIds.length];
+          switchSession(nextId);
+        }
+        return;
+      }
+      if (e.key === 'F10') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setConfirmClearCartOpen(true);
+        }
+        return;
+      }
+      if (e.key === 'F11' || (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'p')) {
+        if (!lastCompletedSaleRef.current) return;
+        e.preventDefault();
+        void printPosThermalOrWarn(lastCompletedSaleRef.current);
+        return;
+      }
+
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        holdAndCreateSession();
+        return;
+      }
+      const n = Number(e.key);
+      if (n >= 1 && n <= 9) {
+        const id = sessionIds[n - 1];
+        if (id) {
+          e.preventDefault();
+          switchSession(id);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [
+    activeSessionId,
+    cart.length,
+    cashPayDisabled,
+    cashPending,
+    checkout,
+    clearCart,
+    holdAndCreateSession,
+    rememberMethod,
+    sessionIds,
+    switchSession,
+    upiPayDisabled,
+  ]);
+
   if (!posEnabled()) {
     return (
       <PageShell title={t('pos.title')}>
@@ -1838,7 +2196,38 @@ export function PosPage() {
 
   return (
     <PageShell title={t('pos.title')} subtitle={t('pos.subtitle')}>
-      <HonestyBanner messageKey="honesty.posCounter" />
+      <UnsavedChangesGuard
+        when={cart.length > 0}
+        title={t('pos.leaveTitle')}
+        body={t('pos.leaveBody')}
+        leaveLabel={t('pos.discardBill')}
+        onLeave={() => {
+          // Discard the bill on screen only. The other bills opened in this counter session keep
+          // their items; wiping the whole store lost every held bill on one "Discard".
+          setCart([]);
+          const rest = Object.fromEntries(
+            Object.entries(sessionStore.current).filter(([id]) => id !== activeSessionId),
+          );
+          sessionStore.current = rest;
+          if (!companyId || !userId) return;
+          const keep = Object.keys(rest).filter((id) => (rest[id].cart ?? []).length > 0);
+          if (keep.length === 0) {
+            removeDeviceDraft(companyId, userId, 'pos-sessions');
+          } else {
+            const kept = Object.fromEntries(keep.map((id) => [id, rest[id]]));
+            writeDraft(companyId, userId, 'pos-sessions', { sessions: kept, activeSessionId: keep[0], sessionIds: keep });
+          }
+        }}
+      />
+      {offline ? <HonestyBanner messageKey="honesty.posCounter" /> : null}
+      {draftWriteFailed ? (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          {t('pos.draftSaveDisabled')}
+        </Alert>
+      ) : null}
+      <Typography variant="body2" color="text.secondary">
+        {t('billing.threeStarts')}
+      </Typography>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
         <Tabs
           value={activeSessionId}
@@ -1850,7 +2239,7 @@ export function PosPage() {
             <Tab key={id} value={id} label={t('pos.billN', { n: idx + 1 })} />
           ))}
         </Tabs>
-        <Button size="small" variant="outlined" onClick={holdAndCreateSession}>
+        <Button size="small" variant="outlined" endIcon={<HotkeyBadge text="F8" />} onClick={holdAndCreateSession}>
           {t('pos.holdBill')}
         </Button>
       </Stack>
@@ -1947,7 +2336,7 @@ export function PosPage() {
                 }
               }}
             >
-              Retry Print
+              {t('sweep2.retryPrint')}
             </Button>
           }
         >
@@ -2003,72 +2392,45 @@ export function PosPage() {
           {t('pos.leftUnpaid', { number: unpaidRecover.number })}
         </Alert>
       ) : null}
+      <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap">
+        <Button
+          size="small"
+          variant="outlined"
+          // Not while a sale is being paid: the held copy could be recalled and sold a second time.
+          disabled={cart.length === 0 || busy || Boolean(upiPending) || Boolean(cashPending)}
+          onClick={() => {
+            const row = { id: String(Date.now()), label: t('pos.holdCart'), cart, at: Date.now() };
+            rememberHolds([...heldCarts, row]);
+            setCart([]);
+            searchRef.current?.focus();
+          }}
+        >
+          {t('pos.holdCart')}
+        </Button>
+        {heldCarts.map((row) => (
+          <Button
+            key={row.id}
+            size="small"
+            onClick={() => {
+              // Recalling swaps carts: the bill on screen goes back on hold instead of being lost.
+              const rest = heldCarts.filter((item) => item.id !== row.id);
+              rememberHolds(
+                cart.length > 0
+                  ? [...rest, { id: String(Date.now()), label: t('pos.holdCart'), cart, at: Date.now() }]
+                  : rest,
+              );
+              setCart(row.cart);
+              searchRef.current?.focus();
+            }}
+          >
+            {t('pos.recallCart')} {row.cart.length}
+          </Button>
+        ))}
+      </Stack>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ maxWidth: '100%', minWidth: 0 }}>
         <Paper variant="outlined" sx={{ flex: 1, p: { xs: 1.5, sm: 2 }, maxWidth: '100%', minWidth: 0, overflow: 'hidden' }}>
           <Stack spacing={2}>
-            <TextField
-              select
-              label={t('pos.customer')}
-              size="small"
-              value={customerId === '' ? '' : customerId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCustomerId(v === '' ? '' : Number(v));
-                if (v !== '') setWalkInName('');
-              }}
-              fullWidth
-            >
-              <MenuItem value="">
-                <em>{t('pos.selectCustomerPlaceholder')}</em>
-              </MenuItem>
-              {walkInCustomer ? (
-                <MenuItem value={walkInCustomer.id}>{t('pos.walkInNamed', { name: walkInCustomer.name })}</MenuItem>
-              ) : null}
-              {activeCustomers
-                .filter((c) => c.id !== walkInCustomer?.id)
-                .map((c: Customer) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.name}
-                    {c.phone ? ` · ${c.phone}` : ''}
-                  </MenuItem>
-                ))}
-            </TextField>
-            <TextField
-              size="small"
-              label={t('pos.orTypeCustomerName')}
-              value={walkInName}
-              onChange={(e) => setWalkInName(e.target.value)}
-              placeholder={t('pos.cashWalkInPlaceholder')}
-              helperText={t('pos.typedNameHint')}
-              disabled={Boolean(customerId)}
-              fullWidth
-            />
-            <TextField
-              select
-              size="small"
-              label={t('pos.godown')}
-              value={warehouseId === '' ? '' : warehouseId}
-              onChange={(e) => setWarehouseId(e.target.value === '' ? '' : Number(e.target.value))}
-              fullWidth
-            >
-              {(warehouses.data ?? [])
-                .filter((row) => row.isActive !== false)
-                .map((row) => (
-                  <MenuItem key={row.id} value={row.id}>
-                    {row.name}{row.isDefault ? ' (default)' : ''}
-                  </MenuItem>
-                ))}
-            </TextField>
-
-            <TextField
-              size="small"
-              label={t('pos.serials')}
-              value={serialInput}
-              onChange={(e) => setSerialInput(e.target.value)}
-              placeholder={t('erp.serialNumbersHint')}
-              fullWidth
-            />
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
               <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
               <Autocomplete<Product>
@@ -2076,10 +2438,18 @@ export function PosPage() {
                 options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
                 loading={products.isFetching}
                 inputValue={productQuery}
+                open={scanListOpen && productQuery.trim().length > 0}
+                onOpen={() => setScanListOpen(true)}
+                onClose={() => setScanListOpen(false)}
+                onHighlightChange={(_, option) => {
+                  highlightedRef.current = option;
+                }}
                 onInputChange={(_, v, reason) => {
                   if (reason === 'input' || reason === 'clear') setProductQuery(v);
                 }}
-                onChange={(_, v) => addProduct(v)}
+                onChange={(_, v) => {
+                  if (v) addProduct(v);
+                }}
                 getOptionLabel={(o) =>
                   formatProductOptionLabel(o, availableByProduct.get(Number(o.id)))
                 }
@@ -2108,10 +2478,38 @@ export function PosPage() {
                     placeholder={t('pos.scanOrSearch')}
                     autoFocus
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      const scanned = noteScanKey(e.key);
+                      if (e.key !== 'Enter') return;
+                      if (scanned?.burst && scanned.raw) {
                         e.preventDefault();
-                        void tryAddByBarcode();
+                        e.stopPropagation();
+                        void tryAddByBarcode(scanned.raw);
+                        return;
                       }
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const catalog = (products.data ?? []).filter((p) => p.status === 'ACTIVE');
+                      const choice = choosePosEnter({
+                        query: productQuery,
+                        highlighted: highlightedRef.current,
+                        listOpen: scanListOpen,
+                        catalog,
+                        optionsStale: productQuery.trim() !== debouncedQuery.trim(),
+                      });
+                      if (choice.action === 'wait') {
+                        window.setTimeout(() => {
+                          void tryAddByBarcode();
+                        }, 260);
+                        return;
+                      }
+                      if (choice.action === 'add') {
+                        const product =
+                          catalog.find((p) => p.id === choice.productId) ??
+                          (highlightedRef.current?.id === choice.productId ? highlightedRef.current : null);
+                        if (product) addProduct(product);
+                        return;
+                      }
+                      void tryAddByBarcode();
                     }}
                   />
                 )}
@@ -2133,6 +2531,11 @@ export function PosPage() {
                 <QrCodeScannerIcon />
               </IconButton>
             </Box>
+            <Typography variant="caption" color="text.secondary">{t('cog.networkPrint')}</Typography>
+            <Stack direction="row" spacing={1}>
+              <Button size="small" onClick={() => { void readScaleWeight(); }}>{t('cog.readScale')}</Button>
+              <Button size="small" onClick={() => { void printEscPos(DRAWER_KICK); }}>{t('cog.openDrawer')}</Button>
+            </Stack>
 
             <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
               <Table size="small">
@@ -2184,6 +2587,20 @@ export function PosPage() {
                       <TableRow key={line.key}>
                         <TableCell>
                           <Typography variant="body2">{line.product.name}</Typography>
+                          {(() => {
+                            const onHand = availableByProduct.get(line.product.id) ?? 0;
+                            const blocked =
+                              company.data?.negativeStockPolicy === 'BLOCK' && line.quantity > onHand + 1e-9;
+                            return (
+                              <>
+                                {blocked ? (
+                                  <Typography variant="caption" color="error" display="block">
+                                    {t('pos.warehouseQtyBlock', { n: onHand })}
+                                  </Typography>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                           <Typography variant="caption" color="text.secondary">
                             {line.product.sku}
                           </Typography>
@@ -2213,21 +2630,76 @@ export function PosPage() {
                             />
                           ) : null}
                           {line.product.trackBatch ? (
-                            <TextField
-                              size="small"
-                              required
-                              error={!String(line.batchNo ?? '').trim()}
-                              value={line.batchNo ?? ''}
-                              onChange={(e) =>
-                                setCart((prev) =>
-                                  prev.map((row) =>
-                                    row.key === line.key ? { ...row, batchNo: e.target.value } : row,
-                                  ),
-                                )
-                              }
-                              placeholder={t('billing.purchaseBatchPlaceholder')}
-                              sx={{ mt: 0.5 }}
-                            />
+                            <>
+                            {(() => {
+                              const choices = availablePosBatches(
+                                stockBalances.data ?? [],
+                                line.product.id,
+                                warehouseId,
+                              );
+                              const current = String(line.batchNo ?? '').trim();
+                              const match = choices.find(
+                                (lot) => lot.batchNo.toLowerCase() === current.toLowerCase(),
+                              );
+                              const selectValue = match?.batchNo ?? '';
+                              const qtyLabel = (qty: number) =>
+                                Number.isInteger(qty) ? String(qty) : String(Math.round(qty * 1000) / 1000);
+                              return (
+                                <TextField
+                                  select
+                                  size="small"
+                                  required
+                                  error={!selectValue}
+                                  value={selectValue}
+                                  disabled={stockBalances.isLoading || choices.length === 0}
+                                  onChange={(e) =>
+                                    setCart((prev) =>
+                                      prev.map((row) =>
+                                        row.key === line.key ? { ...row, batchNo: e.target.value } : row,
+                                      ),
+                                    )
+                                  }
+                                  helperText={choices.length === 0 && !stockBalances.isLoading ? t('pos.batchNone') : undefined}
+                                  SelectProps={{
+                                    displayEmpty: true,
+                                    SelectDisplayProps: Object.assign({} as HTMLAttributes<HTMLDivElement>, {
+                                      'data-pos-batch': '1',
+                                    }),
+                                  }}
+                                  sx={{ mt: 0.5, minWidth: 200 }}
+                                >
+                                  <MenuItem value="" disabled>
+                                    {t('pos.batchSelect')}
+                                  </MenuItem>
+                                  {choices.map((lot) => (
+                                    <MenuItem key={lot.batchNo} value={lot.batchNo}>
+                                      {lot.expiryDate
+                                        ? t('pos.batchOptionExpiry', {
+                                            batch: lot.batchNo,
+                                            date: lot.expiryDate,
+                                            qty: qtyLabel(lot.available),
+                                          })
+                                        : t('pos.batchOption', {
+                                            batch: lot.batchNo,
+                                            qty: qtyLabel(lot.available),
+                                          })}
+                                    </MenuItem>
+                                  ))}
+                                </TextField>
+                              );
+                            })()}
+                            {(() => {
+                              const expiry = expiryForChosenBatch(
+                                (batchLots.data ?? []).filter((lot) => lot.product === line.product.id),
+                                line.batchNo ?? '',
+                              );
+                              return expiry ? (
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                  {t('pos.expiryTag', { date: expiry })}
+                                </Typography>
+                              ) : null;
+                            })()}
+                            </>
                           ) : null}
                         </TableCell>
                         <TableCell>{line.product.sku || '—'}</TableCell>
@@ -2239,6 +2711,7 @@ export function PosPage() {
                               size="small"
                               onClick={() => updateQty(line.key, line.quantity - 1)}
                               aria-label={t('quickEntry.decrease')}
+                              sx={{ minWidth: { xs: 48, sm: 40 }, minHeight: { xs: 48, sm: 40 } }}
                             >
                               <RemoveIcon fontSize="small" />
                             </IconButton>
@@ -2248,13 +2721,27 @@ export function PosPage() {
                               min={1}
                               emptyAs={1}
                               fullWidth={false}
-                              inputProps={{ 'aria-label': t('pos.qty') }}
+                              inputProps={{ 'aria-label': t('pos.qty'), 'data-pos-qty': '1' }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  searchRef.current?.focus();
+                                  return;
+                                }
+                                const scanned = noteScanKey(e.key);
+                                if (scanned?.burst && scanned.raw) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  void tryAddByBarcode(scanned.raw);
+                                }
+                              }}
                               sx={{ width: 56 }}
                             />
                             <IconButton
                               size="small"
                               onClick={() => updateQty(line.key, line.quantity + 1)}
                               aria-label={t('quickEntry.increase')}
+                              sx={{ minWidth: { xs: 48, sm: 40 }, minHeight: { xs: 48, sm: 40 } }}
                             >
                               <AddIcon fontSize="small" />
                             </IconButton>
@@ -2294,13 +2781,14 @@ export function PosPage() {
                             min={0}
                             emptyAs={0}
                             fullWidth={false}
+                            inputProps={{ 'aria-label': t('pos.lineDiscount') }}
                             sx={{ width: 64 }}
                           />
                         </TableCell>
                         <TableCell align="right">{formatMoney(unitPrice)}</TableCell>
                         <TableCell align="right">{formatMoney(tax.lineTotal)}</TableCell>
                         <TableCell>
-                          <IconButton size="small" onClick={() => updateQty(line.key, 0)} aria-label={t('common.remove')}>
+                          <IconButton size="small" onClick={() => updateQty(line.key, 0)} aria-label={t('common.remove')} sx={{ minWidth: { xs: 48, sm: 40 }, minHeight: { xs: 48, sm: 40 } }}>
                             <DeleteIcon fontSize="small" />
                           </IconButton>
                         </TableCell>
@@ -2311,6 +2799,88 @@ export function PosPage() {
               </TableBody>
             </Table>
             </TableContainer>
+            <TextField
+              select
+              inputRef={customerSelectRef}
+              label={t('pos.customer')}
+              size="small"
+              value={customerId === '' ? '' : customerId}
+              onChange={(e) => {
+                const v = e.target.value;
+                setCustomerId(v === '' ? '' : Number(v));
+                if (v !== '') {
+                  setWalkInName('');
+                  setNameOnlySale(false);
+                }
+              }}
+              fullWidth
+            >
+              <MenuItem value="">
+                <em>{t('pos.selectCustomerPlaceholder')}</em>
+              </MenuItem>
+              {walkInCustomer ? (
+                <MenuItem value={walkInCustomer.id}>{t('pos.walkInNamed', { name: walkInCustomer.name })}</MenuItem>
+              ) : null}
+              {activeCustomers
+                .filter((c) => c.id !== walkInCustomer?.id)
+                .map((c: Customer) => (
+                  <MenuItem key={c.id} value={c.id}>
+                    {c.name}
+                    {c.phone ? ` · ${c.phone}` : ''}
+                  </MenuItem>
+                ))}
+            </TextField>
+            {nameOnlySale ? (
+              <TextField
+                size="small"
+                label={t('pos.orTypeCustomerName')}
+                value={walkInName}
+                onChange={(e) => setWalkInName(e.target.value)}
+                placeholder={t('pos.cashWalkInPlaceholder')}
+                helperText={t('pos.typedNameHint')}
+                fullWidth
+              />
+            ) : (
+              <Button
+                size="small"
+                onClick={() => {
+                  setNameOnlySale(true);
+                  setCustomerId('');
+                }}
+              >
+                {t('pos.nameOnlySale')}
+              </Button>
+            )}
+            <TextField
+              select
+              size="small"
+              label={t('pos.godown')}
+              value={warehouseId === '' ? '' : warehouseId}
+              onChange={(e) => setWarehouseId(e.target.value === '' ? '' : Number(e.target.value))}
+              fullWidth
+            >
+              {(warehouses.data ?? [])
+                .filter((row) => row.isActive !== false)
+                .map((row) => (
+                  <MenuItem key={row.id} value={row.id}>
+                    {row.name}{row.isDefault ? ' (default)' : ''}
+                  </MenuItem>
+                ))}
+            </TextField>
+            {serialsOpen || cart.some((line) => line.product.trackSerial) ? (
+              <TextField
+                size="small"
+                label={t('pos.serials')}
+                value={serialInput}
+                onChange={(e) => setSerialInput(e.target.value)}
+                placeholder={t('erp.serialNumbersHint')}
+                fullWidth
+              />
+            ) : (
+              <Button size="small" onClick={() => setSerialsOpen(true)}>
+                {t('pos.serials')}
+              </Button>
+            )}
           </Stack>
         </Paper>
 
@@ -2353,7 +2923,9 @@ export function PosPage() {
             ) : null}
             <Stack direction="row" justifyContent="space-between">
               <Typography variant="h6">{t('pos.total')}</Typography>
-              <Typography variant="h6">{formatMoney(gateTotal)}</Typography>
+              <Typography variant="h6" aria-live="polite">
+                {formatMoney(gateTotal)}
+              </Typography>
             </Stack>
             <NumericField
               label={t('pos.billDiscount')}
@@ -2445,7 +3017,11 @@ export function PosPage() {
               {t('pos.splitPay', { cash: formatMoney(splitCash || 0), upi: formatMoney(Math.max(0, gateTotal - (splitCash || 0))) })}
             </Button>
             <Divider />
-            {cashPayReason ? <Alert severity="warning">{cashPayReason}</Alert> : null}
+            {cashPayReason ? (
+              <Alert id="pos-tender-blocker" severity="warning">
+                {cashPayReason}
+              </Alert>
+            ) : null}
             <Tooltip title={cashPayDisabled ? cashPayReason || '' : ''}>
               <span>
             <Button
@@ -2453,6 +3029,9 @@ export function PosPage() {
               autoFocus={lastMethod === 'CASH'}
               size="large"
               disabled={cashPayDisabled}
+              aria-describedby={cashPayDisabled && cashPayReason ? 'pos-tender-blocker' : undefined}
+              sx={{ minHeight: { xs: 48, sm: 42 } }}
+              endIcon={<HotkeyBadge text="F1" />}
               onClick={() => {
                 rememberMethod('CASH');
                 void checkout('CASH');
@@ -2471,6 +3050,9 @@ export function PosPage() {
               autoFocus={lastMethod === 'UPI'}
               size="large"
               disabled={upiPayDisabled}
+              aria-describedby={upiPayDisabled && upiPayReason ? 'pos-tender-blocker' : undefined}
+              sx={{ minHeight: { xs: 48, sm: 42 } }}
+              endIcon={<HotkeyBadge text="F5" />}
               onClick={() => {
                 rememberMethod('UPI');
                 void checkout('UPI');
@@ -2487,6 +3069,13 @@ export function PosPage() {
                 variant={lastMethod === mode ? 'contained' : 'outlined'}
                 size="large"
                 disabled={cashPayDisabled}
+                endIcon={
+                  mode === 'CARD' ? (
+                    <HotkeyBadge text="F4" />
+                  ) : mode === 'CREDIT' ? (
+                    <HotkeyBadge text="F7" />
+                  ) : undefined
+                }
                 onClick={() => {
                   rememberMethod(mode);
                   void checkout(mode);
@@ -2505,7 +3094,10 @@ export function PosPage() {
               variant="text"
               color="inherit"
               disabled={busy || isFlushing || (cart.length === 0 && !upiPending && !cashPending)}
-              onClick={clearCart}
+              endIcon={<HotkeyBadge text="F10" />}
+              onClick={() => {
+                if (cart.length > 0) setConfirmClearCartOpen(true);
+              }}
             >
               {t('pos.clearCart')}
             </Button>
@@ -2635,6 +3227,18 @@ export function PosPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmClearCartOpen}
+        title={t('pos.confirmClearCartTitle')}
+        body={t('pos.confirmClearCartBody')}
+        confirmLabel={t('pos.confirmClearCartAction')}
+        confirmColor="error"
+        onClose={() => setConfirmClearCartOpen(false)}
+        onConfirm={() => {
+          setConfirmClearCartOpen(false);
+          clearCart();
+        }}
+      />
       <Dialog
         open={Boolean(walkInConfirmMode)}
         onClose={() => setWalkInConfirmMode(null)}

@@ -57,9 +57,18 @@ describe('DemandForecastPage', () => {
     renderPage();
 
     await waitFor(() => {
-      expect(screen.getByRole('table')).toBeInTheDocument();
+      expect(screen.getByText('No posted sales in the last 90 days.')).toBeInTheDocument();
     });
 
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
     expect(screen.queryByText('50kg Wheat Flour')).not.toBeInTheDocument();
+  });
+
+  it('shows an error and hides the table when the forecast fails', async () => {
+    getDemandForecast.mockRejectedValueOnce(new Error('offline'));
+    renderPage();
+    expect(await screen.findByText('offline')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
   });
 });

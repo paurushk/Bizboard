@@ -30,7 +30,7 @@ import { useCfFilters } from '@/hooks/useCfFilters';
 import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
 import { isItemCustomFieldsV2Enabled } from '@/config/features';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import type { StockBalance } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
@@ -54,22 +54,23 @@ function earlierDate(a?: string | null, b?: string | null): string | null {
 }
 
 export function CurrentStockPage() {
+  const locale = useLocale();
   const { user } = useAuth();
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const customDefs = useVisibleCustomFieldDefs();
   const { value: cfFilters, onChange: setCfFilters } = useCfFilters();
   const columns = useMemo<ColumnSpec[]>(
     () => [
-      { id: 'name', label: 'Name', group: 'standard', removable: false },
-      { id: 'sku', label: 'SKU', group: 'standard' },
-      { id: 'warehouse', label: 'Godown', group: 'standard' },
-      { id: 'expiry', label: 'Nearest expiry', group: 'standard' },
-      { id: 'onHand', label: 'On Hand', group: 'standard' },
-      { id: 'reserved', label: 'Reserved', group: 'standard' },
-      { id: 'available', label: 'Available', group: 'standard' },
+      { id: 'name', label: t('common.name'), group: 'standard', removable: false },
+      { id: 'sku', label: t('common.sku'), group: 'standard' },
+      { id: 'warehouse', label: t('items.godown'), group: 'standard' },
+      { id: 'expiry', label: t('items.nearestExpiry'), group: 'standard' },
+      { id: 'onHand', label: t('items.onHand'), group: 'standard' },
+      { id: 'reserved', label: t('products.reserved'), group: 'standard' },
+      { id: 'available', label: t('items.available'), group: 'standard' },
       ...customDefs.map((def) => ({ id: `cf:${def.key}`, label: def.label, group: 'custom' as const })),
     ],
-    [customDefs],
+    [customDefs, locale],
   );
   const prefs = useColumnPrefs('stock', columns, user?.companyId, user?.id);
   const query = useQuery({
@@ -305,22 +306,24 @@ export function CurrentStockPage() {
                         <TableCell key={def.key}>{def.label}</TableCell>
                       ))}
                       {prefs.isVisible('warehouse') ? <TableCell>{t('nav.warehouses')}</TableCell> : null}
-                      {prefs.isVisible('expiry') ? <TableCell>Nearest expiry</TableCell> : null}
-                      {prefs.isVisible('onHand') ? <TableCell align="right">On Hand</TableCell> : null}
+                      {prefs.isVisible('expiry') ? <TableCell>{t('items.nearestExpiry')}</TableCell> : null}
+                      {prefs.isVisible('onHand') ? <TableCell align="right">{t('items.onHand')}</TableCell> : null}
                       {prefs.isVisible('reserved') ? (
                         <TableCell align="right">
-                          Reserved{' '}
+                          {t('products.reserved')}{' '}
                           <Tooltip title={t('billing.reservedStockHint')}>
-                            <InfoOutlinedIcon
-                              fontSize="inherit"
+                            <span
+                              role="img"
                               aria-label={t('billing.reservedStockHint')}
                               tabIndex={0}
-                              sx={{ verticalAlign: 'middle', cursor: 'help' }}
-                            />
+                              style={{ verticalAlign: 'middle', cursor: 'help', display: 'inline-flex' }}
+                            >
+                              <InfoOutlinedIcon fontSize="inherit" />
+                            </span>
                           </Tooltip>
                         </TableCell>
                       ) : null}
-                      {prefs.isVisible('available') ? <TableCell align="right">Available</TableCell> : null}
+                      {prefs.isVisible('available') ? <TableCell align="right">{t('items.available')}</TableCell> : null}
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -357,6 +360,7 @@ export function CurrentStockPage() {
                                   </Button>
                                 ) : null}{' '}
                                 {s.productName}
+                                {s.rackCode ? ` · ${t('products.rack')} ${s.rackCode}` : ''}
                               </TableCell>
                             ) : null}
                             {prefs.isVisible('sku') ? <TableCell>{s.sku}</TableCell> : null}

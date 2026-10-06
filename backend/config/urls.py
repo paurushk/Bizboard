@@ -47,6 +47,7 @@ api_v1_patterns = [
     path("banking/", include("banking.urls")),
     path("billing/", include("billing.urls")),
     path("", include("core.urls")),
+    path("", include("planwave.urls")),
 ] + payments_public_urlpatterns
 
 if settings.ENABLE_API_DOCS:

@@ -43,6 +43,8 @@ def test_j_job_p9_repair_converts_once_then_posts_stock(tenant_a):
         {"kind": "PART", "product": labour.id, "quantity": "1", "unit_price": "100"},
         format="json",
     ).status_code == 400
+    # a part line holds its stock (BUG-WRK-002), so the part must be on the shelf first
+    add_stock(tenant_a, part, "5")
     assert tenant_a.client.post(
         f"/api/v1/workshop/job-cards/{job_id}/lines/",
         {"kind": "PART", "product": part.id, "quantity": "1", "unit_price": "100"},
@@ -60,7 +62,6 @@ def test_j_job_p9_repair_converts_once_then_posts_stock(tenant_a):
     again = tenant_a.client.post(f"/api/v1/workshop/job-cards/{job_id}/convert/")
     assert again.data["sales_invoice"] == invoice_id
     assert StockMovement.objects.filter(company=tenant_a.company).count() == before
-    add_stock(tenant_a, part, "5")
     SalesService.complete(SalesInvoice.objects.get(pk=invoice_id), tenant_a.owner)
     assert StockMovement.objects.filter(company=tenant_a.company, product=part, quantity__lt=0).exists()
     assert tenant_a.client.post(f"/api/v1/workshop/job-cards/{job_id}/cancel/").status_code == 400

@@ -12,7 +12,14 @@ from rest_framework.views import APIView
 
 from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
-from core.idempotency import begin_record, release_record, store_record, wrap_idempotent
+from core.idempotency import (
+    begin_record,
+    release_record,
+    request_fingerprint,
+    require_idempotency_key,
+    store_record,
+    wrap_idempotent,
+)
 from core.permissions import (
     CanCancelDocuments,
     CanCreatePayments,
@@ -146,9 +153,12 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
 
     def create(self, request, *args, **kwargs):
         """BB-000610 / BB-000654: durable idempotency + period gate."""
-        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        raw_key = require_idempotency_key(request)
         if raw_key:
-            claimed = begin_record(company=self.company, scope="receipt_create", raw_key=raw_key)
+            claimed = begin_record(
+                company=self.company, scope="receipt_create", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
+            )
             if isinstance(claimed, Response):
                 return claimed
 
@@ -215,10 +225,18 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"], url_path="set-cheque-status")
     def set_cheque_status(self, request, pk=None):
+        bank_charge = None
+        if any(key in request.data for key in ("bank_charge", "bankCharge", "dishonour_fee")):
+            bank_charge = request.data.get("bank_charge")
+            if bank_charge is None:
+                bank_charge = request.data.get("bankCharge")
+            if bank_charge is None:
+                bank_charge = request.data.get("dishonour_fee")
         receipt = PaymentService.set_cheque_status(
             receipt=self.get_object(),
             cheque_status=request.data.get("cheque_status") or request.data.get("chequeStatus") or "",
             user=request.user,
+            bank_charge=bank_charge,
         )
         self._audit("CHEQUE_STATUS", receipt)
         return Response(self.get_serializer(receipt).data)
@@ -255,7 +273,10 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
     def create(self, request, *args, **kwargs):
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         if raw_key:
-            claimed = begin_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)
+            claimed = begin_record(
+                company=self.company, scope="supplier_payment_create", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
+            )
             if isinstance(claimed, Response):
                 return claimed
 
@@ -284,6 +305,10 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
                 cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
                 cheque_date=serializer.validated_data.get("cheque_date"),
                 cheque_image=serializer.validated_data.get("cheque_image"),
+                gstin_hold_override=str(request.data.get("gstin_hold_override") or "").lower() in (
+                    "true", "1", "yes",
+                ),
+                gstin_hold_reason=str(request.data.get("gstin_hold_reason") or ""),
             )
         except Exception:
             if raw_key:
@@ -364,9 +389,12 @@ class PaymentAllocationViewSet(
         # B4-006: honour Idempotency-Key like the receipt / supplier-payment
         # creates do, and translate the partial-unique IntegrityError on a
         # duplicate (receipt, invoice) into a clean 4xx instead of a 500.
-        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        raw_key = require_idempotency_key(request)
         if raw_key:
-            claimed = begin_record(company=self.company, scope="allocation_create", raw_key=raw_key)
+            claimed = begin_record(
+                company=self.company, scope="allocation_create", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
+            )
             if isinstance(claimed, Response):
                 return claimed
 
@@ -452,7 +480,8 @@ class PaymentAllocationViewSet(
         raw_key = request.headers.get("Idempotency-Key") or request.headers.get("X-Idempotency-Key")
         if raw_key:
             record_or_response = begin_record(
-                company=self.company, scope="allocation_unallocate", raw_key=raw_key
+                company=self.company, scope="allocation_unallocate", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
             )
             if isinstance(record_or_response, Response):
                 return record_or_response
@@ -609,7 +638,10 @@ class GatewayPaymentViewSet(CompanyScopedViewSet):
         # provider idempotency key and books entry, refunding/unwinding twice.
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()
         if raw_key:
-            claimed = begin_record(company=self.company, scope="gateway_payment_refund", raw_key=raw_key)
+            claimed = begin_record(
+                company=self.company, scope="gateway_payment_refund", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
+            )
             if isinstance(claimed, Response):
                 return claimed
         gp = self.get_object()

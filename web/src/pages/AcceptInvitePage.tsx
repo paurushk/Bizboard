@@ -38,6 +38,13 @@ export function AcceptInvitePage() {
         detail?: string;
       }>(data);
       localStorage.setItem('bb_role_welcome', '1');
+      const record = body as { mfaRequired?: boolean; mfa_required?: boolean };
+      if (record.mfaRequired || record.mfa_required) {
+        const qs = new URLSearchParams({ invited: '1' });
+        if (body.email) qs.set('email', body.email);
+        navigate(`/login?${qs.toString()}`, { replace: true });
+        return;
+      }
       if (body.access) {
         setAccessToken(body.access);
         const user = body.user ?? (await fetchCurrentUser());
@@ -59,7 +66,7 @@ export function AcceptInvitePage() {
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2 }}>
       <Paper sx={{ p: 3, width: '100%', maxWidth: 420 }}>
         <Stack spacing={2}>
-          <Typography variant="h5">{t('invite.title')}</Typography>
+          <Typography variant="h5" component="h1">{t('invite.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
             {t('invite.description')}
           </Typography>

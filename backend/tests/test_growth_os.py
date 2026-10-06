@@ -32,7 +32,7 @@ from .conftest import create_draft_invoice, make_customer, make_product
 
 
 def _flags(company, **extra):
-    company.feature_flags = {
+    flags = {
         "ENABLE_COMPLAINTS": True,
         "ENABLE_SUPPORT_TICKETS": True,
         "ENABLE_CONTRACTS": True,
@@ -40,6 +40,11 @@ def _flags(company, **extra):
         "ENABLE_REFERRALS": True,
         **extra,
     }
+    if flags.get("ENABLE_CRM") is True and "pack_grant" not in flags:
+        flags["pack_grant"] = "insurance"
+    if flags.get("ENABLE_MANUFACTURING") is True:
+        flags["manufacturing_pack_grant"] = True
+    company.feature_flags = flags
     company.save(update_fields=["feature_flags"])
 
 
@@ -78,8 +83,9 @@ def test_campaign_funnel_sums_converted_quotations_and_ignores_bad_public_campai
     )
     resp = tenant_a.client.get(f"/api/v1/crm/campaigns/{campaign.id}/funnel/")
     assert resp.status_code == 200
-    assert Decimal(resp.data["revenue"]) == Decimal("65")
-    assert Decimal(resp.data["rollup"]["revenue"]) == Decimal("75")
+    assert Decimal(resp.data["revenue"]) == Decimal("0")
+    assert resp.data["rows"][0]["revenue_source"] == "no_completed_invoice"
+    assert Decimal(resp.data["rollup"]["revenue"]) == Decimal("0")
     assert resp.data["roi_ratio"] is not None
     bare = Campaign.objects.create(
         company=company, name="Empty", campaign_type=Campaign.Type.DIGITAL, budget=0, created_by=tenant_a.owner,
@@ -153,6 +159,7 @@ def test_complaint_transitions_and_return_requires_invoice(tenant_a):
     )
     assert illegal.status_code == 400
     tenant_a.client.post(f"/api/v1/complaints/{complaint_id}/transition/", {"status": "INSPECTING"}, format="json")
+    tenant_a.client.post(f"/api/v1/complaints/{complaint_id}/transition/", {"status": "APPROVED"}, format="json")
     missing = tenant_a.client.post(
         f"/api/v1/complaints/{complaint_id}/create-return/", {"items": []}, format="json",
     )
@@ -175,7 +182,6 @@ def test_complaint_transitions_and_return_requires_invoice(tenant_a):
     )
     assert again.status_code == 200
     assert again.data["id"] == made.data["id"]
-    tenant_a.client.post(f"/api/v1/complaints/{complaint_id}/transition/", {"status": "APPROVED"}, format="json")
     blocked = tenant_a.client.post(
         f"/api/v1/complaints/{complaint_id}/transition/", {"status": "RESOLVED"}, format="json",
     )
@@ -274,7 +280,8 @@ def test_referral_reward_snapshot_and_owner_approval(tenant_a):
     customer = make_customer(tenant_a.company)
     issued = tenant_a.client.post(
         "/api/v1/crm/referrals/codes/issue/",
-        {"referrer_customer": customer.id, "reward_type": "PERCENT", "reward_value": "10"},
+        # FLAT: a PERCENT reward is paid on invoiced revenue (BUG-CRM-002), not on the deal amount
+        {"referrer_customer": customer.id, "reward_type": "FLAT", "reward_value": "25"},
         format="json",
     )
     assert issued.status_code == 201, issued.data
@@ -333,6 +340,11 @@ def test_next_number_retries_a_lost_insert_race(tenant_a, monkeypatch):
     assert calls["n"] == 2
 
 
+# Two threads each open their OWN connection, so the company row must be committed for them to see
+# it. Without transaction=True the fixture data sits in an uncommitted test transaction and both
+# threads fail with a foreign-key error ("Could not allocate a number"); on SQLite the test skips,
+# so the mistake only showed up on Postgres.
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.postgres
 def test_concurrent_next_number_allocates_two_values(tenant_a):
     if connection.vendor != "postgresql":
@@ -375,9 +387,22 @@ def test_campaign_rollup_stops_at_depth_five(tenant_a):
         lead = capture_lead(
             tenant_a.company, tenant_a.owner, name=f"L{index}", phone=f"910000000{index}", campaign=row.id,
         )
-        Opportunity.objects.create(
+        opportunity = Opportunity.objects.create(
             company=tenant_a.company, lead=lead, customer=customer, title=f"D{index}",
             amount=Decimal("1"), stage=Opportunity.Stage.WON, created_by=tenant_a.owner,
+        )
+        # Revenue is a completed invoice's taxable value, not the opportunity amount.
+        invoice = SalesInvoice.objects.create(
+            company=tenant_a.company, customer=customer, invoice_type="NON_GST",
+            created_by=tenant_a.owner, updated_by=tenant_a.owner,
+        )
+        SalesInvoice.objects.filter(pk=invoice.pk).update(
+            status=SalesInvoice.Status.COMPLETED, taxable_total=Decimal("1"),
+        )
+        Quotation.objects.create(
+            company=tenant_a.company, customer=customer, opportunity=opportunity,
+            status=Quotation.Status.CONVERTED, converted_invoice_id=invoice.pk,
+            created_by=tenant_a.owner,
         )
     funnel = tenant_a.client.get(f"/api/v1/crm/campaigns/{root.id}/funnel/")
     assert Decimal(funnel.data["revenue"]) == Decimal("1")
@@ -533,6 +558,7 @@ def test_complaint_credit_note_replacement_isolation_and_flag(tenant_a, tenant_b
         f"/api/v1/complaints/{complaint_id}/", {"source_invoice": invoice["id"]}, format="json",
     )
     source_item = invoice["items"][0]["id"]
+    tenant_a.client.post(f"/api/v1/complaints/{complaint_id}/transition/", {"status": "APPROVED"}, format="json")
     credit_items = [{"product": product.id, "quantity": "1", "unit_price": "10", "source_item": source_item}]
     order_items = [{"product": product.id, "quantity": "1", "unit_price": "10"}]
     credit = tenant_a.client.post(
@@ -653,10 +679,10 @@ def test_contract_service_event_and_idempotent_refresh(tenant_a, caplog):
     Contract.objects.filter(pk=created.data["id"]).update(
         status=Contract.Status.ACTIVE, end_date=today - timedelta(days=1),
     )
-    assert refresh_contract_statuses() >= 1
+    assert refresh_contract_statuses()["changed"] >= 1
     contract = Contract.objects.get(pk=created.data["id"])
     assert contract.status == Contract.Status.EXPIRED
-    assert refresh_contract_statuses() == 0
+    assert refresh_contract_statuses()["changed"] == 0
     assert AuditEvent.objects.filter(
         company=tenant_a.company, action="contract_status_refreshed", entity_id=str(contract.pk),
     ).count() == 1
@@ -828,13 +854,13 @@ def test_refresh_contract_statuses_does_not_n_plus_one_on_company(tenant_a):
 
     _desynced_contract("CON-92000")
     with CaptureQueriesContext(connection) as one_ctx:
-        changed_one = refresh_contract_statuses()
+        changed_one = refresh_contract_statuses()["changed"]
     assert changed_one == 1
 
     for index in range(5):
         _desynced_contract(f"CON-9300{index}")
     with CaptureQueriesContext(connection) as five_ctx:
-        changed_five = refresh_contract_statuses()
+        changed_five = refresh_contract_statuses()["changed"]
     assert changed_five == 5
 
     # If contract.company triggered a fresh SELECT per changed row (the N+1
@@ -937,3 +963,80 @@ def test_opportunity_competitor_is_stored_and_ignored_by_forecast(tenant_a):
     forecast = tenant_a.client.get("/api/v1/crm/opportunities/forecast/")
     assert forecast.status_code == 200
     assert Decimal(str(forecast.data["unscheduled"])) == 0
+
+
+def test_fmea2_004_campaign_roi_taxable_net(tenant_a, tenant_b):
+    from accounting.models import JournalEntry
+    from sales.models import SalesCreditNote
+
+    from .conftest import add_stock
+
+    _flags(tenant_a.company)
+    company = tenant_a.company
+    campaign = Campaign.objects.create(
+        company=company, name="ROI", campaign_type=Campaign.Type.DIGITAL, budget=Decimal("10"),
+        created_by=tenant_a.owner,
+    )
+    customer = make_customer(company)
+    lead = capture_lead(company, tenant_a.owner, name="Roi", phone="9876500001", campaign=campaign.id)
+    won = Opportunity.objects.create(
+        company=company, lead=lead, customer=customer, title="Won", amount=Decimal("999"),
+        stage=Opportunity.Stage.WON, created_by=tenant_a.owner,
+    )
+    product = make_product(company, sku="FMEA2-004", gst_rate="18", selling_price="100")
+    add_stock(tenant_a, product, "5")
+    inv = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100.00", "gst_rate": "18"}],
+    )
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert done.status_code == 200, done.data
+    taxable = Decimal(done.data["taxable_total"])
+    assert taxable != Decimal(done.data["grand_total"])
+    voided = create_draft_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "50.00", "gst_rate": "18"}],
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{voided['id']}/complete/").status_code == 200
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{voided['id']}/cancel/").status_code == 200
+    Quotation.objects.create(
+        company=company, customer=customer, opportunity=won, grand_total=Decimal("40"),
+        status=Quotation.Status.CONVERTED, converted_invoice_id=inv["id"], created_by=tenant_a.owner,
+    )
+    Quotation.objects.create(
+        company=company, customer=customer, opportunity=won, grand_total=Decimal("999"),
+        status=Quotation.Status.CONVERTED, converted_invoice_id=voided["id"], created_by=tenant_a.owner,
+    )
+    cn = tenant_a.client.post(
+        "/api/v1/sales/credit-notes/",
+        {
+            "customer": customer.id,
+            "sales_invoice": inv["id"],
+            "reason": "CORRECTION_OF_INVOICE",
+            "items": [{"product": product.id, "quantity": "1", "unit_price": "40", "gst_rate": "18"}],
+        },
+        format="json",
+    )
+    assert cn.status_code == 201, cn.data
+    finished = tenant_a.client.post(
+        f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/",
+        {"confirm_price_override": True},
+        format="json",
+    )
+    assert finished.status_code == 200, finished.data
+    credit_taxable = Decimal(finished.data["taxable_total"])
+    resp = tenant_a.client.get(f"/api/v1/crm/campaigns/{campaign.id}/funnel/")
+    assert resp.status_code == 200, resp.data
+    assert Decimal(resp.data["revenue"]) == taxable - credit_taxable
+    assert resp.data["rows"][0]["revenue_source"] == "completed_invoice_taxable_net"
+    assert not JournalEntry.objects.filter(company=company, source_type="CAMPAIGN").exists()
+    assert SalesCreditNote.objects.filter(company=tenant_b.company).count() == 0
+    open_lead = capture_lead(company, tenant_a.owner, name="Open", phone="9876500002", campaign=campaign.id)
+    Opportunity.objects.create(
+        company=company, lead=open_lead, customer=customer, title="Open", amount=Decimal("500"),
+        stage=Opportunity.Stage.WON, created_by=tenant_a.owner,
+    )
+    again = tenant_a.client.get(f"/api/v1/crm/campaigns/{campaign.id}/funnel/")
+    sources = {row["revenue_source"] for row in again.data["rows"]}
+    assert "no_completed_invoice" in sources
+    assert Decimal(again.data["revenue"]) == taxable - credit_taxable

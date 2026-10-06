@@ -19,12 +19,14 @@ import {
   postAssistantMessage,
 } from '@/api/resources';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
+import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { isHelpV2Enabled } from '@/config/features';
 import { isAllowedShareUrl, safeAppPath } from '@/utils/safeUrl';
 
 export function InsightsAssistantPage() {
+  const consentOn = useAiConsentOn();
   const qc = useQueryClient();
   const [threadId, setThreadId] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
@@ -35,6 +37,7 @@ export function InsightsAssistantPage() {
   const threads = useQuery({
     queryKey: ['insights-threads'],
     queryFn: listAssistantThreads,
+    enabled: consentOn,
   });
 
   const activeId = threadId ?? threads.data?.[0]?.id ?? null;
@@ -42,7 +45,7 @@ export function InsightsAssistantPage() {
   const thread = useQuery({
     queryKey: ['insights-thread', activeId],
     queryFn: () => getAssistantThread(activeId!),
-    enabled: activeId != null,
+    enabled: consentOn && activeId != null,
   });
 
   const createThread = useMutation({
@@ -103,6 +106,8 @@ export function InsightsAssistantPage() {
   const WHY_RE = /\b(why|explain|kyu|kyun|kaise)\b/i;
   const helpWhyHint = isHelpV2Enabled() && WHY_RE.test(draft);
 
+  if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsAssistant')} />;
+
   return (
     <Stack spacing={2}>
       <PageHeader
@@ -119,7 +124,7 @@ export function InsightsAssistantPage() {
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
         <Paper variant="outlined" sx={{ p: 1.5, width: { md: 220 }, flexShrink: 0 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
-            Threads
+            {t('sweep2.threads')}
           </Typography>
           {threads.isLoading ? <LoadingState /> : null}
           <Stack spacing={0.5}>
@@ -139,7 +144,7 @@ export function InsightsAssistantPage() {
 
         <Paper variant="outlined" sx={{ p: 2, flex: 1, minHeight: 360 }}>
           {!activeId ? (
-            <Typography color="text.secondary">Start a new chat to begin.</Typography>
+            <Typography color="text.secondary">{t('sweep2.startNewChat')}</Typography>
           ) : thread.isLoading ? (
             <LoadingState />
           ) : thread.isError ? (
@@ -175,7 +180,7 @@ export function InsightsAssistantPage() {
                   </Stack>
                   {m.proposedAction && typeof m.proposedAction === 'object' && 'text' in m.proposedAction ? (
                     <Paper variant="outlined" sx={{ p: 1, mt: 1, bgcolor: 'grey.50' }}>
-                      <Typography variant="caption">Proposed reminder (not sent)</Typography>
+                      <Typography variant="caption">{t('sweep2.proposedReminder')}</Typography>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                         {String((m.proposedAction as { text?: string }).text ?? '')}
                       </Typography>
@@ -213,7 +218,7 @@ export function InsightsAssistantPage() {
                         <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
                           {t('common.whatsapp')}:{' '}
                           <Link href={actionByMsg[m.id].shareLink} target="_blank" rel="noopener noreferrer">
-                            Share link
+                            {t('sweep2.shareLink')}
                           </Link>
                         </Typography>
                       ) : null}
@@ -226,7 +231,7 @@ export function InsightsAssistantPage() {
                     <Typography variant="caption" component="div" sx={{ mt: 1 }}>
                       {t('common.whatsapp')}:{' '}
                       <Link href={actionByMsg[m.id].shareLink!} target="_blank" rel="noopener noreferrer">
-                        Share link
+                        {t('sweep2.shareLink')}
                       </Link>
                     </Typography>
                   ) : null}

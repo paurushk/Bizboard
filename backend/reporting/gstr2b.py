@@ -8,6 +8,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from django.db.models import Q, Sum
+from django.utils import timezone
 
 from reporting.models import Gstr2bIngest
 from purchases.status_semantics import OPEN_PAYABLE_STATUSES
@@ -48,6 +49,11 @@ def _invoice_still_matches_2b(row, inv) -> bool:
     row_gstin = (getattr(row, "supplier_gstin", None) or "").strip().upper()
     if row_gstin and inv_gstin != row_gstin:
         return False
+    row_no = (getattr(row, "invoice_number", None) or "").strip()
+    bill_no = (getattr(inv, "supplier_bill_number", None) or "").strip()
+    book_no = bill_no or (getattr(inv, "number", None) or "").strip()
+    if row_no and book_no.lower() != row_no.lower():
+        return False
     if row.invoice_date and inv.invoice_date:
         if abs((inv.invoice_date - row.invoice_date).days) > 3:
             return False
@@ -77,13 +83,19 @@ def match_gstr2b_to_purchases(company, period: str, *, persist: bool = True) -> 
         ):
             matched += 1
             continue
+        portal_number = (row.invoice_number or "").strip()
         qs = PurchaseInvoice.objects.filter(
             company=company,
             status__in=OPEN_PAYABLE_STATUSES,
             supplier__gstin__iexact=row.supplier_gstin,
-            number__iexact=row.invoice_number,
             is_opening_balance=False,
+        ).filter(
+            Q(supplier_bill_number__iexact=portal_number)
+            | Q(supplier_bill_number="", number__iexact=portal_number)
         )
+        if not portal_number:
+            # A blank portal number would match every bill that also has a blank supplier number.
+            qs = qs.none()
         candidates = list(qs)
         if not candidates:
             if persist and row.match_status == Gstr2bIngest.MatchStatus.MATCHED:
@@ -167,6 +179,16 @@ def claimable_itc_from_2b(company, period: str, *, company_gstin_id=None) -> dic
         purchase_invoice__is_opening_balance=True,
     ).exclude(
         purchase_invoice__is_reverse_charge=True,
+    )
+    # Section 16(4): a row past 30 November drops out of Table 4(A) unless an
+    # override reason is stored on the ingest row.
+    as_of = timezone.localdate()
+    qs = qs.exclude(
+        Q(section_16_4_deadline__lt=as_of)
+        & (
+            Q(raw__section_16_4_override__isnull=True)
+            | Q(raw__section_16_4_override="")
+        )
     )
     if company_gstin_id is not None:
         from accounts.models import CompanyGstin

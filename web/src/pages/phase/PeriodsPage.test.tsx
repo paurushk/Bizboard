@@ -25,10 +25,12 @@ vi.mock('@/api/resources', () => ({
   }],
   getAccountingReport: async (report: string) => {
     if (report === 'trial-balance') return { totalDebit: '100.00', totalCredit: '100.00', balanced: true };
+    if (report === 'books-health') return { ar: { gl: '350.00' }, alerts: [] };
     return { income: '40.00' };
   },
   createAccountingPeriod: vi.fn(),
   closeAccountingPeriod: vi.fn(),
+  closeAccountingAndGstPeriod: vi.fn(),
   softCloseAccountingPeriod: vi.fn(),
   softCloseGstPeriod: vi.fn(),
   closeFinancialYear: vi.fn(),
@@ -53,8 +55,9 @@ describe('PeriodsPage close control', () => {
   it('lets an owner read the books and close the period', async () => {
     auth.role = 'OWNER';
     wrap(<PeriodsPage />);
-    expect(await screen.findByText(/Debit and credit match/)).toBeTruthy();
-    expect(screen.getByRole('button', { name: /^Close$/ })).toBeTruthy();
+    expect(await screen.findByText(/Debit and credit match/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Close period' })).toBeTruthy();
+    expect(screen.getByText(/Accounts receivable control/)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Soft-close' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Close FY' })).toBeTruthy();
   });
@@ -62,9 +65,9 @@ describe('PeriodsPage close control', () => {
   it('lets a report reader see the books and hides close', async () => {
     auth.role = 'ACCOUNTANT';
     wrap(<PeriodsPage />);
-    expect(await screen.findByText(/Debit and credit match/)).toBeTruthy();
-    expect(await screen.findByText(/Ravi/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /^Close$/ })).toBeNull();
+    expect(await screen.findByText(/Debit and credit match/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByText(/Accounts receivable control/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Close period' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Soft-close' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Close FY' })).toBeNull();
   });

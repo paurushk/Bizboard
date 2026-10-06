@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
@@ -29,6 +30,7 @@ import {
   getCustomer,
   getProduct,
   getSalesOrder,
+  listStock,
   updateSalesOrder,
 } from '@/api/resources';
 import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
@@ -72,8 +74,8 @@ export function SalesOrderEditorPage() {
   const [loaded, setLoaded] = useState(false);
   // F2-038: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/convert/cancel — those aren't "discarding" anything.
-  const skipLeaveGuard = useRef(false);
-  const prefillDone = useRef(false);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
+  const [prefillDone, setPrefillDone] = useState(false);
   const [gate, setGate] = useState<GateCheck | null>(null);
   const [overrideReason, setOverrideReason] = useState('');
   const { user } = useAuth();
@@ -95,10 +97,12 @@ export function SalesOrderEditorPage() {
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const employees = useQuery({ queryKey: ['employees-mini'], queryFn: async () => (await listEmployeesPage({ pageSize: 100 })).results });
-  useEffect(() => {
-    if (isEdit || invoiceTypeTouched || !company.data) return;
+  // New orders default to the company's usual invoice type until the user picks one.
+  const [seenCompanyForType, setSeenCompanyForType] = useState<typeof company.data>(undefined);
+  if (!isEdit && !invoiceTypeTouched && company.data && company.data !== seenCompanyForType) {
+    setSeenCompanyForType(company.data);
     setInvoiceType(preferredInvoiceType(company.data.registrationType));
-  }, [company.data, isEdit, invoiceTypeTouched]);
+  }
   // F2-025: server-searched customer picker (was listCustomers() pulling every
   // row into the Autocomplete) — selectedCustomerQuery keeps the already-set
   // party resolved even when it falls outside the current search results.
@@ -108,6 +112,12 @@ export function SalesOrderEditorPage() {
     enabled: Boolean(customerId),
   });
   const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
+  const lineProductIds = lines.map((line) => line.product).filter((id) => id > 0).slice(0, 250);
+  const lineStock = useQuery({
+    queryKey: ['sales-order-stock', lineProductIds],
+    queryFn: () => listStock({ productIds: lineProductIds }),
+    enabled: lineProductIds.length > 0 && (typeof navigator === 'undefined' || navigator.onLine),
+  });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const existing = useQuery({
@@ -124,49 +134,52 @@ export function SalesOrderEditorPage() {
     selectedCustomer?.gstin || selectedCustomer?.state,
   );
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoaded(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
+
+  // Prefill from ?customer= / ?product= once the company has loaded. The state changes happen here;
+  // the one product lookup it may need runs in the effect below.
+  const customerParam = Number(searchParams.get('customer') || '');
+  const productParam = Number(searchParams.get('product') || '');
+  const wantsCustomer = Number.isFinite(customerParam) && customerParam > 0;
+  const wantsProduct = Number.isFinite(productParam) && productParam > 0;
+  if (!isEdit && !prefillDone && company.data) {
+    if (!wantsCustomer && !wantsProduct) {
+      setPrefillDone(true);
+    } else if (wantsCustomer && customerId !== customerParam) {
+      setCustomerId(customerParam);
+    } else if (!(wantsCustomer && !selectedCustomer) && (!wantsProduct || lines.length > 0)) {
+      setPrefillDone(true);
+    }
+  }
 
   useEffect(() => {
-    if (isEdit || prefillDone.current || !company.data) return;
-    const customerParam = Number(searchParams.get('customer') || '');
-    const productParam = Number(searchParams.get('product') || '');
-    const wantsCustomer = Number.isFinite(customerParam) && customerParam > 0;
-    const wantsProduct = Number.isFinite(productParam) && productParam > 0;
-    if (!wantsCustomer && !wantsProduct) {
-      prefillDone.current = true;
-      return;
-    }
-    if (wantsCustomer && customerId !== customerParam) {
-      setCustomerId(customerParam);
-      return;
-    }
-    if (wantsCustomer && !selectedCustomer) return;
-    if (!wantsProduct || lines.length > 0) {
-      prefillDone.current = true;
-      return;
-    }
+    if (isEdit || prefillDone || !company.data || !wantsProduct || lines.length > 0) return;
+    if (wantsCustomer && (customerId !== customerParam || !selectedCustomer)) return;
     let cancelled = false;
     void getProduct(productParam).then((product) => {
-      if (cancelled || prefillDone.current) return;
+      if (cancelled) return;
       const intra = isIntraState(
         company.data?.gstin || company.data?.state,
         selectedCustomer?.gstin || selectedCustomer?.state,
       );
       setLines([makeLine(product, intra, 1, 'sellingPrice')]);
-      prefillDone.current = true;
+      setPrefillDone(true);
     }).catch(() => {
-      prefillDone.current = true;
+      if (!cancelled) setPrefillDone(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [isEdit, company.data, searchParams, customerId, selectedCustomer, lines.length]);
+  }, [isEdit, prefillDone, company.data, wantsCustomer, wantsProduct, customerParam, productParam, customerId, selectedCustomer, lines.length]);
 
-  useEffect(() => {
-    if (!existing.data || loaded) return;
+  // Hydrate the form from the saved order once. Not re-run on intraState (see the re-tax block below),
+  // which would clobber in-progress edits.
+  if (existing.data && !loaded) {
     const o = existing.data;
     setEditingStatus(o.status);
     setCustomerId(o.customer);
@@ -217,20 +230,20 @@ export function SalesOrderEditorPage() {
       }),
     );
     setLoaded(true);
-    // F2-040: intentionally NOT keyed on intraState — see the effect below,
-    // which re-derives tax once intraState is known/changes instead of
-    // re-running this whole hydration (which would clobber in-progress edits).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing.data, loaded]);
+  }
 
   // F2-040: on first hydration, the selected customer (and so intraState) may
   // not have resolved yet, so the mapping above computed zero tax for every line.
   // Also covers switching the customer after lines are already on the order —
   // nothing else re-taxes existing lines when intraState changes.
-  useEffect(() => {
-    if (!loaded) return;
-    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
-  }, [intraState, loaded]);
+  const retaxKey = loaded ? String(intraState) : null;
+  const [seenRetaxKey, setSeenRetaxKey] = useState<string | null>(null);
+  if (seenRetaxKey !== retaxKey) {
+    setSeenRetaxKey(retaxKey);
+    if (retaxKey !== null) {
+      setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+    }
+  }
 
   const lineTaxes = useMemo(
     () =>
@@ -305,7 +318,7 @@ export function SalesOrderEditorPage() {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
       if (!isEdit) {
-        skipLeaveGuard.current = true;
+        flushSync(() => setSkipLeaveGuard(true));
         void navigate(`/sales/orders/${order.id}`, { replace: true });
       } else {
         setEditingStatus(order.status);
@@ -336,7 +349,7 @@ export function SalesOrderEditorPage() {
       void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
       void qc.invalidateQueries({ queryKey: ['stock-balance'] });
       void qc.invalidateQueries({ queryKey: ['products'] });
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate('/sales/history');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -348,7 +361,7 @@ export function SalesOrderEditorPage() {
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
       void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
       void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate(`/sales/delivery-challans/${challan.id}`);
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -361,7 +374,7 @@ export function SalesOrderEditorPage() {
       void qc.invalidateQueries({ queryKey: ['sales-order', editId] });
       void qc.invalidateQueries({ queryKey: ['stock-balance'] });
       void qc.invalidateQueries({ queryKey: ['products'] });
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate('/sales/orders');
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -490,7 +503,7 @@ export function SalesOrderEditorPage() {
           </Button>
         </DialogActions>
       </Dialog>
-      <UnsavedChangesGuard when={!skipLeaveGuard.current && (lines.length > 0 || Boolean(customerId))} />
+      <UnsavedChangesGuard when={!skipLeaveGuard && (lines.length > 0 || Boolean(customerId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={customerSearch.options}
@@ -513,6 +526,31 @@ export function SalesOrderEditorPage() {
             />
           )}
         />
+        {selectedCustomer ? (
+          <Typography variant="body2" color="text.secondary">
+            {t('cog.owe', {
+              amount: selectedCustomer.outstanding != null ? formatMoney(selectedCustomer.outstanding) : t('cog.unknownFigure'),
+            })}
+            {' · '}
+            {t('cog.creditLeft', {
+              amount:
+                selectedCustomer.outstanding != null && selectedCustomer.creditLimit != null && toNumber(selectedCustomer.creditLimit) > 0
+                  ? formatMoney(Math.max(0, toNumber(selectedCustomer.creditLimit) - toNumber(selectedCustomer.outstanding)))
+                  : t('cog.unknownFigure'),
+            })}
+            {lines[0] ? (
+              <>
+                {' · '}
+                {t('cog.stockInGodown', {
+                  qty:
+                    lineStock.isError || lineStock.data == null
+                      ? t('cog.unknownFigure')
+                      : String(lineStock.data.find((row) => row.product === lines[0].product)?.available ?? t('cog.unknownFigure')),
+                })}
+              </>
+            ) : null}
+          </Typography>
+        ) : null}
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <TextField
             select
@@ -526,7 +564,7 @@ export function SalesOrderEditorPage() {
             sx={{ minWidth: 140 }}
           >
             {company.data?.registrationType === 'REGULAR' ? <MenuItem value="GST">GST</MenuItem> : null}
-            <MenuItem value="NON_GST">Non-GST</MenuItem>
+            <MenuItem value="NON_GST">{t('sweep2.nonGst')}</MenuItem>
           </TextField>
           <TextField type="date" label={t('common.date')} value={orderDate} onChange={(e) => setOrderDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
           <TextField type="date" label={t('phase1.expectedDelivery')} value={expectedDelivery} onChange={(e) => setExpectedDelivery(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
@@ -571,7 +609,7 @@ export function SalesOrderEditorPage() {
         <TextField label={t('billing.addNotes')} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} multiline minRows={2} fullWidth />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -675,7 +713,7 @@ export function SalesOrderEditorPage() {
                   </TableCell>
                   {!readOnly ? (
                     <TableCell align="right">
-                      <IconButton size="small" onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
+                      <IconButton size="small" aria-label={t('common.delete')} onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))} sx={{ minWidth: 44, minHeight: 44 }}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>

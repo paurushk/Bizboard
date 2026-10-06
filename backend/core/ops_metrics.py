@@ -1,12 +1,17 @@
 """Process-local + infra gauges for GET /metrics (O-Gate 1).
 
-HTTP counters are per-process (gunicorn workers scrape independently).
+HTTP counters are per-process (gunicorn workers scrape independently), so a
+scrape reaches ONE worker. The latency histogram therefore carries a ``pid``
+label: aggregate with ``sum without (pid) (...)`` and query ``histogram_quantile``
+over a window long enough to hit every worker. (True cross-process aggregation
+needs prometheus_client multiprocess mode; not adopted yet.)
 Queue / health / DLQ gauges are read from Redis/DB with the same ~15s cache
 as HealthView.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 
 _lock = threading.Lock()
@@ -15,6 +20,10 @@ _HTTP_5XX = 0
 _DURATION_MS_SUM = 0
 _DURATION_COUNT = 0
 _CELERY_FAILURES = 0
+# Upper bounds (ms) of the request-latency histogram. The perf SLOs (500 ms dashboard,
+# 800 ms Complete, 2 s list) and the 8 s gate each sit on or between bucket edges.
+LATENCY_BUCKETS_MS = (50, 100, 250, 500, 800, 1000, 2000, 5000, 8000, 30000)
+_BUCKET_COUNTS = [0] * (len(LATENCY_BUCKETS_MS) + 1)  # last slot = +Inf
 
 
 def bump_request_count() -> None:
@@ -29,9 +38,12 @@ def get_request_count() -> int:
 
 def record_http_result(*, status: int, duration_ms: int) -> None:
     global _HTTP_5XX, _DURATION_MS_SUM, _DURATION_COUNT
+    d = max(0, int(duration_ms))
+    slot = next((i for i, le in enumerate(LATENCY_BUCKETS_MS) if d <= le), len(LATENCY_BUCKETS_MS))
     with _lock:
-        _DURATION_MS_SUM += max(0, int(duration_ms))
+        _DURATION_MS_SUM += d
         _DURATION_COUNT += 1
+        _BUCKET_COUNTS[slot] += 1
         if int(status) >= 500:
             _HTTP_5XX += 1
 
@@ -94,6 +106,26 @@ def _gauge_snapshot() -> dict:
     }
 
 
+def _histogram_lines() -> list[str]:
+    pid = os.getpid()
+    with _lock:
+        counts = list(_BUCKET_COUNTS)
+        total = _DURATION_COUNT
+        dsum = _DURATION_MS_SUM
+    lines = [
+        "# HELP bizboard_http_latency_ms Request latency histogram in milliseconds (this process).",
+        "# TYPE bizboard_http_latency_ms histogram",
+    ]
+    running = 0
+    for le, c in zip(LATENCY_BUCKETS_MS, counts):
+        running += c
+        lines.append(f'bizboard_http_latency_ms_bucket{{le="{le}",pid="{pid}"}} {running}')
+    lines.append(f'bizboard_http_latency_ms_bucket{{le="+Inf",pid="{pid}"}} {total}')
+    lines.append(f'bizboard_http_latency_ms_sum{{pid="{pid}"}} {dsum}')
+    lines.append(f'bizboard_http_latency_ms_count{{pid="{pid}"}} {total}')
+    return lines
+
+
 def render_prometheus() -> str:
     gauges = _gauge_snapshot()
     lines = [
@@ -133,6 +165,7 @@ def render_prometheus() -> str:
         "# HELP bizboard_health_beat 1 if the celery-beat heartbeat is fresh.",
         "# TYPE bizboard_health_beat gauge",
         f"bizboard_health_beat {gauges['health_beat']}",
+        *_histogram_lines(),
         "",
     ]
     return "\n".join(lines)

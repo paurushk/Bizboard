@@ -22,7 +22,8 @@ def _tenant_tables() -> set[str]:
             field = model._meta.get_field("company")
         except Exception:  # noqa: BLE001
             continue
-        if getattr(field, "many_to_one", False):
+        # A one-to-one company key is a tenant table too (AccountBalanceRollup was missed).
+        if getattr(field, "many_to_one", False) or getattr(field, "one_to_one", False):
             out.add(model._meta.db_table)
     return out
 

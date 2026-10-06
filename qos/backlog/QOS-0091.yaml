@@ -23,7 +23,7 @@ recommendation: Owner or manager only. Second call returns the note on the rewar
 test_required: One note, PostgreSQL race, sales staff 403, self-referral still rejected.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_referral_paid_drafts_one_credit_note
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

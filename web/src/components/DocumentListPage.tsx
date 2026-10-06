@@ -104,7 +104,7 @@ export function DocumentListPage({
       {error ? <ErrorState message={getErrorMessage(error)} error={error} onRetry={onRetry} /> : null}
       {!loading && !error && rows?.length === 0 ? <EmptyState /> : null}
       {rows && rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

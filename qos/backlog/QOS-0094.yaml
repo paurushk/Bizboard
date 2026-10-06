@@ -23,7 +23,7 @@ recommendation: IsOwner. Idempotent on the contract. sales must not import contr
 test_required: One schedule, PostgreSQL race, non-owner 403, ast walk of sales/ finds no contracts import.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_contract_schedule_is_idempotent_and_sales_does_not_import_contracts
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

@@ -32,6 +32,9 @@ def _enable(company, *keys):
     flags = dict(company.feature_flags or {})
     for key in keys:
         flags[key] = True
+    # Bare ENABLE_CRM JSON no longer grants CRM; the insurance pack is the grant.
+    if "ENABLE_CRM" in keys:
+        flags.setdefault("pack_grant", "insurance")
     company.feature_flags = flags
     company.save(update_fields=["feature_flags"])
 

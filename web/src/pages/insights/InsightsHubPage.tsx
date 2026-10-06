@@ -10,6 +10,7 @@ import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { generateDailySummary, getDailySummary, listBusinessAlerts, listGrowthHints } from '@/api/resources';
 import { HonestyBanner } from '@/components/HonestyBanner';
+import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import {
   DisclaimerBanner,
   KpiStat,
@@ -17,13 +18,15 @@ import {
   SeverityChip,
 } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 
 export function InsightsHubPage() {
+  useLocale();
+  const consentOn = useAiConsentOn();
   const qc = useQueryClient();
-  const summary = useQuery({ queryKey: ['insights-summary'], queryFn: () => getDailySummary() });
-  const alerts = useQuery({ queryKey: ['insights-alerts'], queryFn: () => listBusinessAlerts() });
-  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: () => listGrowthHints() });
+  const summary = useQuery({ queryKey: ['insights-summary'], queryFn: () => getDailySummary(), enabled: consentOn });
+  const alerts = useQuery({ queryKey: ['insights-alerts'], queryFn: () => listBusinessAlerts(), enabled: consentOn });
+  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: () => listGrowthHints(), enabled: consentOn });
   const refresh = useMutation({
     mutationFn: () => generateDailySummary(),
     onSuccess: () => {
@@ -32,6 +35,7 @@ export function InsightsHubPage() {
     },
   });
 
+  if (!consentOn) return <AiConsentOffScreen title={t('nav.insights')} />;
   if (summary.isLoading) return <LoadingState />;
   if (summary.isError) {
     return <ErrorState message={getErrorMessage(summary.error)} error={summary.error} onRetry={() => void summary.refetch()} />;
@@ -67,6 +71,9 @@ export function InsightsHubPage() {
         <Button component={RouterLink} to="/insights/assistant" size="small">
           {t('nav.insightsAssistant')}
         </Button>
+        <Button component={RouterLink} to="/attention" size="small">
+          {t('nav.attention')}
+        </Button>
       </Stack>
 
       <Stack
@@ -76,10 +83,10 @@ export function InsightsHubPage() {
         flexWrap="wrap"
         sx={{ '& > *': { flex: '1 1 160px', minWidth: 160, maxWidth: 280 } }}
       >
-        <KpiStat label="Sales today" value={kpis.salesTodayTotal ?? kpis.sales_today_total} money dense />
-        <KpiStat label="Sales MTD" value={kpis.salesMtdTotal ?? kpis.sales_mtd_total} money dense />
-        <KpiStat label="Receivables" value={kpis.receivables} money dense />
-        <KpiStat label="Payables" value={kpis.payables} money dense />
+        <KpiStat label={t('insights.salesToday')} value={kpis.salesTodayTotal ?? kpis.sales_today_total} money dense />
+        <KpiStat label={t('insights.salesMtd')} value={kpis.salesMtdTotal ?? kpis.sales_mtd_total} money dense />
+        <KpiStat label={t('insights.receivables')} value={kpis.receivables} money dense />
+        <KpiStat label={t('insights.payables')} value={kpis.payables} money dense />
         <KpiStat label={t('insights.openAlerts')} value={kpis.openAlerts ?? kpis.open_alerts ?? 0} dense />
       </Stack>
 
@@ -103,7 +110,7 @@ export function InsightsHubPage() {
                 </Typography>
                 {a.ctaPath ? (
                   <Button component={RouterLink} to={a.ctaPath} size="small">
-                    Open
+                    {t('sweep2.open')}
                   </Button>
                 ) : null}
               </Stack>

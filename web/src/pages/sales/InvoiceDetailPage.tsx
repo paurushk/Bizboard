@@ -8,6 +8,8 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import Divider from '@mui/material/Divider';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -48,19 +50,22 @@ import {
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
+import { RecordInvoicePaymentDialog } from '@/components/RecordInvoicePaymentDialog';
 import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
+import { primaryPostedAction } from '@/cognitive/loadHelpers';
 import { safePaymentHref } from '@/utils/safeUrl';
 import { DetailSkeleton, EmptyState, ErrorState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
 import { StatusChip } from '@/components/StatusChip';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney, toNumber } from '@/utils/money';
 import {
   canCancelDocuments,
+  canCreatePayments,
   canCreateSales,
   canManagePaymentPromises,
   canOverrideGstGuard,
@@ -77,6 +82,7 @@ function defaultPromiseDate(): string {
 }
 
 export function InvoiceDetailPage() {
+  useLocale();
   const { user } = useAuth();
   const { id } = useParams();
   const location = useLocation();
@@ -85,6 +91,8 @@ export function InvoiceDetailPage() {
   const invoiceIdValid = Number.isFinite(invoiceId) && invoiceId > 0;
   const qc = useQueryClient();
   const [shareOpen, setShareOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
   const [amendGstin, setAmendGstin] = useState('');
   const [amendPos, setAmendPos] = useState('');
@@ -105,11 +113,13 @@ export function InvoiceDetailPage() {
     { code: string; message: string }[] | null
   >(null);
   const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
+  const belowCostReason = useRef('');
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [promiseDate, setPromiseDate] = useState(() => defaultPromiseDate());
   const [promiseNote, setPromiseNote] = useState('');
   const [promiseAmount, setPromiseAmount] = useState('');
-  const cancelBtnRef = useRef<HTMLButtonElement>(null);
+  const cancelBtnRef = useRef<HTMLLIElement>(null);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const helpCancel = searchParams.get('helpAction') === 'cancel';
 
   const captureError = (err: unknown) => {
@@ -153,21 +163,28 @@ export function InvoiceDetailPage() {
     enabled: invoiceIdValid && showAudit && Boolean(query.data?.invoiceDate),
   });
 
-  useEffect(() => {
-    if (!query.data) return;
+  // Copy the loaded invoice into the editable transport and filing fields each time it refreshes.
+  const [seenInvoice, setSeenInvoice] = useState<typeof query.data>(undefined);
+  if (query.data && query.data !== seenInvoice) {
+    setSeenInvoice(query.data);
     setVehicleNumber(query.data.vehicleNumber ?? '');
     setTransporterName(query.data.transporterName ?? '');
     setTransporterId(query.data.transporterId ?? '');
     setTransportDistanceKm(String(query.data.transportDistanceKm ?? ''));
     setAmendGstin(query.data.filingPartyGstin ?? '');
     setAmendPos(query.data.filingPlaceOfSupply ?? '');
-  }, [query.data]);
+  }
 
   useEffect(() => {
-    if (!helpCancel) return;
+    if (!helpCancel || query.data?.status !== 'COMPLETED') return;
+    if (moreBtnRef.current) setMoreAnchor(moreBtnRef.current);
+  }, [helpCancel, query.data?.status]);
+
+  useEffect(() => {
+    if (!helpCancel || !moreAnchor) return;
     cancelBtnRef.current?.focus();
     cancelBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, [helpCancel, query.data?.status]);
+  }, [helpCancel, moreAnchor]);
 
   const completeMutation = useMutation({
     // F2-035: completeWithConfirms loops over known confirm codes in any
@@ -175,11 +192,16 @@ export function InvoiceDetailPage() {
     // place_of_supply_unresolved -> GSTIN_TOTAL_CHANGED in that exact order.
     mutationFn: (overrideReason?: string) =>
       completeWithConfirms((extra) =>
-        completeSalesInvoice(invoiceId, { ...extra, gstGuardOverrideReason: overrideReason }),
+        completeSalesInvoice(invoiceId, {
+          ...extra,
+          gstGuardOverrideReason: overrideReason,
+          belowCostOverrideReason: belowCostReason.current || undefined,
+        }),
       ),
     onSuccess: (data) => {
       const warns = (data?.warnings ?? []).filter(Boolean).join(' ');
       setMessage(warns ? `${t('billing.invoiceCompleted')} ${warns}` : t('billing.invoiceCompleted'));
+      belowCostReason.current = '';
       setGstGuardIssues(null);
       setGstGuardOverrideReason('');
       setGstGuardWarnings(data?.gstGuardWarnings?.length ? data.gstGuardWarnings : null);
@@ -191,6 +213,15 @@ export function InvoiceDetailPage() {
       void qc.invalidateQueries({ queryKey: ['stock-balance'] });
     },
     onError: (err) => {
+      if (getErrorCode(err) === 'below_cost' && user?.role === 'OWNER') {
+        // An owner may sell under cost with a reason. The reason is kept on the bill's audit trail.
+        const reason = window.prompt(t('billing.belowCostPrompt'), '');
+        if (reason?.trim()) {
+          belowCostReason.current = reason.trim();
+          completeMutation.mutate(undefined);
+          return;
+        }
+      }
       if (getErrorCode(err) === 'gst_guard_blocked') {
         const data = (err as { response?: { data?: Record<string, unknown> } })?.response?.data;
         const nested = data?.error as { details?: { blocking?: unknown } } | undefined;
@@ -407,7 +438,7 @@ export function InvoiceDetailPage() {
         setErrorSource(err);
       }
     },
-    [invoiceId, query.data?.number],
+    [invoiceId, query.data],
   );
 
   const handlePrint = useCallback(async () => {
@@ -548,25 +579,21 @@ export function InvoiceDetailPage() {
         }}
       >
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {canEditInvoiceLines(inv) ? (
-            <Button
-              component={RouterLink}
-              to={`/sales/history/${inv.id}/edit`}
-              variant="outlined"
-            >
-              {t('common.edit')}
-            </Button>
+          {primaryPostedAction({
+            status: inv.status,
+            balance: toNumber(inv.balance),
+            canPay: canCreatePayments(user),
+          }) === 'pay' ? (
+            <Button variant="contained" onClick={() => setPayOpen(true)}>{t('history.recordPayment')}</Button>
           ) : null}
-          {inv.status === 'COMPLETED' && hasLiveIrn(inv) ? (
-            <Button
-              variant="outlined"
-              disabled
-              aria-label={t('common.edit')}
-              title={t('einvoice.editDisabledLiveIrn')}
-            >
-              {t('common.edit')}
-            </Button>
+          {primaryPostedAction({
+            status: inv.status,
+            balance: toNumber(inv.balance),
+            canPay: canCreatePayments(user),
+          }) === 'share' && inv.status === 'COMPLETED' ? (
+            <Button variant="contained" onClick={() => setShareOpen(true)}>{t('common.share')}</Button>
           ) : null}
+          <Button ref={moreBtnRef} variant="outlined" onClick={(e) => setMoreAnchor(e.currentTarget)}>{t('cog.moreActions')}</Button>
           {inv.status === 'DRAFT' && canCreateSales(user) ? (
             <Button
               variant="contained"
@@ -576,43 +603,48 @@ export function InvoiceDetailPage() {
               {t('common.complete')}
             </Button>
           ) : null}
-          {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (
+          {inv.status === 'COMPLETED' && hasLiveIrn(inv) ? (
+            // Shown, not tucked away: the reason Edit is off is the point of this button.
             <Button
-              ref={cancelBtnRef}
-              id="invoice-cancel"
-              color="error"
-              variant={helpCancel ? 'contained' : 'outlined'}
-              disabled={cancelMutation.isPending}
-              onClick={() => {
-                // BUG-520: a single mis-click used to cancel a completed,
-                // potentially already-shared GST invoice with no recovery.
-                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) {
-                  cancelMutation.mutate();
-                }
-              }}
+              variant="outlined"
+              disabled
+              aria-label={t('common.edit')}
+              title={t('einvoice.editDisabledLiveIrn')}
             >
-              {t('common.cancel')}
+              {t('common.edit')}
             </Button>
           ) : null}
-          {canAct ? (
-            <>
-              <Button variant="outlined" onClick={() => void downloadCopy('ORIGINAL')}>
-                {t('billing.downloadOriginal')}
-              </Button>
-              <Button variant="outlined" onClick={() => void downloadCopy('DUPLICATE')}>
-                {t('billing.downloadDuplicate')}
-              </Button>
-              <Button variant="outlined" onClick={() => void handlePrint()}>
-                {t('billing.print')}
-              </Button>
-              <Button variant="outlined" onClick={() => void handleThermalPrint(80)}>
-                Print receipt (80mm)
-              </Button>
-              <Button variant="outlined" onClick={() => void handleThermalPrint(58)}>
-                Print receipt (58mm)
-              </Button>
-            </>
-          ) : null}
+          <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
+            {canEditInvoiceLines(inv) ? (
+              <MenuItem component={RouterLink} to={`/sales/history/${inv.id}/edit`} onClick={() => setMoreAnchor(null)}>{t('common.edit')}</MenuItem>
+            ) : null}
+            {inv.status === 'DRAFT' && canCreateSales(user) ? (
+              <MenuItem onClick={() => { setMoreAnchor(null); completeMutation.mutate(undefined); }}>{t('common.complete')}</MenuItem>
+            ) : null}
+            {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (
+              <MenuItem
+                id="invoice-cancel"
+                ref={cancelBtnRef}
+                onClick={() => {
+                setMoreAnchor(null);
+                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) cancelMutation.mutate();
+              }}>{t('common.cancel')}</MenuItem>
+            ) : null}
+            {canAct ? (
+              <MenuItem component={RouterLink} to={`/sales/credit-notes/new?fromInvoice=${inv.id}`} onClick={() => setMoreAnchor(null)}>{t('cog.returnGoods')}</MenuItem>
+            ) : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('ORIGINAL'); }}>{t('billing.downloadOriginal')}</MenuItem> : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('DUPLICATE'); }}>{t('billing.downloadDuplicate')}</MenuItem> : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handlePrint(); }}>{t('billing.print')}</MenuItem> : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handleThermalPrint(80); }}>{t('sweep2.printReceipt80')}</MenuItem> : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handleThermalPrint(58); }}>{t('sweep2.printReceipt58')}</MenuItem> : null}
+            {primaryPostedAction({ status: inv.status, balance: toNumber(inv.balance), canPay: canCreatePayments(user) }) !== 'share' ? (
+              <MenuItem onClick={() => { setMoreAnchor(null); setShareOpen(true); }}>{t('common.share')}</MenuItem>
+            ) : null}
+            {primaryPostedAction({ status: inv.status, balance: toNumber(inv.balance), canPay: canCreatePayments(user) }) !== 'pay' && canCreatePayments(user) && toNumber(inv.balance) > 0.009 ? (
+              <MenuItem onClick={() => { setMoreAnchor(null); setPayOpen(true); }}>{t('history.recordPayment')}</MenuItem>
+            ) : null}
+          </Menu>
         </Stack>
       </Paper>
 
@@ -648,21 +680,21 @@ export function InvoiceDetailPage() {
           <Divider sx={{ my: 1 }} />
           <Stack spacing={0.75}>
             <Stack direction="row" justifyContent="space-between">
-              <Typography>Taxable</Typography>
+              <Typography>{t('invoiceDetail.taxable')}</Typography>
               <Typography>{formatMoney(inv.taxableTotal)}</Typography>
             </Stack>
             {showTax ? (
               <>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography>CGST</Typography>
+                  <Typography>{t('invoiceDetail.cgst')}</Typography>
                   <Typography>{formatMoney(inv.cgstTotal)}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography>SGST</Typography>
+                  <Typography>{t('invoiceDetail.sgst')}</Typography>
                   <Typography>{formatMoney(inv.sgstTotal)}</Typography>
                 </Stack>
                 <Stack direction="row" justifyContent="space-between">
-                  <Typography>IGST</Typography>
+                  <Typography>{t('invoiceDetail.igst')}</Typography>
                   <Typography>{formatMoney(inv.igstTotal)}</Typography>
                 </Stack>
               </>
@@ -720,19 +752,19 @@ export function InvoiceDetailPage() {
       {canAct ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="subtitle2" color="text.secondary">
-            Allocations
+            {t('sweep2.allocations')}
           </Typography>
           <Divider sx={{ my: 1 }} />
           {activeAllocations.length === 0 ? (
             <Typography variant="body2" color="text.secondary">
-              No active allocations on this invoice.
+              {t('sweep2.noActiveAllocations')}
             </Typography>
           ) : (
             <Table size="small">
               <TableHead>
                 <TableRow>
-                  <TableCell>Receipt</TableCell>
-                  <TableCell align="right">Amount</TableCell>
+                  <TableCell>{t('invoiceDetail.receipt')}</TableCell>
+                  <TableCell align="right">{t('invoiceDetail.amount')}</TableCell>
                   <TableCell align="right" />
                 </TableRow>
               </TableHead>
@@ -753,7 +785,7 @@ export function InvoiceDetailPage() {
                             }
                           }}
                         >
-                          Unallocate
+                          {t('sweep2.unallocate')}
                         </Button>
                       ) : null}
                     </TableCell>
@@ -824,7 +856,7 @@ export function InvoiceDetailPage() {
                 disabled={upiMutation.isPending}
                 onClick={() => upiMutation.mutate()}
               >
-                Generate UPI QR
+                {t('sweep2.generateUpiQr')}
               </Button>
               {upiQr?.intentUrl && isAllowedPaymentUrl(String(upiQr.intentUrl)) ? (
                 <Button
@@ -835,7 +867,7 @@ export function InvoiceDetailPage() {
                     setMessage('UPI intent copied');
                   }}
                 >
-                  Copy intent link
+                  {t('sweep2.copyIntentLink')}
                 </Button>
               ) : null}
             </Stack>
@@ -860,7 +892,7 @@ export function InvoiceDetailPage() {
           </Paper>
           <Paper sx={{ p: 2, flex: 1 }}>
             <Typography variant="h6" sx={{ mb: 1 }}>
-              Payment link
+              {t('sweep2.paymentLink')}
             </Typography>
             {payLinkMsg ? (
               <Alert severity={payLinkMsg.toLowerCase().includes('created') || payLinkMsg.toLowerCase().includes('shared') ? 'success' : 'error'} sx={{ mb: 1 }}>
@@ -874,7 +906,7 @@ export function InvoiceDetailPage() {
               onClick={() => createLinkMutation.mutate()}
               sx={{ mb: 1.5 }}
             >
-              Create payment link
+              {t('sweep2.createPaymentLink')}
             </Button>
             <Stack spacing={1.5}>
               {(paymentLinks.data ?? []).map((link) => (
@@ -888,7 +920,7 @@ export function InvoiceDetailPage() {
                         || safePaymentHref(link.publicPath || `/pay/${link.token}`);
                       return href ? (
                         <Button size="small" href={href} target="_blank" rel="noreferrer">
-                          Open
+                          {t('sweep2.open')}
                         </Button>
                       ) : null;
                     })()}
@@ -899,7 +931,7 @@ export function InvoiceDetailPage() {
                         disabled={cancelLinkMutation.isPending}
                         onClick={() => cancelLinkMutation.mutate(link.id)}
                       >
-                        Cancel
+                        {t('sweep2.cancel')}
                       </Button>
                     ) : null}
                   </Stack>
@@ -929,7 +961,7 @@ export function InvoiceDetailPage() {
                       </Button>
                       <TextField
                         size="small"
-                        label="Email"
+                        label={t('invoiceDetail.email')}
                         value={linkShareEmail}
                         onChange={(e) => setLinkShareEmail(e.target.value)}
                       />
@@ -945,7 +977,7 @@ export function InvoiceDetailPage() {
                           })
                         }
                       >
-                        Send email
+                        {t('sweep2.sendEmail')}
                       </Button>
                     </Stack>
                   ) : null}
@@ -953,7 +985,7 @@ export function InvoiceDetailPage() {
               ))}
               {!paymentLinks.data?.length ? (
                 <Typography variant="body2" color="text.secondary">
-                  No links yet for this invoice.
+                  {t('sweep2.noLinksYet')}
                 </Typography>
               ) : null}
             </Stack>
@@ -1047,7 +1079,7 @@ export function InvoiceDetailPage() {
         </DialogActions>
       </Dialog>
 
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -1107,32 +1139,32 @@ export function InvoiceDetailPage() {
         <>
           <Paper sx={{ p: 2 }}>
             <Typography variant="h6" sx={{ mb: 1.5 }}>
-              Transport (e-Way)
+              {t('sweep2.transportEway')}
             </Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mb: 1.5 }}>
               <TextField
-                label="Vehicle no"
+                label={t('invoiceDetail.vehicleNo')}
                 size="small"
                 value={vehicleNumber}
                 onChange={(e) => setVehicleNumber(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Transporter name"
+                label={t('invoiceDetail.transporterName')}
                 size="small"
                 value={transporterName}
                 onChange={(e) => setTransporterName(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Transporter ID"
+                label={t('invoiceDetail.transporterId')}
                 size="small"
                 value={transporterId}
                 onChange={(e) => setTransporterId(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Distance (km)"
+                label={t('invoiceDetail.distanceKm')}
                 size="small"
                 value={transportDistanceKm}
                 onChange={(e) => setTransportDistanceKm(e.target.value)}
@@ -1145,7 +1177,7 @@ export function InvoiceDetailPage() {
               disabled={transportMutation.isPending}
               onClick={() => transportMutation.mutate()}
             >
-              Save transport
+              {t('sweep2.saveTransport')}
             </Button>
           </Paper>
           <EinvoiceEwayPanel
@@ -1217,6 +1249,19 @@ export function InvoiceDetailPage() {
         </Paper>
       ) : null}
 
+      <RecordInvoicePaymentDialog
+        invoice={inv}
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        onSuccess={() => {
+          setPayOpen(false);
+          // A payment changes the allocations table, the lists, the customer's balance and the
+          // dashboard, not only this invoice.
+          for (const key of ['sales-invoice', 'invoice-allocations', 'sales-invoices', 'sales-invoice-payment-stats', 'customers', 'receipts', 'dashboard']) {
+            void qc.invalidateQueries({ queryKey: key === 'sales-invoice' || key === 'invoice-allocations' ? [key, invoiceId] : [key] });
+          }
+        }}
+      />
       <ShareInvoiceDialog
         open={shareOpen}
         invoiceId={invoiceIdValid ? invoiceId : null}
@@ -1241,19 +1286,19 @@ export function InvoiceDetailPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
-              label="Filing party GSTIN"
+              label={t('invoiceDetail.filingGstin')}
               value={amendGstin}
               onChange={(e) => setAmendGstin(e.target.value)}
               helperText={`Current: ${inv.filingPartyGstin?.trim() || '—'}`}
             />
             <TextField
-              label="Place of supply (state code)"
+              label={t('invoiceDetail.placeOfSupply')}
               value={amendPos}
               onChange={(e) => setAmendPos(e.target.value)}
               helperText={`Current: ${inv.filingPlaceOfSupply?.trim() || '—'}`}
             />
             <TextField
-              label="Reason"
+              label={t('invoiceDetail.reason')}
               required
               multiline
               minRows={2}
@@ -1269,7 +1314,7 @@ export function InvoiceDetailPage() {
             disabled={!amendReason.trim() || amendMutation.isPending}
             onClick={() => amendMutation.mutate()}
           >
-            Save amendment
+            {t('sweep2.saveAmendment')}
           </Button>
         </DialogActions>
       </Dialog>

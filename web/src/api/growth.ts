@@ -86,7 +86,11 @@ export type TicketRow = {
   priority: string;
   assignedTo: number | null;
   assigneeName?: string;
+  category?: string;
+  shareAvailable?: boolean;
   slaDueAt: string | null;
+  createdAt?: string;
+  waitingSince?: string | null;
 };
 
 export type TicketComment = {
@@ -130,7 +134,7 @@ export type ReferralReward = {
   paidAt?: string | null;
 };
 
-export function listCampaignsPage(params?: { page?: number; pageSize?: number }) {
+export function listCampaignsPage(params?: { page?: number; pageSize?: number; q?: string }) {
   return fetchPage<Campaign>('/crm/campaigns/', params);
 }
 
@@ -189,9 +193,9 @@ export async function createContractSchedule(id: number) {
   const { data } = await apiClient.post(
     `/contracts/${id}/create-schedule/`,
     {},
-    { headers: idempotencyHeaders(`contract-schedule-${id}`) },
+    { headers: idempotencyHeaders() },
   );
-  return unwrapData<{ id: number; contract: number }>(data);
+  return unwrapData<{ id: number; contract: number; invoice?: number | null }>(data);
 }
 
 export function listComplaintsPage(params?: PageParams) {
@@ -297,6 +301,11 @@ export async function getTicket(id: number) {
 
 export async function createTicket(payload: Record<string, unknown>) {
   const { data } = await apiClient.post('/support/tickets/', payload);
+  return unwrapData<TicketRow>(data);
+}
+
+export async function updateTicket(id: number, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/support/tickets/${id}/`, payload);
   return unwrapData<TicketRow>(data);
 }
 

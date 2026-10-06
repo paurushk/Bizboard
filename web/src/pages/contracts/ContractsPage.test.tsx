@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
@@ -80,15 +80,16 @@ describe('ContractsPage', () => {
   it('lists contracts and creates one with the reminder days coerced to a number', async () => {
     const user = userEvent.setup();
     wrap();
-    expect(await screen.findByText(/CON-000001 · AMC · ACTIVE/)).toBeInTheDocument();
-    expect(screen.getByText('The value is copied onto one recurring invoice.')).toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: 'Create recurring invoice' }).length).toBeGreaterThan(0);
-    expect(screen.getByText(/CON-000002 · AMC · CANCELLED/)).toBeInTheDocument();
-    expect(screen.getByText('ACTIVE · AMC · 5000.00')).toBeInTheDocument();
+    expect(await screen.findByText(/CON-000001 · Annual maintenance \(AMC\) · Active/)).toBeInTheDocument();
+    expect(screen.getByText('Value is for the renewal list. It does not create an invoice.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create recurring invoice' })).not.toBeInTheDocument();
+    expect(screen.getByText(/CON-000002 · Annual maintenance \(AMC\) · Cancelled/)).toBeInTheDocument();
+    expect(screen.getByText(/^Active · Annual maintenance \(AMC\) · .*5,000\.00$/)).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'Add contract' }));
     await user.click(screen.getByRole('button', { name: 'pick-customer' }));
     await user.type(screen.getByLabelText('End date'), '2027-06-01');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add contract' }));
 
     await waitFor(() => expect(createContract).toHaveBeenCalledWith(expect.objectContaining({
       customer: 5,
@@ -106,6 +107,8 @@ describe('ContractsPage', () => {
     const user = userEvent.setup();
     wrap();
     await screen.findByText(/CON-000001/);
+    await user.click(screen.getByRole('button', { name: 'Add contract' }));
+    await user.click(screen.getByRole('button', { name: 'More' }));
     await user.click(screen.getByRole('button', { name: 'pick-product' }));
     await user.click(screen.getByRole('button', { name: 'Add line' }));
     await user.click(screen.getByRole('button', { name: 'pick-product' }));
@@ -116,7 +119,7 @@ describe('ContractsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'pick-customer' }));
     await user.type(screen.getByLabelText('End date'), '2027-06-01');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Add contract' }));
     await waitFor(() => expect(createContract).toHaveBeenCalledWith(expect.objectContaining({
       product: 1,
       products: [1, 2],
@@ -130,13 +133,17 @@ describe('ContractsPage', () => {
     const detailButtons = screen.getAllByRole('button', { name: 'Detail' });
 
     await user.click(detailButtons[0]); // active
-    expect(await screen.findByText('CON-000001 · ACTIVE')).toBeInTheDocument();
+    expect(await screen.findByText('CON-000001 · Active')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    // BUG-UI-025: cancelling a contract asks for the contract number first.
+    expect(updateContract).not.toHaveBeenCalled();
+    await user.type(await screen.findByRole('textbox', { name: 'CON-000001' }), 'CON-000001');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(updateContract).toHaveBeenCalledWith(1, { status: 'CANCELLED' }));
 
     await user.click(detailButtons[1]); // cancelled
-    expect(await screen.findByText('CON-000002 · CANCELLED')).toBeInTheDocument();
+    expect(await screen.findByText('CON-000002 · Cancelled')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Un-cancel' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Un-cancel' }));
     await waitFor(() => expect(updateContract).toHaveBeenCalledWith(2, { status: 'ACTIVE' }));

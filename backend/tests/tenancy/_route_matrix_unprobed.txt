@@ -1,0 +1,23 @@
+# Routes the generic isolation matrix (test_route_isolation_matrix.py) cannot drive.
+# This set may ONLY SHRINK. Each entry needs a reason; 'covered by' entries must name a real test.
+# A new route that lands here fails CI until it is made probeable or listed with a reason.
+
+/api/v1/accounting/{report}/   # report-name param, not an object id; scoped by company in AccountingReportView (covered by accounting report tests)
+/api/v1/billing/dlq/{id}/replay/   # covered by test_dead_letter_replay_and_list_are_isolated
+/api/v1/crm/opportunities/{opportunity_pk}/lines/{id}/   # covered by test_opportunity_line_detail_is_isolated
+/api/v1/crm/public/lead-form/{token}/   # public by design: possession of the unguessable token is the credential; token entropy/rotation tracked separately
+/api/v1/crm/public/whatsapp/{token}/   # public webhook keyed by token; signature checks covered by webhook tests
+/api/v1/exports/{report}/   # report-name param, not an object id; scoped by company in ExportView
+/api/v1/projects/{id}/milestones/{milestone_id}/invoice/   # covered by test_project_milestone_actions_are_isolated
+/api/v1/projects/{id}/milestones/{milestone_id}/ready/   # covered by test_project_milestone_actions_are_isolated
+/api/v1/public/customer-portal/{token}/   # public by design: customer-portal token is the credential
+/api/v1/public/customer-portal/{token}/complaints/   # public by design: customer-portal token is the credential
+/api/v1/public/customer-portal/{token}/invoices/{invoice_id}/pay/   # public by design; invoice must belong to the token's customer (portal tests)
+/api/v1/public/customer-portal/{token}/invoices/{invoice_id}/pdf/   # public by design; invoice must belong to the token's customer (portal tests)
+/api/v1/public/pay/{token}/   # public by design: payment-link token is the credential
+/api/v1/sales/delivery-routes/{id}/stops/{stop_id}/pod.pdf   # covered by test_pod_slip_pdf_is_isolated
+/api/v1/webhooks/payments/{provider}/   # provider webhook; HMAC signature tests in tests/errors/test_webhook_*
+/api/v1/integrations/shopify/pending/{item_key}/apply/   # covered by test_shopify_pending_apply_is_isolated
+/api/v1/plan/approvals/{id}/decide/   # covered by test_approval_decide_is_isolated
+/api/v1/projects/{id}/milestones/{milestone_id}/delete/   # covered by test_milestone_edit_and_delete_are_isolated
+/api/v1/projects/{id}/milestones/{milestone_id}/edit/   # covered by test_milestone_edit_and_delete_are_isolated

@@ -100,7 +100,15 @@ function DeliveryRouteList() {
   });
   const orders = useQuery({
     queryKey: ['sales-orders-open'],
-    queryFn: async () => (await listSalesOrdersPage({ pageSize: 100, status: 'CONFIRMED' })).results,
+    queryFn: async () => {
+      // A route can pick up a draft order (quote converted, not yet confirmed)
+      // or one that is already confirmed. Cancelled and converted orders stay out.
+      const [draft, confirmed] = await Promise.all([
+        listSalesOrdersPage({ pageSize: 100, status: 'DRAFT' }),
+        listSalesOrdersPage({ pageSize: 100, status: 'CONFIRMED' }),
+      ]);
+      return [...draft.results, ...confirmed.results];
+    },
     enabled: open,
   });
 
@@ -153,7 +161,7 @@ function DeliveryRouteList() {
           ))}
         </Paper>
       ) : null}
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -374,7 +382,7 @@ function DeliveryRouteDetail({ id }: { id: number }) {
           </Button>
         </Stack>
       ) : null}
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>

@@ -197,6 +197,8 @@ def test_v5_inventory_staff_can_transfer_cannot_journal_or_close(tenant_a):
     assert tr.status_code == 201, tr.data
     done = staff.post(f"/api/v1/inventory/transfers/{tr.data['id']}/complete/")
     assert done.status_code == 200, done.data
+    received = staff.post(f"/api/v1/inventory/transfers/{tr.data['id']}/receive/")
+    assert received.status_code == 200, received.data
     assert InventoryService.available_quantity(company, product, warehouse=wh1) == Decimal("7.000")
     assert InventoryService.available_quantity(company, product, warehouse=wh2) == Decimal("3.000")
 

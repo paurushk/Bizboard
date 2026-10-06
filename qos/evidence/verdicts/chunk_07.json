@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "SaaS-0676",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/feature_flags.py:build_feature_flags; backend/core/services/feature_flags.py:ROLLOUT_GRANTABLE_KEYS",
+  "reason": "Per-company and plan-module flag overrides exist; no percentage/cohort rollout or opt-in beta program evaluation."
+ },
+ {
+  "task_id": "X-0407",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:Product; backend/search/views.py:Product",
+  "reason": "Product is_active defaults True and sale/search queries read Product live, so new products are sellable immediately; no separate search index."
+ },
+ {
+  "task_id": "X-0408",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:Product; backend/purchases/services.py:track_batch",
+  "reason": "Same Product master is used on purchase invoice lines with purchase_price default; no extra publish step."
+ },
+ {
+  "task_id": "X-0409",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:SalesItem; backend/sales/services.py:hsn_code",
+  "reason": "SalesItem.hsn_code is snapshotted from the product at line save and used by GST validation."
+ },
+ {
+  "task_id": "X-0410",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:gst_rate; backend/core/services/tax_engine/india.py:",
+  "reason": "Line gst_rate defaults from product.gst_rate and the India tax engine splits it into CGST/SGST/IGST."
+ },
+ {
+  "task_id": "X-0411",
+  "verdict": "Partial",
+  "evidence": "backend/masters/models.py:Unit; backend/inventory/item_stock.py:base_quantity",
+  "reason": "Product has unit and alternate-unit conversion to base quantity; no validation that all movements conform to a fixed unit list."
+ },
+ {
+  "task_id": "X-0412",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/services.py:track_batch; backend/inventory/item_stock.py:get_or_create_batch",
+  "reason": "Batch number is required for track_batch products on purchase completion; expiry is not mandatory and the flag is named track_batch."
+ },
+ {
+  "task_id": "X-0413",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:track_serial; backend/inventory/services.py:SerialNumberService; backend/sales/services.py:serial_numbers",
+  "reason": "Serialized products transition serials AVAILABLE to SOLD on sale and store serial_numbers on the line; flag is named track_serial."
+ },
+ {
+  "task_id": "X-0414",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesInvoice; backend/sales/services.py:filing_party_gstin",
+  "reason": "Customer is a live FK; only GSTIN and place of supply are frozen at completion, name and address are not snapshotted."
+ },
+ {
+  "task_id": "X-0415",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:PurchaseInvoice; backend/masters/models.py:Supplier",
+  "reason": "Purchase invoice links supplier by FK; no header snapshot of supplier name/address found."
+ },
+ {
+  "task_id": "X-0416",
+  "verdict": "Partial",
+  "evidence": "backend/masters/models.py:TaxpayerType; backend/core/services/place_of_supply.py:",
+  "reason": "Customer GSTIN and taxpayer type drive place of supply and GST filing classification; no B2B tax invoice versus B2C retail bill format switch."
+ },
+ {
+  "task_id": "X-0417",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/services.py:assert_claimable_itc_allowed; backend/purchases/services.py:confirm_no_rcm",
+  "reason": "Unregistered or no-GSTIN suppliers trigger an RCM confirm gate and ITC eligibility is controlled on the bill."
+ },
+ {
+  "task_id": "X-0419",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/pricing.py:resolve_party_price; backend/masters/models.py:PriceList",
+  "reason": "Customer-assigned price list with slabs overrides selling price; implemented as PriceList, not a CustomerProductPrice table."
+ },
+ {
+  "task_id": "X-0420",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/models.py:Role; backend/core/permissions.py:CanCreateSales",
+  "reason": "Roles (Owner, Manager, Sales Staff, Inventory Staff, Accountant) are enforced through DRF permission classes."
+ },
+ {
+  "task_id": "X-0421",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched allowed_warehouses, user warehouse, warehouse scope in accounts/core/inventory",
+  "reason": "No per-user warehouse assignment or query filter exists; users are scoped to company only."
+ },
+ {
+  "task_id": "X-0547",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched onboarding invite, magic link, party invite, KYC in masters/crm/accounts/payments",
+  "reason": "Only customer-portal view tokens and staff user invites exist; no party self-onboarding link or approval flow."
+ },
+ {
+  "task_id": "X-0548",
+  "verdict": "Partial",
+  "evidence": "web/src/i18n/hi.ts:; web/src/i18n/en.ts:",
+  "reason": "Only English and Hindi string catalogs exist; no Gujarati, Tamil or Marathi."
+ },
+ {
+  "task_id": "X-0715",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesInvoice; backend/sales/services.py:filing_party_gstin",
+  "reason": "Only GSTIN and place of supply are frozen at completion; customer name and address are read live so history can change."
+ },
+ {
+  "task_id": "I-0658",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched soundbox, bharatpe, paytm, phonepe in backend and web",
+  "reason": "No soundbox integration or audio broadcast; only generic gateway webhooks exist."
+ },
+ {
+  "task_id": "I-0659",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched pine labs, mswipe, mosambee, plutus, EDC",
+  "reason": "No card swipe terminal integration in code."
+ },
+ {
+  "task_id": "I-0662",
+  "verdict": "Partial",
+  "evidence": "backend/banking/fiu_adapter.py:fetch_live_transactions_for_consent; backend/banking/services.py:match_aa_to_receipts",
+  "reason": "Read-only Account Aggregator statement fetch exists; no ICICI/HDFC bank API, NEFT/RTGS initiation or OTP transfer."
+ },
+ {
+  "task_id": "P-0003",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/upi.py:upi_qr_fields; backend/payments/models.py:CustomerReceipt",
+  "reason": "UPI QR generation exists and receipts store a unique UTR; posts Dr bank, Cr customer advances then AR."
+ },
+ {
+  "task_id": "P-0006",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shift close, expected_cash, cash variance, ShiftClose",
+  "reason": "No shift-close endpoint or per-mode drawer aggregation exists in backend."
+ },
+ {
+  "task_id": "P-0037",
+  "verdict": "Partial",
+  "evidence": "backend/payments/recon.py:suggest_matches; backend/reporting/services.py:cash_book",
+  "reason": "Bank statement reconciliation and cash book exist; no daily shift or till reconciliation."
+ },
+ {
+  "task_id": "P-0067",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:customer_statement; backend/ledgers/views.py:",
+  "reason": "Customer statement lists invoices, notes and receipts with running balance."
+ },
+ {
+  "task_id": "P-0094",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched cash-desks, shift close, till reconciliation, store-wise cash",
+  "reason": "No cash-desk or store-wise till reconciliation exists."
+ },
+ {
+  "task_id": "P-0165",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/models.py:PaymentLink; backend/payments/upi.py:upi_qr_fields; backend/payments/services.py:create_receipt",
+  "reason": "Payment links and UPI QR collect payment and receipts allocate against invoices, reducing outstanding."
+ },
+ {
+  "task_id": "S-0573",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/gateway.py:RazorpayAdapter; backend/payments/webhook_views.py:payment_webhook",
+  "reason": "Adapter HMAC-SHA256 verify_webhook runs before settlement; invalid signature is rejected (HTTP 401, not 400)."
+ },
+ {
+  "task_id": "SEC-0633",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/gateway.py:CashfreeGateway; backend/payments/webhook_views.py:ProcessedWebhookEvent",
+  "reason": "Cashfree verifies X-Webhook-Timestamp within 300 seconds; all providers also get a durable replay dedup."
+ },
+ {
+  "task_id": "SaaS-0669",
+  "verdict": "Partial",
+  "evidence": "backend/billing/services.py:_create_razorpay_subscription; backend/billing/services.py:apply_razorpay_subscription_status",
+  "reason": "Razorpay subscriptions are created and status synced; no SaaS GST invoice generation or emailing found."
+ },
+ {
+  "task_id": "X-0337",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/views.py:create_receipt; backend/accounting/services.py:post_receipt",
+  "reason": "Cash payment at sale creates a receipt posting Dr cash and allocation moves to AR, so the cash ledger rises."
+ },
+ {
+  "task_id": "X-0338",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/models.py:CustomerReceipt; backend/accounting/services.py:post_receipt",
+  "reason": "UPI receipts record UTR and post Dr bank/UPI, with gateway fee to bank charges."
+ },
+ {
+  "task_id": "X-0339",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:_bank_gl_account; backend/payments/models.py:BankAccount",
+  "reason": "Receipts and payments post to the bank account GL ledger."
+ },
+ {
+  "task_id": "X-0340",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:post_receipt_allocation; backend/ledgers/services.py:LedgerService",
+  "reason": "Allocation moves Advances to Cr AR and outstanding is reduced."
+ },
+ {
+  "task_id": "X-0341",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:post_supplier_payment; backend/payments/services.py:create_supplier_payment",
+  "reason": "Supplier payment posts and allocation debits AP, lowering the liability."
+ },
+ {
+  "task_id": "X-0342",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/models.py:Expense; backend/accounting/views.py:ExpenseViewSet",
+  "reason": "Expense voucher with category and numbering exists; no journal posting to expense/bank accounts found."
+ },
+ {
+  "task_id": "X-0343",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:void_receipt; backend/payments/services.py:_reverse_money_document_journal",
+  "reason": "Void reverses allocations and posts a reversal journal; receipt is marked VOIDED, not deleted."
+ },
+ {
+  "task_id": "X-0344",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/webhook_views.py:payment_webhook; backend/payments/holding.py:invoice_payment_state",
+  "reason": "Non-CAPTURED events are ignored and invoice state derives from outstanding, so it stays unpaid; no cashier alert."
+ },
+ {
+  "task_id": "X-0346",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/holding.py:invoice_payment_state; backend/ledgers/services.py:sales_invoice_outstanding",
+  "reason": "Paid state derives from outstanding after summing all allocations."
+ },
+ {
+  "task_id": "X-0347",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shift close, expected_cash, opening_cash, cash closing",
+  "reason": "No daily cash closing or expected versus counted comparison exists."
+ },
+ {
+  "task_id": "X-0348",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched cash variance, cash shortage, overage account",
+  "reason": "No cash variance recording or shortage/overage posting exists."
+ },
+ {
+  "task_id": "X-0349",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/recon.py:suggest_matches; backend/accounting/models.py:BankReconSession",
+  "reason": "Bank statement lines import and are scored against receipts by amount, date and reference."
+ },
+ {
+  "task_id": "X-0350",
+  "verdict": "Partial",
+  "evidence": "backend/payments/recon.py:_receipt_fee; backend/payments/models.py:GatewayPayment",
+  "reason": "Match scoring nets gateway fee against bank credits; no dedicated gateway settlement report reconciliation."
+ },
+ {
+  "task_id": "X-0351",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:cash_position; backend/reporting/services.py:cash_book",
+  "reason": "Dashboard payload includes a cash_position computed from cash and bank accounts."
+ },
+ {
+  "task_id": "X-0352",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/views.py:CashBookView; backend/reporting/services.py:cash_book",
+  "reason": "Cash book report with chronological receipts, payments and running balance exists."
+ },
+ {
+  "task_id": "X-0528",
+  "verdict": "Partial",
+  "evidence": "backend/payments/models.py:ChequeStatus; backend/payments/models.py:CustomerReceipt",
+  "reason": "Cheque receipts store cheque_date and PENDING_CLEARANCE status; no PDC_HOLDING, ChequeRecord, maturity calendar or deposit schedule."
+ },
+ {
+  "task_id": "X-0529",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched cheques-in-clearing, DEPOSITED, deposit slip, clearing account",
+  "reason": "Statuses are only PENDING_CLEARANCE, CLEARED, BOUNCED; no deposit step or clearing account posting."
+ },
+ {
+  "task_id": "X-0530",
+  "verdict": "Partial",
+  "evidence": "backend/payments/services.py:set_cheque_status; backend/payments/services.py:void_receipt",
+  "reason": "Bounce voids receipt, reverses allocations (invoice unpaid); no bank dishonour fee charge, notice letter or owner alert."
+ },
+ {
+  "task_id": "X-0531",
+  "verdict": "Partial",
+  "evidence": "backend/payments/models.py:CustomerReceipt; backend/ledgers/services.py:_settlement_discount_by_invoice",
+  "reason": "settlement_discount is stored and reduces invoice outstanding, but no Cash Discount Allowed GL journal is posted."
+ },
+ {
+  "task_id": "X-0532",
+  "verdict": "Confirmed",
+  "evidence": "backend/banking/fiu_adapter.py:fetch_live_transactions_for_consent; backend/banking/models.py:AaTransaction; backend/banking/services.py:match_aa_to_receipts",
+  "reason": "Account Aggregator transactions are fetched and matched by UTR/amount to receipts."
+ },
+ {
+  "task_id": "X-0713",
+  "verdict": "Partial",
+  "evidence": "backend/payments/services.py:set_cheque_status; backend/payments/services.py:void_receipt",
+  "reason": "Bounce reverses payment and invoice becomes unpaid; no bank fee debit to customer or Section 138 notice generator."
+ },
+ {
+  "task_id": "D-0681",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/llm.py:extract_purchase_bill; backend/imports/tasks.py:extract_purchase_bill_task",
+  "reason": "Vision LLM extraction of bill images with normalised payload feeds a purchase draft."
+ },
+ {
+  "task_id": "D-0688",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/ims.py:supplier_scorecard",
+  "reason": "Scorecard uses GSTR-2B mismatch and rejection data only; no delivery punctuality, fill rate or price inflation factors."
+ },
+ {
+  "task_id": "P-0019",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/services.py:post_movement; backend/accounting/services.py:post_purchase; backend/inventory/models.py:StockMovement",
+  "reason": "Completing a purchase invoice posts stock movements and a purchase journal crediting payables."
+ },
+ {
+  "task_id": "P-0020",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/grn_service.py:complete; backend/purchases/services.py:post_movement",
+  "reason": "Goods receipt and purchase completion update stock with batch lot and dates."
+ },
+ {
+  "task_id": "P-0043",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/models.py:BatchLot; backend/inventory/item_stock.py:get_or_create_batch",
+  "reason": "Purchase lines create or update BatchLot with batch number, mfg and expiry dates and move stock into it."
+ },
+ {
+  "task_id": "P-0048",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:supplier_statement; backend/ledgers/views.py:",
+  "reason": "Supplier statement ledger shows purchases, payments and balance."
+ },
+ {
+  "task_id": "P-0060",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:PurchaseOrder; backend/purchases/grn_service.py:convert_to_bill",
+  "reason": "POs exist and convert to bills; no fulfilment percentage or received-versus-ordered tracking."
+ },
+ {
+  "task_id": "P-0068",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/grn_service.py:complete; backend/inventory/models.py:StockMovement",
+  "reason": "GRN completion posts inward stock movements (type PURCHASE) updating on-hand quantity."
+ },
+ {
+  "task_id": "P-0140",
+  "verdict": "Contradicted",
+  "evidence": "backend/purchases/models.py:PurchaseOrder",
+  "reason": "PO status choices are only DRAFT, CONVERTED, CANCELLED; no APPROVED, SENT or CONFIRMED workflow or vendor acknowledgment."
+ }
+]

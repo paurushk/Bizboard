@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -79,7 +79,7 @@ export function BankAccountsPage() {
       subtitle={t('phase.bankAccountsSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          Add account
+          {t('sweep2.addAccount')}
         </Button>
       }
     >
@@ -97,31 +97,31 @@ export function BankAccountsPage() {
       />
       {asRows(query.data).length === 0 ? (
         <Button component={RouterLink} to="/settings/company#bank-section" sx={{ mt: 1, alignSelf: 'flex-start' }}>
-          Open company bank details
+          {t('sweep2.openCompanyBank')}
         </Button>
       ) : null}
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>New bank account</DialogTitle>
+        <DialogTitle>{t('sweep2.newBankAccount')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <TextField select label="Type" value={form.accountType} onChange={(e) => setForm({ ...form, accountType: e.target.value })}>
-              <MenuItem value="CURRENT">Current</MenuItem>
-              <MenuItem value="SAVINGS">Savings</MenuItem>
-              <MenuItem value="CASH_BOX">Cash box</MenuItem>
+            <TextField label={t('sweep.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+            <TextField select label={t('sweep.type')} value={form.accountType} onChange={(e) => setForm({ ...form, accountType: e.target.value })}>
+              <MenuItem value="CURRENT">{t('sweep2.current')}</MenuItem>
+              <MenuItem value="SAVINGS">{t('sweep2.savings')}</MenuItem>
+              <MenuItem value="CASH_BOX">{t('sweep2.cashBox')}</MenuItem>
             </TextField>
-            <TextField label="Masked account no." value={form.accountNumberMasked} onChange={(e) => setForm({ ...form, accountNumberMasked: e.target.value })} />
+            <TextField label={t('sweep.maskedAccountNo')} value={form.accountNumberMasked} onChange={(e) => setForm({ ...form, accountNumberMasked: e.target.value })} />
             <TextField label="IFSC" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} />
-            <FormControlLabel control={<Switch checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />} label="Default account" />
+            <FormControlLabel control={<Switch checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />} label={t('sweep.defaultAccount')} />
             {error ? <HelpErrorAlert message={error} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
           <Tooltip title={!form.name.trim() ? 'Enter bank account name to save' : ''}>
             <span>
               <Button variant="contained" disabled={writesBlocked || !form.name.trim() || create.isPending} onClick={() => create.mutate()}>
-                Save
+                {t('sweep2.save')}
               </Button>
             </span>
           </Tooltip>
@@ -142,13 +142,14 @@ export function PaymentGatewayPage() {
   const [keyId, setKeyId] = useState('');
   const [keySecret, setKeySecret] = useState('');
   const [msg, setMsg] = useState('');
-  useEffect(() => {
-    if (!q.data) return;
+  const [seenSettings, setSeenSettings] = useState<typeof q.data>(undefined);
+  if (q.data && q.data !== seenSettings) {
+    setSeenSettings(q.data);
     setTestMode(Boolean(q.data.testMode ?? true));
     setRequireRef(Boolean(q.data.requirePaymentReference));
     setAutoMatch(Boolean(q.data.autoMatchBankExact));
     setProvider(String(q.data.provider ?? 'razorpay'));
-  }, [q.data]);
+  }
   const m = useMutation({
     mutationFn: () =>
       api.updateGatewaySettings({
@@ -159,7 +160,10 @@ export function PaymentGatewayPage() {
         credentials: keyId || keySecret ? { key_id: keyId, key_secret: keySecret, api_key: keyId, api_secret: keySecret } : undefined,
       }),
     onSuccess: () => {
-      setMsg('Gateway settings saved');
+      const chosen = provider || String(q.data?.provider ?? 'razorpay');
+      const storedKeys = Boolean(q.data?.credentialsConfigured) || Boolean(keyId || keySecret);
+      // Sandbox is the local/CI provider and does not store live keys.
+      setMsg(storedKeys || chosen === 'sandbox' ? t('integrations.gatewaySaved') : t('integrations.gatewayNotLive'));
       setKeySecret('');
       void qc.invalidateQueries({ queryKey: ['gateway-settings'] });
     },
@@ -175,36 +179,38 @@ export function PaymentGatewayPage() {
         <Stack spacing={2}>
           <TextField
             select
-            label="Provider"
+            label={t('sweep.provider')}
             value={provider || String(q.data?.provider ?? 'razorpay')}
             onChange={(e) => setProvider(e.target.value)}
           >
             <MenuItem value="razorpay">Razorpay</MenuItem>
             <MenuItem value="cashfree">Cashfree</MenuItem>
             <MenuItem value="payu">PayU</MenuItem>
-            <MenuItem value="sandbox">Sandbox (CI / local)</MenuItem>
+            <MenuItem value="sandbox">{t('sweep2.sandboxCiLocal')}</MenuItem>
           </TextField>
           <FormControlLabel
             control={<Switch checked={testMode} onChange={(e) => setTestMode(e.target.checked)} />}
-            label="Test mode"
+            label={t('sweep.testMode')}
           />
           <FormControlLabel
             control={<Switch checked={requireRef} onChange={(e) => setRequireRef(e.target.checked)} />}
-            label="Require payment reference (UTR) for UPI/Bank receipts"
+            label={t('sweep.requireUtr')}
           />
           <FormControlLabel
             control={<Switch checked={autoMatch} onChange={(e) => setAutoMatch(e.target.checked)} />}
-            label="Auto-match bank lines on exact unique UTR"
+            label={t('sweep.autoMatchUtr')}
           />
-          <Alert severity="info">
-            Credentials configured: {String(q.data?.credentialsConfigured ? 'Yes' : 'No')}. Leave secret blank to keep existing.
-          </Alert>
-          <TextField label="Key / App ID" value={keyId} onChange={(e) => setKeyId(e.target.value)} />
-          <TextField label="Secret" type="password" value={keySecret} onChange={(e) => setKeySecret(e.target.value)} />
+          {!q.data?.credentialsConfigured ? (
+            <Alert severity="warning">{t('integrations.paymentGatewayClosed')}</Alert>
+          ) : (
+            <Alert severity="info">{t('integrations.paymentGatewayConfigured')}</Alert>
+          )}
+          <TextField label={t('sweep.keyAppId')} value={keyId} onChange={(e) => setKeyId(e.target.value)} />
+          <TextField label={t('sweep.secret')} type="password" value={keySecret} onChange={(e) => setKeySecret(e.target.value)} />
           <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate()}>
-            Save settings
+            {t('sweep2.saveSettings')}
           </Button>
-          <Typography variant="subtitle2">Webhook URLs</Typography>
+          <Typography variant="subtitle2">{t('sweep2.webhookUrls')}</Typography>
           {Object.entries(webhooks).map(([k, v]) => (
             <Typography key={k} variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
               {k}: {v}
@@ -322,7 +328,7 @@ export function PaymentLinksPage() {
       subtitle={t('phase.paymentLinksSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          Create link
+          {t('sweep2.createLink')}
         </Button>
       }
     >
@@ -346,7 +352,7 @@ export function PaymentLinksPage() {
                   disabled={writesBlocked || retryBooks.isPending}
                   onClick={() => retryBooks.mutate(Number(row.id))}
                 >
-                  Retry books
+                  {t('sweep2.retryBooks')}
                 </Button>
               </Stack>
             </Paper>
@@ -367,15 +373,15 @@ export function PaymentLinksPage() {
         actions={(r) => (
           <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap" useFlexGap>
             <Button size="small" href={`/pay/${String(r.token)}`} target="_blank" rel="noreferrer">
-              Open
+              {t('sweep2.open')}
             </Button>
             {r.status !== 'PAID' && r.status !== 'CANCELLED' && r.status !== 'EXPIRED' ? (
               <>
                 <Button size="small" disabled={writesBlocked} onClick={() => setShareId(Number(r.id))}>
-                  Send
+                  {t('sweep2.send')}
                 </Button>
                 <Button size="small" color="error" disabled={writesBlocked} onClick={() => setConfirmLink({ mode: 'cancel', row: r })}>
-                  Cancel
+                  {t('sweep2.cancel')}
                 </Button>
               </>
             ) : null}
@@ -386,14 +392,14 @@ export function PaymentLinksPage() {
                 disabled={writesBlocked || refund.isPending}
                 onClick={() => setConfirmLink({ mode: 'refund', row: r })}
               >
-                Refund
+                {t('sweep2.refund')}
               </Button>
             ) : null}
           </Stack>
         )}
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Create payment link</DialogTitle>
+        <DialogTitle>{t('sweep2.createPaymentLink')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Autocomplete
@@ -408,7 +414,7 @@ export function PaymentLinksPage() {
               onChange={(_, v) => setInvoice(v)}
               loading={linkInvoices.isFetching}
               renderInput={(params) => (
-                <TextField {...params} label="Sales invoice (preferred)" placeholder="Type 2+ characters to search…" />
+                <TextField {...params} label={t('sweep.salesInvoicePreferred')} placeholder={t('sweep.typeToSearch')} />
               )}
             />
             <Autocomplete
@@ -424,11 +430,11 @@ export function PaymentLinksPage() {
               loading={linkCustomers.isFetching}
               disabled={Boolean(invoice)}
               renderInput={(params) => (
-                <TextField {...params} label="Customer (if no invoice)" placeholder="Type 2+ characters to search…" />
+                <TextField {...params} label={t('sweep.customerIfNoInvoice')} placeholder={t('sweep.typeToSearch')} />
               )}
             />
             <TextField
-              label="Amount"
+              label={t('sweep.amount')}
               type="number"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -443,7 +449,7 @@ export function PaymentLinksPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
           <Button
             variant="contained"
             disabled={
@@ -454,25 +460,25 @@ export function PaymentLinksPage() {
             }
             onClick={() => create.mutate()}
           >
-            Create
+            {t('sweep2.create')}
           </Button>
         </DialogActions>
       </Dialog>
       <Dialog open={shareId != null} onClose={() => setShareId(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Send payment link</DialogTitle>
+        <DialogTitle>{t('sweep2.sendPaymentLink')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               select
-              label="Channel"
+              label={t('sweep.channel')}
               value={shareChannel}
               onChange={(e) => setShareChannel(e.target.value as 'WHATSAPP' | 'EMAIL')}
             >
               <MenuItem value="WHATSAPP">{t('common.whatsapp')}</MenuItem>
-              <MenuItem value="EMAIL">Email</MenuItem>
+              <MenuItem value="EMAIL">{t('sweep2.email')}</MenuItem>
             </TextField>
             <TextField
-              label="Recipient"
+              label={t('sweep.recipient')}
               value={shareRecipient}
               onChange={(e) => setShareRecipient(e.target.value)}
               placeholder={shareChannel === 'EMAIL' ? 'customer@example.com' : '9198XXXXXXXX'}
@@ -480,9 +486,9 @@ export function PaymentLinksPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setShareId(null)}>Cancel</Button>
+          <Button onClick={() => setShareId(null)}>{t('sweep2.cancel')}</Button>
           <Button variant="contained" disabled={writesBlocked || !shareRecipient.trim() || share.isPending} onClick={() => share.mutate()}>
-            Send
+            {t('sweep2.send')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -554,15 +560,15 @@ export function BankStatementsPage() {
     <PageShell title={t('phase.bankStatements')} subtitle={t('phase.bankStatementsSubtitle')}>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'center' }}>
-          <TextField select label="Bank account" value={bank} onChange={(e) => setBank(e.target.value)} sx={{ minWidth: 220 }}>
+          <TextField select label={t('sweep.bankAccount')} value={bank} onChange={(e) => setBank(e.target.value)} sx={{ minWidth: 220 }}>
             {(accounts.data ?? []).map((a) => (
               <MenuItem key={a.id} value={String(a.id)}>
                 {a.name}
               </MenuItem>
             ))}
           </TextField>
-          <TextField select label="Preset" value={preset} onChange={(e) => setPreset(e.target.value)} sx={{ minWidth: 140 }}>
-            <MenuItem value="generic">Generic</MenuItem>
+          <TextField select label={t('sweep.preset')} value={preset} onChange={(e) => setPreset(e.target.value)} sx={{ minWidth: 140 }}>
+            <MenuItem value="generic">{t('sweep2.generic')}</MenuItem>
             <MenuItem value="hdfc">HDFC</MenuItem>
             <MenuItem value="icici">ICICI</MenuItem>
             <MenuItem value="sbi">SBI</MenuItem>
@@ -572,7 +578,7 @@ export function BankStatementsPage() {
             <input hidden type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           </Button>
           <Button variant="contained" disabled={writesBlocked || !file || !bank || upload.isPending} onClick={() => upload.mutate()}>
-            Upload
+            {t('sweep2.upload')}
           </Button>
         </Stack>
         {error ? <HelpErrorAlert message={error} sx={{ mt: 2 }} /> : null}
@@ -594,7 +600,7 @@ export function BankStatementsPage() {
               if (!window.confirm(t('phase.confirmCommitStatement'))) return;
               commit.mutate(Number(r.id));
             }}>
-              Commit
+              {t('sweep2.commit')}
             </Button>
           ) : null
         }
@@ -659,6 +665,8 @@ export function BankReconPage() {
     },
     onError: (e) => setReconErr(getErrorMessage(e)),
   });
+  // Matching is never applied on page load: confirming a bank line posts money. A person
+  // confirms each suggestion, or uses "accept exact matches" for the unambiguous ones.
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   const rows = query.data ?? [];
@@ -739,7 +747,7 @@ export function BankReconPage() {
                       <StatusChip value={line.matchStatus} />
                       {Number(line.amount) > 0 && canWrite ? (
                         <Button size="small" variant="outlined" onClick={() => setCreateLine(line)}>
-                          Create receipt
+                          {t('sweep2.createReceipt')}
                         </Button>
                       ) : null}
                     </Stack>
@@ -747,7 +755,7 @@ export function BankReconPage() {
                   {/* F2-014: once a line is MATCHED, drop all match actions — a
                       second confirm double-books it. */}
                   {String(line.matchStatus) === 'MATCHED' ? null : !suggestions.length ? (
-                    <Alert severity="warning">No confident suggestions</Alert>
+                    <Alert severity="warning">{t('sweep2.noConfidentSuggestions')}</Alert>
                   ) : (
                     suggestions.map((s) => {
                       const lineAmt = toNumber(line.amount as string | number);
@@ -786,7 +794,7 @@ export function BankReconPage() {
                             });
                           }}
                         >
-                          Confirm
+                          {t('sweep2.confirm')}
                         </Button>
                         ) : null}
                       </Stack>
@@ -800,7 +808,7 @@ export function BankReconPage() {
         </Stack>
       )}
       <Dialog open={Boolean(createLine)} onClose={() => setCreateLine(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Create receipt from bank line</DialogTitle>
+        <DialogTitle>{t('sweep2.createReceiptFromBank')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Typography variant="body2">
@@ -820,7 +828,7 @@ export function BankReconPage() {
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Customer"
+                  label={t('sweep.customer')}
                   helperText={!createCustomerSearch.enabled ? t('common.typeToSearch') : undefined}
                 />
               )}
@@ -828,13 +836,13 @@ export function BankReconPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setCreateLine(null)}>Cancel</Button>
+          <Button onClick={() => setCreateLine(null)}>{t('sweep2.cancel')}</Button>
           <Button
             variant="contained"
             disabled={!createCustomer || createFromLine.isPending}
             onClick={() => createFromLine.mutate()}
           >
-            Create & match
+            {t('sweep2.createAndMatch')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -865,8 +873,8 @@ export function CashBookPage() {
       subtitle={t('phase.cashBookSubtitle')}
       actions={
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          <TextField type="date" size="small" label="From" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
-          <TextField type="date" size="small" label="To" InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
+          <TextField type="date" size="small" label={t('sweep.from')} InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <TextField type="date" size="small" label={t('sweep.to')} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
           <Button
             variant="outlined"
             size="small"
@@ -887,7 +895,7 @@ export function CashBookPage() {
               }
             }}
           >
-            Export XLSX
+            {t('sweep2.exportXlsx')}
           </Button>
         </Stack>
       }

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { returnDialogDirty } from '@/pages/moneyFormDirty';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -87,15 +89,26 @@ export function PurchaseReturnsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [draftId, setDraftId] = useState<number | null>(null);
   const [gestureKey, setGestureKey] = useState<string | null>(null);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const returnDirty = returnDialogDirty(open, Boolean(purchase), reason);
+  const requestClose = () => {
+    if (returnDirty) setDiscardPrompt(true);
+    else {
+      setOpen(false);
+      resetDialog();
+    }
+  };
   const products = useQuery({
     queryKey: ['products'],
     queryFn: () => listProducts(),
     staleTime: 60_000,
   });
 
+  // An inbound ?create=1 opens the dialog; the effect below then strips the param.
+  if (searchParams.get('create') === '1' && !open) setOpen(true);
+
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
-    setOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete('create');
     setSearchParams(next, { replace: true });
@@ -220,7 +233,7 @@ export function PurchaseReturnsPage() {
         />
       ) : null}
       {returns.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -269,12 +282,19 @@ export function PurchaseReturnsPage() {
         </Stack>
       ) : null}
 
-      <Dialog
-        open={open && canWrite}
-        onClose={() => {
+      <UnsavedChangesGuard
+        when={returnDirty}
+        prompt={discardPrompt}
+        onStay={() => setDiscardPrompt(false)}
+        onLeave={() => {
+          setDiscardPrompt(false);
           setOpen(false);
           resetDialog();
         }}
+      />
+      <Dialog
+        open={open && canWrite}
+        onClose={requestClose}
         fullWidth
         maxWidth="md"
       >
@@ -313,12 +333,7 @@ export function PurchaseReturnsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => {
-              setOpen(false);
-              resetDialog();
-            }}
-          >
+          <Button onClick={requestClose}>
             {t('common.cancel')}
           </Button>
           <Tooltip

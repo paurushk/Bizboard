@@ -5,6 +5,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { fillLineQty } from '../complete-gates/assertCompleteGate';
 import { loginAsOwner, loginAsOwnerStockBlock, loginAsOwnerWritesBlocked } from '../helpers/auth';
 
+/** The full-amount cash button. The split-tender button also matches /cash/ and stays disabled at ₹0. */
+function cashPay(page: Page) {
+  return page.getByRole('button', { name: /^Cash\s+[—-]/ });
+}
+
 async function openPos(page: Page) {
   await page.goto('/pos', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: /pos|point of sale|counter/i })).toBeVisible({
@@ -30,7 +35,7 @@ test.describe('POS — complete/pay gates', () => {
     await openPos(page);
     await addPosItem(page, 'Batch Syrup', /Batch Syrup 50ml/i);
 
-    const cash = page.getByRole('button', { name: /cash/i }).first();
+    const cash = cashPay(page);
     await expect(cash).toBeDisabled();
     await expect(page.getByPlaceholder('Batch number', { exact: true })).toBeVisible();
 
@@ -41,9 +46,21 @@ test.describe('POS — complete/pay gates', () => {
   test('CG-30: serial-tracked POS item requires serials before it can be paid', async ({ page }) => {
     await loginAsOwner(page);
     await openPos(page);
-    await page.getByLabel(/serials/i).fill('SN-POS-1');
-    await addPosItem(page, 'Ampoule', /Serial Ampoule/i);
-    await expect(page.getByRole('button', { name: /cash/i }).first()).toBeEnabled();
+    const box = page.getByPlaceholder(/scan barcode/i);
+    await box.click();
+    await box.fill('Ampoule');
+    await page.getByRole('option', { name: /Serial Ampoule/i }).click();
+    await expect(page.getByText(/serial number/i).first()).toBeVisible();
+    await expect(cashPay(page)).toBeDisabled();
+    await expect(box).toHaveValue(/Ampoule/i);
+
+    await page.getByRole('button', { name: /^serials$/i }).click();
+    await page.getByLabel(/^serials$/i).fill('SN-POS-1');
+    await box.fill('');
+    await box.fill('Ampoule');
+    await page.getByRole('option', { name: /Serial Ampoule/i }).click();
+    await expect(box).toHaveValue('');
+    await expect(cashPay(page)).toBeEnabled();
   });
 
   test('CG-31: stock BLOCK disables pay when qty exceeds on-hand', async ({ page }) => {
@@ -51,7 +68,7 @@ test.describe('POS — complete/pay gates', () => {
     await openPos(page);
     await addPosItem(page, 'Tea', /Premium Tea 500g/i);
     await fillLineQty(page, '41');
-    await expect(page.getByRole('button', { name: /cash/i }).first()).toBeDisabled();
+    await expect(cashPay(page)).toBeDisabled();
     await expect(page.getByText(/Insufficient stock/i).first()).toBeVisible();
   });
 
@@ -59,7 +76,7 @@ test.describe('POS — complete/pay gates', () => {
     await loginAsOwnerWritesBlocked(page);
     await openPos(page);
     await addPosItem(page, 'Tea', /Premium Tea 500g/i);
-    const cash = page.getByRole('button', { name: /cash/i }).first();
+    const cash = cashPay(page);
     await expect(cash).toBeDisabled();
     await expect(page.getByText(/read-only|suspended|trial/i).first()).toBeVisible();
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -22,6 +22,7 @@ import {
   markInvoiceEwayGenerated,
   prepareInvoiceEinvoice,
   prepareInvoiceEway,
+  postPlanEwayStub,
   submitInvoiceEinvoice,
   submitInvoiceEway,
 } from '@/api/resources';
@@ -93,14 +94,20 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
   const [ewayCancelOpen, setEwayCancelOpen] = useState(false);
   const [ewayCnlRsn, setEwayCnlRsn] = useState('2');
   const [ewayCnlRem, setEwayCnlRem] = useState('');
+  const [extendDays, setExtendDays] = useState('1');
+  const [splitQty, setSplitQty] = useState('1');
   const [lastEwayPayload, setLastEwayPayload] = useState<unknown>(null);
   const [lastEinvoicePayload, setLastEinvoicePayload] = useState<unknown>(null);
 
-  useEffect(() => {
+  // Follow the invoice's e-invoice and e-way fields when they change.
+  const statutoryKey = `${invoice.irn ?? ''}|${invoice.ackNo ?? ''}|${invoice.ewayBillNo ?? ''}`;
+  const [seenStatutoryKey, setSeenStatutoryKey] = useState<string | null>(null);
+  if (seenStatutoryKey !== statutoryKey) {
+    setSeenStatutoryKey(statutoryKey);
     setIrn(invoice.irn ?? '');
     setAckNo(invoice.ackNo ?? '');
     setEwayBillNo(invoice.ewayBillNo ?? '');
-  }, [invoice.irn, invoice.ackNo, invoice.ewayBillNo]);
+  }
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
 
@@ -170,6 +177,19 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
       onMessage?.(t('einvoice.ewayPayloadReady'));
       invalidate();
     },
+    onError: (err) => onError?.(getErrorMessage(err)),
+  });
+
+  const ewayStubMutation = useMutation({
+    mutationFn: (body: { action: 'PART_B' | 'EXTEND' | 'SPLIT'; payload: Record<string, unknown> }) =>
+      postPlanEwayStub({
+        action: body.action,
+        documentId: invoice.id,
+        documentType: 'invoice',
+        billStatus: invoice.ewayStatus === 'CANCELLED' ? 'CANCELLED' : 'ACTIVE',
+        payload: body.payload,
+      }),
+    onSuccess: () => onMessage?.(t('sweep2.ewayStubSaved')),
     onError: (err) => onError?.(getErrorMessage(err)),
   });
 
@@ -274,22 +294,22 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 size="small"
                 onClick={() => downloadJson(`${base}_einvoice.json`, lastEinvoicePayload)}
               >
-                Download JSON
+                {t('sweep2.downloadJson')}
               </Button>
             ) : null}
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField label="IRN" size="small" value={irn} onChange={(e) => setIrn(e.target.value)} fullWidth />
-            <TextField label="Ack No" size="small" value={ackNo} onChange={(e) => setAckNo(e.target.value)} fullWidth />
+            <TextField label={t('sweep.ackNo')} size="small" value={ackNo} onChange={(e) => setAckNo(e.target.value)} fullWidth />
           </Stack>
           <TextField
-            label="Audit reason"
+            label={t('sweep.auditReason')}
             size="small"
             value={manualReason}
             onChange={(e) => setManualReason(e.target.value)}
             fullWidth
             sx={{ mt: 1 }}
-            helperText="Required for manual IRN / e-Way attestation (Owner only)."
+            helperText={t('sweep.auditReasonHelp')}
           />
           <Button
             variant="contained"
@@ -298,7 +318,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
             disabled={!irn.trim() || !ackNo.trim() || !manualReason.trim() || markEinvoiceMutation.isPending}
             onClick={() => markEinvoiceMutation.mutate()}
           >
-            Save IRN
+            {t('sweep2.saveIrn')}
           </Button>
           {invoice.irn ? (
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
@@ -333,28 +353,28 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
           ) : (
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 1 }}>
               <TextField
-                label="Vehicle no"
+                label={t('sweep.vehicleNo')}
                 size="small"
                 value={vehicleNumber}
                 onChange={(e) => setVehicleNumber(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Transporter"
+                label={t('sweep.transporter')}
                 size="small"
                 value={transporterName}
                 onChange={(e) => setTransporterName(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Transporter ID"
+                label={t('sweep.transporterId')}
                 size="small"
                 value={transporterId}
                 onChange={(e) => setTransporterId(e.target.value)}
                 fullWidth
               />
               <TextField
-                label="Distance (km)"
+                label={t('sweep.distanceKm')}
                 size="small"
                 value={transportDistanceKm}
                 onChange={(e) => setTransportDistanceKm(e.target.value)}
@@ -389,7 +409,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 disabled={cancelEwayMutation.isPending}
                 onClick={() => setEwayCancelOpen(true)}
               >
-                Cancel
+                {t('sweep2.cancel')}
               </Button>
             ) : null}
             {lastEwayPayload ? (
@@ -398,13 +418,13 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
                 size="small"
                 onClick={() => downloadJson(`${base}_eway.json`, lastEwayPayload)}
               >
-                Download JSON
+                {t('sweep2.downloadJson')}
               </Button>
             ) : null}
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <TextField
-              label="e-Way bill no"
+              label={t('sweep.ewayBillNo')}
               size="small"
               value={ewayBillNo}
               onChange={(e) => setEwayBillNo(e.target.value)}
@@ -416,7 +436,70 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
               disabled={!ewayBillNo.trim() || !manualReason.trim() || markEwayMutation.isPending}
               onClick={() => markEwayMutation.mutate()}
             >
-              Save e-Way
+              {t('sweep2.saveEway')}
+            </Button>
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={!resolvedTransport.vehicleNumber.trim() || ewayStubMutation.isPending}
+              onClick={() =>
+                ewayStubMutation.mutate({
+                  action: 'PART_B',
+                  payload: {
+                    vehicle_number: resolvedTransport.vehicleNumber,
+                    transporter_id: resolvedTransport.transporterId,
+                  },
+                })
+              }
+            >
+              {t('sweep2.partBUpdate')}
+            </Button>
+            <TextField
+              label={t('sweep2.extendValidity')}
+              size="small"
+              value={extendDays}
+              onChange={(e) => setExtendDays(e.target.value)}
+              inputProps={{ 'aria-label': t('sweep2.extendValidity') }}
+              sx={{ maxWidth: 160 }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={!resolvedTransport.transportDistanceKm.trim() || ewayStubMutation.isPending}
+              onClick={() =>
+                ewayStubMutation.mutate({
+                  action: 'EXTEND',
+                  payload: {
+                    distance_km: resolvedTransport.transportDistanceKm,
+                    extend_by_days: extendDays,
+                  },
+                })
+              }
+            >
+              {t('sweep2.extendValidity')}
+            </Button>
+            <TextField
+              label={t('sweep2.splitConsignment')}
+              size="small"
+              value={splitQty}
+              onChange={(e) => setSplitQty(e.target.value)}
+              inputProps={{ 'aria-label': t('sweep2.splitConsignment') }}
+              sx={{ maxWidth: 160 }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              disabled={ewayStubMutation.isPending}
+              onClick={() =>
+                ewayStubMutation.mutate({
+                  action: 'SPLIT',
+                  payload: { consignment_qty: splitQty, parts: [splitQty] },
+                })
+              }
+            >
+              {t('sweep2.splitConsignment')}
             </Button>
           </Stack>
         </Box>
@@ -458,23 +541,23 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
         </DialogActions>
       </Dialog>
       <Dialog open={ewayCancelOpen} onClose={() => setEwayCancelOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Cancel e-Way bill</DialogTitle>
+        <DialogTitle>{t('sweep2.cancelEway')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               select
-              label="Cancellation reason"
+              label={t('sweep.cancellationReason')}
               size="small"
               value={ewayCnlRsn}
               onChange={(e) => setEwayCnlRsn(e.target.value)}
             >
-              <MenuItem value="1">Duplicate</MenuItem>
-              <MenuItem value="2">Order cancelled</MenuItem>
-              <MenuItem value="3">Data entry mistake</MenuItem>
-              <MenuItem value="4">Others</MenuItem>
+              <MenuItem value="1">{t('sweep2.duplicate')}</MenuItem>
+              <MenuItem value="2">{t('sweep2.orderCancelled')}</MenuItem>
+              <MenuItem value="3">{t('sweep2.dataEntryMistake')}</MenuItem>
+              <MenuItem value="4">{t('sweep2.others')}</MenuItem>
             </TextField>
             <TextField
-              label="Remarks (required)"
+              label={t('sweep.remarksRequired')}
               size="small"
               value={ewayCnlRem}
               onChange={(e) => setEwayCnlRem(e.target.value)}
@@ -490,7 +573,7 @@ export function EinvoiceEwayPanel({ invoice, onError, onMessage, transport }: Pr
             disabled={!ewayCnlRem.trim() || cancelEwayMutation.isPending}
             onClick={() => cancelEwayMutation.mutate()}
           >
-            Cancel e-Way bill
+            {t('sweep2.cancelEway')}
           </Button>
         </DialogActions>
       </Dialog>

@@ -221,6 +221,17 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+        if "tds_section" in attrs:
+            from purchases.services import STATUTORY_TDS_SECTIONS
+
+            section = (attrs.get("tds_section") or "").strip().upper()
+            if section and section not in STATUTORY_TDS_SECTIONS:
+                from core.exceptions import BusinessRuleError
+
+                raise BusinessRuleError(
+                    "TDS section must be one of 194C, 194I, 194J, 194Q."
+                )
+            attrs["tds_section"] = section
         supplier = attrs.get("supplier", getattr(self.instance, "supplier", None))
         if "bill_of_entry" in attrs:
             boe = attrs.get("bill_of_entry")
@@ -282,12 +293,12 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         if instance.status in (PurchaseInvoice.Status.CANCELLED, PurchaseInvoice.Status.RETURNED):
             raise BusinessRuleError("Cancelled/returned purchase cannot be edited.")
+        request = self.context["request"]
         if instance.status == PurchaseInvoice.Status.COMPLETED and "supplier" in validated_data:
             if validated_data["supplier"].pk != instance.supplier_id:
                 raise BusinessRuleError("Cannot change supplier on a completed purchase.")
 
         items_data = validated_data.pop("items", serializers.empty)
-        request = self.context["request"]
         raw = getattr(request, "data", None) or {}
         confirm_raw = raw.get("confirm_amend") if hasattr(raw, "get") else None
         confirm_amend = confirm_raw in (True, "true", "True", 1, "1")
@@ -333,6 +344,8 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         from core.models import log_money_field_diff, money_field_snapshot
 
         before_money = money_field_snapshot(instance)
+        if instance.status == PurchaseInvoice.Status.COMPLETED:
+            PurchaseService.snapshot_completed_purchase(instance, request.user)
 
         def _flush_money_audit(inv):
             inv.refresh_from_db()

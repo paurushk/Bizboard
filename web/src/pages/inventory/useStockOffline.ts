@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
 import { completeTransfer, postStockCount, updateStockCount } from '@/api/resources';
 import { t } from '@/i18n';
 import { flushOutbox, listDrafts, removeDraft, type OutboxDraft } from '@/offline/invoiceDraftCache';
@@ -85,7 +85,9 @@ export function useStockOffline(
   setOutboxBanner?: (msg: string | null) => void,
 ): void {
   const bannerRef = useRef(setOutboxBanner);
-  bannerRef.current = setOutboxBanner;
+  useLayoutEffect(() => {
+    bannerRef.current = setOutboxBanner;
+  });
   const flushGuard = useRef(false);
 
   useEffect(() => {

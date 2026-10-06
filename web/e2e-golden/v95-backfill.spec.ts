@@ -35,11 +35,11 @@ test('enabling books after a completed invoice shows the backfill warning', asyn
   await addInvoiceItem(page, sku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
-  await expect(page.getByRole('row', { name: new RegExp(customerName) })).toContainText('Completed');
+  await expect(page.getByRole('row', { name: new RegExp(customerName) })).toContainText('Unpaid');
 
   await enableAccounting(page);
   await page.goto('/reports/books-health');
   await expect(
-    page.getByText('Accounting is on, but this company has completed invoices and no journals'),
+    page.getByText('older bills are not in them yet'),
   ).toBeVisible({ timeout: 20_000 });
 });

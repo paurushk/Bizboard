@@ -481,8 +481,10 @@ def _has_hard_recon_anchor(
                 target_utr = normalize_utr(payment.utr)
     if line_utr and target_utr and line_utr == target_utr:
         return True
-    # UTR also accepted when present only in narration.
-    if target_utr and target_utr in narr.replace(" ", ""):
+    # A narration token must equal the normalised UTR. A shorter UTR buried
+    # inside a longer reference is not an auto-match anchor.
+    narr_tokens = {tok for tok in re.split(r"[^A-Z0-9]+", narr) if len(tok) >= 8}
+    if target_utr and target_utr in narr_tokens:
         return True
     return False
 

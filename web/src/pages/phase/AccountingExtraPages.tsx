@@ -75,26 +75,26 @@ export function AccountingSettingsPage() {
           </Alert>
           <Stack direction="row" spacing={1}>
             <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate(true)}>
-              Enable accounting
+              {t('sweep2.enableAccounting')}
             </Button>
             <Button variant="outlined" disabled={writesBlocked || m.isPending} onClick={() => {
               if (!window.confirm(t('phase.confirmDisableAccounting'))) return;
               m.mutate(false);
             }}>
-              Disable
+              {t('sweep2.disable')}
             </Button>
           </Stack>
         </Stack>
       </Paper>
       <Paper variant="outlined" sx={{ p: 3, mt: 2 }}>
         <Stack spacing={2}>
-          <Typography variant="h6">Close financial year</Typography>
+          <Typography variant="h6">{t('sweep2.closeFy')}</Typography>
           <Typography variant="body2" color="text.secondary">
             Zeros income and expense accounts into 3100 Retained Earnings (not 3200 Opening Equity), then locks overlapping periods. Owner only. Refuses unhealthy books or draft invoices in the FY.
           </Typography>
           <TextField
             type="date"
-            label="FY end"
+            label={t('sweep.fyEnd')}
             size="small"
             InputLabelProps={{ shrink: true }}
             value={fyEnd}
@@ -107,14 +107,14 @@ export function AccountingSettingsPage() {
         </Stack>
       </Paper>
       <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)}>
-        <DialogTitle>Confirm FY close</DialogTitle>
+        <DialogTitle>{t('sweep2.confirmFyClose')}</DialogTitle>
         <DialogContent>
           Close books through {fyEnd}? This posts closing journals and sets overlapping accounting periods to CLOSED. This cannot be undone from the UI.
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)}>Cancel</Button>
+          <Button onClick={() => setConfirmOpen(false)}>{t('sweep2.cancel')}</Button>
           <Button color="error" variant="contained" disabled={writesBlocked || fyClose.isPending} onClick={() => fyClose.mutate()}>
-            Confirm close
+            {t('sweep2.confirmClose')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -196,24 +196,32 @@ export function AccountingBankReconPage() {
       {!statementRows.length ? (
         <Alert severity="info" action={
           <Button color="inherit" size="small" component={RouterLink} to="/payments/statements">
-            Open bank statements
+            {t('sweep2.openBankStatements')}
           </Button>
         }>
           No bank statements yet. Upload and commit a statement first, then pick it here.
         </Alert>
-      ) : null}
+      ) : (
+      <>
       {error ? <HelpErrorAlert message={error} /> : null}
+      <Alert severity="info" action={
+        <Button color="inherit" size="small" component={RouterLink} to="/payments/reconciliation">
+          {t('phase.openPaymentsRecon')}
+        </Button>
+      }>
+        {t('phase.glReconDistinct')}
+      </Alert>
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
           <TextField
             select
-            label="GL account"
+            label={t('sweep.glAccount')}
             size="small"
             value={account}
             onChange={(e) => { setAccount(e.target.value); setJournalLine(''); }}
             sx={{ minWidth: 240, flex: 1 }}
           >
-            <MenuItem value="">Select account</MenuItem>
+            <MenuItem value="">{t('sweep2.selectAccount')}</MenuItem>
             {cashBankAccounts.map((a) => (
               <MenuItem key={a.id} value={String(a.id)}>
                 {a.code} — {a.name}
@@ -222,14 +230,14 @@ export function AccountingBankReconPage() {
           </TextField>
           <TextField
             select
-            label="Bank statement"
+            label={t('sweep.bankStatement')}
             size="small"
             value={statement}
             onChange={(e) => { setStatement(e.target.value); setBankLine(''); }}
             sx={{ minWidth: 240, flex: 1 }}
             disabled={!statementRows.length}
           >
-            <MenuItem value="">Select statement</MenuItem>
+            <MenuItem value="">{t('sweep2.selectStatement')}</MenuItem>
             {statementRows.map((row) => (
               <MenuItem key={String(row.id)} value={String(row.id)}>
                 {String(row.sourceFilename || row.source_filename || `Statement #${row.id}`)}
@@ -238,19 +246,19 @@ export function AccountingBankReconPage() {
             ))}
           </TextField>
           <Button variant="contained" disabled={writesBlocked || !account || !statement || create.isPending} onClick={() => create.mutate()}>
-            Create session
+            {t('sweep2.createSession')}
           </Button>
         </Stack>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 2 }}>
           <TextField
             select
-            label="Session"
+            label={t('sweep.session')}
             size="small"
             value={session}
             onChange={(e) => setSession(e.target.value)}
             sx={{ minWidth: 160 }}
           >
-            <MenuItem value="">Select session</MenuItem>
+            <MenuItem value="">{t('sweep2.selectSession')}</MenuItem>
             {asRows(query.data).map((row) => (
               <MenuItem key={String(row.id)} value={String(row.id)}>
                 #{String(row.id)} · {String(row.status || 'OPEN')}
@@ -259,7 +267,7 @@ export function AccountingBankReconPage() {
           </TextField>
           <TextField
             select
-            label="Journal line"
+            label={t('sweep.journalLine')}
             size="small"
             value={journalLine}
             onChange={(e) => setJournalLine(e.target.value)}
@@ -282,7 +290,7 @@ export function AccountingBankReconPage() {
           </TextField>
           <TextField
             select
-            label="Statement line"
+            label={t('sweep.statementLine')}
             size="small"
             value={bankLine}
             onChange={(e) => setBankLine(e.target.value)}
@@ -301,23 +309,20 @@ export function AccountingBankReconPage() {
             variant="outlined"
             disabled={writesBlocked || !session || !journalLine || !bankLine || match.isPending}
             onClick={() => {
-              // F2-014: block a mismatched GL↔bank match unless explicitly ack'd.
               const gl = unmatchedGl.find((l) => String(l.id) === journalLine);
               const bank = unmatchedBank.find((l) => String(l.id) === bankLine);
-              const glAmt = gl ? Math.abs(toNumber(gl.debit) - toNumber(gl.credit)) : 0;
-              const bankAmt = bank ? Math.abs(toNumber((bank.amount as string | number) ?? 0)) : 0;
-              if (
-                gl && bank && Math.abs(glAmt - bankAmt) > 0.01 &&
-                !window.confirm(
-                  `GL line is ${formatMoney(glAmt)} but the bank line is ${formatMoney(bankAmt)}. Match them anyway?`,
-                )
-              ) {
+              const glAmt = gl
+                ? toNumber((gl.signedAmount as string | number | undefined) ?? (toNumber(gl.debit) - toNumber(gl.credit)))
+                : 0;
+              const bankAmt = bank ? toNumber((bank.amount as string | number) ?? 0) : 0;
+              if (gl && bank && Math.abs(glAmt - bankAmt) > 0.01) {
+                setError(t('phase.glReconAmountMismatch'));
                 return;
               }
               match.mutate();
             }}
           >
-            Match lines
+            {t('sweep2.matchLines')}
           </Button>
         </Stack>
       </Paper>
@@ -332,6 +337,8 @@ export function AccountingBankReconPage() {
           { key: 'statementBalance', label: 'Statement', money: true },
         ]}
       />
+      </>
+      )}
     </PageShell>
   );
 }
@@ -358,7 +365,7 @@ export function CostCentersPage() {
       subtitle={t('phase.costCentersSubtitle')}
       actions={
         <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          Add
+          {t('sweep2.add')}
         </Button>
       }
     >
@@ -372,17 +379,17 @@ export function CostCentersPage() {
         ]}
       />
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Cost center</DialogTitle>
+        <DialogTitle>{t('sweep2.costCenter')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Name" value={name} onChange={(e) => setName(e.target.value)} />
-            <TextField label="Code" value={code} onChange={(e) => setCode(e.target.value)} />
+            <TextField label={t('sweep.name')} value={name} onChange={(e) => setName(e.target.value)} />
+            <TextField label={t('sweep.code')} value={code} onChange={(e) => setCode(e.target.value)} />
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Cancel</Button>
+          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
           <Button variant="contained" disabled={writesBlocked || !name || create.isPending} onClick={() => create.mutate()}>
-            Save
+            {t('sweep2.save')}
           </Button>
         </DialogActions>
       </Dialog>

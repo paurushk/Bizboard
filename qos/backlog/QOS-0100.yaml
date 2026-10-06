@@ -1,0 +1,31 @@
+id: QOS-0100
+category: USABILITY
+title: Several UX improvements are deferred and need a founder decision
+persona:
+- P1
+journey: Reconciliation, navigation and POS lots
+problem: A split-pane bank match, a Sell/Buy/Money menu overhaul, Tally-style shortcuts and automatic
+  FEFO lot choice were deferred on purpose.
+evidence:
+  strength: heuristic
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: Ledger rows UX-06, CW-R1, CW-R2, CW-R5, UX-014. Deferred until user sessions or pilots ask for
+    them.
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 3
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Deliberately parked; revisit when a pilot asks.
+effort: M
+recommendation: 'Revisit after the first pilot sessions. Keep CW-R5 manual: the cashier chooses the lot.'
+test_required: n/a - decision-gated
+guard_ref: null
+lifecycle: open
+owner: founder
+opened: '2026-10-01'
+closed: null

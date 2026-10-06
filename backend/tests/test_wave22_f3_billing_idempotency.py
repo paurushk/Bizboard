@@ -157,10 +157,11 @@ def test_stale_inflight_idempotency_record_is_replaced(tenant_a):
 
 
 def test_stale_inflight_money_scope_is_not_reclaimed(tenant_a):
-    """B6-014: a money-creating scope must stay claimed past the 15-min stale
-    window — the first request may still legitimately be committing (a large
-    import commit, a slow invoice complete). Reclaiming it lets a client retry
-    double-run the same non-idempotent-by-construction operation."""
+    """A stale in-flight money key stays claimed whether or not it names a resource.
+
+    The first request may still be committing that invoice, receipt, or import, and
+    resource_id is only written after the commit. Reclaiming lets a retry post twice.
+    """
     company = tenant_a.company
     scope = "sales_invoice_create"
     key = "f3-money-stale-key"

@@ -29,28 +29,66 @@ import { check, sleep } from "k6";
 import { SharedArray } from "k6/data";
 import exec from "k6/execution";
 
-export const options = {
-  scenarios: {
-    list: {
-      executor: "constant-vus",
-      vus: 10,
-      duration: "2m",
-      exec: "listInvoices",
-    },
-    complete: {
-      executor: "constant-vus",
-      vus: 5,
-      duration: "2m",
-      exec: "completeDraft",
-      startTime: "10s",
-    },
-  },
-  thresholds: {
-    "http_req_duration{name:invoice_list}": ["p(95)<2000"],
-    "http_req_duration{name:invoice_complete}": ["p(95)<800"],
-    http_req_failed: ["rate<0.05"],
-  },
-};
+// Scenarios run one after another so a slow report cannot queue behind list
+// or Complete on the default 2 sync workers. K6_ONLY=list|dashboard|reports|all.
+// A 30-minute soak belongs in load/k6_mixed.js. Access tokens last 15 minutes
+// (JWT_ACCESS_MINUTES); set JWT_ACCESS_MINUTES=60 on staging before a soak.
+const ONLY = __ENV.K6_ONLY || "all";
+
+function wants(name) {
+  return ONLY === "all" || ONLY === name;
+}
+
+const scenarios = {};
+if (wants("list")) {
+  scenarios.list_complete_list = {
+    executor: "constant-vus",
+    vus: 10,
+    duration: "2m",
+    exec: "listInvoices",
+    startTime: "0s",
+  };
+  scenarios.list_complete_complete = {
+    executor: "constant-vus",
+    vus: 5,
+    duration: "2m",
+    exec: "completeDraft",
+    startTime: "10s",
+  };
+}
+if (wants("dashboard")) {
+  scenarios.dashboard = {
+    executor: "constant-vus",
+    vus: 5,
+    duration: "1m",
+    exec: "dashboard",
+    startTime: ONLY === "all" ? "2m30s" : "0s",
+  };
+}
+if (wants("reports")) {
+  scenarios.reports = {
+    executor: "constant-vus",
+    vus: 2,
+    duration: "1m",
+    exec: "reports",
+    startTime: ONLY === "all" ? "4m" : "0s",
+  };
+}
+
+const thresholds = { http_req_failed: ["rate<0.05"] };
+if (wants("list")) {
+  thresholds["http_req_duration{name:invoice_list}"] = ["p(95)<2000"];
+  thresholds["http_req_duration{name:invoice_complete}"] = ["p(95)<800"];
+}
+if (wants("dashboard")) {
+  thresholds["http_req_duration{name:dashboard}"] = ["p(95)<500"];
+}
+if (wants("reports")) {
+  thresholds["http_req_duration{name:report_sales}"] = ["p(95)<8000"];
+  thresholds["http_req_duration{name:report_gstr1}"] = ["p(95)<8000"];
+}
+
+export const options = { scenarios, thresholds };
 
 const BASE = __ENV.BASE_URL || "http://localhost:8000";
 const EMAIL = __ENV.EMAIL || "";
@@ -149,5 +187,39 @@ export function completeDraft(data) {
   check(res, {
     "complete succeeded (2xx)": (r) => r.status >= 200 && r.status < 300,
   });
+  sleep(1);
+}
+
+export function dashboard(data) {
+  const headers = data && data.headers;
+  if (!headers) {
+    sleep(1);
+    return;
+  }
+  const res = http.get(`${BASE}/api/v1/dashboard/`, {
+    headers,
+    tags: { name: "dashboard" },
+  });
+  check(res, { "dashboard succeeded (2xx)": (r) => r.status >= 200 && r.status < 300 });
+  sleep(0.5);
+}
+
+export function reports(data) {
+  const headers = data && data.headers;
+  if (!headers) {
+    sleep(1);
+    return;
+  }
+  const period = __ENV.K6_PERIOD || "2026-09";
+  const sales = http.get(
+    `${BASE}/api/v1/reports/sales-register/?date_from=${period}-01&date_to=${period}-28&page=1&page_size=50`,
+    { headers, tags: { name: "report_sales" } },
+  );
+  check(sales, { "sales register succeeded (2xx)": (r) => r.status >= 200 && r.status < 300 });
+  const gstr = http.get(`${BASE}/api/v1/reports/gstr1/?period=${period}&format=json`, {
+    headers,
+    tags: { name: "report_gstr1" },
+  });
+  check(gstr, { "gstr1 succeeded (2xx)": (r) => r.status >= 200 && r.status < 300 });
   sleep(1);
 }

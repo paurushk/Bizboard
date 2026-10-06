@@ -17,7 +17,14 @@ class Ticket(CompanyScopedModel):
         RESOLVED = "RESOLVED"
         CLOSED = "CLOSED"
 
+    class Category(models.TextChoices):
+        GENERAL = "GENERAL"
+        NUMBER_MISMATCH = "NUMBER_MISMATCH"
+
     number = models.CharField(max_length=32, blank=True)
+    category = models.CharField(
+        max_length=32, choices=Category.choices, default=Category.GENERAL, db_index=True,
+    )
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="tickets")
     subject = models.CharField(max_length=255)
     description = models.TextField(blank=True)

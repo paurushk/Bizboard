@@ -1,6 +1,8 @@
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { Link as RouterLink } from 'react-router-dom';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 
@@ -13,6 +15,7 @@ export function AccountAggregatorPage() {
         <Typography fontWeight={600}>{t('aaHonesty.title')}</Typography>
         <Typography variant="body2">{t('aaHonesty.body')}</Typography>
       </Alert>
+      <Button component={RouterLink} to="/payments/statements" variant="contained">{t('aaHonesty.openStatements')}</Button>
     </Stack>
   );
 }

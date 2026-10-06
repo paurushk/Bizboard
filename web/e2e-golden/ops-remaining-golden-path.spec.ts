@@ -42,7 +42,7 @@ test('serial: opening serial is AVAILABLE then SOLD after invoice complete', asy
   await addInvoiceItem(page, sku);
   await page.getByPlaceholder('SN-001, SN-002').fill(serialNo);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   await page.goto('/inventory/serials');
   await expect(page.getByRole('row', { name: new RegExp(serialNo) })).toContainText('SOLD');

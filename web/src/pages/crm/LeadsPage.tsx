@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import axios from 'axios';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -7,6 +8,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -18,11 +20,13 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { listCampaignsPage } from '@/api/growth';
 import {
   assignLead,
   convertLead,
+  draftOpportunityInvoice,
   createLead,
   createLeadActivity,
   importLeadsCsv,
@@ -39,12 +43,15 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
+import { enumLabel } from '@/utils/enumLabels';
 import { useAuth } from '@/auth/AuthContext';
 import { isReferralsEnabled } from '@/config/features';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { isPastIso } from '@/utils/clock';
 
 const PAGE_SIZE = 50;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'] as const;
@@ -80,6 +87,7 @@ function activityKindLabel(kind: string) {
 function LeadsPageInner() {
   const { writesBlocked } = useSubscriptionGate();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const isOwner = user?.role === 'OWNER';
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -105,6 +113,7 @@ function LeadsPageInner() {
     pendingReview: number;
     errors: Array<{ row: number; detail: string }>;
   } | null>(null);
+  const [captureAnchor, setCaptureAnchor] = useState<HTMLElement | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const query = useQuery({
@@ -120,6 +129,7 @@ function LeadsPageInner() {
   });
   const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
   const campaigns = useQuery({ queryKey: ['campaigns', 'filter'], queryFn: () => listCampaignsPage({ pageSize: 100 }) });
+  const customerSearch = useCustomerSearch();
   const customersQuery = useQuery({
     queryKey: ['customers', 'crm'],
     queryFn: () => listCustomersPage({ page: 1, pageSize: 200 }),
@@ -221,10 +231,17 @@ function LeadsPageInner() {
   const convertMutation = useMutation({
     mutationFn: ({ lead, amount, won }: { lead: Lead; amount: number; won: boolean }) =>
       convertLead(lead.id, { amount, won }),
-    onSuccess: () => {
+    onSuccess: (result, vars) => {
       void qc.invalidateQueries({ queryKey: ['leads'] });
       void qc.invalidateQueries({ queryKey: ['opportunities'] });
       void qc.invalidateQueries({ queryKey: ['customers'] });
+      if (vars.won && result.opportunity?.id) {
+        void draftOpportunityInvoice(result.opportunity.id)
+          .then((draft) => {
+            if (draft?.id) navigate(`/sales/history/${draft.id}/edit`);
+          })
+          .catch((err) => setError(getErrorMessage(err))); // a failed draft must not vanish silently
+      }
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -274,23 +291,35 @@ function LeadsPageInner() {
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.leads')}</PageTitle>
         <Stack direction="row" spacing={1}>
-          <Button variant="outlined" disabled={writesBlocked || formLink.isPending} onClick={() => formLink.mutate()}>
-            {t('osPlan.formLink')}
+          <Button
+            variant="outlined"
+            aria-haspopup="menu"
+            aria-expanded={captureAnchor ? 'true' : undefined}
+            onClick={(e) => setCaptureAnchor(e.currentTarget)}
+          >
+            {t('growth.leadCapture')}
           </Button>
-          {isOwner ? (
-            <>
-              <Button variant="outlined" disabled={writesBlocked || whatsappLink.isPending} onClick={() => whatsappLink.mutate()}>
+          <Menu anchorEl={captureAnchor} open={Boolean(captureAnchor)} onClose={() => setCaptureAnchor(null)}>
+            <MenuItem disabled={writesBlocked || formLink.isPending} onClick={() => { setCaptureAnchor(null); formLink.mutate(); }}>
+              {t('osPlan.formLink')}
+            </MenuItem>
+            {isOwner ? (
+              <MenuItem disabled={writesBlocked || whatsappLink.isPending} onClick={() => { setCaptureAnchor(null); whatsappLink.mutate(); }}>
                 {t('osPlan.whatsappLink')}
-              </Button>
-              <Button variant="outlined" disabled={writesBlocked || whatsappReplace.isPending} onClick={() => whatsappReplace.mutate()}>
+              </MenuItem>
+            ) : null}
+            {isOwner ? (
+              <MenuItem disabled={writesBlocked || whatsappReplace.isPending} onClick={() => { setCaptureAnchor(null); whatsappReplace.mutate(); }}>
                 {t('osPlan.whatsappLinkReplace')}
-              </Button>
-            </>
-          ) : null}
-          <Button variant="outlined" disabled={writesBlocked} onClick={() => fileRef.current?.click()}>
-            {t('osPlan.importCsv')}
-          </Button>
-          <Typography variant="caption" color="text.secondary" sx={{ alignSelf: 'center' }}>{t('growth.csvHint')}</Typography>
+              </MenuItem>
+            ) : null}
+            <MenuItem disabled={writesBlocked} onClick={() => { setCaptureAnchor(null); fileRef.current?.click(); }}>
+              {t('osPlan.importCsv')}
+            </MenuItem>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1, display: 'block', maxWidth: 280 }}>
+              {t('growth.csvHint')}
+            </Typography>
+          </Menu>
           <input
             ref={fileRef}
             hidden
@@ -327,7 +356,7 @@ function LeadsPageInner() {
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField select label={t('osPlan.source')} value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} sx={{ minWidth: 160 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
-          {LEAD_SOURCES.map((source) => <MenuItem key={source} value={source}>{source}</MenuItem>)}
+          {LEAD_SOURCES.map((source) => <MenuItem key={source} value={source}>{enumLabel('leadSource', source)}</MenuItem>)}
         </TextField>
         <TextField select label={t('nav.campaigns')} value={campaignFilter} onChange={(e) => { setCampaignFilter(e.target.value); setPage(1); }} sx={{ minWidth: 180 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
@@ -344,7 +373,7 @@ function LeadsPageInner() {
         <EmptyState description={t('empty.leads')} />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -368,12 +397,13 @@ function LeadsPageInner() {
                   <TableCell>
                     {lead.customer ? customerMap.get(lead.customer) ?? lead.customer : '—'}
                   </TableCell>
-                  <TableCell>{lead.source || '—'}</TableCell>
+                  <TableCell>{lead.source ? enumLabel('leadSource', lead.source) : '—'}</TableCell>
                   <TableCell>{lead.campaign ? campaignMap.get(lead.campaign) ?? `#${lead.campaign}` : '—'}</TableCell>
                   <TableCell>
                     <TextField
                       select
                       size="small"
+                      SelectProps={{ SelectDisplayProps: { 'aria-label': t('osPlan.assignLead', { name: lead.name }) } as HTMLAttributes<HTMLDivElement> }}
                       value={lead.assignedTo ?? ''}
                       onChange={(e) => {
                         const value = e.target.value;
@@ -381,7 +411,7 @@ function LeadsPageInner() {
                           void qc.invalidateQueries({ queryKey: ['leads'] });
                         }).catch((err) => setError(getErrorMessage(err)));
                       }}
-                      sx={{ minWidth: 140 }}
+                      sx={{ minWidth: 160, '& .MuiInputBase-root': { minHeight: 44 } }}
                     >
                       <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
                       {(members.data ?? []).map((member) => (
@@ -471,7 +501,7 @@ function LeadsPageInner() {
             >
               <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
               {LEAD_SOURCES.map((source) => (
-                <MenuItem key={source} value={source}>{source}</MenuItem>
+                <MenuItem key={source} value={source}>{enumLabel('leadSource', source)}</MenuItem>
               ))}
             </TextField>
             <TextField
@@ -509,24 +539,13 @@ function LeadsPageInner() {
                 onChange={(e) => setForm((f) => ({ ...f, referralCode: e.target.value }))}
               />
             ) : null}
-            <TextField
-              select
-              label={t('nav.customers')}
-              value={form.customer}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  customer: e.target.value ? Number(e.target.value) : '',
-                }))
-              }
-            >
-              <MenuItem value="">—</MenuItem>
-              {(customersQuery.data?.results ?? []).map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <Autocomplete
+              options={customerSearch.options}
+              getOptionLabel={(option) => option.name}
+              onInputChange={(_, value) => customerSearch.setQuery(value)}
+              onChange={(_, option) => setForm((f) => ({ ...f, customer: option?.id ?? '' }))}
+              renderInput={(params) => <TextField {...params} label={t('nav.customers')} />}
+            />
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -564,7 +583,7 @@ function LeadsPageInner() {
                 <Typography variant="caption" color="text.secondary">
                   {activityKindLabel(activity.kind)} · {activity.createdAt}
                   {activity.dueAt
-                    ? ` · ${new Date(activity.dueAt).getTime() < Date.now() ? t('osPlan.overdue') : t('osPlan.activityDue')} ${activity.dueAt}`
+                    ? ` · ${isPastIso(activity.dueAt) ? t('osPlan.overdue') : t('osPlan.activityDue')} ${activity.dueAt}`
                     : ''}
                 </Typography>
                 <Typography variant="body2">{activity.body}</Typography>

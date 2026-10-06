@@ -1,0 +1,2482 @@
+[
+  {
+    "app": "accounting",
+    "path": "backend/accounting/services.py",
+    "line": 1615,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: tds_already = (parent_tds * prior_cn / parent_grand).quantize(Decimal("
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/services.py",
+    "line": 1618,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: (parent_tds * ap_debit / parent_grand).quantize(Decimal(\"0.01\")),"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/tasks.py",
+    "line": 161,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: FixedAsset.objects.filter(pk=asset.pk).update(last_depreciation_error="
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/tasks.py",
+    "line": 164,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: FixedAsset.objects.filter(pk=asset.pk).update(last_depreciation_error="
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 336,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: line = JournalLine.objects.filter(entry__company=self.company, pk=requ"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 338,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: bank_line_id = request.data.get(\"bank_statement_line\")"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 412,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: proceeds = Decimal(str(request.data.get(\"proceeds\", \"0\") or \"0\"))"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 425,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: cash_code = str(request.data.get(\"cash_account_code\") or \"1100\")"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 515,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw = request.data.get(\"accounting_enabled\")"
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 575,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: dry_run = request.data.get(\"dry_run\") in (True, \"true\", \"True\", 1, \"1\""
+  },
+  {
+    "app": "accounting",
+    "path": "backend/accounting/views.py",
+    "line": 576,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm = request.data.get(\"confirm\") in (True, \"true\", \"True\", 1, \"1\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 98,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_destroy = _truthy(request.data.get(\"confirm_destroy\"))"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 99,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: restore_mode = str(request.data.get(\"restore\") or \"\").strip().lower()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 102,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: typed_name = (request.data.get(\"typed_name\") or request.data.get(\"type"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 108,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: request.data.get(\"confirm_destroy_unbacked\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 109,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: or request.data.get(\"confirmDestroyUnbacked\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/export_views.py",
+    "line": 169,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw = request.data.get(\"payload\") or request.data.get(\"blob\") or \"\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 56,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: token = str(request.data.get(\"enrol_token\") or request.data.get(\"enrol"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 118,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: code = str(request.data.get(\"code\") or \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 143,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: password = request.data.get(\"password\") or \"\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 152,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: rec, code=str(request.data.get(\"code\") or \"\"), recovery_code=str(reque"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 200,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: token = str(request.data.get(\"mfa_token\") or \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/mfa_views.py",
+    "line": 213,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: rec, code=str(request.data.get(\"code\") or \"\"), recovery_code=str(reque"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/pack_views.py",
+    "line": 25,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw = request.data.get(\"all_features\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/pack_views.py",
+    "line": 64,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: answers = request.data.get(\"answers\") or {}"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/pack_views.py",
+    "line": 68,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm = bool(request.data.get(\"confirm\"))"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/tenant_backup.py",
+    "line": 1504,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Account.objects.filter(pk=new_id).update(parent_id=new_parent)"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 359,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: email = (request.data.get(\"email\") or \"\").strip().lower()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 555,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: email = request.data.get(\"email\", \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 612,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: body_raw = request.data.get(\"refresh\") if isinstance(request.data, dic"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 662,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: refresh = request.data.get(\"refresh\") if isinstance(request.data, dict"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 685,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone = normalize_e164(request.data.get(\"phone\") or \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 761,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone = normalize_e164(request.data.get(\"phone\") or \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 764,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: code = (request.data.get(\"code\") or \"\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 904,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: company_id = request.data.get(\"company_id\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1005,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: pan = (request.data.get(\"pan\") or company.pan or \"\").strip().upper()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1024,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: udyam = (request.data.get(\"udyam\") or company.udyam or \"\").strip().upp"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1042,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: current = request.data.get(\"current_password\") or \"\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1043,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: new = request.data.get(\"new_password\") or \"\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1073,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: token = (request.data.get(\"token\") or \"\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1074,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: new_password = request.data.get(\"new_password\") or \"\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1126,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: provided_pw = (request.data.get(\"password\") or request.data.get(\"curre"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1157,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: code = str(request.data.get(\"code\") or \"\")"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1158,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: recovery = str(request.data.get(\"recovery_code\") or request.data.get(\""
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1453,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: InviteJti.objects.filter(membership=instance, consumed_at__isnull=True"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1559,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: identifier = (request.data.get(\"identifier\") or request.data.get(\"emai"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1682,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: token = (request.data.get(\"token\") or \"\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1683,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: new_password = request.data.get(\"new_password\") or request.data.get(\"p"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1743,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm = str(request.data.get(\"confirm\") or \"\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1748,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: reason = str(request.data.get(\"reason\") or \"\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1752,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: mode = str(request.data.get(\"mode\") or \"tombstone\").strip()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/views.py",
+    "line": 1757,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if not request.data.get(\"skip_export\"):"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/reset_user_mfa.py",
+    "line": 24,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: deleted, _ = UserMfa.objects.filter(user=user).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_h05_demo.py",
+    "line": 124,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: User.objects.filter(email__iexact=OWNER_EMAIL).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_pilot_fixtures.py",
+    "line": 110,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Company.objects.filter(name=p[\"name\"]).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_pilot_fixtures.py",
+    "line": 111,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: User.objects.filter(email__iexact=p[\"email\"]).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_pilot_fixtures.py",
+    "line": 113,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: User.objects.filter(email__iexact=p[\"staff_email\"]).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_staging.py",
+    "line": 30,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Company.objects.filter(name=profile[\"name\"]).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_staging.py",
+    "line": 31,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: User.objects.filter(email__iexact=profile[\"email\"]).delete()"
+  },
+  {
+    "app": "accounts",
+    "path": "backend/accounts/management/commands/seed_staging.py",
+    "line": 33,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: User.objects.filter(email__iexact=profile[\"staff_email\"]).delete()"
+  },
+  {
+    "app": "billing",
+    "path": "backend/billing/views.py",
+    "line": 70,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if request.data.get(\"action\") != \"suspend\":"
+  },
+  {
+    "app": "billing",
+    "path": "backend/billing/views.py",
+    "line": 115,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: plan_id = request.data.get(\"plan_id\") or request.data.get(\"planId\")"
+  },
+  {
+    "app": "billing",
+    "path": "backend/billing/views.py",
+    "line": 116,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: slug = (request.data.get(\"plan_slug\") or request.data.get(\"planSlug\") "
+  },
+  {
+    "app": "complaints",
+    "path": "backend/complaints/views.py",
+    "line": 101,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: items = request.data.get(\"items\") or []"
+  },
+  {
+    "app": "core",
+    "path": "backend/core/tasks.py",
+    "line": 35,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Notification.objects.filter(pk=notification_id).update("
+  },
+  {
+    "app": "core",
+    "path": "backend/core/tasks.py",
+    "line": 49,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Notification.objects.filter(pk=notification_id).update("
+  },
+  {
+    "app": "core",
+    "path": "backend/core/tasks.py",
+    "line": 53,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Notification.objects.filter(pk=notification_id).update("
+  },
+  {
+    "app": "core",
+    "path": "backend/core/tasks.py",
+    "line": 107,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: deleted, _counts = HelpEvent.objects.filter(created_at__lt=cutoff).del"
+  },
+  {
+    "app": "core",
+    "path": "backend/core/services/audit_chain.py",
+    "line": 84,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: AuditEvent.objects.filter(pk=ev.pk, sealed_at__isnull=True).update("
+  },
+  {
+    "app": "core",
+    "path": "backend/core/services/tax_engine/india.py",
+    "line": 325,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: line_gross_inclusive * original_discount / Decimal(\"100\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/forecast.py",
+    "line": 75,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: weighted = (Decimal(opportunity.amount or 0) * Decimal(opportunity.pro"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/growth_views.py",
+    "line": 109,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"referrer_customer\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/growth_views.py",
+    "line": 110,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: user_id = request.data.get(\"referrer_user\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/tasks.py",
+    "line": 55,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: LeadIngestJob.objects.filter(pk=job_id).update("
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/tasks.py",
+    "line": 61,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: LeadIngestJob.objects.filter(pk=job_id, status=LeadIngestJob.Status.RU"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 64,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: name=request.data.get(\"name\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 65,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone=request.data.get(\"phone\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 66,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: email=request.data.get(\"email\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 67,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: message=request.data.get(\"message\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 68,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: source=request.data.get(\"source\") or None,"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 70,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: dedupe_decision=request.data.get(\"dedupe_decision\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 71,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: campaign=request.data.get(\"campaign\") or None,"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 72,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: referral_code=request.data.get(\"referral_code\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 82,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: value = request.data.get(field)"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 85,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: changed = any(request.data.get(field) for field in (\"state\", \"gstin\", "
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 86,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 108,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: assignee_id = request.data.get(\"assigned_to\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 128,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: decision = (request.data.get(\"decision\") or \"\").strip().lower()"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 132,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw_customer = request.data.get(\"customer_id\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 133,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw_lead = request.data.get(\"lead_id\")"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 219,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: rotate = request.data.get(\"rotate\") in (True, \"true\", \"1\", 1)"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 306,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if (request.data.get(\"website\") or \"\").strip():"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 320,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: name=request.data.get(\"name\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 321,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone=request.data.get(\"phone\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 322,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: email=request.data.get(\"email\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 323,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: message=request.data.get(\"message\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 326,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: campaign=request.data.get(\"campaign\") or None,"
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 327,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: referral_code=request.data.get(\"referral_code\") or \"\","
+  },
+  {
+    "app": "crm",
+    "path": "backend/crm/views.py",
+    "line": 471,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: items = request.data.get(\"items\")"
+  },
+  {
+    "app": "imports",
+    "path": "backend/imports/views.py",
+    "line": 74,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: kind = (self.request.data.get(\"kind\") or \"\").upper()"
+  },
+  {
+    "app": "imports",
+    "path": "backend/imports/views.py",
+    "line": 82,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: kind = (request.data.get(\"kind\") or \"\").upper()"
+  },
+  {
+    "app": "imports",
+    "path": "backend/imports/views.py",
+    "line": 90,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: supplier_id = request.data.get(\"supplier_id\") or request.data.get(\"sup"
+  },
+  {
+    "app": "imports",
+    "path": "backend/imports/views.py",
+    "line": 98,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer_id\") or request.data.get(\"cus"
+  },
+  {
+    "app": "imports",
+    "path": "backend/imports/views.py",
+    "line": 284,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: skus = request.data.get(\"skus\") or []"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/services.py",
+    "line": 214,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: DailyBusinessSummary.objects.filter(pk=summary.pk, email_sent_at__isnu"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/services.py",
+    "line": 239,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_a"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/services.py",
+    "line": 241,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_a"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/services.py",
+    "line": 243,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: DailyBusinessSummary.objects.filter(pk=summary.pk).update(email_sent_a"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 105,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: date_str = request.data.get(\"date\") or request.query_params.get(\"date\""
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 225,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: content = (request.data.get(\"content\") or \"\").strip()"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 242,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: message_id = request.data.get(\"message_id\") or request.data.get(\"messa"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 262,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: message_id = request.data.get(\"message_id\") or request.data.get(\"messa"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 298,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: dedupe_key = (request.data.get(\"dedupe_key\") or request.data.get(\"dedu"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 323,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: dedupe_key = (request.data.get(\"dedupe_key\") or request.data.get(\"dedu"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 331,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: days=request.data.get(\"days\") or 7,"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 332,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: reason=request.data.get(\"reason\") or \"\","
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 348,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: dedupe_key = (request.data.get(\"dedupe_key\") or request.data.get(\"dedu"
+  },
+  {
+    "app": "insights",
+    "path": "backend/insights/views.py",
+    "line": 357,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: return request.data.get(key)"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/services.py",
+    "line": 61,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: PolicyOption.objects.filter(option_set=option.option_set).exclude(pk=o"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 47,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: name = (request.data.get(\"name\") or \"\").strip()"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 108,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: option = PolicyOption.objects.filter(company=self.company, pk=request."
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 109,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer = Customer.objects.filter(company=self.company, pk=request.da"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 113,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: start = date.fromisoformat(str(request.data.get(\"start_date\") or \"\"))"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 154,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: row = open_claim(self.get_object(), request.user, summary=request.data"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 159,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: asset = FileAsset.objects.filter(company=self.company, pk=request.data"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 160,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: row = attach_kyc(self.get_object(), request.user, kind=request.data.ge"
+  },
+  {
+    "app": "insurance",
+    "path": "backend/insurance/views.py",
+    "line": 178,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: days = int(request.data.get(\"within_days\") or 30)"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 66,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: run_id = request.data.get(\"sync_run_id\") or request.data.get(\"syncRunI"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 71,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: preview = request.data.get(\"preview\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 78,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: force = bool(request.data.get(\"force\"))"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 97,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: run_id = request.data.get(\"sync_run_id\") or request.data.get(\"syncRunI"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 98,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: force = bool(request.data.get(\"force\"))"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 177,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: kind = (request.data.get(\"kind\") or request.data.get(\"type\") or \"maste"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 178,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: base_url = request.data.get(\"base_url\") or request.data.get(\"baseUrl\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 179,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: date_from = request.data.get(\"date_from\") or request.data.get(\"dateFro"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 180,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: date_to = request.data.get(\"date_to\") or request.data.get(\"dateTo\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 237,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: request.data.get(\"token\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 238,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: or request.data.get(\"access_token\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 239,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: or request.data.get(\"whatsapp_token\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 243,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: request.data.get(\"phone_number_id\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 244,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: or request.data.get(\"phoneNumberId\")"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 313,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: batch_id = str(request.data.get(\"batch_id\") or request.data.get(\"batch"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 314,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: xml = request.data.get(\"xml\") or \"\""
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/views.py",
+    "line": 320,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: str(request.data.get(\"tally_total\") or request.data.get(\"tallyTotal\") "
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/tally/adapter.py",
+    "line": 294,
+    "level": "P1",
+    "title": "Missing atomic transaction block on multiple writes",
+    "detail": "Method performs multiple database mutations without explicit @transaction.atomic: def _create_opening_sales(company, user, customer: Customer, amount: D"
+  },
+  {
+    "app": "integrations",
+    "path": "backend/integrations/tally/adapter.py",
+    "line": 342,
+    "level": "P1",
+    "title": "Missing atomic transaction block on multiple writes",
+    "detail": "Method performs multiple database mutations without explicit @transaction.atomic: def _create_opening_purchase(company, user, supplier: Supplier, amount"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/forecast.py",
+    "line": 46,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: daily = (qty / Decimal(WINDOW_DAYS)).quantize(Decimal(\"0.001\"))"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/models.py",
+    "line": 180,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: cls.objects.filter(pk=pk).update(**fields)"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 347,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: Warehouse.objects.filter(pk=fallback.pk).update(is_default=True)"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 539,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: target = request.data.get(\"status\")"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 549,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: warehouse_id = request.data.get(\"warehouse\", serial.warehouse_id)"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 652,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: product = get_object_or_404(Product, pk=request.data.get(\"product\"), c"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 653,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: warehouse = Warehouse.objects.filter(pk=request.data.get(\"warehouse\"),"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 656,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: batch = BatchLot.objects.filter(pk=request.data.get(\"batch\"), company="
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 659,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: qty = Decimal(str(request.data.get(\"quantity\") or 0))"
+  },
+  {
+    "app": "inventory",
+    "path": "backend/inventory/views.py",
+    "line": 784,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: resolve = str(request.data.get(\"resolve_conflicts\") or \"\").upper()"
+  },
+  {
+    "app": "manufacturing",
+    "path": "backend/manufacturing/serializers.py",
+    "line": 125,
+    "level": "P1",
+    "title": "Missing atomic transaction block on multiple writes",
+    "detail": "Method performs multiple database mutations without explicit @transaction.atomic: def create(self, validated_data):"
+  },
+  {
+    "app": "masters",
+    "path": "backend/masters/serializers.py",
+    "line": 478,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: PriceListItem.objects.filter(price_list=instance).delete()"
+  },
+  {
+    "app": "masters",
+    "path": "backend/masters/views.py",
+    "line": 388,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: product_id = request.data.get(\"product\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/gateway.py",
+    "line": 324,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: return (Decimal(str(raw or 0)) / Decimal(\"100\")).quantize(Decimal(\"0.0"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/gateway.py",
+    "line": 439,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: return (Decimal(str(raw or 0)) / Decimal(\"100\")).quantize(Decimal(\"0.0"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/portal_views.py",
+    "line": 102,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: email = (request.data.get(\"email\") or \"\").strip().lower()"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/portal_views.py",
+    "line": 103,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone = \"\".join(c for c in (request.data.get(\"phone\") or \"\") if c.isdi"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/portal_views.py",
+    "line": 356,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: description = str(request.data.get(\"description\") or \"\").strip()"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/portal_views.py",
+    "line": 364,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: category = str(request.data.get(\"category\") or \"\").strip()"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/services.py",
+    "line": 1729,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: GatewayRefundOutbox.objects.filter(pk=outbox.id).update("
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/services.py",
+    "line": 1746,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: GatewayRefundOutbox.objects.filter(pk=outbox.id).update("
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 521,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: inv_id = request.data.get(\"sales_invoice\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 522,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 523,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: amount = request.data.get(\"amount\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 543,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: allow_partial=bool(request.data.get(\"allow_partial\", False)),"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 544,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: expires_hours=int(request.data.get(\"expires_hours\") or 72),"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 545,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: provider=request.data.get(\"provider\") or None,"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 572,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: recipient = (request.data.get(\"recipient\") or \"\").strip()"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 635,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: amount = request.data.get(\"amount\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 636,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: reason = request.data.get(\"reason\") or \"\""
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 739,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: bank_account_id = request.data.get(\"bank_account\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 740,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: preset = request.data.get(\"preset\") or \"generic\""
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1073,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: line_id = request.data.get(\"line\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1074,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: receipt_id = request.data.get(\"receipt\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1075,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: payment_id = request.data.get(\"supplier_payment\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1076,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confidence = request.data.get(\"confidence\") or 0"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1090,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: allow_amount_mismatch=bool(request.data.get(\"allow_amount_mismatch\")),"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1190,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: line_id = request.data.get(\"line\")"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1302,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: provider = str(request.data.get(\"provider\") or \"razorpay\")[:32].lower("
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1314,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: test_mode = bool(request.data.get(\"test_mode\"))"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1322,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: company.require_payment_reference = bool(request.data.get(\"require_pay"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1325,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: company.auto_match_bank_exact = bool(request.data.get(\"auto_match_bank"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1327,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if request.data.get(\"clear_credentials\"):"
+  },
+  {
+    "app": "payments",
+    "path": "backend/payments/views.py",
+    "line": 1330,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: creds = request.data.get(\"credentials\")"
+  },
+  {
+    "app": "payroll",
+    "path": "backend/payroll/services.py",
+    "line": 26,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: PF_ADMIN_RATE = Decimal(\"0.005\")    # A/c 2 \u2014 0.50% of PF wages, min \u20b9"
+  },
+  {
+    "app": "payroll",
+    "path": "backend/payroll/services.py",
+    "line": 28,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: EDLI_RATE = Decimal(\"0.005\")        # A/c 21 \u2014 0.50% of EPS wages, cap"
+  },
+  {
+    "app": "payroll",
+    "path": "backend/payroll/views.py",
+    "line": 74,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: entries = request.data.get(\"entries\")"
+  },
+  {
+    "app": "projects",
+    "path": "backend/projects/views.py",
+    "line": 56,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: product = Product.objects.filter(company=self.company, pk=request.data"
+  },
+  {
+    "app": "projects",
+    "path": "backend/projects/views.py",
+    "line": 58,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: sequence = int(request.data.get(\"sequence\") or 1)"
+  },
+  {
+    "app": "projects",
+    "path": "backend/projects/views.py",
+    "line": 62,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: amount = Decimal(str(request.data.get(\"amount\")))"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_serializers.py",
+    "line": 289,
+    "level": "P1",
+    "title": "Missing atomic transaction block on multiple writes",
+    "detail": "Method performs multiple database mutations without explicit @transaction.atomic: def create(self, validated_data):"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 52,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 53,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 54,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 122,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 123,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 124,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 137,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm = request.data.get(\"confirm_additional_debit\") in (True, \"true"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 190,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 191,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 192,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 265,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 266,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/phase1_views.py",
+    "line": 267,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/services.py",
+    "line": 260,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: PurchaseItem.objects.filter(id__in=removed_ids).delete()"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 160,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 161,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 162,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 173,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: supplier_id = request.data.get(\"supplier\")"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 180,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: purchase_type = request.data.get(\"purchase_type\") or request.data.get("
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 186,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: gstin_id = request.data.get(\"company_gstin\")"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 193,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: product_ids = [raw.get(\"product\") for raw in (request.data.get(\"items\""
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 212,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_no_rcm = str(request.data.get(\"confirm_no_rcm\") or \"\").lower()"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 216,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: request.data.get(\"confirm_duplicate_bill\") or \"\""
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 218,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_blank_pos = str(request.data.get(\"confirm_blank_pos\") or \"\").l"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 221,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_gstin_total = str(request.data.get(\"confirm_gstin_total_change"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 290,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 291,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "purchases",
+    "path": "backend/purchases/views.py",
+    "line": 292,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/gst_rate_scan.py",
+    "line": 15,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: return (taxable * (expected_rate - billed_rate) / Decimal(\"100\")).quan"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/invoice_profit_service.py",
+    "line": 80,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: InvoiceProfitSnapshot.objects.filter(sales_invoice=invoice).update(inv"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/services.py",
+    "line": 133,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: F(\"unit_price\") * F(\"quantity\") * F(\"discount_percent\") / Decimal(\"100"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1103,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\")"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1104,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: action = (request.data.get(\"action\") or \"\").lower()"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1202,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\")"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1203,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: rows = request.data.get(\"rows\") or []"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1214,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: source = (request.data.get(\"source\") or \"2B\").strip().upper()"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1311,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\") or request.query_params.get(\"perio"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1335,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\") or request.query_params.get(\"perio"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1380,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\") or request.query_params.get(\"perio"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1387,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: phone=request.data.get(\"phone\") or \"\","
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1421,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: payload = request.data.get(\"payload\") if \"payload\" in request.data els"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1422,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: replace = bool(request.data.get(\"replace\"))"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1440,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\")"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1552,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: action_name = (request.data.get(\"action\") or \"\").lower()"
+  },
+  {
+    "app": "reporting",
+    "path": "backend/reporting/views.py",
+    "line": 1553,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: period = request.data.get(\"period\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/expected_profit.py",
+    "line": 29,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: line_revenue = gross - (gross * discount_pct / Decimal(\"100\"))"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 75,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 76,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 77,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 92,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_paid_invoice=request.data.get(\"confirm_paid_invoice\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 178,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 179,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 180,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 188,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm = request.data.get(\"confirm_additional_debit\") in (True, \"true"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 260,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 261,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 262,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 358,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 359,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/phase1_views.py",
+    "line": 360,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 105,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: ids = request.data.get(\"order_ids\") or request.data.get(\"orderIds\") or"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 135,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: photo_id = request.data.get(\"pod_photo\") or request.data.get(\"podPhoto"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 141,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: receipt_id = request.data.get(\"customer_receipt\") or request.data.get("
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 151,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: completion_source=request.data.get(\"completion_source\") or request.dat"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 152,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: otp_code=request.data.get(\"otp_code\") or request.data.get(\"otp\") or \"\""
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 193,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: strategy_name = request.data.get(\"strategy_name\") or request.data.get("
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 194,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: cap = _stop_cap(request.data.get(\"stop_cap\", request.data.get(\"stopCap"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 196,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if str(request.data.get(\"use_cached\") or request.data.get(\"useCached\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 202,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: defer = str(request.data.get(\"defer\") or \"\") == \"1\""
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/route_views.py",
+    "line": 220,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: raw = request.data.get(\"stops\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/services.py",
+    "line": 154,
+    "level": "P2",
+    "title": "Potential division by zero",
+    "detail": "Decimal division without zero-divisor guard: (consideration * tcs_rate / Decimal(\"100\")).quantize(two, rounding=ROU"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 51,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: items = request.data.get(\"items\") if hasattr(request.data, \"get\") else"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 286,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 287,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 288,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 299,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 327,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: gst_guard_override_reason = request.data.get(\"gst_guard_override_reaso"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 332,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: payment_data = request.data.get(\"payment\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 347,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: request.data.get(\"confirm_totals_mismatch\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 448,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: or request.data.get(\"confirm_totals_mismatch\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 525,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 536,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: invoice_type = request.data.get(\"invoice_type\") or SalesInvoice.Invoic"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 542,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: gstin_id = request.data.get(\"company_gstin\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 551,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: for raw in request.data.get(\"items\") or []:"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 564,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: warehouse_id = request.data.get(\"warehouse\")"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 586,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_rcm = str(request.data.get(\"confirm_sales_rcm\") or \"\").lower()"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 589,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_blank_pos = str(request.data.get(\"confirm_blank_pos\") or \"\").l"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 592,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_gstin_total = str(request.data.get(\"confirm_gstin_total_change"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 595,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_missing_licence = str(request.data.get(\"confirm_missing_licenc"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 598,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: gst_guard_override_reason = request.data.get(\"gst_guard_override_reaso"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 726,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: amount = D(str(request.data.get(\"amount\") or 0))"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 727,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: discount = D(str(request.data.get(\"discount\") or request.data.get(\"set"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 734,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: mode=(request.data.get(\"mode\") or \"CASH\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 735,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: receipt_date=request.data.get(\"payment_date\") or request.data.get(\"pay"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 736,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: notes=request.data.get(\"notes\") or f\"Against {invoice.number or invoic"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 737,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: reference=request.data.get(\"reference\") or \"\","
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 760,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: ids = request.data.get(\"ids\") or request.data.get(\"invoice_ids\") or []"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 906,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: channel = (request.data.get(\"channel\") or \"\").upper()"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 909,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: recipient = request.data.get(\"recipient\") or ("
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 990,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 991,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 992,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 1000,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: confirm_expired = str(request.data.get(\"confirm_expired\") or \"\").lower"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 1052,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: override_reason=request.data.get(\"credit_override_reason\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 1122,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: prefix=request.data.get(\"prefix\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 1123,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: next_number=request.data.get(\"next_number\"),"
+  },
+  {
+    "app": "sales",
+    "path": "backend/sales/views.py",
+    "line": 1124,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: padding=request.data.get(\"padding\"),"
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/services.py",
+    "line": 102,
+    "level": "P1",
+    "title": "Bulk update/delete without explicit company scope",
+    "detail": "Bulk query mutation missing explicit company/company_id filter: JobCard.objects.filter(sales_invoice_id=invoice.pk).update("
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/views.py",
+    "line": 32,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: customer_id = request.data.get(\"customer\")"
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/views.py",
+    "line": 37,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if request.data.get(\"technician\"):"
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/views.py",
+    "line": 60,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: product = Product.objects.filter(company=self.company, pk=request.data"
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/views.py",
+    "line": 62,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: if request.data.get(\"serial\"):"
+  },
+  {
+    "app": "workshop",
+    "path": "backend/workshop/views.py",
+    "line": 67,
+    "level": "P2",
+    "title": "Direct request.data unvalidated access",
+    "detail": "View accesses raw request.data directly without schema validation: kind=request.data.get(\"kind\"),"
+  }
+]

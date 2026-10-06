@@ -28,7 +28,7 @@ def test_a11_supplier_payment_partial_then_full_allocation(tenant_a, assert_cons
     company.save(update_fields=["accounting_enabled"])
     seed_chart_of_accounts(company)
 
-    supplier = make_supplier(company, state="Karnataka", gstin="29A11PAY0000A1Z5")
+    supplier = make_supplier(company, state="Karnataka", gstin="29PAYAB0000A1Z5")
     product = make_product(company, gst_rate="18", purchase_price="80")
     pur = create_draft_purchase(
         tenant_a,

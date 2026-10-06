@@ -79,14 +79,15 @@ describe('ComplaintsPage', () => {
   it('lists complaints, shows the report, and creates a new complaint', async () => {
     const user = userEvent.setup();
     wrap();
-    expect(await screen.findByText(/RMA-000001 · DAMAGED · OPEN/)).toBeInTheDocument();
-    expect(screen.getByText(/RMA-000002 · DAMAGED · INSPECTING/)).toBeInTheDocument();
+    expect(await screen.findByText(/RMA-000001 · Damaged goods · Open/)).toBeInTheDocument();
+    expect(screen.getByText(/RMA-000002 · Damaged goods · Being inspected/)).toBeInTheDocument();
     expect(screen.getByText(/Resolved: 1/)).toBeInTheDocument();
     expect(screen.getByText(/With a document: 1/)).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: 'New complaint' }));
     await user.click(screen.getByRole('button', { name: 'pick-customer' }));
     await user.type(screen.getByLabelText('Description'), 'Screen cracked');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Log complaint' }));
 
     await waitFor(() => expect(createComplaint).toHaveBeenCalledWith({
       customer: 5, category: 'OTHER', description: 'Screen cracked',
@@ -100,10 +101,10 @@ describe('ComplaintsPage', () => {
     const detailButtons = screen.getAllByRole('button', { name: 'Detail' });
     await user.click(detailButtons[0]); // RMA-000001, status OPEN
 
-    expect(await screen.findByText('RMA-000001 · OPEN')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Move to INSPECTING' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Move to RESOLVED' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Move to REJECTED' })).not.toBeInTheDocument();
+    expect(await screen.findByText('RMA-000001 · Open')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to Being inspected' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move to Resolved' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move to Rejected' })).not.toBeInTheDocument();
 
     // Create-document actions are disabled with no source invoice / line selected yet.
     expect(screen.getByRole('button', { name: 'Create return' })).toBeDisabled();
@@ -116,12 +117,12 @@ describe('ComplaintsPage', () => {
     const detailButtons = screen.getAllByRole('button', { name: 'Detail' });
     await user.click(detailButtons[1]); // RMA-000002, status INSPECTING
 
-    await screen.findByText('RMA-000002 · INSPECTING');
-    expect(screen.getByRole('button', { name: 'Move to APPROVED' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Move to REJECTED' })).toBeInTheDocument();
+    await screen.findByText('RMA-000002 · Being inspected');
+    expect(screen.getByRole('button', { name: 'Move to Approved' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to Rejected' })).toBeInTheDocument();
 
     await user.type(screen.getByLabelText('Inspection notes'), 'Confirmed damaged');
-    await user.click(screen.getByRole('button', { name: 'Move to APPROVED' }));
+    await user.click(screen.getByRole('button', { name: 'Move to Approved' }));
 
     await waitFor(() => expect(transitionComplaint).toHaveBeenCalledWith(2, {
       status: 'APPROVED',

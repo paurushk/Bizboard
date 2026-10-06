@@ -34,6 +34,9 @@ class SalesInvoice(DocumentTotalsModel):
         FAILED = "FAILED"
 
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="sales_invoices")
+    source_order = models.ForeignKey(
+        "SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="split_invoices",
+    )
     warehouse = models.ForeignKey(
         "inventory.Warehouse", null=True, blank=True, on_delete=models.PROTECT, related_name="sales_invoices"
     )
@@ -145,6 +148,9 @@ class SalesInvoice(DocumentTotalsModel):
     # Filing identity overlays (D16) — blank means use live customer fields.
     filing_party_gstin = models.CharField(max_length=15, blank=True)
     filing_place_of_supply = models.CharField(max_length=64, blank=True)
+    # Complete() set this when a blank customer state was treated as the
+    # seller's state because assume_local_state_for_blank_party is on.
+    pos_assumed_local = models.BooleanField(default=False)
     # Phase 2 tax mode / transport
     class PriceMode(models.TextChoices):
         EXCLUSIVE = "EXCLUSIVE", "Tax exclusive"
@@ -200,7 +206,13 @@ class SalesInvoice(DocumentTotalsModel):
                 name="uniq_sales_number_per_company",
             )
         ]
-        indexes = [models.Index(fields=["company", "status", "invoice_date"])]
+        indexes = [
+            models.Index(fields=["company", "status", "invoice_date"]),
+            models.Index(
+                fields=["company", "customer", "status", "invoice_date"],
+                name="sales_inv_co_cust_stat_dt_idx",
+            ),
+        ]
 
     def __str__(self):
         return self.number or f"Sales draft #{self.pk}"
@@ -355,6 +367,9 @@ class SalesReturnItem(DocumentLineModel):
 
     sales_return = models.ForeignKey(SalesReturn, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="sales_return_items")
+    source_item = models.ForeignKey(
+        "SalesItem", null=True, blank=True, on_delete=models.SET_NULL, related_name="return_items",
+    )
     serial_numbers = models.JSONField(default=list, blank=True)
     condition = models.CharField(max_length=16, choices=Condition.choices, default=Condition.SELLABLE)
 
@@ -413,6 +428,9 @@ class SalesCreditNote(DocumentTotalsModel):
         related_name="sales_credit_notes",
     )
     notes = models.TextField(blank=True)
+    # Receipt slices unallocated when this note completed against a paid invoice.
+    # Cancel puts them back, up to the restored outstanding.
+    peeled_receipt_allocations = models.JSONField(default=list, blank=True)
     # GST Guard: OWNER/MANAGER override of a blocking pre-submission issue —
     # mirrors SalesInvoice.gst_guard_override_* (reporting.gst_guard).
     gst_guard_override_reason = models.CharField(max_length=500, blank=True, default="")
@@ -562,6 +580,7 @@ class SalesOrder(DocumentTotalsModel):
     class Status(models.TextChoices):
         DRAFT = "DRAFT"
         CONFIRMED = "CONFIRMED"
+        PARTIALLY_CONVERTED = "PARTIALLY_CONVERTED"
         CONVERTED = "CONVERTED"
         CANCELLED = "CANCELLED"
 
@@ -570,7 +589,7 @@ class SalesOrder(DocumentTotalsModel):
         "inventory.Warehouse", null=True, blank=True, on_delete=models.PROTECT, related_name="sales_orders"
     )
     number = models.CharField(max_length=32, blank=True, db_index=True)
-    status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.DRAFT)
     invoice_type = models.CharField(
         max_length=8, choices=SalesInvoice.InvoiceType.choices, default=SalesInvoice.InvoiceType.GST
     )
@@ -629,6 +648,8 @@ class SalesOrderItem(DocumentLineModel):
     sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="sales_order_items")
     expected_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+    shipped_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    invoiced_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
 
 
 class DeliveryChallan(DocumentTotalsModel):
@@ -848,6 +869,7 @@ class DeliveryRouteStop(CompanyScopedModel):
         PENDING = "PENDING"
         DELIVERED = "DELIVERED"
         FAILED = "FAILED"
+        REJECTED = "REJECTED"
         RETURNED = "RETURNED"
 
     route = models.ForeignKey(DeliveryRoute, on_delete=models.CASCADE, related_name="stops")
@@ -856,8 +878,17 @@ class DeliveryRouteStop(CompanyScopedModel):
     status = models.CharField(max_length=12, choices=StopStatus.choices, default=StopStatus.PENDING)
     notes = models.TextField(blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # Set when a failed or rejected stop gave its reservation back, so FAILED -> DELIVERED -> FAILED
+    # cannot release the order's stock twice (the second release would eat other orders' holds).
+    stock_released_at = models.DateTimeField(null=True, blank=True)
     completion_source = models.CharField(max_length=8, blank=True, default="")
     otp_code = models.CharField(max_length=8, blank=True, default="")
+    # HMAC of the OTP issued to the customer. The submitted digits are checked
+    # against this and are not stored.
+    delivery_otp_hash = models.CharField(max_length=64, blank=True, default="")
+    collected_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    collected_upi = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    upi_reference = models.CharField(max_length=64, blank=True, default="")
     pod_note = models.TextField(blank=True, default="")
     received_by_name = models.CharField(max_length=128, blank=True, default="")
     pod_photo = models.ForeignKey(
@@ -872,6 +903,26 @@ class DeliveryRouteStop(CompanyScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["route", "sales_order"], name="uniq_route_stop_order"),
         ]
+
+
+class RouteCashHandover(CompanyScopedModel):
+    """Cashier count of driver COD/UPI. Status and amounts only — no cash journal."""
+
+    class Status(models.TextChoices):
+        VERIFIED = "VERIFIED"
+        VARIANCE = "VARIANCE"
+
+    route = models.OneToOneField(DeliveryRoute, on_delete=models.CASCADE, related_name="cash_handover")
+    status = models.CharField(max_length=12, choices=Status.choices)
+    expected_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    expected_upi = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    counted_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    counted_upi = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    variance_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-id"]
 
 
 class DeliveryChallanReturn(DocumentTotalsModel):

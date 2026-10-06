@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
+import { clearNavNotReady, markNavNotReady } from './notReadyNav';
 import { filterNav, isNavPathActive, isReallyReachable } from './menu';
 import type { User } from '@/types/domain';
 import { mockSalesUser } from '@/mocks/data';
 
 vi.mock('@/config/featureFlags', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/config/featureFlags')>();
+  const flags = () => (globalThis as { __ff?: Record<string, boolean> }).__ff;
   return {
     ...actual,
-    isRuntimeFlagEnabled: (key: string) =>
-      Boolean((globalThis as { __ff?: Record<string, boolean> }).__ff?.[key]),
+    isRuntimeFlagEnabled: (key: string) => Boolean(flags()?.[key]),
+    getCachedFeatureFlags: () => {
+      const current = flags();
+      return current && Object.keys(current).length > 0 ? current : null;
+    },
   };
 });
 
@@ -107,6 +112,36 @@ describe('POS nav gate (CR-003)', () => {
   });
 });
 
+describe('sales nav length', () => {
+  const owner = {
+    id: 1,
+    role: 'OWNER',
+    canViewFinancialReports: true,
+    canCreateSales: true,
+    canCreatePayments: true,
+    canImport: true,
+  } as unknown as User;
+
+  it('keeps the daily sales links up front and nests the rest under More', () => {
+    const sales = filterNav(owner).find((item) => item.id === 'sales');
+    const ids = sales?.children?.map((child) => child.id) ?? [];
+    expect(ids).toContain('new-invoice');
+    expect(ids).toContain('receipts');
+    expect(ids).toContain('customers');
+    expect(ids).not.toContain('sales-returns');
+    const more = sales?.children?.find((child) => child.id === 'sales-more');
+    expect(more?.children?.some((child) => child.id === 'sales-returns')).toBe(true);
+    expect(isReallyReachable(owner, '/sales/returns')).toBe(true);
+  });
+
+  it('keeps bills of entry hidden and hides the dashboard from sales staff', () => {
+    expect(isReallyReachable(owner, '/purchases/bills-of-entry')).toBe(false);
+    const staff = filterNav(mockSalesUser);
+    expect(staff.some((item) => item.id === 'dashboard')).toBe(false);
+    expect(staff.find((item) => item.id === 'sales')?.children?.some((child) => child.id === 'sales-more')).toBe(true);
+  });
+});
+
 describe('vision plan nav', () => {
   const owner = { id: 1, role: 'OWNER', canViewFinancialReports: true } as unknown as User;
 
@@ -132,5 +167,103 @@ describe('vision plan nav', () => {
     expect(isReallyReachable(owner, '/payments/collections')).toBe(true);
     expect(isReallyReachable(owner, '/inventory/purchase-planning')).toBe(true);
     expect(isReallyReachable(owner, '/settings/packs')).toBe(true);
+  });
+
+  it('permanently hides distractive out-of-scope desks (tickets, insurance, contracts, telegram)', () => {
+    const nav = filterNav(owner);
+    const ids = nav.flatMap((item) => [item.id, ...(item.children?.map((c) => c.id) ?? [])]);
+    expect(ids).not.toContain('tickets');
+    expect(ids).not.toContain('shared-tickets');
+    expect(ids).not.toContain('insurance');
+    expect(ids).not.toContain('contracts');
+    expect(ids).not.toContain('telegram');
+  });
+});
+
+describe('flag-gated release surfaces (full-demo profile)', () => {
+  const owner = {
+    id: 1,
+    role: 'OWNER',
+    canViewFinancialReports: true,
+    canCreateSales: true,
+    canCreatePayments: true,
+    canCreatePurchases: true,
+    canImport: true,
+  } as unknown as User;
+  const allIds = (user: User): string[] =>
+    filterNav(user).flatMap((s) => [s.id, ...(s.children ?? []).map((c) => c.id)]);
+  const ff = (flags: Record<string, boolean>) => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = flags;
+  };
+
+  it('keeps bills of entry, fixed assets, Telegram and GSTR-9 hidden while their flags are off', () => {
+    ff({});
+    const ids = allIds(owner);
+    for (const id of ['bills-of-entry', 'fixed-assets', 'telegram', 'report-gstr9']) {
+      expect(ids).not.toContain(id);
+    }
+  });
+
+  it('shows bills of entry and Telegram when their flags are on, with no build-time switch', () => {
+    ff({ ENABLE_BOE: true, ENABLE_TELEGRAM: true });
+    const ids = allIds(owner);
+    expect(ids).toContain('bills-of-entry');
+    expect(ids).toContain('telegram');
+    ff({});
+  });
+
+  it('hides a nav id marked not-ready and shows it again when cleared', () => {
+    ff({ ENABLE_BOE: true });
+    expect(allIds(owner)).toContain('bills-of-entry');
+    markNavNotReady('bills-of-entry');
+    expect(allIds(owner)).not.toContain('bills-of-entry');
+    clearNavNotReady();
+    expect(allIds(owner)).toContain('bills-of-entry');
+    ff({});
+  });
+
+  it('keeps GSTR-6, 7 and 8 out of the menu even with every flag on (not-ready list)', () => {
+    ff({ ENABLE_GSTR: true, ENABLE_GSTR_EXTENDED: true });
+    const ids = allIds(owner);
+    for (const id of ['report-gstr6', 'report-gstr7', 'report-gstr8']) expect(ids).not.toContain(id);
+    ff({});
+  });
+
+  it('shows the extended GSTR worksheets only with ENABLE_GSTR_EXTENDED', () => {
+    ff({ ENABLE_GSTR: true });
+    expect(allIds(owner)).not.toContain('report-gstr9');
+    ff({ ENABLE_GSTR: true, ENABLE_GSTR_EXTENDED: true });
+    expect(allIds(owner)).toEqual(expect.arrayContaining(['report-gstr2b', 'report-gstr4', 'report-gstr9']));
+    ff({});
+  });
+
+  it('G9 full menu is larger than the pack sidebar', () => {
+    const flags: Record<string, boolean> = {
+      ENABLE_BOE: true,
+      ENABLE_TELEGRAM: true,
+      ENABLE_FIXED_ASSETS: true,
+      ENABLE_SUPPORT_TICKETS: true,
+      ENABLE_INSURANCE: true,
+      ENABLE_CONTRACTS: true,
+      ENABLE_GSTR: true,
+      ENABLE_GSTR_EXTENDED: true,
+      ENABLE_CRM: true,
+      ENABLE_MANUFACTURING: true,
+      ENABLE_PAYROLL: true,
+      ENABLE_COMPLAINTS: true,
+      ENABLE_WORKSHOP: true,
+      ENABLE_PROJECTS: true,
+      ENABLE_REFERRALS: true,
+    };
+    ff(flags);
+    const full = allIds(owner);
+    expect(full).toEqual(expect.arrayContaining(['manufacturing', 'payroll', 'crm', 'complaints']));
+    ff({ ...flags, NAV_PACK_DEFAULT: true });
+    const pack = allIds(owner);
+    expect(pack.length).toBeLessThan(full.length);
+    for (const id of ['insights', 'manufacturing', 'payroll', 'crm', 'complaints', 'tickets', 'insurance', 'contracts']) {
+      expect(pack).not.toContain(id);
+    }
+    ff({});
   });
 });

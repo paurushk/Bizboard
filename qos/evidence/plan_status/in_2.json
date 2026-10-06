@@ -1,0 +1,222 @@
+[
+ {
+  "WI ID": "WI-070",
+  "Register task": null,
+  "Work item": "Engage a chartered accountant for Rule 11(g) and the tax rule tables",
+  "Wave": 1,
+  "Scope (quality-first)": "Name the CA and agree the review scope: Rule 11(g) coverage, s.16(2), s.16(4), s.17(5), s.50 tables, e-way validity slabs, bad-debt buckets.",
+  "Planned test file": null,
+  "Kind": "decision",
+  "Plan key": "DEC-CA"
+ },
+ {
+  "WI ID": "WI-003",
+  "Register task": "P-0507",
+  "Work item": "Audit MCA mandated immutable audit trail (Rule 11(g) Companies Audit Rules)",
+  "Wave": 1,
+  "Scope (quality-first)": "Rule 11(g) coverage map (action to audit event) built now; edit log on every accounting record; certification export listing the periods in which logging was on. CA sign-off is the separate CA-SIGN item.",
+  "Planned test file": "backend/tests/test_plan_p_0507.py",
+  "Kind": "feature",
+  "Plan key": "P-0507"
+ },
+ {
+  "WI ID": "WI-006",
+  "Register task": "S-0568",
+  "Work item": "Database foreign key cascade deletion defense and soft-delete enforcement",
+  "Wave": 1,
+  "Scope (quality-first)": "is_deleted on Customer, Supplier, Product, Warehouse and PriceList; restore by Owner/Admin; ledger accounts keep their guard; transactions are cancelled, never soft-deleted. Cascades onto transactional rows become PROTECT; existing child rows untouched; an orphan report is produced before the migration.",
+  "Planned test file": "backend/tests/test_plan_s_0568.py",
+  "Kind": "feature",
+  "Plan key": "S-0568"
+ },
+ {
+  "WI ID": "WI-009",
+  "Register task": "SEC-0622",
+  "Work item": "Field-level role masking for sensitive commercial margins and cost prices",
+  "Wave": 1,
+  "Scope (quality-first)": "Omit purchase_price and margin (never blank or zero) in API, exports and PDFs for Cashier, Salesperson and Godown custodian; visible to Owner, Admin, Accountant, Purchase Manager, Inventory Manager. POS shows a server-computed below-cost warning, not the cost.",
+  "Planned test file": "backend/tests/test_plan_sec_0622.py",
+  "Kind": "feature",
+  "Plan key": "SEC-0622"
+ },
+ {
+  "WI ID": "WI-012",
+  "Register task": "SEC-0626",
+  "Work item": "Cross-Site Scripting (XSS) and SQL injection sanitization on document notes and inputs",
+  "Wave": 1,
+  "Scope (quality-first)": "Strip HTML tags on save from plain-text fields (notes, descriptions, names, addresses, remarks, complaint text, imported cells); escape on render and in PDF templates; a guard test fails on string-built raw SQL.",
+  "Planned test file": "backend/tests/test_plan_sec_0626.py",
+  "Kind": "feature",
+  "Plan key": "SEC-0626"
+ },
+ {
+  "WI ID": "WI-015",
+  "Register task": "C-0609",
+  "Work item": "Schedule H and Schedule X restricted drug sales register and doctor prescription logging",
+  "Wave": 1,
+  "Scope (quality-first)": "Per-tenant pharmacy flag, default off. Schedule H/H1/X sale cannot complete without patient and prescriber name and registration no.; Schedule X keeps a prescription copy. Inspector layout (date, patient, prescriber, drug, batch, quantity, invoice no.) as PDF and CSV; retention default 3 years, configurable. A licensed pharmacist reviews layout and retention before any pharmacy goes live.",
+  "Planned test file": "backend/tests/test_plan_c_0609.py",
+  "Kind": "feature",
+  "Plan key": "C-0609"
+ },
+ {
+  "WI ID": "WI-018",
+  "Register task": "C-0604",
+  "Work item": "Section 17(5) blocked credit automated identification and accounting reclassification",
+  "Wave": 1,
+  "Scope (quality-first)": "Data-driven s.17(5) rule table with effective dates covering the full blocked list; match on HSN/SAC plus expense category (keywords only suggest); blocked GST posts to expense or asset, not ITC receivable; override by Owner or Accountant with reason, audited. CA approves the table.",
+  "Planned test file": "backend/tests/test_plan_c_0604.py",
+  "Kind": "feature",
+  "Plan key": "C-0604"
+ },
+ {
+  "WI ID": "WI-021",
+  "Register task": "X-0527",
+  "Work item": "Automatic debtor account freeze and delivery block on chronic overdue accounts",
+  "Wave": 1,
+  "Scope (quality-first)": "Keep the existing hold and add the chronic rule; the stricter one wins. Existing, always on: invoice complete blocks when credit_limit > 0 and exposure plus the invoice exceeds it. Existing, opt-in and default off (auto_credit_hold_on_severe_overdue): invoice complete also blocks stop_credit (outstanding above the limit) or overdue_severe (any overdue and either 90-plus days or average payment delay over 21 days). New, per company: any invoice over 60 days overdue and an over-60-day total of at least Rs 5,000 also blocks credit-sale completion, sales-order confirmation and delivery challans. Cash and prepaid still allowed. Single-use unlock code valid 24 h from the Owner or credit-override role, with reason.",
+  "Planned test file": "backend/tests/test_plan_x_0527.py",
+  "Kind": "feature",
+  "Plan key": "X-0527"
+ },
+ {
+  "WI ID": "WI-024",
+  "Register task": "X-0707",
+  "Work item": "Supplier cancelled GSTIN after issuing invoice: system blocks ITC and alerts purchase team",
+  "Wave": 1,
+  "Scope (quality-first)": "Status from the existing alert source plus a manual flag. New ITC blocked for invoices dated on or after the cancellation effective date; availed ITC flagged for the CA; payment hold overridable by Owner or Accountant with reason, audited.",
+  "Planned test file": "backend/tests/test_plan_x_0707.py",
+  "Kind": "feature",
+  "Plan key": "X-0707"
+ },
+ {
+  "WI ID": "WI-027",
+  "Register task": "X-0702",
+  "Work item": "Credit limit breach during bulk invoice: owner sends temporary one-time authorization token",
+  "Wave": 1,
+  "Scope (quality-first)": "In-app single-use 15-minute token bound to the invoice batch and requester (WhatsApp only when the freeze flag is flipped). No response: over-limit invoices stay Awaiting approval, others proceed, expiry counts as rejected, never auto-approved.",
+  "Planned test file": "backend/tests/test_plan_x_0702.py",
+  "Kind": "feature",
+  "Plan key": "X-0702"
+ },
+ {
+  "WI ID": "WI-030",
+  "Register task": "X-0515",
+  "Work item": "Extend E-Way Bill validity before expiry due to transit delay or traffic accident",
+  "Wave": 1,
+  "Scope (quality-first)": "Validity extension as a stub action plus stored fields, same adapter and flag rule as X-0514.",
+  "Planned test file": "backend/tests/test_plan_x_0515.py",
+  "Kind": "feature",
+  "Plan key": "X-0515"
+ },
+ {
+  "WI ID": "WI-071",
+  "Register task": null,
+  "Work item": "CA sign-off of the Rule 11(g) coverage map",
+  "Wave": 1,
+  "Scope (quality-first)": "CA reviews the coverage map and certification export and signs. Lead time five working days.",
+  "Planned test file": null,
+  "Kind": "external",
+  "Plan key": "CA-SIGN"
+ },
+ {
+  "WI ID": "WI-028b",
+  "Register task": null,
+  "Work item": "Optimise POS checkout toward the 200 ms p95 target",
+  "Wave": 1,
+  "Scope (quality-first)": "Timeboxed to 5 days after the baseline from R-0636: profile, fix the top costs, record the new p95. If the target is not met the remaining gap is reported, not hidden.",
+  "Planned test file": "backend/perf/test_r_0636b_benchmark.py (nightly job)",
+  "Kind": "perf",
+  "Plan key": "R-0636b"
+ },
+ {
+  "WI ID": "WI-037",
+  "Register task": "P-0052",
+  "Work item": "Create bulk sales invoices",
+  "Wave": 2,
+  "Scope (quality-first)": "CSV with invoice ref, customer, dates, SKU or barcode, quantity, rate, discount %, warehouse, notes; dry run, then per-invoice atomic commit; any bad row rejects that invoice and is reported by row; 2,000-row cap; file hash makes re-upload idempotent.",
+  "Planned test file": "backend/tests/test_plan_p_0052.py",
+  "Kind": "feature",
+  "Plan key": "P-0052"
+ },
+ {
+  "WI ID": "WI-040",
+  "Register task": "P-0119",
+  "Work item": "Identify overdue payments",
+  "Wave": 2,
+  "Scope (quality-first)": "Report only: interest exposure (default 18% a year simple, per company) and suggested provision by age (0-60 d 0%, 61-90 d 5%, 91-180 d 25%, 181-365 d 50%, over 365 d 100%). No posting.",
+  "Planned test file": "backend/tests/test_plan_p_0119.py",
+  "Kind": "feature",
+  "Plan key": "P-0119"
+ },
+ {
+  "WI ID": "WI-043",
+  "Register task": "UX-0596",
+  "Work item": "Clear destructive action confirmation dialog with explicit entity name typing",
+  "Wave": 2,
+  "Scope (quality-first)": "Typed-confirmation input on destructive dialogs.",
+  "Planned test file": "web/src/__tests__/ux_0596.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0596"
+ },
+ {
+  "WI ID": "WI-046",
+  "Register task": "SaaS-0669",
+  "Work item": "Automated recurring subscription billing and GST tax invoice generation via Razorpay Subscriptions",
+  "Wave": 2,
+  "Scope (quality-first)": "Bizboard's own GST invoice to the tenant (our GSTIN, place of supply from the tenant's state), generated and emailed when a Cashfree or PayU payment is captured (freeze D3: sandbox, at least one of those two). No gateway SDK inside the invoice generator. Leave the existing Razorpay subscription reconciliation task alone.",
+  "Planned test file": "backend/tests/test_plan_saas_0669.py",
+  "Kind": "feature",
+  "Plan key": "SaaS-0669"
+ },
+ {
+  "WI ID": "WI-049",
+  "Register task": "GOS-0739",
+  "Work item": "End-to-end test: supplier complaint to purchase debit note",
+  "Wave": 2,
+  "Scope (quality-first)": "End-to-end test with stock and ledger check.",
+  "Planned test file": "backend/tests/test_plan_gos_0739.py",
+  "Kind": "feature",
+  "Plan key": "GOS-0739"
+ },
+ {
+  "WI ID": "WI-052",
+  "Register task": "UX-0581",
+  "Work item": "Keyboard-only POS navigation",
+  "Wave": 2,
+  "Scope (quality-first)": "Complete keyboard navigation of the POS flow.",
+  "Planned test file": "web/src/__tests__/ux_0581.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0581"
+ },
+ {
+  "WI ID": "WI-055",
+  "Register task": "UX-0588",
+  "Work item": "Warehouse rack locator badge",
+  "Wave": 2,
+  "Scope (quality-first)": "Rack or bin location on stock and picking views.",
+  "Planned test file": "web/src/__tests__/ux_0588.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0588"
+ },
+ {
+  "WI ID": "WI-058",
+  "Register task": null,
+  "Work item": "Wave 2 verification: full suite on Postgres, register sync, drift check, Pilot gate review",
+  "Wave": 2,
+  "Scope (quality-first)": "Run the full backend suite on Postgres, register_sync.py and register_drift.py, recalculate the workbook and review every wave item against its pass condition.",
+  "Planned test file": null,
+  "Kind": "gate",
+  "Plan key": "VER-2"
+ },
+ {
+  "WI ID": "WI-061",
+  "Register task": "D-0693",
+  "Work item": "One-click complete Tally historical backup migration wizard",
+  "Wave": 3,
+  "Scope (quality-first)": "TallyPrime only: ledger masters, stock items, opening balances and one financial year of vouchers with a mandatory ledger and stock-item mapping step. ENABLE_TALLY stays off; flipping it is a separate freeze exception.",
+  "Planned test file": "backend/tests/test_plan_d_0693.py",
+  "Kind": "feature",
+  "Plan key": "D-0693"
+ }
+]

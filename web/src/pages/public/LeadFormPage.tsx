@@ -63,7 +63,7 @@ export function LeadFormPage() {
             <TextField label={t('growth.campaignId')} value={campaign} onChange={(e) => setCampaign(e.target.value)} />
             <TextField label={t('growth.referralCode')} value={referralCode} onChange={(e) => setReferralCode(e.target.value)} />
             <TextField
-              label="Website"
+              label={t('sweep.website')}
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               autoComplete="off"

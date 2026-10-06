@@ -1,4 +1,5 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -97,6 +98,7 @@ export function AttachmentEditor({
   onDelete: (id: number) => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<number | null>(null);
   return (
     <Stack spacing={1}>
       <Typography variant="subtitle2">{t('growth.attachments')}</Typography>
@@ -104,7 +106,7 @@ export function AttachmentEditor({
       {rows.map((row) => (
         <Stack key={row.id} direction="row" spacing={1} alignItems="center">
           <Typography variant="body2">#{row.file}</Typography>
-          <Button size="small" onClick={() => onDelete(row.id)}>{t('growth.remove')}</Button>
+          <Button size="small" aria-label={t('cog.deleteAttachment')} onClick={() => setPending(row.id)}>{t('growth.remove')}</Button>
         </Stack>
       ))}
       <Button size="small" variant="outlined" onClick={() => input.current?.click()}>{t('growth.upload')}</Button>
@@ -117,6 +119,18 @@ export function AttachmentEditor({
           const file = event.target.files?.[0];
           if (file) onUpload(file);
           event.target.value = '';
+        }}
+      />
+      <ConfirmDialog
+        open={pending != null}
+        title={t('cog.deleteAttachment')}
+        body={`#${pending ?? ''}`}
+        requireTyped={pending != null ? `#${pending}` : undefined}
+        confirmColor="error"
+        onClose={() => setPending(null)}
+        onConfirm={() => {
+          if (pending != null) onDelete(pending);
+          setPending(null);
         }}
       />
     </Stack>

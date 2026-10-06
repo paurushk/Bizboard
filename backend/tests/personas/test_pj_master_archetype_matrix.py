@@ -157,6 +157,8 @@ def test_pj_archetype_distributor_multi_godown_and_credit_risk():
     )
     assert tr.status_code == 201
     assert oc.post(f"/api/v1/inventory/transfers/{tr.data['id']}/complete/").status_code == 200
+    # complete loads the truck; receive lands the stock (BUG-INV-001)
+    assert oc.post(f"/api/v1/inventory/transfers/{tr.data['id']}/receive/", {}, format="json").status_code == 200
 
     assert InventoryService.available_quantity(company, product, warehouse=wh_main) == Decimal("120.000")
     assert InventoryService.available_quantity(company, product, warehouse=wh_branch) == Decimal("80.000")

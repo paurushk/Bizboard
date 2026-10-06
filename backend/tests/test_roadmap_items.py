@@ -213,6 +213,8 @@ def test_job_card_converts_once_and_blocks_policy_desk(tenant_a):
         format="json",
     )
     assert bad_part.status_code == 400
+    # a part line holds its stock (BUG-WRK-002), so the part must be on the shelf first
+    add_stock(tenant_a, part, "5")
     ok = tenant_a.client.post(
         f"/api/v1/workshop/job-cards/{job_id}/lines/",
         {"kind": "PART", "product": part.id, "quantity": "1", "unit_price": "100"},
@@ -227,7 +229,6 @@ def test_job_card_converts_once_and_blocks_policy_desk(tenant_a):
     assert again.data["sales_invoice"] == invoice_id
     assert SalesInvoice.objects.filter(company=tenant_a.company).count() == 1
     assert StockMovement.objects.filter(company=tenant_a.company).count() == before
-    add_stock(tenant_a, part, "5")
     from sales.services import SalesService
 
     SalesService.complete(SalesInvoice.objects.get(pk=invoice_id), tenant_a.owner)
@@ -290,7 +291,8 @@ def test_share_404_when_vendor_unset(tenant_a):
     customer = make_customer(tenant_a.company)
     ticket = Ticket.objects.create(company=tenant_a.company, customer=customer, subject="Help", number="TKT-1")
     resp = tenant_a.client.post(f"/api/v1/support/tickets/{ticket.id}/share/", {}, format="json")
-    assert resp.status_code == 404
+    # BUG-SUP-003: a setup gap is a 400 with a reason, not a 404 that reads as a missing ticket
+    assert resp.status_code == 400
     from support.models import VendorTicketShare
 
     assert VendorTicketShare.objects.count() == 0

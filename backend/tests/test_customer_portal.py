@@ -389,8 +389,8 @@ def test_whatsapp_opt_in_true_sends_via_the_template(tenant_a, monkeypatch):
     class _Result:
         mode = "cloud"
 
-    def fake_send(phone, template, args, *, company, allow_cloud):
-        calls.append((phone, template, args))
+    def fake_send(phone, template, args, *, company, allow_cloud, opt_in=False, language_code=None):
+        calls.append((phone, template, args, opt_in))
         return _Result()
 
     monkeypatch.setattr("core.services.whatsapp.send_whatsapp_template", fake_send)

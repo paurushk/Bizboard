@@ -62,6 +62,39 @@ def record_event(
         logger.debug("telemetry emit failed for %s", event, exc_info=True)
 
 
+def note_once(company, event: str, *, user=None, journey: str = "") -> None:
+    """Record a company milestone the first time it happens. Never raises.
+
+    The write sits in its own savepoint. A database error is rolled back
+    there, so it cannot mark the caller's money transaction for rollback.
+    """
+    if company is None:
+        return
+    try:
+        from django.db import transaction
+        from django.utils import timezone
+
+        from core.observability import current_request_id
+
+        from .models import ShopFloorEvent
+
+        with transaction.atomic():
+            if ShopFloorEvent.objects.filter(company=company, event=event).exists():
+                return
+            ShopFloorEvent.objects.create(
+                company=company,
+                event=event,
+                occurred_on=timezone.localdate(),
+                journey=journey or "",
+                request_id=(current_request_id() or "")[:64],
+                success=True,
+                created_by=user,
+                updated_by=user,
+            )
+    except Exception:  # noqa: BLE001 — telemetry is best-effort
+        logger.debug("telemetry once-emit failed for %s", event, exc_info=True)
+
+
 def record_allocation_reconciled(sales_invoice, *, user=None) -> None:
     """H-01: emit after a receipt allocation. Flags the invoice if its derived
     outstanding has left the sane band [0, grand_total]."""

@@ -66,6 +66,9 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
               <Typography variant="h6" fontWeight={700} color="primary.dark">
                 {t('onboarding.title')}
               </Typography>
+              <Button component={RouterLink} to="/help/pilot-limits" size="small">
+                {t('pilotLimits.link')}
+              </Button>
               {/* F3-074: completedSteps === 4 (+ hasInvoices) always short-circuits
                   to the early `return null` above, so a 'success' branch here was
                   dead code — 3/4 is the highest state this chip can ever show. */}
@@ -84,6 +87,7 @@ export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 
 
         <Box sx={{ width: '100%' }}>
           <LinearProgress
+            aria-label={t('onboarding.title')}
             variant="determinate"
             value={progressPercent}
             sx={{ height: 6, borderRadius: 3 }}

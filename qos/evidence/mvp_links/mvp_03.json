@@ -1,0 +1,343 @@
+[
+ {
+  "task_id": "R-0646",
+  "test_ids": [
+   "backend/tests/errors/test_chaos_degradation.py::test_cache_outage_degrades_health_not_crash",
+   "backend/tests/errors/test_chaos_degradation.py::test_db_outage_degrades_liveness_not_crash"
+  ],
+  "confidence": "Medium",
+  "note": "Asserts health probe returns 503 degraded on Redis or DB outage; covers /health/?ready=1, not separate liveness/readiness paths or restarts.",
+  "test_ids_resolved": [
+   "backend/tests/errors/test_chaos_degradation.py::test_cache_outage_degrades_health_not_crash",
+   "backend/tests/errors/test_chaos_degradation.py::test_db_outage_degrades_liveness_not_crash"
+  ]
+ },
+ {
+  "task_id": "S-0570",
+  "test_ids": [
+   "backend/tests/test_backup_scripts.py::test_encrypted_dump_uses_age_and_is_not_plaintext_named",
+   "backend/tests/test_backup_scripts.py::test_retention_is_by_age_but_keeps_the_newest_min_keep",
+   "backend/tests/test_backup_scripts.py::test_offsite_command_receives_the_file_and_failure_is_fatal"
+  ],
+  "confidence": "Medium",
+  "note": "Stubbed backup.sh asserts encrypted dump, offsite copy and retention; no WAL archiving, PITR or S3 test-restore coverage.",
+  "test_ids_resolved": [
+   "backend/tests/test_backup_scripts.py::test_encrypted_dump_uses_age_and_is_not_plaintext_named",
+   "backend/tests/test_backup_scripts.py::test_offsite_command_receives_the_file_and_failure_is_fatal",
+   "backend/tests/test_backup_scripts.py::test_retention_is_by_age_but_keeps_the_newest_min_keep"
+  ]
+ },
+ {
+  "task_id": "GOS-0721",
+  "test_ids": [
+   "backend/tests/test_os_vision_plan.py::test_manual_lead_dedupe_prompts_instead_of_duplicating"
+  ],
+  "confidence": "Medium",
+  "note": "Asserts duplicate phone vs existing customer returns 409 and no lead created; email/E.164 normalisation and appending to timeline not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_os_vision_plan.py::test_manual_lead_dedupe_prompts_instead_of_duplicating"
+  ]
+ },
+ {
+  "task_id": "P-0022",
+  "test_ids": [
+   "backend/tests/test_stock_flow.py::test_movements_are_append_only",
+   "backend/tests/test_business_rules.py::test_negative_stock_blocked_by_policy"
+  ],
+  "confidence": "High",
+  "note": "Movements are append-only (edit/delete raise), and negative stock is blocked under BLOCK policy with no movement posted.",
+  "test_ids_resolved": [
+   "backend/tests/test_business_rules.py::test_negative_stock_blocked_by_policy",
+   "backend/tests/test_stock_flow.py::test_movements_are_append_only"
+  ]
+ },
+ {
+  "task_id": "P-0039",
+  "test_ids": [
+   "backend/tests/personas/test_pj_batch_expiry.py::test_pj_batch_expiry_fefo_and_guard_journey"
+  ],
+  "confidence": "Medium",
+  "note": "Asserts per-batch available quantities after inward and sale; cost and inward date per batch not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/personas/test_pj_batch_expiry.py::test_pj_batch_expiry_fefo_and_guard_journey"
+  ]
+ },
+ {
+  "task_id": "P-0040",
+  "test_ids": [
+   "backend/tests/test_item_godown_expiry.py::test_expiry_alert_writeoff_posts_adjustment"
+  ],
+  "confidence": "Medium",
+  "note": "Expiry alerts list near-expiry lot within days window; the four named bands and countdown colours are not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_item_godown_expiry.py::test_expiry_alert_writeoff_posts_adjustment"
+  ]
+ },
+ {
+  "task_id": "P-0041",
+  "test_ids": [
+   "backend/tests/test_phase4_inventory.py::test_expired_batch_is_blocked_on_sale",
+   "backend/tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix"
+  ],
+  "confidence": "High",
+  "note": "Completing an invoice with an expired batch returns 400 'expired' under block policy; guard-band matrix covers boundary dates.",
+  "test_ids_resolved": [
+   "backend/tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix",
+   "backend/tests/test_phase4_inventory.py::test_expired_batch_is_blocked_on_sale"
+  ]
+ },
+ {
+  "task_id": "P-0079",
+  "test_ids": [
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces"
+  ],
+  "confidence": "Medium",
+  "note": "Balances list and inventory summary agree with stock summed across two warehouses; no all-godowns dashboard or location filter assertion.",
+  "test_ids_resolved": [
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces"
+  ]
+ },
+ {
+  "task_id": "P-0081",
+  "test_ids": [
+   "backend/tests/test_phase4_inventory.py::test_transfer_conserves_stock_between_warehouses",
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf21_stock_transfer_between_godowns"
+  ],
+  "confidence": "High",
+  "note": "Transfer complete moves stock source to destination, cancel restores it; transit insurance and multi-stage receipt not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_phase4_inventory.py::test_transfer_conserves_stock_between_warehouses",
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf21_stock_transfer_between_godowns"
+  ]
+ },
+ {
+  "task_id": "P-0089",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of a multi-outlet executive dashboard consolidating revenue, cash and stock across branches.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0133",
+  "test_ids": [
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces"
+  ],
+  "confidence": "High",
+  "note": "Confirmed order reserves stock; available equals on-hand minus reserved consistently across balances and summary; mobile SKU screen not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces"
+  ]
+ },
+ {
+  "task_id": "P-0149",
+  "test_ids": [
+   "backend/tests/test_stock_flow.py::test_available_equals_on_hand_minus_reserved",
+   "backend/tests/test_stock_flow.py::test_low_stock_alerts"
+  ],
+  "confidence": "Medium",
+  "note": "Balances endpoint returns on-hand, reserved, available; reorder alerts tested; valuation, warehouse filters and SKU search not asserted together.",
+  "test_ids_resolved": [
+   "backend/tests/test_stock_flow.py::test_available_equals_on_hand_minus_reserved",
+   "backend/tests/test_stock_flow.py::test_low_stock_alerts"
+  ]
+ },
+ {
+  "task_id": "P-0152",
+  "test_ids": [
+   "backend/tests/test_stock_flow.py::test_manual_adjustment_and_permissions",
+   "backend/tests/test_stock_flow.py::test_manual_adjustment_respects_negative_stock_policy"
+  ],
+  "confidence": "Medium",
+  "note": "Sales staff gets 403, owner adjustment changes on-hand; negative policy enforced; dual-approval and mandatory-reason rule not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_stock_flow.py::test_manual_adjustment_and_permissions",
+   "backend/tests/test_stock_flow.py::test_manual_adjustment_respects_negative_stock_policy"
+  ]
+ },
+ {
+  "task_id": "P-0158",
+  "test_ids": [
+   "backend/tests/test_phase4_inventory.py::test_fefo_orders_earliest_expiry_first",
+   "backend/tests/test_phase4_inventory.py::test_sale_allocates_unselected_tracked_batch_by_fefo"
+  ],
+  "confidence": "High",
+  "note": "FEFO ordering of batches and invoice sale consuming earliest-expiry lot first, leaving later lot untouched.",
+  "test_ids_resolved": [
+   "backend/tests/test_phase4_inventory.py::test_fefo_orders_earliest_expiry_first",
+   "backend/tests/test_phase4_inventory.py::test_sale_allocates_unselected_tracked_batch_by_fefo"
+  ]
+ },
+ {
+  "task_id": "P-0180",
+  "test_ids": [
+   "backend/tests/test_item_godown_expiry.py::test_deactivate_godown_with_stock_blocked",
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces"
+  ],
+  "confidence": "Medium",
+  "note": "Warehouse create via API returns 201 (incidental) and deactivation with stock is blocked; default dispatch godown and user mapping not covered.",
+  "test_ids_resolved": [
+   "backend/tests/test_cft_checklist.py::test_cft_040_042_048_reserved_available_agrees_across_surfaces",
+   "backend/tests/test_item_godown_expiry.py::test_deactivate_godown_with_stock_blocked"
+  ]
+ },
+ {
+  "task_id": "S-0568",
+  "test_ids": [
+   "backend/tests/test_business_rules.py::test_referenced_product_soft_deletes",
+   "backend/tests/test_business_rules.py::test_bom_component_soft_deletes_not_error"
+  ],
+  "confidence": "Medium",
+  "note": "Referenced products are soft-deactivated instead of deleted; no test that invoices survive master deletion or all FKs are PROTECT.",
+  "test_ids_resolved": [
+   "backend/tests/test_business_rules.py::test_bom_component_soft_deletes_not_error",
+   "backend/tests/test_business_rules.py::test_referenced_product_soft_deletes"
+  ]
+ },
+ {
+  "task_id": "S-0575",
+  "test_ids": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_sales_complete_oversell_blocked",
+   "backend/tests/test_concurrency_races.py::test_concurrent_stock_oversell_blocked"
+  ],
+  "confidence": "High",
+  "note": "Two threads complete invoices for last unit; exactly one succeeds, one rejected, balance zero (Postgres-only).",
+  "test_ids_resolved": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_sales_complete_oversell_blocked",
+   "backend/tests/test_concurrency_races.py::test_concurrent_stock_oversell_blocked"
+  ]
+ },
+ {
+  "task_id": "X-0246",
+  "test_ids": [
+   "backend/tests/test_phase4_inventory.py::test_expired_batch_is_blocked_on_sale",
+   "backend/tests/matrices/test_company_settings_matrix.py::test_block_expired_stock"
+  ],
+  "confidence": "High",
+  "note": "Invoice completion with expired batch returns 400 when block_expired_stock is on; allowed when off; UI layer not tested.",
+  "test_ids_resolved": [
+   "backend/tests/matrices/test_company_settings_matrix.py::test_block_expired_stock",
+   "backend/tests/test_phase4_inventory.py::test_expired_batch_is_blocked_on_sale"
+  ]
+ },
+ {
+  "task_id": "X-0706",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of E-Way Bill Part B vehicle update or transshipment workflow for inter-godown transfers.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "X-0710",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of nightly job deactivating expired lots or posting quarantine movement; only manual expiry write-off is tested.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0057",
+  "test_ids": [
+   "backend/tests/test_a7_a8_a9_highs.py::test_cr061_aging_ignores_supplier_payment_on_sales_invoice",
+   "backend/tests/test_a4_a5_reporting.py::test_cr060_dashboard_receivables_equals_aging_sum"
+  ],
+  "confidence": "Medium",
+  "note": "Receivables aging total matches outstanding and dashboard; per-bucket day ranges and drill-down to unpaid invoices not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_a4_a5_reporting.py::test_cr060_dashboard_receivables_equals_aging_sum",
+   "backend/tests/test_a7_a8_a9_highs.py::test_cr061_aging_ignores_supplier_payment_on_sales_invoice"
+  ]
+ },
+ {
+  "task_id": "P-0058",
+  "test_ids": [
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete",
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice"
+  ],
+  "confidence": "High",
+  "note": "Invoice completion over customer credit limit returns 400 'credit limit'; owner-only override recorded on order and copied to invoice.",
+  "test_ids_resolved": [
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice",
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete"
+  ]
+ },
+ {
+  "task_id": "P-0118",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test ranking debtors by outstanding and oldest overdue days or dispatching WhatsApp reminders from a debtor summary.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0119",
+  "test_ids": [
+   "backend/tests/test_sales_purchase_ux_plan.py::test_customer_ledger_status_filter_and_overdue_kpi"
+  ],
+  "confidence": "Medium",
+  "note": "Customer ledger status filter and overdue KPI separate overdue from current/paid invoices; no 30+ day threshold or interest exposure assertion.",
+  "test_ids_resolved": [
+   "backend/tests/test_sales_purchase_ux_plan.py::test_customer_ledger_status_filter_and_overdue_kpi"
+  ]
+ },
+ {
+  "task_id": "X-0315",
+  "test_ids": [
+   "backend/tests/personas/test_pj_insights_and_recommendations.py::test_pj_insights_customer_credit_limit_near_alert_and_action",
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete"
+  ],
+  "confidence": "Medium",
+  "note": "CREDIT_LIMIT_NEAR alert generated and cleared on receipt; hard block of breach tested; alert on actual crossing and owner approval flagging not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/personas/test_pj_insights_and_recommendations.py::test_pj_insights_customer_credit_limit_near_alert_and_action",
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete"
+  ]
+ },
+ {
+  "task_id": "X-0527",
+  "test_ids": [
+   "backend/tests/test_a07_dunning.py::test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit"
+  ],
+  "confidence": "Medium",
+  "note": "Opt-in hold blocks invoice completion for 90+ days overdue customer; 60-day threshold, dispatch block and owner unlock PIN not covered.",
+  "test_ids_resolved": [
+   "backend/tests/test_a07_dunning.py::test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit"
+  ]
+ },
+ {
+  "task_id": "D-0693",
+  "test_ids": [
+   "backend/tests/test_phase7_tally.py::test_tally_opening_ar_ap_and_error_report",
+   "backend/tests/test_phase7_tally.py::test_parse_tally_golden_fixture"
+  ],
+  "confidence": "Medium",
+  "note": "Tally import commits masters and opening AR/AP balances with error report; full XML backup, history migration and ledger chart import not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_phase7_tally.py::test_parse_tally_golden_fixture",
+   "backend/tests/test_phase7_tally.py::test_tally_opening_ar_ap_and_error_report"
+  ]
+ },
+ {
+  "task_id": "P-0176",
+  "test_ids": [
+   "backend/tests/test_auth.py::test_owner_invites_staff_with_password_can_sign_in",
+   "backend/tests/test_auth.py::test_staff_cannot_manage_users"
+  ],
+  "confidence": "High",
+  "note": "Owner creates user via API with role, membership active and invitee can log in; staff gets 403 on user management.",
+  "test_ids_resolved": [
+   "backend/tests/test_auth.py::test_owner_invites_staff_with_password_can_sign_in",
+   "backend/tests/test_auth.py::test_staff_cannot_manage_users"
+  ]
+ },
+ {
+  "task_id": "P-0177",
+  "test_ids": [
+   "backend/tests/tenancy/test_rbac_matrix.py::test_role_capability_permission_truth_table",
+   "backend/tests/test_next_batch_roles.py::test_invite_viewer_rejects_capability_escalation"
+  ],
+  "confidence": "High",
+  "note": "Role by permission-class truth table across eight roles; viewer capability escalation rejected at invite.",
+  "test_ids_resolved": [
+   "backend/tests/tenancy/test_rbac_matrix.py::test_role_capability_permission_truth_table",
+   "backend/tests/test_next_batch_roles.py::test_invite_viewer_rejects_capability_escalation"
+  ]
+ }
+]

@@ -33,9 +33,10 @@ test.describe('Invoice editor — FE↔BE validation parity', () => {
     await loginAsOwner(page);
     await freshEditor(page);
     await expect(page).toHaveURL(/\/sales\/new/);
+    await expect(page.getByRole('heading', { name: /sales invoice/i })).toBeVisible({ timeout: 15_000 });
 
     await expect(page.getByRole('button', { name: /save & complete/i })).toBeDisabled();
-    await expect(page.getByRole('button', { name: /save draft/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeDisabled();
   });
 
   test('choosing only a customer is still not enough — a line is required', async ({ page }) => {
@@ -47,7 +48,7 @@ test.describe('Invoice editor — FE↔BE validation parity', () => {
 
     // customer set, no line -> both save paths stay disabled (BE: >= 1 line)
     await expect(page.getByRole('button', { name: /save & complete/i })).toBeDisabled();
-    await expect(page.getByRole('button', { name: /save draft/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save draft', exact: true })).toBeDisabled();
   });
 });
 

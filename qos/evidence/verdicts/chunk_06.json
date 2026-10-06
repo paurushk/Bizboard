@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "P-0026",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:CustomerLedgerDetailView; backend/payments/dunning.py:customer_risk_snapshot",
+  "reason": "Customer statement with running debit/credit balance, net outstanding and per-customer ageing buckets exist; no endpoint named khata but behaviour is present."
+ },
+ {
+  "task_id": "P-0027",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:PaymentService; backend/payments/views.py:CustomerReceiptViewSet; backend/accounting/services.py:PostingService",
+  "reason": "Receipts post to GL and allocate_receipt_oldest_first applies payment to open invoices oldest-due first."
+ },
+ {
+  "task_id": "P-0028",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:SupplierLedgerListView; backend/reporting/services.py:ReportService",
+  "reason": "Supplier outstanding nets purchase invoices against payments, credit and debit notes; payables ageing buckets exist (dashboard)."
+ },
+ {
+  "task_id": "P-0029",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:PaymentService; backend/accounting/services.py:PostingService; backend/payments/models.py:SupplierPayment",
+  "reason": "Supplier payment supports cash/bank/cheque, posts GL against bank/cash and allocates to multiple purchase invoices."
+ },
+ {
+  "task_id": "P-0057",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/payments/dunning.py:customer_risk_snapshot; backend/payments/views.py:CollectionRiskView",
+  "reason": "Receivables ageing buckets (current,1-30,31-60,61-90,90+) exist company-wide and per customer with open-invoice drill-down."
+ },
+ {
+  "task_id": "P-0059",
+  "verdict": "Partial",
+  "evidence": "backend/payments/services.py:PaymentService; backend/payments/models.py:CustomerReceipt",
+  "reason": "Receipts allocate across bills and post to bank ledger, but TDS deduction exists only on supplier payments, and no NEFT/RTGS modes."
+ },
+ {
+  "task_id": "P-0095",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched branch, outlet, store, warehouse filter in backend/ledgers and backend/reporting ledger views",
+  "reason": "Customer ledger and outstanding have no branch or store origin segmentation."
+ },
+ {
+  "task_id": "P-0119",
+  "verdict": "Partial",
+  "evidence": "backend/payments/collections_open.py:open_invoice_rows; backend/insights/views.py:CollectionsWorklistView",
+  "reason": "Overdue invoices with days_overdue and collection worklist exist; no interest exposure or bad-debt risk calculation."
+ },
+ {
+  "task_id": "P-0136",
+  "verdict": "Partial",
+  "evidence": "backend/payments/views.py:CustomerReceiptViewSet; backend/payments/views.py:UpiQrView",
+  "reason": "Receipt creation for cash/cheque/UPI QR exists in shared web/Capacitor app; no cashier-verification step before outstanding updates."
+ },
+ {
+  "task_id": "P-0137",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/dunning.py:customer_risk_snapshot; web/src/pages/sales/Customer360Page.tsx:Customer360Page; web/src/pages/sales/creditLine.ts",
+  "reason": "Snapshot returns outstanding, overdue ageing, credit limit and available credit, surfaced on customer card and invoice credit line."
+ },
+ {
+  "task_id": "P-0146",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/insights/alerts.py:_ap; backend/ledgers/views.py:SupplierLedgerListView",
+  "reason": "Total payables, 7-day due alert and payables ageing buckets exist across suppliers."
+ },
+ {
+  "task_id": "P-0172",
+  "verdict": "Partial",
+  "evidence": "backend/payments/models.py:SupplierPayment; backend/ledgers/services.py:LedgerService",
+  "reason": "Supplier payments store UTR and TDS and a supplier statement exists; no payment advice document or TDS certificate generation found."
+ },
+ {
+  "task_id": "P-0173",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/views.py:SupplierLedgerDetailView; backend/ledgers/services.py:LedgerService",
+  "reason": "Supplier ledger statement with running balance and outstanding is available for reconciling with supplier records."
+ },
+ {
+  "task_id": "X-0307",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:SalesInvoice; backend/accounting/services.py:PostingService; web/src/pages/sales/NewInvoicePage.tsx:NewInvoicePage",
+  "reason": "Invoice carries payment_terms_days and due_date; completion posts debit to AR 1200; unpaid state is derived from allocations."
+ },
+ {
+  "task_id": "X-0308",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/ledgers/services.py:LedgerService",
+  "reason": "post_sales_invoice debits AR account 1200 per customer and customer_outstanding reads it."
+ },
+ {
+  "task_id": "X-0309",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "post_receipt debits bank/cash and credits customer advances; allocation moves advances to AR credit, lowering outstanding."
+ },
+ {
+  "task_id": "X-0311",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "Unallocated receipts credit Customer Advances 2300 and debit bank/cash; later allocation moves them against invoices."
+ },
+ {
+  "task_id": "X-0312",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/models.py:PaymentAllocation; backend/payments/services.py:PaymentService; backend/payments/views.py:CustomerReceiptViewSet",
+  "reason": "PaymentAllocation links receipt to invoices; manual allocate_receipt and FIFO allocate_receipt_oldest_first both exist."
+ },
+ {
+  "task_id": "X-0313",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/holding.py:invoice_payment_state; backend/sales/views.py:SalesInvoiceViewSet",
+  "reason": "Payment state PAID/PARTIAL/UNPAID is derived from posted allocations, not stored; outstanding frees credit exposure."
+ },
+ {
+  "task_id": "X-0314",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/payments/dunning.py:customer_risk_snapshot",
+  "reason": "Open invoices are bucketed dynamically by days past due date into current, 1-30, 31-60, 61-90, 90+."
+ },
+ {
+  "task_id": "X-0315",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:CREDIT_LIMIT_EXCEEDED; backend/sales/order_gates.py:invoice_credit_override_covers; backend/insights/alerts.py:_credit_limit",
+  "reason": "Invoice completion raises credit limit exceeded unless owner override; a near-limit alert is generated by insights."
+ },
+ {
+  "task_id": "X-0317",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:PaymentService; backend/payments/models.py:PaymentAllocation",
+  "reason": "One receipt can be split across many invoices via per-invoice PaymentAllocation rows with outstanding derived from them."
+ },
+ {
+  "task_id": "X-0318",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/notes_services.py:SalesNotesService; backend/accounting/services.py:PostingService",
+  "reason": "complete_credit_note calls post_note to credit AR and ledger outstanding nets completed credit notes."
+ },
+ {
+  "task_id": "X-0319",
+  "verdict": "Partial",
+  "evidence": "backend/payments/services.py:PaymentService; backend/accounting/services.py:PostingService",
+  "reason": "Refunds exist only for gateway payments (receipt refund reversal); no cash/bank refund workflow linked to credit notes."
+ },
+ {
+  "task_id": "X-0320",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:CustomerLedgerDetailView; backend/reporting/views.py:CustomerLedgerTabsView",
+  "reason": "Chronological statement with debit, credit and running balance exists; export is browser print, no server Excel/PDF found."
+ },
+ {
+  "task_id": "X-0321",
+  "verdict": "Confirmed",
+  "evidence": "backend/insights/views.py:CollectionsOpenInvoicesView; backend/payments/collections_open.py:open_invoice_rows; backend/payments/views.py:CollectionRiskView",
+  "reason": "Receivables KPI and per-customer risk list with open-invoice rows give drill-down to individual unpaid bills."
+ },
+ {
+  "task_id": "X-0322",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched customer ledger reconciliation, counterparty statement match in backend/ledgers, backend/reporting, backend/payments",
+  "reason": "Only bank reconciliation and internal AR-vs-GL invariants exist; no customer ledger reconciliation tool flagging mismatches."
+ },
+ {
+  "task_id": "X-0324",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/services.py:PostingService; backend/purchases/models.py:PurchaseInvoice",
+  "reason": "Purchase completion posts payable and invoice has due_date; due date is manual or 30-day default, not driven by vendor credit terms."
+ },
+ {
+  "task_id": "X-0325",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "Supplier payment credits bank/cash, debits supplier advances then AP on allocation, reducing supplier outstanding."
+ },
+ {
+  "task_id": "X-0327",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "Unallocated supplier payment debits Supplier Advances 1250 against bank/cash."
+ },
+ {
+  "task_id": "X-0328",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "post_supplier_payment_allocation debits AP 2100 and credits advances 1250 when payment is allocated to a purchase invoice."
+ },
+ {
+  "task_id": "X-0331",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:SupplierLedgerDetailView",
+  "reason": "supplier_statement returns chronological entries with running balance for a supplier."
+ },
+ {
+  "task_id": "X-0332",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService",
+  "reason": "payables_aging buckets open purchase invoice outstanding by due date into current,1-30,31-60,61-90,90+."
+ },
+ {
+  "task_id": "X-0333",
+  "verdict": "Partial",
+  "evidence": "backend/insights/alerts.py:_ap; backend/reporting/services.py:ReportService",
+  "reason": "Payables ageing buckets and a bills-due-in-7-days alert exist; no list flagging individual overdue purchase bills."
+ },
+ {
+  "task_id": "X-0334",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/insights/alerts.py:_ap; web/src/pages/DashboardPage.tsx",
+  "reason": "Dashboard shows total payables and payables ageing; alert gives upcoming due amount."
+ },
+ {
+  "task_id": "X-0335",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched supplier reconciliation, vendor statement compare in backend/ledgers, backend/reporting, backend/payments",
+  "reason": "No tool compares AP ledger with a vendor statement; only bank reconciliation exists."
+ },
+ {
+  "task_id": "X-0336",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:PostingService; backend/payments/services.py:PaymentService",
+  "reason": "Supplier payment posts balanced journal with source_type SUPPLIER_PAYMENT/source_id linking payment to bank/cash GL account."
+ },
+ {
+  "task_id": "X-0523",
+  "verdict": "Partial",
+  "evidence": "backend/payments/dunning.py:run_dunning_for_company; backend/payments/dunning.py:remind_invoice",
+  "reason": "Configurable day-bucket reminders (default 3/7/14) via WhatsApp/SMS/email exist; no distinct statement or notice step per stage."
+ },
+ {
+  "task_id": "X-0524",
+  "verdict": "Partial",
+  "evidence": "backend/payments/models.py:PaymentPromise; backend/payments/promise_to_pay.py:create_promise; backend/payments/promise_to_pay.py:promise_is_broken",
+  "reason": "Promise-to-pay records with due and broken alerts exist; dunning does not suppress reminders while a promise is open."
+ },
+ {
+  "task_id": "X-0525",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched dispute, disputed line in backend models.py, sales and payments",
+  "reason": "No invoice line dispute flag or split of disputed amount from collection target."
+ },
+ {
+  "task_id": "X-0526",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched overdue interest, penal interest, interest_rate, late fee in backend",
+  "reason": "No overdue interest calculator or interest debit note generation exists."
+ },
+ {
+  "task_id": "X-0527",
+  "verdict": "Partial",
+  "evidence": "backend/sales/services.py:CREDIT_LIMIT_EXCEEDED; backend/payments/dunning.py:customer_risk_snapshot",
+  "reason": "Opt-in auto credit hold blocks invoice completion for stop_credit/overdue_severe, but not a 60-day rule, no dispatch block and no unlock PIN."
+ },
+ {
+  "task_id": "X-0709",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched dispute, disputed line, partial settlement in backend",
+  "reason": "No line-item dispute mechanism to isolate disputed amount while allocating undisputed payment."
+ },
+ {
+  "task_id": "P-0509",
+  "verdict": "Partial",
+  "evidence": "backend/manufacturing/models.py:Bom; backend/manufacturing/models.py:BomLine",
+  "reason": "Bom and BomLine with component quantities exist; no multi-level BOM, scrap factor or yield ratio fields."
+ },
+ {
+  "task_id": "P-0512",
+  "verdict": "Partial",
+  "evidence": "backend/manufacturing/services.py:complete_work_order; backend/manufacturing/services.py:_issue_cost_total",
+  "reason": "Finished goods unit cost is rolled up from issued component FIFO costs; no labor or packaging overhead cost inputs."
+ },
+ {
+  "task_id": "D-0693",
+  "verdict": "Partial",
+  "evidence": "backend/integrations/tally/adapter.py:parse_tally_masters_csv; backend/integrations/tally/adapter.py:commit_tally_preview; backend/integrations/views.py:TallyUploadView",
+  "reason": "Tally masters CSV/XLSX import with opening balances and wizard exists; no Tally XML backup parser or multi-year history migration."
+ },
+ {
+  "task_id": "D-0694",
+  "verdict": "Partial",
+  "evidence": "backend/masters/hsn_catalog.py:search_hsn; backend/masters/views.py:ProductViewSet",
+  "reason": "HSN text search over a curated static table returns GST rate; no AI classifier or crowdsourced data from item name."
+ },
+ {
+  "task_id": "I-0663",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/gstin_verify.py:apply_verification; backend/masters/views.py:CustomerViewSet; backend/core/services/gstin_verify.py:HttpGstinProvider",
+  "reason": "GSTIN verify action fetches legal name and status via sandbox provider (null default); no address/trade name autofill on create."
+ },
+ {
+  "task_id": "P-0008",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/sales/NewInvoicePage.tsx:itemMutation; backend/masters/views.py:ProductViewSet",
+  "reason": "Invoice screen creates a product via dialog and appends line; no quick-create endpoint and no opening stock layer initialized."
+ },
+ {
+  "task_id": "P-0021",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/views.py:ProductViewSet; backend/masters/views.py:PriceListViewSet; backend/masters/models.py:Product",
+  "reason": "Product master edit updates purchase_price, selling_price and price lists via API."
+ },
+ {
+  "task_id": "P-0047",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched mrp validation in backend/masters/serializers.py, models.py, sales/services.py",
+  "reason": "mrp is a stored field only; no rule enforcing selling price not above MRP."
+ },
+ {
+  "task_id": "P-0098",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:Product; backend/masters/views.py:ProductViewSet",
+  "reason": "Product catalog is company-scoped with HSN, barcode and prices shared across all warehouses and users of the company."
+ },
+ {
+  "task_id": "P-0176",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/views.py:CompanyUserViewSet; backend/accounts/models.py:CompanyUser; backend/accounts/views.py:AcceptInviteView",
+  "reason": "Users are invited, assigned roles and activated/deactivated via CompanyUser memberships."
+ },
+ {
+  "task_id": "P-0177",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/models.py:CompanyUser; backend/ledgers/views.py:CanViewFinancialReports; backend/core/permissions.py:get_company_user",
+  "reason": "CompanyUser roles with capability presets enforced by DRF permission classes across API endpoints."
+ },
+ {
+  "task_id": "P-0178",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/views.py:CompanyDetailView; backend/accounts/models.py:Company",
+  "reason": "Owner-only company profile update covers legal name, address, logo and financial year start month."
+ },
+ {
+  "task_id": "R-0648",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched optimistic, If-Match, version, lock_version in backend/masters and core",
+  "reason": "Customer model has no version column or version check on save; no concurrent edit conflict detection."
+ },
+ {
+  "task_id": "S-0563",
+  "verdict": "Partial",
+  "evidence": "backend/masters/views.py:ProductViewSet",
+  "reason": "Server list cache is deleted on master writes; no WebSocket or pub/sub broadcast to POS client caches."
+ },
+ {
+  "task_id": "SaaS-0667",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/views.py:SwitchCompanyView; backend/core/permissions.py:get_company_user; backend/accounts/views.py:MembershipsListView",
+  "reason": "Users with multiple memberships switch active company; X-Company-Id header is validated against membership."
+ },
+ {
+  "task_id": "SaaS-0671",
+  "verdict": "Partial",
+  "evidence": "backend/billing/quotas.py:seat_count; backend/accounts/views.py:_enforce_plan_seat_limit; backend/billing/models.py",
+  "reason": "Plan seat limits are tracked and enforced; no per-user add-on fee or prorated billing (code states no proration)."
+ },
+ {
+  "task_id": "SaaS-0674",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched custom_domain, white-label, cname, brand theme in backend",
+  "reason": "No custom domain mapping, branding or white-label support exists."
+ }
+]

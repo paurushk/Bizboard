@@ -1,4 +1,5 @@
 import csv
+from planwave.crypto import reveal_bank_account
 from datetime import date
 
 from django.db import transaction
@@ -81,12 +82,13 @@ def _maybe_gstn_json(request, payload):
     if export_format not in ("gstn-json", "gstn_json"):
         return None
     from django.conf import settings
+    from core.services.feature_flags import flag_enabled
 
-    env = (getattr(settings, "DJANGO_ENV", "") or "").strip().lower()
     allowed = bool(getattr(settings, "ENABLE_GSTN_JSON", False))
-    if env in ("production", "staging") and not allowed:
-        raise BusinessRuleError("GSTN-shaped JSON export is disabled in this environment.")
-    if not allowed and env not in ("development", "dev", "test", "local"):
+    if not allowed:
+        raise BusinessRuleError("GSTN-shaped JSON export is disabled.")
+    company = get_company_user(request).company
+    if not flag_enabled(company, "ENABLE_GSTN_JSON"):
         raise BusinessRuleError("GSTN-shaped JSON export is disabled.")
     return Response(to_gstn_json(payload))
 
@@ -124,13 +126,20 @@ class SalesRegisterView(BaseReportView):
                 request.query_params.get("company_gstin")
                 or request.query_params.get("gstin")
             ),
+            product_id=_int_or_none(request.query_params.get("product")),
         )
+        bucket = (request.query_params.get("time_bucket") or "").strip().lower()
+        if bucket in {"day", "week", "month", "fy"}:
+            from reporting.time_buckets import group_register_rows
+
+            data = dict(data)
+            data["buckets"] = group_register_rows(data.get("rows") or [], bucket=bucket)
         page = request.query_params.get("page")
         page_size = request.query_params.get("page_size")
         if page or page_size or request.query_params.get("paginate"):
             try:
                 p = max(1, int(page or 1))
-                ps = min(1000, max(1, int(page_size or 100)))
+                ps = min(250, max(1, int(page_size or 100)))
             except (ValueError, TypeError):
                 p, ps = 1, 100
             rows = data.get("rows", [])
@@ -168,13 +177,20 @@ class PurchaseRegisterView(BaseReportView):
                 request.query_params.get("company_gstin")
                 or request.query_params.get("gstin")
             ),
+            product_id=_int_or_none(request.query_params.get("product")),
         )
+        bucket = (request.query_params.get("time_bucket") or "").strip().lower()
+        if bucket in {"day", "week", "month", "fy"}:
+            from reporting.time_buckets import group_register_rows
+
+            data = dict(data)
+            data["buckets"] = group_register_rows(data.get("rows") or [], bucket=bucket)
         page = request.query_params.get("page")
         page_size = request.query_params.get("page_size")
         if page or page_size or request.query_params.get("paginate"):
             try:
                 p = max(1, int(page or 1))
-                ps = min(1000, max(1, int(page_size or 100)))
+                ps = min(250, max(1, int(page_size or 100)))
             except (ValueError, TypeError):
                 p, ps = 1, 100
             rows = data.get("rows", [])
@@ -553,7 +569,7 @@ class CustomerLedgerTabsView(BaseReportView):
                 "credit_days": customer.credit_days,
                 "custom_fields": customer.custom_fields,
                 "party_bank_name": getattr(customer, "party_bank_name", ""),
-                "party_bank_account": getattr(customer, "party_bank_account", ""),
+                "party_bank_account": reveal_bank_account(getattr(customer, "party_bank_account", "") or ""),
                 "party_bank_ifsc": getattr(customer, "party_bank_ifsc", ""),
             },
             "kpis": {
@@ -787,6 +803,9 @@ class GstReturnView(BaseReportView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request):
+        from planwave.services import assert_books_clear
+
+        assert_books_clear(self.company)
         assert_gstr_enabled(self.company)
         period = request.query_params.get("period")
         if not period:
@@ -1109,7 +1128,7 @@ class GstPeriodView(BaseReportView):
         if action == "soft_close":
             obj = soft_close_period(self.company, period, request.user)
         elif action == "reopen":
-            obj = reopen_period(self.company, period)
+            obj = reopen_period(self.company, period, request.user)
         else:
             raise BusinessRuleError("action must be soft_close or reopen.")
         payload = {

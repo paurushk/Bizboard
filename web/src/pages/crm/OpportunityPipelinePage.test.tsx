@@ -72,12 +72,15 @@ describe('OpportunityPipelinePage', () => {
     const user = userEvent.setup();
     wrap();
     await screen.findByText('Deal A');
-    const wonButtons = screen.getAllByRole('button', { name: 'Move to WON' });
+    const wonButtons = screen.getAllByRole('button', { name: 'Move to Won' });
     expect(wonButtons).toHaveLength(1); // only the OPEN card gets move buttons
     await user.click(wonButtons[0]);
+    // A routine stage change is confirmed with a click, not by retyping the deal title.
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
     await waitFor(() => expect(patchOpportunity).toHaveBeenCalledWith(1, { stage: 'WON' }));
-    expect(screen.getByRole('button', { name: 'Move to QUALIFIED' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Move to LOST' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Move to Qualified' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to Lost' })).toBeInTheDocument();
   });
 
   it('moves a qualified deal to negotiation and leaves a lost deal closed', async () => {
@@ -100,9 +103,9 @@ describe('OpportunityPipelinePage', () => {
     expect(screen.getByText('Deal D')).toBeInTheDocument();
     const moves = screen.getAllByRole('button', { name: /Move to / });
     expect(moves.map((button) => button.textContent)).toEqual([
-      'Move to NEGOTIATION', 'Move to WON', 'Move to LOST',
+      'Move to Negotiation', 'Move to Won', 'Move to Lost',
     ]);
-    await user.click(screen.getByRole('button', { name: 'Move to NEGOTIATION' }));
+    await user.click(screen.getByRole('button', { name: 'Move to Negotiation' }));
     await waitFor(() => expect(patchOpportunity).toHaveBeenCalledWith(3, { stage: 'NEGOTIATION' }));
   });
 

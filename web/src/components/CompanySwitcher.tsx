@@ -4,7 +4,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Select, { type SelectChangeEvent } from '@mui/material/Select';
 import Snackbar from '@mui/material/Snackbar';
 import Alert from '@mui/material/Alert';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useAuth } from '@/auth/AuthContext';
 import { useCompanySwitcher } from '@/hooks/useCompanySwitcher';
 import { getErrorMessage } from '@/api/client';
@@ -17,9 +17,13 @@ export function CompanySwitcher() {
   const [dismissed, setDismissed] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // A new error shows the banner again.
+  const errorKey = `${error ?? ''}|${switchError ?? ''}`;
+  const [seenErrorKey, setSeenErrorKey] = useState(errorKey);
+  if (seenErrorKey !== errorKey) {
+    setSeenErrorKey(errorKey);
     setDismissed(false);
-  }, [error, switchError]);
+  }
 
   const activeId = memberships.find((m) => m.isActiveSelection)?.companyId ?? user?.companyId;
   const banner = switchError || error;

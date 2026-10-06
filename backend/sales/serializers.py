@@ -119,7 +119,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "items", "pdf_status", "pdf_file",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
-            "filing_party_gstin", "filing_place_of_supply", "price_mode",
+            "filing_party_gstin", "filing_place_of_supply", "pos_assumed_local", "price_mode",
             "transporter_name", "transporter_id", "vehicle_number", "transport_distance_km",
             "sub_supply_type", "trans_mode",
             "supply_type", "company_gstin", "is_reverse_charge",
@@ -138,6 +138,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "completed_at", "cancelled_at", "amend_revision", "is_opening_balance",
+            "pos_assumed_local",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
@@ -165,9 +166,31 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             self.context["view"], "action", None
         ) == "list":
             return Decimal(str(list_outstanding))
+        return self._document_outstanding(obj)
+
+    def _document_outstanding(self, obj):
+        """sales_invoice_outstanding(obj), computed once per to_representation() call.
+
+        get_balance, get_received and get_payment_state all need it and each used to run the four
+        aggregate queries again (about 12 queries for one number on every Complete response). The
+        memo lives only for one representation of one object, so it can never serve a stale figure
+        to a later call in the same request.
+        """
         from ledgers.services import LedgerService
 
-        return LedgerService.sales_invoice_outstanding(obj)
+        memo = getattr(self, "_outstanding_memo", None)
+        if memo is None:  # called outside to_representation (e.g. a direct unit call): no caching
+            return LedgerService.sales_invoice_outstanding(obj)
+        if obj.pk not in memo:
+            memo[obj.pk] = LedgerService.sales_invoice_outstanding(obj)
+        return memo[obj.pk]
+
+    def to_representation(self, instance):
+        self._outstanding_memo = {}
+        try:
+            return super().to_representation(instance)
+        finally:
+            self._outstanding_memo = None
 
     def get_received(self, obj):
         from decimal import Decimal
@@ -185,7 +208,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
 
         if obj.status == SalesInvoice.Status.DRAFT:
             return "UNPAID"
-        return invoice_payment_state(obj)
+        return invoice_payment_state(obj, outstanding=self._document_outstanding(obj))
 
     def get_return_state(self, obj):
         """NONE / PARTIAL / FULL — distinct from `status`, which only flips to
@@ -536,6 +559,14 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
             SalesService.set_quotation_items(
                 quotation, [dict(l) for l in items_data], self.context["request"].user
             )
+            from insights.telemetry import note_once
+
+            note_once(
+                quotation.company,
+                "first_quote",
+                user=self.context["request"].user,
+                journey="growth",
+            )
             return quotation
 
     def update(self, instance, validated_data):
@@ -551,11 +582,16 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
 
 
 class SalesReturnItemSerializer(_BaseLineSerializer):
+    source_item = CompanyPrimaryKeyRelatedField(
+        queryset=SalesItem.objects.all(), required=False, allow_null=True,
+    )
+
     class Meta:
         model = SalesReturnItem
         fields = [
             "id", "product", "product_name", "description", "quantity",
             "unit_price", "discount_percent", "gst_rate", "serial_numbers", "condition",
+            "source_item",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}

@@ -269,7 +269,7 @@ def test_trial_modules_list_grantable_flags_and_keep_dark_off(tenant_a):
     from billing.services import TRIAL_HELD_FALSE
 
     modules = trial_plan_modules()
-    assert set(modules) == set(ROLLOUT_GRANTABLE_KEYS)
+    assert set(modules) == set(ROLLOUT_GRANTABLE_KEYS) | {"ENABLE_GSTN_JSON"}
     assert modules["ENABLE_GSTR"] is True
     for key in TRIAL_HELD_FALSE:
         assert modules[key] is False

@@ -292,7 +292,7 @@ export function TallyMigrationPage() {
           opening_outstanding
         </Typography>
         <Button variant="contained" component="label" disabled={committed}>
-          Choose CSV / Excel
+          {t('sweep2.chooseCsv')}
           <input
             hidden
             type="file"
@@ -323,10 +323,10 @@ export function TallyMigrationPage() {
                 <Table size="small" stickyHeader>
                   <TableHead>
                     <TableRow>
-                      <TableCell>Type</TableCell>
-                      <TableCell>Name</TableCell>
+                      <TableCell>{t('sweep2.typeText')}</TableCell>
+                      <TableCell>{t('sweep2.name')}</TableCell>
                       <TableCell>SKU</TableCell>
-                      <TableCell>Opening</TableCell>
+                      <TableCell>{t('sweep2.opening')}</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -395,7 +395,7 @@ export function TallyMigrationPage() {
               disabled={!syncRunId || saveMap.isPending || committed}
               onClick={() => saveMap.mutate()}
             >
-              Save mapping
+              {t('sweep2.saveMapping')}
             </Button>
             {errorCount > 0 ? (
               <>
@@ -405,14 +405,14 @@ export function TallyMigrationPage() {
                   disabled={downloadErrors.isPending}
                   onClick={() => downloadErrors.mutate()}
                 >
-                  Download error report
+                  {t('tally.downloadErrors')}
                 </Button>
                 <Button
                   variant="outlined"
                   disabled={ignoreErrors.isPending || committed}
                   onClick={() => setConfirmIgnoreErrors(true)}
                 >
-                  Ignore error rows
+                  {t('tally.ignoreErrorRows')}
                 </Button>
               </>
             ) : null}
@@ -427,11 +427,11 @@ export function TallyMigrationPage() {
           <ConfirmDialog
             open={confirmCommit}
             title={t('tally.commit')}
-            body={
-              `This creates ${counts.customers ?? 0} customers, ${counts.suppliers ?? 0} suppliers, ` +
-              `${counts.products ?? 0} products and their opening balances / stock for this company. ` +
-              `It cannot be undone from the app.`
-            }
+            body={t('tally.commitBody', {
+              customers: counts.customers ?? 0,
+              suppliers: counts.suppliers ?? 0,
+              products: counts.products ?? 0,
+            })}
             confirmLabel={t('tally.commit')}
             confirmColor="error"
             confirming={commit.isPending}
@@ -443,9 +443,9 @@ export function TallyMigrationPage() {
           />
           <ConfirmDialog
             open={confirmIgnoreErrors}
-            title="Ignore error rows?"
-            body={`This discards ${errorCount} row(s) that failed to map — they will NOT be imported. This cannot be undone from the app.`}
-            confirmLabel="Ignore error rows"
+            title={t('tally.ignoreErrorRowsTitle')}
+            body={t('tally.ignoreErrorRowsBody', { count: errorCount })}
+            confirmLabel={t('tally.ignoreErrorRows')}
             confirmColor="warning"
             confirming={ignoreErrors.isPending}
             onClose={() => setConfirmIgnoreErrors(false)}
@@ -462,7 +462,7 @@ export function TallyMigrationPage() {
           ) : null}
           {created ? (
             <Stack spacing={0.5} sx={{ mt: 2 }}>
-              <Typography variant="subtitle2">Commit summary</Typography>
+              <Typography variant="subtitle2">{t('sweep2.commitSummary')}</Typography>
               <Typography variant="body2">
                 Customers {created.customers ?? 0} · Suppliers {created.suppliers ?? 0} · Products{' '}
                 {created.products ?? 0} · Opening AR {created.opening_ar ?? 0} · Opening AP{' '}
@@ -487,7 +487,7 @@ export function TallyMigrationPage() {
           onClick={() => downloadExport.mutate()}
           disabled={downloadExport.isPending}
         >
-          Download sales voucher CSV aid
+          {t('sweep2.downloadVoucherCsv')}
         </Button>
         {downloadExport.isError ? (
           <ErrorState message={getErrorMessage(downloadExport.error)} error={downloadExport.error} />

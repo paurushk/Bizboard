@@ -20,6 +20,7 @@ import {
  */
 
 test('golden path: register -> purchase bill -> complete -> pay supplier -> outstanding zero', async ({ page }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E Purchase Golden ${id}`;
   const email = `e2e-purchase-golden-${id}@example.test`;
@@ -82,5 +83,5 @@ test('golden path: register -> purchase bill -> complete -> pay supplier -> outs
 
   await page.goto('/purchases/suppliers');
   const settledSupplierRow = page.getByRole('row', { name: new RegExp(supplierName) });
-  await expect(settledSupplierRow).toContainText('₹0.00');
+  await expect(settledSupplierRow).toContainText('₹0.00', { timeout: 30_000 });
 });

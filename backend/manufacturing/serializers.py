@@ -43,9 +43,14 @@ class BomSerializer(serializers.ModelSerializer):
         # when the 400 came back.
         product_id = validated_data.get("product")
         product_id = getattr(product_id, "pk", product_id)
-        for line in lines_data:
-            if getattr(line.get("component"), "pk", None) == product_id:
-                raise serializers.ValidationError("A BOM cannot list its finished good as a component.")
+        company = validated_data.get("company")
+        from .services import assert_no_bom_cycle
+
+        assert_no_bom_cycle(
+            company,
+            product_id,
+            [line.get("component") for line in lines_data],
+        )
         with transaction.atomic():
             bom = Bom.objects.create(**validated_data)
             for line in lines_data:
@@ -62,11 +67,14 @@ class BomSerializer(serializers.ModelSerializer):
         # ValidationError turned into an HTTP 400, leaving the BOM with no
         # (or a partial set of) component lines.
         if lines_data is not None:
-            for line in lines_data:
-                if getattr(line.get("component"), "pk", None) == instance.product_id:
-                    raise serializers.ValidationError(
-                        "A BOM cannot list its finished good as a component."
-                    )
+            from .services import assert_no_bom_cycle
+
+            assert_no_bom_cycle(
+                instance.company,
+                instance.product_id,
+                [line.get("component") for line in lines_data],
+                ignore_bom_id=instance.pk,
+            )
         with transaction.atomic():
             for attr, value in validated_data.items():
                 setattr(instance, attr, value)

@@ -196,6 +196,9 @@ def capture_lead(
     )
     _apply_match(lead, candidates, review=review)
     lead.save()
+    from insights.telemetry import note_once
+
+    note_once(company, "first_lead", user=user, journey="growth")
     return lead
 
 

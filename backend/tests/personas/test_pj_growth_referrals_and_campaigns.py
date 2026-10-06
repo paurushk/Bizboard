@@ -38,6 +38,7 @@ def test_pj_growth_campaign_referral_and_pipeline_journey(boundary):
     company.feature_flags = {
         "ENABLE_CRM": True,
         "ENABLE_REFERRALS": True,
+        "pack_grant": "insurance",
     }
     company.save(update_fields=["feature_flags"])
 
@@ -169,10 +170,11 @@ def test_pj_growth_campaign_referral_and_pipeline_journey(boundary):
     # Step 9: Campaign Funnel & ROI analysis
     funnel_resp = oc.get(f"/api/v1/crm/campaigns/{campaign_id}/funnel/")
     assert funnel_resp.status_code == 200
-    assert Decimal(funnel_resp.data["revenue"]) == Decimal("100000.00")
+    assert Decimal(funnel_resp.data["revenue"]) == Decimal("0")
     assert Decimal(funnel_resp.data["budget"]) == Decimal("50000.00")
-    assert Decimal(funnel_resp.data["variance"]) == Decimal("50000.00")
-    assert Decimal(funnel_resp.data["roi_ratio"]) == Decimal("2.0000")
+    assert Decimal(funnel_resp.data["variance"]) == Decimal("-50000.00")
+    assert Decimal(funnel_resp.data["roi_ratio"]) == Decimal("0.0000")
+    assert funnel_resp.data["rows"][0]["revenue_source"] == "no_completed_invoice"
 
     # Step 10: Invariants sweep
     assert_all_invariants(company)

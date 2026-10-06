@@ -1,6 +1,7 @@
 import Box from '@mui/material/Box';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import { useRef, type ReactNode } from 'react';
+import { t } from '@/i18n';
 
 /** F3-042: what a render-prop consumer needs to size rows dynamically instead
  * of re-deriving spacer heights from the same `rowHeight` magic number the
@@ -44,7 +45,13 @@ export function VirtualizedTable({
       // ResizeObserver measured a 0-height viewport and getVirtualItems() always
       // returned []. `contain: 'layout paint'` keeps the perf isolation without
       // requiring a definite height.
-      <Box ref={parentRef} sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}>
+      <Box
+        ref={parentRef}
+        tabIndex={0}
+        role="region"
+        aria-label={t('common.scrollableTable')}
+        sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}
+      >
         <Box sx={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
           {children({
             rows: virtualizer.getVirtualItems(),
@@ -57,7 +64,13 @@ export function VirtualizedTable({
   }
 
   return (
-    <Box ref={parentRef} sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}>
+    <Box
+      ref={parentRef}
+      tabIndex={0}
+      role="region"
+      aria-label={t('common.scrollableTable')}
+      sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}
+    >
       {typeof children === 'function'
         ? children({ rows: [], totalSize: 0, measureElement: virtualizer.measureElement })
         : children}

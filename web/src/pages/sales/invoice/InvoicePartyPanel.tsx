@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -33,6 +33,8 @@ type Props = {
   onCustomerCreated: (c: Customer) => void;
   onCustomerUpdated?: (c: Customer) => void;
   onError: (msg: string) => void;
+  manualName: string;
+  onManualNameChange: (name: string) => void;
 };
 
 /**
@@ -50,12 +52,13 @@ export function InvoicePartyPanel({
   onCustomerCreated,
   onCustomerUpdated,
   onError,
+  manualName,
+  onManualNameChange,
 }: Props) {
   const qc = useQueryClient();
   const [partyDialogOpen, setPartyDialogOpen] = useState(false);
   const [partyForm, setPartyForm] = useState({ name: '', phone: '', gstin: '', state: '' });
   const [posForm, setPosForm] = useState({ state: '', gstin: '' });
-  const [manualName, setManualName] = useState('');
 
   const needsPosEditor =
     Boolean(requirePlaceOfSupply) &&
@@ -63,12 +66,16 @@ export function InvoicePartyPanel({
     editingStatus !== 'COMPLETED' &&
     !placeOfSupplyKnown(selectedCustomer?.state, selectedCustomer?.gstin);
 
-  useEffect(() => {
+  // Re-seed the place-of-supply form when the chosen customer or their state/GSTIN changes.
+  const posSeedKey = `${selectedCustomer?.id ?? ''}|${selectedCustomer?.state ?? ''}|${selectedCustomer?.gstin ?? ''}`;
+  const [seenPosSeedKey, setSeenPosSeedKey] = useState<string | null>(null);
+  if (seenPosSeedKey !== posSeedKey) {
+    setSeenPosSeedKey(posSeedKey);
     setPosForm({
       state: selectedCustomer?.state ?? '',
       gstin: selectedCustomer?.gstin ?? '',
     });
-  }, [selectedCustomer?.id, selectedCustomer?.state, selectedCustomer?.gstin]);
+  }
 
   const partyMutation = useMutation({
     mutationFn: async () => {
@@ -137,7 +144,7 @@ export function InvoicePartyPanel({
     try {
       const existing = options.find((c) => c.name.trim().toLowerCase() === name.toLowerCase());
       if (existing) {
-        setManualName('');
+        onManualNameChange('');
         onSelect(existing);
         return;
       }
@@ -146,13 +153,13 @@ export function InvoicePartyPanel({
         (c) => c.name.trim().toLowerCase() === name.toLowerCase(),
       );
       if (found) {
-        setManualName('');
+        onManualNameChange('');
         onSelect(found);
         return;
       }
       const created = await createCustomer({ name, status: 'ACTIVE' });
       void qc.invalidateQueries({ queryKey: ['customers-search'] });
-      setManualName('');
+      onManualNameChange('');
       onCustomerCreated(created);
       onSelect(created);
     } catch (err) {
@@ -196,21 +203,21 @@ export function InvoicePartyPanel({
               selectedParty={selectedCustomer}
               editingStatus={editingStatus}
               onClear={() => {
-                setManualName('');
+                onManualNameChange('');
                 onSelect(undefined);
               }}
               options={options}
               query={query}
               onQueryChange={onQueryChange}
               onSelect={(v) => {
-                setManualName('');
+                onManualNameChange('');
                 onSelect(v);
               }}
               loading={loading}
               onCreatePartyClick={() => setPartyDialogOpen(true)}
               onQuickCashClick={handleQuickWalkIn}
               manualName={manualName}
-              onManualNameChange={setManualName}
+              onManualNameChange={onManualNameChange}
               onUseManualName={() => void handleUseManualName()}
               sx={{ flex: 'none', width: '100%' }}
             />
@@ -220,6 +227,7 @@ export function InvoicePartyPanel({
 
         {needsPosEditor ? (
           <Stack
+            id="customer-pos-editor"
             spacing={1.5}
             sx={{
               border: '1px dashed',

@@ -1,0 +1,33 @@
+id: QOS-0098
+category: USABILITY
+title: Some pages still lack loading, error or empty states, or show English text in Hindi
+persona:
+- P2
+journey: Any list or create flow
+problem: Pages can show a blank screen while loading or failing, create forms sit open above lists, and
+  some strings bypass translation.
+evidence:
+  strength: heuristic
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: Ledger rows UX-N10, UX-N11, UX-M07. Attribute strings were swept into en and hi on 2026-10-01.
+    JSX text in 22 more files and the Collections page were moved on 2026-10-01 (guarded by jsxLiteralRatchet.test.ts). Still to do are the other ~29 files with JSX text, the page-state audit and the inline create forms.
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 4
+  impact_band: Medium
+business_metric: none
+priority: P1
+priority_rationale: Real but bounded; the earlier scan counts were not re-run page by page.
+effort: M
+recommendation: Re-run the state scan page by page, apply one shared wrapper, and move create forms into
+  a dialog. Extend the literal ratchet to cover JSX text.
+test_required: The literal ratchet passes on every page, and each list page has a test for its loading,
+  error and empty states.
+guard_ref: null
+lifecycle: in_progress
+owner: web
+opened: '2026-10-01'
+closed: null

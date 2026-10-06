@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
@@ -54,9 +54,13 @@ const listCollectionsWorklist = vi.fn(async () => [] as Array<{
 }>);
 const flags = { predictive: false };
 
-vi.mock('@/config/featureFlags', () => ({
-  isRuntimeFlagEnabled: (key: string) => key === 'ENABLE_PREDICTIVE_DUNNING' && flags.predictive,
-}));
+vi.mock('@/config/featureFlags', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/config/featureFlags')>();
+  return {
+    ...actual,
+    isRuntimeFlagEnabled: (key: string) => key === 'ENABLE_PREDICTIVE_DUNNING' && flags.predictive,
+  };
+});
 
 vi.mock('@/api/osPlan', () => ({
   listCollectionsWorklist: () => listCollectionsWorklist(),
@@ -65,10 +69,17 @@ vi.mock('@/api/osPlan', () => ({
 
 const listPaymentPromises = vi.fn(async () => [] as PaymentPromise[]);
 const resolvePaymentPromise = vi.fn(async (id: number) => ({ id, resolved: true }) as PaymentPromise);
+const getCompany = vi.fn(async () => ({ name: 'Test Agency', upiId: 'agency@upi' }));
+const openShareUrl = vi.fn();
+
+vi.mock('@/utils/safeUrl', () => ({
+  openShareUrl: (url: string) => openShareUrl(url),
+}));
 
 vi.mock('@/api/resources', () => ({
   listPaymentPromises: () => listPaymentPromises(),
   resolvePaymentPromise: (id: number) => resolvePaymentPromise(id),
+  getCompany: () => getCompany(),
 }));
 
 function wrap(ui: ReactElement) {
@@ -209,5 +220,120 @@ describe('CollectionsWorklistPage — payment promises worklist', () => {
     wrap(<CollectionsWorklistPage />);
 
     expect(await screen.findByText('No open payment promises company-wide.')).toBeTruthy();
+  });
+});
+
+describe('Smart Aging Cohorts & WhatsApp Dunning Engine (Sprint 1.2)', () => {
+  beforeEach(() => {
+    openShareUrl.mockReset();
+    listPaymentPromises.mockResolvedValue([]);
+    listOpenInvoices.mockResolvedValue([
+      {
+        invoiceId: 10,
+        invoiceNumber: 'INV-10',
+        customerName: 'Upcoming Customer',
+        customerPhone: '9876543210',
+        daysOverdue: 0,
+        amountReceived: '0.00',
+        outstanding: '1000.00',
+        customerOutstanding: '1000.00',
+      },
+      {
+        invoiceId: 11,
+        invoiceNumber: 'INV-11',
+        customerName: 'Critical Customer',
+        customerPhone: '9876543211',
+        daysOverdue: 50,
+        amountReceived: '0.00',
+        outstanding: '5000.00',
+        customerOutstanding: '5000.00',
+      },
+    ]);
+  });
+
+  it('renders 4 Aging Cohort KPI cards with total outstanding', async () => {
+    wrap(<CollectionsWorklistPage />);
+    expect(await screen.findByText('Due soon (0–3 days)')).toBeTruthy();
+    expect(screen.getByText('Overdue 1–15 days (urgent)')).toBeTruthy();
+    expect(screen.getByText('Overdue 16–45 days (firm)')).toBeTruthy();
+    expect(screen.getByText('Overdue 45+ days (escalate)')).toBeTruthy();
+  });
+
+  it('filters invoice rows when a cohort card is clicked', async () => {
+    wrap(<CollectionsWorklistPage />);
+    expect(await screen.findByText('Upcoming Customer')).toBeTruthy();
+    expect(screen.getByText('Critical Customer')).toBeTruthy();
+
+    // Click Critical 45D+ cohort card
+    const criticalCard = screen.getByText('Overdue 45+ days (escalate)');
+    await userEvent.click(criticalCard);
+
+    // Only Critical Customer should remain
+    expect(screen.getByText('Critical Customer')).toBeTruthy();
+    expect(screen.queryByText('Upcoming Customer')).toBeNull();
+  });
+
+  it('shows each cohort total and invoice count on its own card', async () => {
+    wrap(<CollectionsWorklistPage />);
+    const soon = (await screen.findByText('Due soon (0–3 days)')).closest('button') as HTMLElement;
+    const critical = screen.getByText('Overdue 45+ days (escalate)').closest('button') as HTMLElement;
+    expect(within(soon).getByText('1 invoices')).toBeTruthy();
+    expect(within(critical).getByText('1 invoices')).toBeTruthy();
+    expect(within(critical).getByText(/5,000/)).toBeTruthy();
+    // A cohort with nothing in it still shows, with a zero count.
+    const urgent = screen.getByText('Overdue 1–15 days (urgent)').closest('button') as HTMLElement;
+    expect(within(urgent).getByText('0 invoices')).toBeTruthy();
+  });
+
+  it('marks the chosen cohort as pressed and clears the filter when clicked again', async () => {
+    wrap(<CollectionsWorklistPage />);
+    const critical = (await screen.findByText('Overdue 45+ days (escalate)')).closest('button') as HTMLElement;
+    expect(critical.getAttribute('aria-pressed')).toBe('false');
+
+    await userEvent.click(critical);
+    expect(critical.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText('Upcoming Customer')).toBeNull();
+
+    await userEvent.click(critical);
+    expect(critical.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText('Upcoming Customer')).toBeTruthy();
+    expect(screen.getByText('Critical Customer')).toBeTruthy();
+  });
+
+  it('switches straight from one cohort to another', async () => {
+    wrap(<CollectionsWorklistPage />);
+    const critical = (await screen.findByText('Overdue 45+ days (escalate)')).closest('button') as HTMLElement;
+    const soon = screen.getByText('Due soon (0–3 days)').closest('button') as HTMLElement;
+
+    await userEvent.click(critical);
+    await userEvent.click(soon);
+    expect(soon.getAttribute('aria-pressed')).toBe('true');
+    expect(critical.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByText('Upcoming Customer')).toBeTruthy();
+    expect(screen.queryByText('Critical Customer')).toBeNull();
+  });
+
+  it('opens WhatsApp Nudge dialog with tailored dunning message and UPI link', async () => {
+    wrap(<CollectionsWorklistPage />);
+    const nudgeBtns = await screen.findAllByRole('button', { name: /whatsapp reminder/i });
+    expect(nudgeBtns.length).toBeGreaterThan(0);
+
+    // Click WhatsApp Nudge on Critical Customer (second row)
+    await userEvent.click(nudgeBtns[1]);
+
+    // Dialog should open
+    expect(await screen.findByText(/WhatsApp reminder — Critical Customer/i)).toBeTruthy();
+    const preview = screen.getByLabelText(/whatsapp message preview/i) as HTMLTextAreaElement;
+    expect(preview.value).toContain('URGENT NOTICE');
+    expect(preview.value).toContain('severely overdue for 50 days');
+    expect(preview.value).toContain('upi://pay?pa=agency%40upi');
+
+    // Click Send WhatsApp
+    const sendBtn = screen.getByRole('button', { name: /send on whatsapp/i });
+    await userEvent.click(sendBtn);
+
+    expect(openShareUrl).toHaveBeenCalledWith(
+      expect.stringContaining('https://wa.me/919876543211?text='),
+    );
   });
 });

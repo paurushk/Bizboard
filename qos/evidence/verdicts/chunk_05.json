@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "P-0078",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/planning.py:purchase_plan; backend/inventory/planning.py:materialize_supplier_drafts; backend/inventory/services.py:suggest_replenishment",
+  "reason": "Reorder levels, lead time and 14-day burn rate drive suggested quantities; draft POs per supplier are created from the plan (route is purchase-planning, flag gated)."
+ },
+ {
+  "task_id": "P-0079",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/inventory/CurrentStockPage.tsx:CurrentStockPage; backend/inventory/views.py:StockBalanceViewSet; backend/inventory/models.py:StockBalance",
+  "reason": "Stock page aggregates balances across godowns into All godowns rows with a warehouse filter."
+ },
+ {
+  "task_id": "P-0080",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/views.py:StockBalanceViewSet; backend/inventory/services.py:available_quantity; backend/inventory/models.py:StockBalance",
+  "reason": "Balances are filterable by warehouse and available quantity is computed per warehouse."
+ },
+ {
+  "task_id": "P-0081",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/models.py:StockTransfer; backend/inventory/services.py:StockTransferService",
+  "reason": "Transfers exist with DRAFT/COMPLETED/CANCELLED only; no dispatch, in-transit, insurance or separate receipt confirmation stages."
+ },
+ {
+  "task_id": "P-0087",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/models.py:StockCountSession; backend/inventory/views.py:StockCountSessionViewSet",
+  "reason": "Count sessions are tied to one warehouse and post adjustments only for that warehouse, without blocking others."
+ },
+ {
+  "task_id": "P-0088",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/models.py:StockMovement; backend/inventory/views.py:StockMovementViewSet",
+  "reason": "Append-only movement ledger filterable by product and warehouse exists; no per-SKU movements route or web ledger page found."
+ },
+ {
+  "task_id": "P-0089",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:dashboard; backend/reporting/views.py:DashboardView",
+  "reason": "Dashboard shows company-wide totals over all godowns; no outlet switching or per-outlet breakdown found."
+ },
+ {
+  "task_id": "P-0093",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/inventory/CurrentStockPage.tsx:CurrentStockPage; backend/inventory/views.py:StockBalanceViewSet",
+  "reason": "Stock balances can be viewed per warehouse with a godown filter."
+ },
+ {
+  "task_id": "P-0120",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:low_stock_alert_payload; backend/insights/alerts.py:_low_stock",
+  "reason": "Low-stock alerts for items sold in last 14 days exist; no top-20-by-revenue ranking or Critical Stockout Threats widget."
+ },
+ {
+  "task_id": "P-0133",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:available_quantity; backend/inventory/serializers.py:StockBalanceSerializer",
+  "reason": "Available equals on_hand minus reserved and is exposed by the balances API used by the shared web/mobile app."
+ },
+ {
+  "task_id": "P-0144",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/services.py:PurchaseReturnItem; backend/purchases/models.py:PurchaseReturnItem",
+  "reason": "Damaged condition exists on purchase returns and writes stock off via ADJUSTMENT; no GRN damage lines, quarantine bin or supplier claim."
+ },
+ {
+  "task_id": "P-0149",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/inventory/CurrentStockPage.tsx:CurrentStockPage; backend/inventory/serializers.py:StockBalanceSerializer; backend/inventory/views.py:StockBalanceViewSet",
+  "reason": "Stock page shows on-hand, reserved, available, reorder level with warehouse filter and search; valuation is a separate report."
+ },
+ {
+  "task_id": "P-0150",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:post_movement; backend/purchases/services.py:MovementType; backend/inventory/models.py:StockMovement",
+  "reason": "Purchase completion posts a PURCHASE movement and updates the warehouse balance."
+ },
+ {
+  "task_id": "P-0151",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/services.py:StockTransferService; backend/inventory/models.py:StockTransfer",
+  "reason": "Completing a transfer posts TRANSFER_OUT and TRANSFER_IN; no transfer challan generation or distinct dispatch step found."
+ },
+ {
+  "task_id": "P-0152",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:AdjustmentView; backend/inventory/serializers.py:AdjustmentSerializer",
+  "reason": "Adjustment needs a mandatory reason and inventory-manage permission and posts ADJUSTMENT; no dual-approval workflow."
+ },
+ {
+  "task_id": "P-0155",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/models.py:StockCountSession; backend/inventory/models.py:StockCountLine; backend/inventory/views.py:StockCountSessionViewSet",
+  "reason": "Sessions snapshot system quantity and capture counts; no blind counting or scanner support found."
+ },
+ {
+  "task_id": "P-0157",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/models.py:SerialNumber; backend/inventory/views.py:SerialNumberViewSet; backend/inventory/models.py:BatchLot",
+  "reason": "Serial and batch registers with status exist; no lifecycle history explorer from PO through transfer to invoice."
+ },
+ {
+  "task_id": "P-0158",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:fefo_batches; backend/sales/services.py:fefo_batches; backend/inventory/services.py:reserve_stock",
+  "reason": "Available batches are ordered by expiry and sales allocation uses them; expired lots are excluded when blocking is on."
+ },
+ {
+  "task_id": "P-0159",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:InventoryValuationService; backend/inventory/views.py:StockValuationReportView; backend/inventory/models.py:InventoryCostLayer",
+  "reason": "Valuation endpoint sums remaining FIFO cost layers when the company method is FIFO."
+ },
+ {
+  "task_id": "P-0160",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:StockMovementViewSet; backend/inventory/models.py:StockMovement",
+  "reason": "Movements API allows replay by product and warehouse; no dedicated SKU timeline explorer in web."
+ },
+ {
+  "task_id": "P-0161",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:StockMovementViewSet; backend/inventory/models.py:StockMovement",
+  "reason": "Immutable movement table with product, type, warehouse filters exists; no user or date filters and no Excel/CSV export found."
+ },
+ {
+  "task_id": "P-0180",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/models.py:Warehouse; backend/inventory/views.py:WarehouseViewSet",
+  "reason": "Warehouse has name, code, address and default flag; no contact fields or user-to-location mapping."
+ },
+ {
+  "task_id": "R-0643",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched deadlock, OperationalError, 40P01, retry decorator; only lock ordering in backend/inventory/services.py:StockTransferService",
+  "reason": "Code avoids deadlocks by ordered locking but has no catch-and-retry decorator with backoff."
+ },
+ {
+  "task_id": "S-0562",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/services.py:reserve_stock; backend/inventory/services.py:release_reservation; backend/inventory/models.py:StockBalance",
+  "reason": "Reserve and release functions exist for orders; no cart session or 30-minute expiry release worker."
+ },
+ {
+  "task_id": "S-0568",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesInvoice; backend/inventory/models.py:StockMovement",
+  "reason": "PROTECT is widely used on transaction foreign keys, but line items cascade and no is_deleted soft-delete mechanism exists."
+ },
+ {
+  "task_id": "S-0578",
+  "verdict": "Contradicted",
+  "evidence": "backend/inventory/services.py:_apply_cost_layers; none found: searched back-dated FIFO re-sequencing worker",
+  "reason": "FIFO layers are consumed in posting order, explicitly not by movement date; no retroactive COGS recalculation worker."
+ },
+ {
+  "task_id": "UX-0588",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched location_tag, shelf, rack, aisle, bin_location in backend and web",
+  "reason": "No shelf or rack locator field exists on stock or warehouse models."
+ },
+ {
+  "task_id": "X-0236",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:MovementType; backend/inventory/services.py:post_movement; backend/inventory/services.py:_apply_cost_layers",
+  "reason": "Completing a sales invoice posts SALE movements, decrements balance, consumes FIFO layers and enforces negative-stock policy."
+ },
+ {
+  "task_id": "X-0243",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:AdjustmentView; backend/inventory/services.py:post_movement",
+  "reason": "Adjustment posts ADJUSTMENT movement with period-lock check; no GL shrinkage journal posted for it."
+ },
+ {
+  "task_id": "X-0244",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched quarantine, damaged bin, SALEABLE/DAMAGED bin in inventory",
+  "reason": "No quarantine bin; damaged goods are written off by ADJUSTMENT movement, not transferred to a damaged bin."
+ },
+ {
+  "task_id": "X-0246",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:post_movement; backend/accounts/models.py:block_expired_stock; backend/inventory/services.py:fefo_batches",
+  "reason": "Issuing from an expired batch raises a blocking error when block_expired_stock is on (default true)."
+ },
+ {
+  "task_id": "X-0247",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/tasks.py:record_expiry_bands_task; backend/inventory/item_stock.py:record_expiry_bands; backend/inventory/models.py:ExpiryAlertLog",
+  "reason": "Daily sweep logs 7/30/60/90 day bands and emails once; no BusinessAlertEvent or dashboard alert card for expiry."
+ },
+ {
+  "task_id": "X-0248",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/models.py:StockBalance; backend/inventory/models.py:StockMovement; backend/inventory/services.py:post_movement",
+  "reason": "Sales post batch-tagged movements and reduce the batch-level StockBalance row; there is no BatchLot.quantity field."
+ },
+ {
+  "task_id": "X-0254",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:AdjustmentView; backend/core/services/audit.py:AuditService",
+  "reason": "Adjustment writes an audit event with user, reason and timestamp; IP address and write-off value are not recorded."
+ },
+ {
+  "task_id": "X-0255",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:_apply_cost_layers; backend/inventory/models.py:InventoryCostLayer; backend/sales/cogs_service.py:CogsService",
+  "reason": "FIFO layers are peeled per sale for COGS when the company valuation method is FIFO (WAVG is default)."
+ },
+ {
+  "task_id": "X-0256",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/views.py:StockValuationReportView; backend/inventory/services.py:InventoryValuationService; web/src/pages/reports/StockValuationPage.tsx",
+  "reason": "Valuation report computes stock value with warehouse filter from cost layers or running cost."
+ },
+ {
+  "task_id": "X-0258",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched StockTransferRequest, transfer request, requisition",
+  "reason": "No transfer request model exists; only direct StockTransfer drafts."
+ },
+ {
+  "task_id": "X-0259",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched StockTransferRequest, APPROVED transfer, picking ticket",
+  "reason": "No request approval status or picking ticket; transfers only go DRAFT to COMPLETED."
+ },
+ {
+  "task_id": "X-0260",
+  "verdict": "Contradicted",
+  "evidence": "backend/inventory/services.py:StockTransferService",
+  "reason": "Code comment states DRAFT transfers do not reserve stock; stock moves only at completion."
+ },
+ {
+  "task_id": "X-0263",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:StockTransferService; backend/inventory/models.py:MovementType; backend/inventory/models.py:StockMovement",
+  "reason": "Completing a transfer posts TRANSFER_OUT at the source warehouse, reducing its balance."
+ },
+ {
+  "task_id": "X-0264",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/services.py:StockTransferService; backend/inventory/models.py:StockMovement",
+  "reason": "TRANSFER_IN is posted at the destination, but in the same step as dispatch, not on separate receipt confirmation."
+ },
+ {
+  "task_id": "X-0266",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched transit damage, transfer damage, transit loss claim",
+  "reason": "Transfer lines carry no damaged quantity and no quarantine or loss-claim handling."
+ },
+ {
+  "task_id": "X-0268",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/inventory/CurrentStockPage.tsx:CurrentStockPage; backend/inventory/views.py:StockBalanceViewSet",
+  "reason": "Stock page groups per product across all godowns by default."
+ },
+ {
+  "task_id": "X-0269",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/inventory/CurrentStockPage.tsx:CurrentStockPage",
+  "reason": "Aggregated product rows expand to show per-godown lots; an inline expansion rather than a drawer."
+ },
+ {
+  "task_id": "X-0270",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:sales_register; backend/reporting/views.py:SalesRegisterView",
+  "reason": "Sales register can be filtered by warehouse; no comparative location-wise sales report."
+ },
+ {
+  "task_id": "X-0271",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:inventory_summary; backend/inventory/views.py:StockValuationReportView",
+  "reason": "Inventory summary and valuation filter by warehouse; no turnover or stock-to-sales comparison across locations."
+ },
+ {
+  "task_id": "X-0272",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/reports.py:profit_and_loss; backend/accounting/reports.py:_balances",
+  "reason": "P&L can be filtered by cost center only; no warehouse or store P&L with allocated costs."
+ },
+ {
+  "task_id": "X-0274",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/views.py:StockTransferViewSet; backend/inventory/services.py:StockTransferService",
+  "reason": "Complete action executes the transfer under inventory-manage permission; no separate authorization step or challan generation."
+ },
+ {
+  "task_id": "X-0276",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched warehouse assignment on CompanyUser, location-scoped permissions in accounts and core",
+  "reason": "Stock queries filter by company only; users have no per-warehouse access restriction."
+ },
+ {
+  "task_id": "X-0277",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/reports.py:profit_and_loss; backend/accounting/reports.py:balance_sheet; backend/accounting/views.py:AccountingReportView",
+  "reason": "Company-wide ledger reports (trial balance, P&L, balance sheet) exist with optional cost-center slicing."
+ },
+ {
+  "task_id": "X-0443",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:cancel; backend/sales/services.py:PostingService",
+  "reason": "Atomic invoice cancel posts reversal stock movements and reverses GL entries including tax and receivable."
+ },
+ {
+  "task_id": "X-0444",
+  "verdict": "Partial",
+  "evidence": "backend/sales/services.py:cancel; backend/inventory/services.py:post_movement",
+  "reason": "Key money and stock operations use transaction.atomic, but ATOMIC_REQUESTS is not set so not all operations are wrapped."
+ },
+ {
+  "task_id": "X-0534",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/planning.py:purchase_plan; backend/inventory/forecast.py:demand_forecast; backend/inventory/planning.py:materialize_supplier_drafts",
+  "reason": "Days to stockout from available over daily velocity is computed and draft POs can be created from the plan on user action."
+ },
+ {
+  "task_id": "X-0706",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched Part B update, transshipment, vehicle update in inventory and sales",
+  "reason": "E-way bill handling covers sales invoices only; no stock transfer Part B vehicle update workflow."
+ },
+ {
+  "task_id": "C-0620",
+  "verdict": "Partial",
+  "evidence": "backend/masters/models.py:whatsapp_opt_in; backend/core/services/whatsapp.py:opt_in",
+  "reason": "A boolean WhatsApp opt-in gates cloud sends; no consent ledger with timestamp and IP, and no withdrawal log."
+ },
+ {
+  "task_id": "D-0687",
+  "verdict": "Partial",
+  "evidence": "backend/payments/dunning.py:PREDICTIVE_ESCALATION_MIN_LATE_DAYS; backend/masters/models.py:dunning_opt_out",
+  "reason": "Dunning escalates by days overdue and predicted lateness; no relationship-based tone or VIP segmentation."
+ },
+ {
+  "task_id": "D-0698",
+  "verdict": "Partial",
+  "evidence": "backend/inventory/services.py:StockTransferService; backend/inventory/models.py:StockMovement",
+  "reason": "Transfers post paired out and in stock movements; no inter-branch mirror vouchers or reconciliation ledger."
+ },
+ {
+  "task_id": "P-0009",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:credit_limit; backend/ledgers/services.py:customer_exposure_for_credit_limit; backend/accounting/services.py:PostingService",
+  "reason": "Invoice completion posts receivable and enforces customer credit limit with override; credit sale is supported."
+ },
+ {
+  "task_id": "P-0010",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:allocate_receipt_oldest_first; backend/payments/services.py:allocate_receipt",
+  "reason": "Receipts are allocated oldest-due-first across open invoices, reducing outstanding."
+ },
+ {
+  "task_id": "P-0011",
+  "verdict": "Confirmed",
+  "evidence": "backend/ledgers/services.py:customer_outstanding; backend/ledgers/services.py:bulk_customer_outstanding; backend/ledgers/services.py:customer_statement",
+  "reason": "Outstanding is derived from invoices minus receipts and credit notes per customer, with statements."
+ }
+]

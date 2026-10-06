@@ -1,0 +1,32 @@
+id: "QOS-0102"
+category: "SECURITY_PRIVACY"
+title: "Audit log was mutable and had no tamper evidence"
+persona:
+- "P1"
+- "P5"
+journey: "A CA or owner investigates who changed what"
+problem: "core.AuditEvent was an ordinary table: application code, a stray queryset update or delete, or anyone with DB access could rewrite or remove history undetectably. Erasure and sandbox teardown legitimately mutate it, so a blanket block was not possible."
+evidence:
+  strength: "heuristic"
+  source:
+  - "backend/core/models.py"
+  - "backend/accounts/erasure.py"
+  - "backend/accounts/tenant_backup.py"
+  detail: "Code read 2026-10-02; no exploit was run. The fix is verified by tests, including the Postgres trigger against a real Postgres 17."
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 2
+  impact_band: "Medium"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Medium impact; heuristic evidence caps at P1. Matters most when a CA-led customer asks for an audit trail."
+effort: "M"
+recommendation: "Three layers: a model/QuerySet guard with an explicit audit_maintenance() context, a Postgres trigger that allows only user_id to NULL and first-time sealing, and a nightly hash chain with verify. Remaining ops items: revoke UPDATE/DELETE on the table for the app DB role, and archive the latest chain hash offsite (truncating the tail is only detectable against an external copy)."
+test_required: "backend/tests/test_audit_append_only.py (SQLite plus Postgres trigger tests)."
+guard_ref:
+  test: "backend/tests/test_audit_append_only.py"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-02"
+closed: "2026-10-02"

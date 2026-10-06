@@ -9,7 +9,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import { recordInvoicePayment } from '@/api/resources';
 import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { t } from '@/i18n';
@@ -24,6 +24,17 @@ type Props = {
   onSuccess: (invoice: SalesInvoice) => void;
 };
 
+/** Short stable hash (FNV-1a) of what is being paid, so the key follows the request body. */
+function bodyFingerprint(invoiceId: number | string, body: unknown): string {
+  const text = `${invoiceId}:${JSON.stringify(body)}`;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16);
+}
+
 const EMPTY_CHEQUE: ChequePaymentValues = { chequeNumber: '', chequeBankName: '', chequeDate: '' };
 
 export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }: Props) {
@@ -34,13 +45,16 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
   const [reference, setReference] = useState('');
   const [cheque, setCheque] = useState(EMPTY_CHEQUE);
   const [error, setError] = useState<string | null>(null);
+  // One key per payment being entered: a double click or a retry after a lost response
+  // replays the first receipt instead of posting a second one.
+  const [idempotencyKey, setIdempotencyKey] = useState(() => newIdempotencyKey());
 
   const due = invoice ? toNumber(invoice.balance ?? invoice.grandTotal) : 0;
 
   const mutation = useMutation({
     mutationFn: () => {
       if (!invoice) throw new Error('Missing invoice');
-      return recordInvoicePayment(invoice.id, {
+      const body = {
         amount: Number(amount),
         discount: discount === '' ? 0 : Number(discount),
         mode,
@@ -50,9 +64,16 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
         chequeBankName: cheque.chequeBankName,
         chequeDate: cheque.chequeDate || undefined,
         chequeImage: cheque.chequeImage || undefined,
+      };
+      // The server refuses a reused key with a different body. A retry of the same payment keeps
+      // its key (so a lost response replays instead of posting twice); a corrected amount, or the
+      // dialog reopened for another invoice, gets a new one.
+      return recordInvoicePayment(invoice.id, body, {
+        idempotencyKey: `${idempotencyKey}-${bodyFingerprint(invoice.id, body)}`,
       });
     },
     onSuccess: (inv) => {
+      setIdempotencyKey(newIdempotencyKey());
       onSuccess(inv);
       setAmount('');
       setDiscount('');
@@ -117,11 +138,11 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
             value={mode}
             onChange={(e) => setMode(e.target.value as PaymentMode)}
           >
-            <MenuItem value="CASH">Cash</MenuItem>
+            <MenuItem value="CASH">{t('sweep2.cash')}</MenuItem>
             <MenuItem value="UPI">UPI</MenuItem>
-            <MenuItem value="BANK">Bank</MenuItem>
-            <MenuItem value="CARD">Card</MenuItem>
-            <MenuItem value="CHEQUE">Cheque</MenuItem>
+            <MenuItem value="BANK">{t('sweep2.bank')}</MenuItem>
+            <MenuItem value="CARD">{t('sweep2.card')}</MenuItem>
+            <MenuItem value="CHEQUE">{t('sweep2.cheque')}</MenuItem>
           </TextField>
           <TextField
             size="small"

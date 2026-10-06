@@ -119,7 +119,7 @@ def test_bb_000682_completed_payrun_immutable(tenant_a):
     )
     created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-04"}, format="json")
     run_id = _body(created)["id"]
-    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/").status_code == 200
+    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json").status_code == 200
     patched = tenant_a.client.patch(
         f"/api/v1/payroll/pay-runs/{run_id}/", {"period": "2026-05"}, format="json",
     )
@@ -138,8 +138,8 @@ def test_bb_000685_payrun_complete_is_idempotent(tenant_a):
     )
     created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-06"}, format="json")
     run_id = _body(created)["id"]
-    first = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
-    second = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    first = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json")
+    second = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json")
     assert first.status_code == 200
     assert second.status_code == 400
     assert JournalEntry.objects.filter(
@@ -167,7 +167,7 @@ def test_bb_000683_payroll_journal_dated_period_month_end(tenant_a):
     )
     created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-02"}, format="json")
     run_id = _body(created)["id"]
-    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/").status_code == 200
+    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json").status_code == 200
     entry = JournalEntry.objects.get(
         company=tenant_a.company, source_type="PAY_RUN", source_id=run_id, purpose="PAYROLL",
     )
@@ -183,7 +183,7 @@ def test_cancel_pay_run_reverses_journal_and_reopens_draft(tenant_a):
     )
     created = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-03"}, format="json")
     run_id = _body(created)["id"]
-    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/").status_code == 200
+    assert tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json").status_code == 200
     cancel_resp = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/cancel/")
     assert cancel_resp.status_code == 200, cancel_resp.data
     assert _body(cancel_resp)["status"] == "DRAFT"
@@ -214,7 +214,7 @@ def test_lop_placeholder_keeps_salary_gross(tenant_a):
     slip = PaySlip.objects.get(pay_run_id=run_id, employee=emp)
     assert Decimal(str(slip.gross)) == Decimal("30000")
     assert Decimal(str(slip.paid_days)) == Decimal("20")
-    done = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    done = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json")
     assert done.status_code == 200, done.data
     slip.refresh_from_db()
     assert Decimal(str(slip.gross)) == Decimal("20000.00")

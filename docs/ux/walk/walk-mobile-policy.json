@@ -1,0 +1,33 @@
+[
+ {
+  "path": "/insurance",
+  "phase": "G5",
+  "project": "mobile-policy",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Policies"
+  ],
+  "buttons": [
+   "Create",
+   "Save prospect",
+   "Offer options",
+   "Issue policy"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 11,
+  "alerts": [],
+  "textHead": "Policies This desk records policies you already sold. It does not issue a policy with an insurer. Product Product Insurer Insurer Line MOTOR Line Premium Premium Sum insured Sum insured Tenure (months) Tenure (months) Create Prospect Prospect Save prospect Offer options Customer Customer Nominee Nominee Start Start Issue policy In force",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ }
+]

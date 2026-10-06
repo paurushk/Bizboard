@@ -99,7 +99,7 @@ export function PurchaseDetailPage() {
             <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />
             <Chip size="small" label={inv.purchaseType} variant="outlined" />
             {inv.isReverseCharge ? (
-              <Chip size="small" label="Reverse charge (RCM)" color="warning" variant="outlined" />
+              <Chip size="small" label={t('sweep.reverseCharge')} color="warning" variant="outlined" />
             ) : null}
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
@@ -191,7 +191,7 @@ export function PurchaseDetailPage() {
           <Divider sx={{ my: 1 }} />
           <Stack spacing={0.75}>
             <Stack direction="row" justifyContent="space-between">
-              <Typography>Taxable</Typography>
+              <Typography>{t('sweep2.taxable')}</Typography>
               <Typography>{formatMoney(inv.taxableTotal)}</Typography>
             </Stack>
             {showTax ? (
@@ -214,7 +214,7 @@ export function PurchaseDetailPage() {
               <>
                 <Divider sx={{ my: 0.5 }} />
                 <Typography variant="caption" color="text.secondary">
-                  Reverse charge (RCM)
+                  {t('sweep2.reverseChargeRcm')}
                 </Typography>
                 {inv.rcmTaxable != null ? (
                   <Stack direction="row" justifyContent="space-between">
@@ -246,7 +246,7 @@ export function PurchaseDetailPage() {
         </Paper>
       </Stack>
 
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>

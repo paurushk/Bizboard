@@ -189,7 +189,7 @@ describe('InvoiceDetailPage status — G-17', () => {
   it('flags a partial return and lists the linked SalesReturn for auditability', async () => {
     wrap(<InvoiceDetailPage />, '/sales/history/2');
     await screen.findByText('INV-0002');
-    expect(screen.getAllByText(/^completed$/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^unpaid$/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/partially returned/i)).toBeTruthy();
     expect(await screen.findByText('SRN-0001')).toBeTruthy();
   });

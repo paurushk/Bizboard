@@ -98,7 +98,7 @@ inaccessible with that profile.
 | WhatsApp Cloud API | `ENABLE_WHATSAPP_CLOUD=0` | Share-link only in pilot |
 | Telegram Bot API | `ENABLE_TELEGRAM=0` | Opt-in staff alerts; off in freeze |
 | Account Aggregator banking | `ENABLE_ACCOUNT_AGGREGATOR=0`, `ENABLE_AA_CONSENT=off` | No AA integration in pilot |
-| Postgres RLS | `POSTGRES_RLS_ENABLED=0` | App-layer `company_id` scoping is the pilot isolation guarantee; RLS unproven |
+| Postgres RLS | `POSTGRES_RLS_ENABLED=1` required in production and staging on PostgreSQL | Startup refuses to run with it off (BUG-SEC-019); app-layer `company_id` scoping stays as the first line. Still `0` for local SQLite and development |
 | Help v2 | `VITE_HELP_V2=false`, `helpV2=off` | Help v1 is the supported surface |
 | Item custom fields v2 | `item_custom_fields_v2=off` | Not in pilot scope |
 | Advanced demo surfaces | `VITE_PILOT_ADVANCED=false` | Master switch for local-demo-only features |
@@ -140,7 +140,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_SETUP_WIZARD` / `VITE_ENABLE_SETUP_WIZARD` | both | **ON** (`1` / `true`) | A19 SUPPORTED |
 | `company.accounting_enabled` / `VITE_ENABLE_ACCOUNTING` | both | per-company opt-in; ≥1 pilot company ON (D5) → `FG-2a/gl` hard gate | C4 |
 | `company.ai_features_enabled` / `VITE_ENABLE_AI` | both | OFF | B |
-| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | trial plan | ON for GSTR-1 and GSTR-3B worksheets | Not filing. 2B and IMS stay out of this release |
+| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | trial plan | ON for GSTR-1 and GSTR-3B worksheets via `trial_plan_modules`. `TRIAL_HELD_FALSE` keeps GSTN JSON false. The pilot env file stays `ENABLE_GSTR=0`; a subscribed trial lifts the grantable key. | Not filing. 2B and IMS stay out of this release |
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
 | `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_BOE` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
@@ -158,7 +158,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_CASHFREE` / `ENABLE_PAYU` | backend | **ON, sandbox** (D3) — ≥1 provider configured | A25 SUPPORTED / C8 |
 | `VITE_ENABLE_EINVOICE_SUBMIT` | frontend | OFF | B (preview = C2) |
 | `GSP_LIVE_ENABLED` | backend | OFF | B |
-| `POSTGRES_RLS_ENABLED` | backend | OFF (`0`) | B |
+| `POSTGRES_RLS_ENABLED` | backend | ON (`1`) in production and staging; `0` elsewhere | B |
 | `OTP_ENABLED` / `VITE_ENABLE_OTP` | both | **ON** (D4) — host needs `SMS_PROVIDER` | A26 SUPPORTED / C6 |
 | `VITE_PILOT_ADVANCED` | frontend | OFF (`false`) | B |
 | `VITE_HELP_V2` / `helpV2` | both | OFF | B |
@@ -166,6 +166,11 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_API_DOCS` | backend | OFF in prod (on under `DEBUG`) | dev tooling — n/a |
 | `ADMIN_ENABLED` | backend | OFF in prod | dev tooling — n/a |
 | `VITE_USE_MOCKS` | frontend | `false` (prod build refuses `true`) | dev/e2e — n/a |
+| `ENABLE_GSTR_EXTENDED` | backend | **OFF** (`0`) — nav for GSTR-2B/4/6/7/8/9 worksheets; the frozen release shows GSTR-1 and 3B only (see `ENABLE_GSTR`). Demo/staging may turn it on; rollout-grantable per company | Extension — per-company grant |
+| `ENABLE_REPLENISHMENT`, `ENABLE_GST_GUARD`, `ENABLE_ROUTE_PROFIT`, `ENABLE_SUPPLIER_PRICE_HISTORY`, `ENABLE_ROUTE_OPTIMIZATION`, `ENABLE_PURCHASE_PLANNING`, `ENABLE_ORDER_GATES` | backend | **OFF** (`0`) at the env ceiling (Wave 17G, `settings.py`). Each is in `ROLLOUT_GRANTABLE_KEYS`: a company `feature_flags` entry can turn it on above the deployment default | Extension — per-company grant |
+| `ENABLE_CUSTOMER_PORTAL`, `ENABLE_CUSTOMER_360`, `ENABLE_CUSTOMER_ACTIONS`, `ENABLE_CROSS_SELL`, `ENABLE_ACTION_ASSIGNMENT`, `ENABLE_PREDICTIVE_DUNNING`, `ENABLE_ARCHETYPE_PACKS` | backend | **OFF** (`0`) at the env ceiling; rollout-grantable per company | Extension — per-company grant |
+| `ENABLE_COMPLAINTS`, `ENABLE_SUPPORT_TICKETS`, `ENABLE_CONTRACTS`, `ENABLE_REFERRALS`, `ENABLE_WORKSHOP`, `ENABLE_PROJECTS`, `ENABLE_INSURANCE` | backend | **OFF** (`0`) at the env ceiling; rollout-grantable per company. A tenant that uses one is outside the ARCH-03 pilot path and needs its own scope decision | Extension — per-company grant |
+| `ENABLE_CRM_WHATSAPP_INBOUND` | backend | **OFF** (`0`); **not** in `ROLLOUT_GRANTABLE_KEYS`, so the env flag is a hard ceiling a company can only narrow. Follows `ENABLE_CRM` / `ENABLE_WHATSAPP_CLOUD` (both OFF) | B |
 
 **Operational toggles — not feature flags, not frozen scope** (listed so the
 config-consistency guard ignores them): `AUTO_PICK_COMPANY_ON_EMPTY`,
@@ -173,7 +178,16 @@ config-consistency guard ignores them): `AUTO_PICK_COMPANY_ON_EMPTY`,
 `DJANGO_FAIL_FAST_SECRETS`, `GATEWAY_HOLDING_STATE`, `GSP_CERTIFIED`,
 `GSP_HTTP_SANDBOX`, `JSON_REQUEST_LOGS`, `OTP_DEBUG_ECHO`,
 `PAYMENTS_REFUND_EVENT_MAP_V2`, `REQUIRE_SANDBOX_WEBHOOK_SECRET`,
-`SECURE_SSL_REDIRECT`, `USE_TLS`, `ENABLE_SCHEDULED_COVERAGE_AUDIT`. These control
+`SECURE_SSL_REDIRECT`, `USE_TLS`, `ENABLE_SCHEDULED_COVERAGE_AUDIT`,
+`PORTAL_DEBUG_ECHO` (customer-portal OTP echo for local debugging; settings
+refuse it outside development/test). `IDEMPOTENCY_STRICT_FINGERPRINT` (default on: a reused
+Idempotency-Key with a different request body is refused with 422; off only for a quick rollback).
+`MFA_ENFORCE_FOR_MONEY_ROLES` (default on in production and staging: an Owner or Accountant
+without TOTP does not receive a session). `MFA_ENFORCE_WAIVER` (must be `1` before production
+or staging may set `MFA_ENFORCE_FOR_MONEY_ROLES=0`). `ALLOW_BELOW_COST_SALES_DEFAULT` (default
+off: a bill priced under purchase cost is refused unless the company allows it or an Owner records a
+reason; a company setting overrides this process default, and the test settings turn it on). `E2E_RELAX_AUTH_THROTTLE` raises the login throttle for the golden-browser run and only takes effect when DEBUG is on.
+These control
 infra/runtime behaviour, not product surface. `GATEWAY_HOLDING_STATE` and
 `GSP_HTTP_SANDBOX` are sub-toggles of D3 / C2 respectively and follow those
 decisions.

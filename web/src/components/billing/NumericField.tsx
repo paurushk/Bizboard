@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useState, type ComponentProps } from 'react';
 import TextField from '@mui/material/TextField';
 import { formatMoney, roundMoney } from '@/utils/money';
 
@@ -61,9 +61,12 @@ export function NumericField({
   const [text, setText] = useState(() => formatNumericText(value, decimals));
   const [focused, setFocused] = useState(false);
 
-  useEffect(() => {
+  // Follow the value from outside, but never overwrite text the user is typing.
+  const [seen, setSeen] = useState({ value, focused, decimals });
+  if (seen.value !== value || seen.focused !== focused || seen.decimals !== decimals) {
+    setSeen({ value, focused, decimals });
     if (!focused) setText(formatNumericText(value, decimals));
-  }, [value, focused, decimals]);
+  }
 
   return (
     <TextField

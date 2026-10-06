@@ -122,6 +122,14 @@ class CustomerReceipt(CompanyScopedModel):
         related_name="cheque_receipts",
     )
     settlement_discount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    dishonour_fee = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    section_138_notice = models.ForeignKey(
+        "core.FileAsset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="section_138_notices",
+    )
 
     class Meta:
         ordering = ["-receipt_date", "-id"]
@@ -218,6 +226,10 @@ class PaymentAllocation(CompanyScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["sales_invoice", "reversed_at"], name="alloc_sales_inv_rev_idx"),
+            models.Index(fields=["purchase_invoice", "reversed_at"], name="alloc_purch_inv_rev_idx"),
+        ]
         constraints = [
             # BB-000022: exactly one payment side and one invoice side.
             models.CheckConstraint(

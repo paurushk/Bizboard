@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
@@ -31,7 +31,10 @@ export function HelpFeedbackForm({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(false);
 
-  useEffect(() => {
+  // Restore the answer already given for this page in this session.
+  const [seenPersistKey, setSeenPersistKey] = useState<string | null>(null);
+  if (seenPersistKey !== persistKey) {
+    setSeenPersistKey(persistKey);
     try {
       const saved = sessionStorage.getItem(persistKey);
       if (saved === HELP_EVENTS.RESOLVED) setChoice('resolved');
@@ -40,7 +43,7 @@ export function HelpFeedbackForm({
     } catch {
       // ignore
     }
-  }, [persistKey]);
+  }
 
   const persist = (name: string) => {
     try {

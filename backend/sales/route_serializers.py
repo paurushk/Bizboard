@@ -6,6 +6,7 @@ from .models import (
     DeliveryChallanReturnItem,
     DeliveryRoute,
     DeliveryRouteStop,
+    RouteCashHandover,
 )
 from .route_service import RouteService
 from .serializers import LINE_READONLY, TOTAL_READONLY, CompanyScopedSerializerMixin, _BaseLineSerializer
@@ -23,6 +24,7 @@ class DeliveryRouteStopSerializer(serializers.ModelSerializer):
             "sequence", "status", "notes", "delivered_at",
             "completion_source", "otp_code", "pod_note",
             "received_by_name", "pod_photo", "customer_receipt",
+            "collected_cash", "collected_upi", "upi_reference",
         ]
         read_only_fields = ["id", "delivered_at"]
 
@@ -42,6 +44,7 @@ class SequencedStopSerializer(serializers.Serializer):
 class DeliveryRouteSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     stops = DeliveryRouteStopSerializer(many=True, read_only=True)
     rollup = serializers.SerializerMethodField()
+    cash_handover = serializers.SerializerMethodField()
 
     class Meta:
         model = DeliveryRoute
@@ -51,13 +54,27 @@ class DeliveryRouteSerializer(CompanyScopedSerializerMixin, serializers.ModelSer
             "realized_revenue", "realized_cogs", "realized_profit",
             "invoiced_stop_count", "stop_count", "completion_source",
             "notes",
-            "stops", "rollup", "created_at", "updated_at",
+            "stops", "rollup", "cash_handover", "created_at", "updated_at",
         ]
         read_only_fields = [
             "number", "status",
             "realized_revenue", "realized_cogs", "realized_profit",
             "invoiced_stop_count", "stop_count",
         ]
+
+    def get_cash_handover(self, obj):
+        try:
+            row = obj.cash_handover
+        except RouteCashHandover.DoesNotExist:
+            return None
+        return {
+            "status": row.status,
+            "expected_cash": row.expected_cash,
+            "expected_upi": row.expected_upi,
+            "counted_cash": row.counted_cash,
+            "counted_upi": row.counted_upi,
+            "variance_amount": row.variance_amount,
+        }
 
     def get_rollup(self, obj):
         from .expected_profit import can_view_expected_profit

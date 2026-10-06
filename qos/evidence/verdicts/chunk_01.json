@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "C-0602",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:ItcEligibility; backend/accounting/services.py:reclass_rejected_itc",
+  "reason": "Only a single UNREVIEWED/CLAIMABLE/INELIGIBLE flag exists; no four-condition Section 16(2) checklist on the purchase bill."
+ },
+ {
+  "task_id": "C-0603",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/ims.py:section_16_4_deadline; backend/reporting/ims.py:expiring_itc_rows; backend/insights/attention.py:_itc_and_gst_rows",
+  "reason": "Deadline and a 30-day expiry alert/digest exist; no 60/7-day tiers and no TIME_BARRED status or exclusion engine."
+ },
+ {
+  "task_id": "C-0604",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/services.py:reclass_rejected_itc; backend/purchases/serializers.py:itc_eligibility",
+  "reason": "Ineligible ITC can be reclassified to expense/inventory, but no automatic motor vehicle/food/gift classification; only composition-supplier auto-ineligible."
+ },
+ {
+  "task_id": "C-0605",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/notes_services.py:complete_credit_note; backend/sales/models.py:SalesCreditNote",
+  "reason": "Credit note requires a PROTECT FK to the original invoice and completion raises past the 30 Nov Sec 34(2) deadline."
+ },
+ {
+  "task_id": "C-0606",
+  "verdict": "Contradicted",
+  "evidence": "backend/sales/eway_payload.py:transport_distance_km",
+  "reason": "Distance is a user-entered field; no NIC PIN-to-PIN lookup or 200 km validity computation (validity comes from provider response)."
+ },
+ {
+  "task_id": "C-0607",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched interest, section_50, late fee, delayed GSTR-3B in backend",
+  "reason": "No Section 50 interest calculator or delayed-filing worksheet exists."
+ },
+ {
+  "task_id": "C-0609",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched schedule_h, prescription, doctor, prescribing",
+  "reason": "No Schedule H/X register or doctor/prescription logging; only drug licence numbers and batch on invoices exist."
+ },
+ {
+  "task_id": "C-0611",
+  "verdict": "Contradicted",
+  "evidence": "backend/sales/pdf/thermal_receipt.py:format_money",
+  "reason": "Receipts print unit_price per line only; no unit-price-per-gram/ml declaration or USP calculator found."
+ },
+ {
+  "task_id": "C-0612",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/tax_engine/india.py:fold_tds_from_rate; backend/purchases/models.py:tds_section",
+  "reason": "TDS is manual section/rate on the bill and credits 2265 TDS Payable; no 194C threshold, PAN-based rate or 26Q generation beyond a worksheet."
+ },
+ {
+  "task_id": "C-0613",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/tax_engine/india.py:fold_tds_from_rate; backend/reporting/tds_worksheets.py:tds_worksheet_rows",
+  "reason": "Manual TDS rate/section and worksheet exist; no 194J threshold rule, per-consultant annual tracking or Form 16A generation."
+ },
+ {
+  "task_id": "C-0614",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched 206AB, 206CCA, specified person",
+  "reason": "No Section 206AB specified-person check or rate uplift anywhere in code."
+ },
+ {
+  "task_id": "C-0615",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched rule 42, rule 43, common credit, exempt supplies reversal",
+  "reason": "No proportionate common-credit reversal computation or journal; only an ITC reversed/ineligible flag section in GSTR-3B."
+ },
+ {
+  "task_id": "C-0617",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched 128A, amnesty",
+  "reason": "No Section 128A amnesty tracking or reconciliation."
+ },
+ {
+  "task_id": "C-0618",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched multi-vehicle, part_b, vehicle update",
+  "reason": "No Part B vehicle update or multi-vehicle consignment splitting; e-way is a single bill per document."
+ },
+ {
+  "task_id": "C-0619",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched anti-profiteering, section 171, rate cut",
+  "reason": "No anti-profiteering price-reduction audit or price adjustment."
+ },
+ {
+  "task_id": "D-0690",
+  "verdict": "Contradicted",
+  "evidence": "backend/reporting/gstr2b.py:match_gstr2b_to_purchases; backend/reporting/ims.py:classify_and_match",
+  "reason": "Matching uses case-insensitive exact invoice number with tax/date tolerance; no fuzzy or Levenshtein normalisation of dashes/spaces."
+ },
+ {
+  "task_id": "I-0660",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/gsp_adapters.py:LiveGstrFilingAdapter; backend/core/services/gsp_adapters.py:obtain_gsp_auth_session",
+  "reason": "Adapter with GSTR-1/3B upload and 2B fetch exists but live mode is gated on GSP_CERTIFIED; no OTP tunnel or ledger balance pull."
+ },
+ {
+  "task_id": "I-0661",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/gsp_adapters.py:LiveIrpAdapter; backend/core/services/nic_irp_crypto.py:wrap_nic_invoice_data; backend/core/services/gsp_adapters.py:wrap_irp_payload",
+  "reason": "Live IRP adapter with auth token exchange and encrypted payload exists; IRN and QR are printed on the invoice PDF."
+ },
+ {
+  "task_id": "P-0016",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr1; backend/reporting/gst_returns.py:build_gstr3b",
+  "reason": "GSTR-1 and 3B builders aggregate outward CGST/SGST/IGST/cess for the period."
+ },
+ {
+  "task_id": "P-0017",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shift, day close, cash session, end of day in backend",
+  "reason": "No POS shift or daily close with variance and lock; only period/FY close and a day-book report."
+ },
+ {
+  "task_id": "P-0033",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:TaxRate; backend/masters/hsn_catalog.py:line_gst_decision; backend/masters/serializers.py:_align_saved_gst_rate",
+  "reason": "Product stores HSN and gst_rate; HSN catalog supplies rates and notices used in billing."
+ },
+ {
+  "task_id": "P-0034",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/pdf/gst_tax_invoice.py:format_money; backend/core/services/tax_engine/india.py:compute_document_totals",
+  "reason": "Tax invoice PDF shows GSTINs, HSN and tax splits; engine computes CGST/SGST/IGST per line."
+ },
+ {
+  "task_id": "P-0049",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/pdf/gst_tax_invoice.py:licence_labels; backend/accounts/models.py:CompanyStatutoryLicence",
+  "reason": "Sales invoice PDF prints Drug Licence 20B/21B numbers plus batch and expiry per line."
+ },
+ {
+  "task_id": "P-0100",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:invoice_value_mismatch; backend/reporting/gst_health.py:build_gst_health",
+  "reason": "Sales invoice listing plus health check flags INVOICE_VALUE_MISMATCH and rate/GSTIN issues."
+ },
+ {
+  "task_id": "P-0101",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/models.py:ItcEligibility; backend/reporting/gst_health.py:build_gst_health",
+  "reason": "Purchase invoices carry ITC eligibility and RCM flags; supplier GSTIN status checks run in health report."
+ },
+ {
+  "task_id": "P-0102",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_guard.py:validate_document; backend/reporting/gst_health.py:build_gst_health",
+  "reason": "GST guard validates buyer GSTIN, HSN master, rate consistency and POS before submission."
+ },
+ {
+  "task_id": "P-0103",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_guard.py:validate_document; backend/reporting/gst_health.py:build_gst_health",
+  "reason": "Health alerts HSN_MISSING, GSTIN_MISSING_COMPANY and POS_UNKNOWN list blocking documents; inline resolution not verified."
+ },
+ {
+  "task_id": "P-0104",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gstr2b.py:match_gstr2b_to_purchases; backend/reporting/ims.py:classify_and_match",
+  "reason": "2B rows are matched to purchase invoices by GSTIN, number, amount and date with match class."
+ },
+ {
+  "task_id": "P-0105",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims_offline.py:import_offline; backend/reporting/ims.py:classify_and_match",
+  "reason": "2B/IMS rows are ingested and classified into matched, partial and missing-in-IMS buckets."
+ },
+ {
+  "task_id": "P-0106",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:apply_ims_action; backend/reporting/ims_offline.py:export_offline",
+  "reason": "Accept/reject/pending actions are recorded per row, bulk accept exists, offline action JSON is exported."
+ },
+ {
+  "task_id": "P-0107",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:credit_at_risk; backend/reporting/ims.py:supplier_po_nudge; backend/insights/attention.py:_itc_and_gst_rows",
+  "reason": "ITC at risk is quantified and raised as an attention alert with supplier nudge."
+ },
+ {
+  "task_id": "P-0108",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:section_16_4_deadline; backend/reporting/ims.py:expiring_itc_rows; backend/insights/attention.py:_itc_and_gst_rows",
+  "reason": "16(4) deadline per row with expiring-ITC warning, alert and digest email."
+ },
+ {
+  "task_id": "P-0109",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:supplier_scorecard; backend/reporting/ims.py:supplier_defect_message",
+  "reason": "Per-supplier mismatch counts and average correction time are computed and surfaced."
+ },
+ {
+  "task_id": "P-0110",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr1; backend/reporting/gst_returns.py:build_gstr3b; backend/reporting/gst_returns.py:to_gstn_json",
+  "reason": "GSTR-1, 3B and CMP-08 builders produce tables and GSTN-format JSON."
+ },
+ {
+  "task_id": "P-0111",
+  "verdict": "Partial",
+  "evidence": "backend/integrations/tally/adapter.py:build_tally_export_csv; backend/integrations/tally/adapter.py:_vouchers_xml",
+  "reason": "Tally export download is CSV; Tally XML vouchers are only generated for HTTP push to a Tally server, not a downloadable file."
+ },
+ {
+  "task_id": "P-0112",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:_worksheet_register_tie",
+  "reason": "Return worksheets are tied to sales/purchase register taxable totals only; no GL output/input tax ledger to GSTR reconciliation statement."
+ },
+ {
+  "task_id": "P-0114",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:invoice_value_mismatch; backend/core/services/tax_engine/india.py:_apply_line_tax",
+  "reason": "Engine enforces CGST equals SGST and totals; mismatch check flags documents whose tax or total drifts."
+ },
+ {
+  "task_id": "P-0124",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr3b",
+  "reason": "3B payload has tax_payable_summary with net payable hint after claimable ITC; no separate insights liability estimator or due-date planning."
+ },
+ {
+  "task_id": "P-0179",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/models.py:CompanyGstin; backend/accounts/serializers.py:CompanyStatutoryLicenceSerializer",
+  "reason": "CompanyGstin records with state, composition handling and place-of-supply use exist."
+ },
+ {
+  "task_id": "P-0181",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/models.py:TaxRate; backend/core/services/tax_engine/india.py:_apply_line_tax",
+  "reason": "TaxRate master plus ad-valorem and per-unit cess feed line tax calculation."
+ },
+ {
+  "task_id": "P-0186",
+  "verdict": "Confirmed",
+  "evidence": "backend/imports/models.py:ImportJob; backend/accounts/tenant_backup.py:build_export_payload",
+  "reason": "Import jobs with preview/commit and an encrypted full tenant export exist."
+ },
+ {
+  "task_id": "P-0503",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gstr2b.py:match_gstr2b_to_purchases; backend/purchases/models.py:ItcEligibility",
+  "reason": "2B matching and eligible/ineligible flags exist, but no Section 17(5) blocked-credit classification."
+ },
+ {
+  "task_id": "P-0504",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/tds_worksheets.py:tds_worksheet_rows; backend/reporting/tds_worksheets.py:tcs_worksheet_rows",
+  "reason": "TDS/TCS worksheets list deductions; no 194Q 50-lakh threshold test, PAN status verification or challan checks."
+ },
+ {
+  "task_id": "P-0505",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/models.py:FixedAsset; backend/accounting/tasks.py:FixedAsset",
+  "reason": "FixedAsset supports SLM and WDV methods, disposal, accumulated depreciation and scheduled monthly posting."
+ },
+ {
+  "task_id": "P-0506",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr9",
+  "reason": "GSTR-9 builder exists; no GSTR-9C or reconciliation against audited P&L turnover."
+ },
+ {
+  "task_id": "P-0507",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/audit_chain.py:seal; backend/core/services/audit_chain.py:verify",
+  "reason": "Hash-chained audit events with verify exist; not django-simple-history, and no certification report or Rule 11(g) coverage of all records."
+ },
+ {
+  "task_id": "P-0508",
+  "verdict": "Partial",
+  "evidence": "backend/integrations/tally/adapter.py:_vouchers_xml; backend/integrations/tally/adapter.py:push_vouchers_http",
+  "reason": "Voucher XML is built only for HTTP push to Tally; no downloadable full-year Tally XML file with inventory items."
+ },
+ {
+  "task_id": "R-0649",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched chunked, resumable, tus, multipart chunk in backend and web/src",
+  "reason": "Imports use ordinary single multipart upload; no chunking or resume."
+ },
+ {
+  "task_id": "S-0571",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched cleanup, purge, media_exports, temp file in tasks.py",
+  "reason": "Only HelpEvent, idempotency and sandbox sweeps exist; no export or temp media garbage collection task."
+ },
+ {
+  "task_id": "SEC-0628",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/gsp_secrets.py:encrypt_gsp_credentials; backend/accounts/models.py:bank_account",
+  "reason": "GSP credentials use Fernet (AES-128-CBC), not AES-256-GCM; bank_account and IFSC are plain CharFields."
+ },
+ {
+  "task_id": "SEC-0632",
+  "verdict": "Confirmed",
+  "evidence": ".github/workflows/ci.yml:pip-audit; .github/workflows/ci.yml:npm audit; .github/dependabot.yml:updates",
+  "reason": "CI runs pip-audit and npm audit at high level plus Trivy, and Dependabot is configured."
+ },
+ {
+  "task_id": "SaaS-0672",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounts/export_views.py:TenantExportView; backend/accounts/tenant_backup.py:encrypt_export_zip",
+  "reason": "Owner can download an encrypted zip of all company rows (JSON/CSV) and file assets; Excel/PDF books not specifically generated."
+ },
+ {
+  "task_id": "UX-0589",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched DataGrid, ag-grid, spreadsheet, bulk edit in web/src",
+  "reason": "No spreadsheet-style editable grid for bulk purchase bill review."
+ },
+ {
+  "task_id": "UX-0599",
+  "verdict": "Contradicted",
+  "evidence": "web/src/pages/reports/Gstr2bPage.tsx:matchGstr2b",
+  "reason": "Reconciliation is a single table with a match button and status dropdown; no dual-pane or drag-and-drop manual matching."
+ },
+ {
+  "task_id": "X-0279",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:post_purchase; backend/core/services/tax_engine/india.py:compute_document_totals",
+  "reason": "Purchase completion computes input CGST/SGST/IGST and posts to input GST ledgers or 1390 suspense by ITC status."
+ },
+ {
+  "task_id": "X-0280",
+  "verdict": "Confirmed",
+  "evidence": "backend/masters/hsn_catalog.py:line_gst_decision; backend/core/services/tax_engine/india.py:apply_effective_gst_rate",
+  "reason": "Line rate defaults from product/HSN master with dated rate resolution; override needs a reason."
+ },
+ {
+  "task_id": "X-0281",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/tax_engine/india.py:is_intra_state; backend/core/services/place_of_supply.py:party_state_code",
+  "reason": "Party GSTIN prefix is compared with company state to choose intra or inter-state tax."
+ },
+ {
+  "task_id": "X-0282",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/place_of_supply.py:party_intra_state; backend/core/services/tax_engine/india.py:compute_document_totals",
+  "reason": "Purchase documents use the same engine, deriving regime from supplier GSTIN state."
+ },
+ {
+  "task_id": "X-0283",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/tax_engine/india.py:_apply_line_tax",
+  "reason": "Intra-state tax is split into equal CGST and SGST halves per line."
+ },
+ {
+  "task_id": "X-0284",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/tax_engine/india.py:_apply_line_tax",
+  "reason": "Inter-state lines carry the full tax in igst with cgst and sgst zero."
+ }
+]

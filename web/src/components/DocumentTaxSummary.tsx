@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type HTMLAttributes, type ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Checkbox from '@mui/material/Checkbox';
@@ -28,16 +28,20 @@ function SummaryRow({
   label,
   value,
   bold,
+  live,
 }: {
   label: string;
   value: ReactNode;
   bold?: boolean;
+  live?: boolean;
 }) {
   return (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2 }}>
       <Typography fontWeight={bold ? 700 : 400}>{label}</Typography>
       {typeof value === 'string' || typeof value === 'number' ? (
-        <Typography fontWeight={bold ? 700 : 500}>{value}</Typography>
+        <Typography fontWeight={bold ? 700 : 500} aria-live={live ? 'polite' : undefined}>
+          {value}
+        </Typography>
       ) : (
         value
       )}
@@ -111,6 +115,7 @@ export function DocumentTaxSummary({
                 fullWidth={false}
                 disabled={isCompletedEdit && !canAmendMoney}
                 helperText={t('billing.additionalChargesHint')}
+                inputProps={{ 'aria-label': t('billing.additionalCharges') }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                 }}
@@ -152,7 +157,7 @@ export function DocumentTaxSummary({
           <SummaryRow label={t('billing.igst')} value={formatMoney(totals.igstTotal)} />
         ) : null}
         {typeof totals.cessTotal === 'number' && totals.cessTotal > 0 ? (
-          <SummaryRow label="Cess" value={formatMoney(totals.cessTotal)} />
+          <SummaryRow label={t('sweep.cess')} value={formatMoney(totals.cessTotal)} />
         ) : null}
         {totals.igstTotal > 0 ? (
           <Typography variant="caption" color="text.secondary">
@@ -173,6 +178,7 @@ export function DocumentTaxSummary({
                 onChange={(e) => onInvoiceDiscountModeChange(e.target.value as InvoiceDiscountMode)}
                 disabled={isCompletedEdit && !canAmendMoney}
                 sx={{ minWidth: 180 }}
+                SelectProps={{ SelectDisplayProps: { 'aria-label': t('billing.invoiceDiscount') } as HTMLAttributes<HTMLDivElement> }}
               >
                 <MenuItem value="AFTER_TAX" disabled={blockAfterTaxDiscount}>
                   {t('billing.invoiceDiscountAfterTax')}
@@ -186,6 +192,7 @@ export function DocumentTaxSummary({
                 decimals={2}
                 fullWidth={false}
                 disabled={isCompletedEdit && !canAmendMoney}
+                inputProps={{ 'aria-label': t('billing.invoiceDiscount') }}
                 InputProps={{
                   startAdornment: <InputAdornment position="start">₹</InputAdornment>,
                 }}
@@ -237,6 +244,7 @@ export function DocumentTaxSummary({
               fullWidth={false}
               disabled={(isCompletedEdit && !canAmendMoney) || blockAfterTaxDiscount}
               helperText={t('billing.editableGrandTotalHelp')}
+              inputProps={{ 'aria-label': t('billing.collectAs') }}
               InputProps={{
                 startAdornment: <InputAdornment position="start">₹</InputAdornment>,
               }}
@@ -245,7 +253,7 @@ export function DocumentTaxSummary({
           }
           bold
         />
-        <SummaryRow label={totalLabel ?? t('billing.totalAmount')} value={formatMoney(grand)} bold />
+        <SummaryRow label={totalLabel ?? t('billing.totalAmount')} value={formatMoney(grand)} bold live />
         {children}
       </Stack>
     </Paper>

@@ -135,7 +135,7 @@ export function DataTable({
                   {columns.map((c) => (
                     <TableCell key={c.key}>{c.label}</TableCell>
                   ))}
-                  {actions ? <TableCell align="right">Actions</TableCell> : null}
+                  {actions ? <TableCell align="right">{t('sweep2.actions')}</TableCell> : null}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -178,6 +178,10 @@ export function DataTable({
   return (
     <Paper
       variant="outlined"
+      // UX-N07: a sideways-scrolling region must be reachable and named for keyboard users.
+      tabIndex={0}
+      role="region"
+      aria-label={t('common.scrollableTable')}
       sx={{
         overflow: 'auto',
         maxWidth: '100%',
@@ -193,7 +197,7 @@ export function DataTable({
             {columns.map((c) => (
               <TableCell key={c.key}>{c.label}</TableCell>
             ))}
-            {actions ? <TableCell align="right">Actions</TableCell> : null}
+            {actions ? <TableCell align="right">{t('sweep2.actions')}</TableCell> : null}
           </TableRow>
         </TableHead>
         <TableBody>

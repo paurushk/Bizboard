@@ -13,10 +13,11 @@ import { listLowStock } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { toNumber } from '@/utils/money';
 
 export function LowStockPage() {
+  useLocale();
   const query = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock });
 
   return (
@@ -26,17 +27,17 @@ export function LowStockPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.length === 0 ? <EmptyState description="All items are well stocked above reorder levels." /> : null}
+      {query.data?.length === 0 ? <EmptyState description={t('products.wellStocked')} /> : null}
       {query.data && query.data.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>{t('common.name')}</TableCell>
                 <TableCell>{t('common.sku')}</TableCell>
-                <TableCell align="right">Available</TableCell>
-                <TableCell align="right">Reorder Level</TableCell>
-                <TableCell>Status</TableCell>
+                <TableCell align="right">{t('products.available')}</TableCell>
+                <TableCell align="right">{t('products.reorderLevel')}</TableCell>
+                <TableCell>{t('products.status')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
@@ -52,7 +53,7 @@ export function LowStockPage() {
                   </TableCell>
                   <TableCell align="right">{toNumber(s.reorderLevel)}</TableCell>
                   <TableCell>
-                    <StatusChip tone="warning" label="Below reorder" />
+                    <StatusChip tone="warning" label={t('products.atOrBelowReorder')} />
                   </TableCell>
                   <TableCell align="right">
                     <Button

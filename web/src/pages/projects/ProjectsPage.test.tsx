@@ -30,7 +30,7 @@ function wrap(ui: ReactElement) {
       <MemoryRouter initialEntries={['/projects']}>
         <Routes>
           <Route path="/projects" element={ui} />
-          <Route path="/sales/invoices/:id" element={<Location />} />
+          <Route path="/sales/history/:id" element={<Location />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -47,7 +47,7 @@ describe('ProjectsPage', () => {
   it('shows create when the module is on and the list is empty', async () => {
     vi.mocked(isProjectsEnabled).mockReturnValue(true);
     wrap(<ProjectsPage />);
-    expect(await screen.findByRole('button', { name: 'Create' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Start project' })).toBeTruthy();
   });
 
   it('opens the invoice for the milestone that was posted', async () => {
@@ -72,7 +72,7 @@ describe('ProjectsPage', () => {
     });
     wrap(<ProjectsPage />);
     fireEvent.click(await screen.findByRole('button', { name: 'Invoice' }));
-    expect(await screen.findByTestId('loc')).toHaveTextContent('/sales/invoices/2');
+    expect(await screen.findByTestId('loc')).toHaveTextContent('/sales/history/2');
   });
 
   it('keeps milestone drafts separate per project', async () => {

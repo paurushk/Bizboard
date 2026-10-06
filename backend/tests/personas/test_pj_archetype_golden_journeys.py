@@ -165,6 +165,8 @@ def test_pj_golden_journey_distributor_credit_risk_and_godown_transfer():
     transfer_id = transfer_resp.data["id"]
     comp_transfer = oc.post(f"/api/v1/inventory/transfers/{transfer_id}/complete/")
     assert comp_transfer.status_code == 200
+    received = oc.post(f"/api/v1/inventory/transfers/{transfer_id}/receive/")
+    assert received.status_code == 200
 
     # Verify godown balances: North = 60, South = 40
     assert InventoryService.available_quantity(company, product, warehouse=wh_north) == Decimal("60.000")

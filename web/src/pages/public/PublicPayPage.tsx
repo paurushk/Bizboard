@@ -12,6 +12,7 @@ import { useParams } from 'react-router-dom';
 import { getPublicPaymentLink } from '@/api/resources';
 import { formatMoney } from '@/utils/money';
 import { isAllowedPaymentUrl } from '@/utils/safeUrl';
+import { t } from '@/i18n';
 
 export function PublicPayPage() {
   const { token = '' } = useParams();
@@ -36,13 +37,13 @@ export function PublicPayPage() {
           <CardContent>
             {/* F2-044: this is the only heading on the page — give it h1. */}
             <Typography variant="h5" component="h1" color="error" gutterBottom fontWeight={600}>
-              Payment Link Unavailable
+              {t('sweep2.paymentLinkUnavailable')}
             </Typography>
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
               This invoice payment link has expired or is invalid. Please contact the business for an updated payment link.
             </Typography>
             <Button variant="outlined" onClick={() => void query.refetch()}>
-              Retry
+              {t('sweep2.retry')}
             </Button>
           </CardContent>
         </Card>
@@ -79,7 +80,7 @@ export function PublicPayPage() {
             <Stack spacing={2.5}>
               <Box textAlign="center">
                 <Typography variant="overline" color="text.secondary">
-                  Secure payment
+                  {t('sweep2.securePayment')}
                 </Typography>
                 {/* F2-044: the company name is this page's one section heading
                     (h1); the amount below is a value, not a heading, so it no
@@ -98,22 +99,22 @@ export function PublicPayPage() {
               </Typography>
 
               {paid ? (
-                <Alert severity="success">Payment received. You can close this page.</Alert>
+                <Alert severity="success">{t('sweep2.paymentReceivedClose')}</Alert>
               ) : (
                 <>
                   <Alert severity="info">Pay with UPI or the hosted checkout. Do not share OTPs or card details in chat.</Alert>
                   {safeProviderUrl ? (
                     <Button size="large" variant="contained" href={safeProviderUrl} fullWidth>
-                      Pay online
+                      {t('sweep2.payOnline')}
                     </Button>
                   ) : null}
                   {safeIntentUrl ? (
                     <Button size="large" variant="outlined" href={safeIntentUrl} fullWidth>
-                      Open UPI app
+                      {t('sweep2.openUpiApp')}
                     </Button>
                   ) : null}
                   {!safeProviderUrl && !safeIntentUrl ? (
-                    <Alert severity="warning">Payment options are not configured for this business yet.</Alert>
+                    <Alert severity="warning">{t('sweep2.paymentOptionsNotSet')}</Alert>
                   ) : null}
                 </>
               )}

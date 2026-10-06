@@ -236,12 +236,14 @@ def test_pj_wholesale_owner_multi_godown_day():
         format="json",
     )
     assert tr.status_code == 201, tr.data
+    # complete loads the truck (stock sits in transit); receive lands it (BUG-INV-001)
     assert oc.post(f"/api/v1/inventory/transfers/{tr.data['id']}/complete/").status_code == 200
+    assert oc.post(f"/api/v1/inventory/transfers/{tr.data['id']}/receive/", {}, format="json").status_code == 200
     out_m = StockMovement.objects.get(
-        company=ns.company, reference_type="stock_transfer",
+        company=ns.company, reference_type="stock_transfer", warehouse=wh_n,
         reference_id=str(tr.data["id"]), movement_type=MovementType.TRANSFER_OUT)
     in_m = StockMovement.objects.get(
-        company=ns.company, reference_type="stock_transfer",
+        company=ns.company, reference_type="stock_transfer", warehouse=wh_s,
         reference_id=str(tr.data["id"]), movement_type=MovementType.TRANSFER_IN)
     assert out_m.quantity + in_m.quantity == Decimal("0.000")
     assert InventoryService.available_quantity(ns.company, p0, warehouse=wh_s) == Decimal("40.000")

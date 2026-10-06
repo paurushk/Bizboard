@@ -52,12 +52,17 @@ def create_contract_schedule(contract, user):
 
             next_run = timezone.make_aware(datetime.combine(start, time.min))
         else:
-            next_run = timezone.now()
+            # A start of today must not enqueue a draft on the next beat.
+            # The first automatic invoice is the following month.
+            from sales.recurring import advance_next_run
+
+            next_run = advance_next_run(timezone.now(), RecurringInvoiceSchedule.Cadence.MONTHLY)
         schedule = RecurringInvoiceSchedule.objects.create(
             company=contract.company,
             customer=contract.customer,
             cadence=RecurringInvoiceSchedule.Cadence.MONTHLY,
             next_run_at=next_run,
+            auto_complete=False,
             line_template={
                 "items": [{
                     "product": product_id,
@@ -71,4 +76,16 @@ def create_contract_schedule(contract, user):
         )
         contract.recurring_schedule = schedule
         contract.save(update_fields=["recurring_schedule", "updated_at"])
+        if start and start > today:
+            # The contract has not started. Drafting now would bill before the term begins and
+            # push the first scheduled run a month past the start date. The beat creates it.
+            return schedule
+        from sales.models import SalesInvoice
+        from sales.recurring import generate_draft_for_schedule
+
+        run = generate_draft_for_schedule(schedule, user=user)
+        invoice = getattr(run, "invoice", None)
+        if invoice is None or invoice.status != SalesInvoice.Status.DRAFT:
+            raise BusinessRuleError("The schedule did not create a draft invoice.")
+        schedule.draft_invoice_id = invoice.id
     return schedule

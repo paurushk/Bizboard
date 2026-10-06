@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  register-claims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Register claims match product code
+        run: python scripts/check_register_claims.py
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -130,6 +141,10 @@ jobs:
       - run: npm run lint
       - run: npm run test:run
       - run: npm run build
+      # MT-001: generated worker must not NavigationRoute to offline.html or precached index.html.
+      - run: node scripts/check-sw-navigate.mjs
+      # Perf programme A7: initial-load + per-chunk gzip budget (web/bundle-budget.json, a ratchet).
+      - run: node scripts/check-bundle-budget.mjs
       # BUG-714/715: fail loudly on known-vulnerable dependencies instead of
       # relying on someone remembering to run `npm audit` manually.
       - run: npm audit --omit=dev --audit-level=high
@@ -391,6 +406,43 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL
 
+  # F-PORT-01 / PRE-2: smoke the BUILT image, not the venv the other jobs test. Proves the interpreter
+  # matches CI, `check --deploy` passes with production-style settings, there is no migration
+  # drift, every migration applies to an empty Postgres, and gunicorn boots and answers /health/.
+  # Advisory until green on main a few times, then flip to blocking (same phasing as load-harness).
+  image-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: smoke
+          POSTGRES_USER: bizboard
+          POSTGRES_PASSWORD: bizboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the API image
+        run: docker build -t bizboard-api:ci backend
+      - name: Smoke the image
+        run: |
+          # Expected interpreter = the one the backend job tests.
+          expected="$(grep -m1 'python-version' .github/workflows/ci.yml | sed -E 's/.*"([0-9.]+)".*/\1/')"
+          sh scripts/image_smoke.sh bizboard-api:ci \
+            "postgresql://bizboard:bizboard@127.0.0.1:5432/smoke" "$expected"
+
   # QOS-0003: an executed smoke, not just a presence check — was `test -f
   # load/k6_smoke.js` with nothing ever running it. Boots a real backend
   # against Postgres, runs k6 for 30s, and asserts the script's own
@@ -635,7 +687,7 @@ jobs:
       - run: pip install -c constraints.txt -r requirements-dev.txt
       - name: Start a Celery worker
         run: |
-          celery -A config worker --loglevel=warning --concurrency=2 &
+          celery -A config worker --loglevel=warning -Q celery,high_priority,media_heavy,reports --concurrency=2 &
           echo $! > /tmp/celery.pid
           sleep 5
       - name: Chains against the real broker (advisory)
@@ -713,6 +765,10 @@ jobs:
           git diff --exit-code docs/PRODUCT_QUALITY_BACKLOG.md
       - name: Linter selftest (every check can fail)
         run: python qos/tools/lint.py --selftest
+      # UX programme: a new route, page, or dialog must have a row in
+      # docs/ux/L1_surface_ledger.csv. Local --check is green (190 surfaces).
+      - name: UX surface ledger is in sync
+        run: python scripts/ux_surface_diff.py --check
 
   # Graph 1 flow catalog. Advisory until 2 consecutive green CI weeks, then the
   # web lead removes continue-on-error (A3 / load-harness pattern).

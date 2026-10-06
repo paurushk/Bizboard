@@ -5,8 +5,8 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
   helpPage('purchase-invoice', {
     title: ['Purchase bill', 'खरीद बिल'],
     summary: [
-      'There is no separate goods-received note. **t:common.complete** on a purchase posts stock **and** the supplier payable together.',
-      'अलग GRN नहीं है। खरीद पर **t:common.complete** स्टॉक और सप्लायर देनदारी एक साथ लगाता है।',
+      'Goods receipts are a separate screen. Complete on a receipt posts accepted stock. Complete on the purchase bill posts the supplier payable.',
+      'माल प्राप्ति अलग स्क्रीन है। रसीद पर Complete स्वीकृत स्टॉक लगाता है। खरीद बिल पर Complete सप्लायर देनदारी लगाता है।',
     ],
     howItWorks: [
       [
@@ -103,7 +103,7 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
       ['Duplicate supplier + bill number is usually a paste error; confirm only if the printer reused numbers.', 'सप्लायर + बिल नंबर दोहराव अक्सर पेस्ट गलती है; प्रिंटर ने नंबर दोहराया हो तभी पुष्टि करें।'],
     ],
     commonMistakes: [
-      ['Expecting a GRN step before the bill appears here. Complete on the bill is the inward.', 'यहाँ से पहले GRN ढूँढना। बिल Complete ही इनवार्ड है।'],
+      ['Raising the bill before goods are received. Enter the lot on Goods receipts, then convert the receipt to a bill.', 'माल आने से पहले बिल बनाना। लॉट माल प्राप्ति पर लिखें, फिर रसीद को बिल बनाएँ।'],
     ],
     relatedPages: [
       { path: '/purchases/new', labelKey: 'nav.newPurchase' },
@@ -327,6 +327,35 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
     ],
     nextActions: [
       ['Open the draft, fix supplier and lines, Complete.', 'ड्राफ्ट खोलें, सप्लायर/लाइनें ठीक करें, Complete करें।'],
+    ],
+  }),
+
+  helpPage('goods-receipts', {
+    title: ['Goods receipts', 'माल प्राप्ति'],
+    summary: [
+      'Record what arrived, what was accepted, and what was rejected. Complete posts accepted quantity into stock. Rejected quantity drafts a supplier debit note.',
+      'क्या आया, क्या स्वीकृत हुआ, क्या अस्वीकृत हुआ — दर्ज करें। Complete स्वीकृत मात्रा स्टॉक में लगाता है। अस्वीकृत मात्रा का सप्लायर डेबिट नोट ड्राफ्ट बनता है।',
+    ],
+    howItWorks: [
+      ['Pick the supplier and lines. For batch or serial items, enter the lot or serial numbers on the line before Complete.', 'सप्लायर और लाइनें चुनें। बैच/सीरियल आइटम पर Complete से पहले लॉट या सीरियल लिखें।'],
+      ['Accepted plus rejected must equal received. Convert a completed receipt into a draft purchase bill when the supplier invoice arrives.', 'स्वीकृत और अस्वीकृत का योग प्राप्त के बराबर हो। सप्लायर बिल आए तो पूर्ण रसीद को ड्राफ्ट खरीद बिल बनाएँ।'],
+    ],
+    businessImpact: [
+      ['Stock moves on receipt Complete, not when the bill is saved as draft. The bill still posts the supplier payable.', 'स्टॉक रसीद Complete पर चलता है, ड्राफ्ट बिल पर नहीं। बिल फिर भी सप्लायर देनदारी लगाता है।'],
+    ],
+    keyRules: [
+      ['Do not Complete the purchase bill for the same quantity again — the bill skips stock already received on this GRN.', 'उसी मात्रा का खरीद बिल दोबारा Complete न करें — बिल इस GRN पर आ चुका स्टॉक छोड़ देता है।'],
+    ],
+    commonMistakes: [
+      ['Leaving rejected quantity blank, so the supplier is paid for damaged goods.', 'अस्वीकृत मात्रा खाली छोड़ना, जिससे खराब माल का भुगतान हो जाता है।'],
+    ],
+    relatedPages: [
+      { path: '/purchases/grns', labelKey: 'nav.goodsReceipts' },
+      { path: '/purchases/new', labelKey: 'nav.newPurchase' },
+      { path: '/purchases/debit-notes', labelKey: 'nav.purchaseDebitNotes' },
+    ],
+    nextActions: [
+      ['Complete the receipt, then convert it to a purchase bill.', 'रसीद Complete करें, फिर उसे खरीद बिल बनाएँ।'],
     ],
   }),
 ];

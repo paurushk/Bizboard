@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -13,8 +13,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { Link as RouterLink, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
-import { requestOtp } from '@/api/auth';
-import { getErrorMessage } from '@/api/client';
+import { confirmMfa, MfaEnrollmentRequiredError, MfaRequiredError, requestOtp, startMfaSetup } from '@/api/auth';
+import { consumeEnrolToken, getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
 import { t } from '@/i18n';
@@ -37,19 +37,27 @@ function safeNextPath(raw: string | null): string {
 }
 
 const emailSchema = z.object({
-  email: z.string().trim().email('Enter a valid email'),
+  email: z.string().trim().superRefine((value, ctx) => {
+    if (!z.string().email().safeParse(value).success) {
+      ctx.addIssue({ code: 'custom', message: t('cog.validEmail') });
+    }
+  }),
 });
 
 const otpSchema = z.object({
-  phone: z.string().trim().min(8, 'Enter a valid phone number'),
-  code: z.string().trim().min(4, 'Enter the OTP code'),
+  phone: z.string().trim().superRefine((value, ctx) => {
+    if (value.length < 8) ctx.addIssue({ code: 'custom', message: t('cog.validPhone') });
+  }),
+  code: z.string().trim().superRefine((value, ctx) => {
+    if (value.length < 4) ctx.addIssue({ code: 'custom', message: t('cog.enterOtp') });
+  }),
 });
 
 type EmailForm = z.infer<typeof emailSchema>;
 type OtpForm = z.infer<typeof otpSchema>;
 
 export function LoginPage() {
-  const { login, loginWithOtp, isAuthenticated } = useAuth();
+  const { login, loginWithOtp, completeMfaLogin, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -64,6 +72,15 @@ export function LoginPage() {
   const [otpHint, setOtpHint] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [otpRequesting, setOtpRequesting] = useState(false);
+  // F-SEC-02: set when the password/OTP step succeeded but the account needs a second factor.
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [enrolToken, setEnrolToken] = useState<string | null>(null);
+  const consumedEnrolToken = useRef<string | null | undefined>(undefined);
+  const [enrolSecret, setEnrolSecret] = useState<string | null>(null);
+  const [enrolDone, setEnrolDone] = useState(false);
+  // Shown once, right after the authenticator is confirmed. The server never returns them again.
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [mfaRecovery, setMfaRecovery] = useState(false);
 
   const passwordForm = useForm<EmailForm>({
     resolver: zodResolver(emailSchema),
@@ -75,6 +92,23 @@ export function LoginPage() {
       passwordForm.setValue('email', prefillEmail);
     }
   }, [prefillEmail, passwordForm]);
+
+  useEffect(() => {
+    // The token lives in memory only and is read once. Reading it in a state
+    // initializer would run twice under StrictMode and lose it, so read it here
+    // and hand it to state on the next microtask.
+    // The first run consumes it; the second StrictMode run reads it back from the ref.
+    if (consumedEnrolToken.current === undefined) consumedEnrolToken.current = consumeEnrolToken();
+    const stored = consumedEnrolToken.current;
+    if (!stored) return;
+    let live = true;
+    void Promise.resolve().then(() => {
+      if (live) setEnrolToken(stored);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const otpForm = useForm<OtpForm>({
     resolver: zodResolver(otpSchema),
     defaultValues: { phone: '', code: '' },
@@ -101,7 +135,66 @@ export function LoginPage() {
       await login(email.trim(), password);
       navigate(nextPath, { replace: true });
     } catch (err) {
+      if (err instanceof MfaRequiredError) {
+        setMfaToken(err.mfaToken);
+      } else if (err instanceof MfaEnrollmentRequiredError) {
+        setEnrolToken(err.enrolToken);
+      } else {
+        setError(getErrorMessage(err));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const startEnrolment = async () => {
+    if (!enrolToken) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const setup = await startMfaSetup(enrolToken);
+      setEnrolSecret(setup.secret);
+    } catch (err) {
       setError(getErrorMessage(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitEnrolment = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!enrolToken) return;
+    const value = String(new FormData(event.currentTarget).get('enrolCode') ?? '').trim();
+    if (!value) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      const codes = await confirmMfa(value, enrolToken);
+      setRecoveryCodes(codes);
+      setEnrolDone(true);
+      setEnrolSecret(null);
+      setEnrolToken(null);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const submitMfa = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!mfaToken) return;
+    const value = String(new FormData(event.currentTarget).get('mfaCode') ?? '').trim();
+    if (!value) return;
+    setIsSubmitting(true);
+    setError(null);
+    try {
+      await completeMfaLogin(mfaToken, mfaRecovery ? { recoveryCode: value } : { code: value });
+      navigate(nextPath, { replace: true });
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      // 401 = wrong code; 429 = locked; anything else keeps the server's message.
+      setError(status === 401 ? t('auth.mfa.invalid') : getErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -131,7 +224,13 @@ export function LoginPage() {
       await loginWithOtp(values.phone, values.code);
       navigate(nextPath, { replace: true });
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (err instanceof MfaRequiredError) {
+        setMfaToken(err.mfaToken);
+      } else if (err instanceof MfaEnrollmentRequiredError) {
+        setEnrolToken(err.enrolToken);
+      } else {
+        setError(getErrorMessage(err));
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -157,7 +256,7 @@ export function LoginPage() {
           {searchParams.get('invited') === '1' ? (
             <Alert severity="success">{t('auth.inviteAccepted')}</Alert>
           ) : null}
-          {otpEnabled ? (
+          {otpEnabled && !mfaToken && !enrolToken && !enrolDone ? (
             <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label={t('auth.loginTabs')}>
               <Tab label={t('auth.passwordLogin')} />
               <Tab label={t('auth.otpLogin')} />
@@ -166,7 +265,84 @@ export function LoginPage() {
           {error ? <Alert severity="error">{error}</Alert> : null}
           {otpEnabled && otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
 
-          {!otpEnabled || tab === 0 ? (
+          {enrolDone ? (
+            <Alert severity="success">{t('auth.mfa.enrolDone')}</Alert>
+          ) : null}
+          {recoveryCodes ? (
+            <Stack spacing={1}>
+              <Typography fontWeight={600}>{t('auth.mfa.recoveryTitle')}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t('auth.mfa.recoveryHelp')}
+              </Typography>
+              <Box
+                component="ul"
+                aria-label={t('auth.mfa.recoveryTitle')}
+                sx={{ m: 0, p: 1.5, listStyle: 'none', bgcolor: 'action.hover', borderRadius: 1, fontFamily: 'monospace', columnCount: 2 }}
+              >
+                {recoveryCodes.map((c) => (
+                  <li key={c}>{c}</li>
+                ))}
+              </Box>
+              <Box>
+                <Button variant="contained" onClick={() => setRecoveryCodes(null)}>
+                  {t('auth.mfa.recoveryDone')}
+                </Button>
+              </Box>
+            </Stack>
+          ) : null}
+          {enrolToken ? (
+            <Stack spacing={2} component="form" onSubmit={submitEnrolment} noValidate>
+              <Typography variant="h6">{t('auth.mfa.enrolTitle')}</Typography>
+              <Typography color="text.secondary">{t('auth.mfa.enrolPrompt')}</Typography>
+              {enrolSecret ? (
+                <TextField label={t('auth.mfa.manualKey')} value={enrolSecret} slotProps={{ htmlInput: { readOnly: true } }} />
+              ) : (
+                <Button type="button" variant="outlined" disabled={isSubmitting} onClick={() => void startEnrolment()}>
+                  {t('auth.mfa.enable')}
+                </Button>
+              )}
+              <TextField name="enrolCode" label={t('auth.mfa.enterCode')} autoComplete="one-time-code" />
+              <Button type="submit" variant="contained" disabled={isSubmitting}>
+                {t('auth.mfa.confirm')}
+              </Button>
+            </Stack>
+          ) : null}
+          {mfaToken && !enrolToken ? (
+            <Stack spacing={2} component="form" onSubmit={submitMfa} noValidate>
+              <Typography variant="h6">{t('auth.mfa.title')}</Typography>
+              <Typography color="text.secondary">{t('auth.mfa.prompt')}</Typography>
+              <TextField
+                key={mfaRecovery ? 'recovery' : 'code'}
+                name="mfaCode"
+                label={mfaRecovery ? t('auth.mfa.recoveryLabel') : t('auth.mfa.codeLabel')}
+                autoFocus
+                autoComplete="one-time-code"
+                slotProps={{
+                  htmlInput: mfaRecovery
+                    ? { autoCapitalize: 'characters', spellCheck: false }
+                    : { inputMode: 'numeric', pattern: '[0-9]*', maxLength: 6 },
+                }}
+              />
+              <Button type="submit" variant="contained" disabled={isSubmitting}>
+                {t('auth.mfa.verify')}
+              </Button>
+              <Link component="button" type="button" variant="body2" onClick={() => setMfaRecovery((v) => !v)}>
+                {mfaRecovery ? t('auth.mfa.useCode') : t('auth.mfa.useRecovery')}
+              </Link>
+              <Link
+                component="button"
+                type="button"
+                variant="body2"
+                onClick={() => {
+                  setMfaToken(null);
+                  setMfaRecovery(false);
+                  setError(null);
+                }}
+              >
+                {t('auth.mfa.back')}
+              </Link>
+            </Stack>
+          ) : enrolToken || enrolDone ? null : !otpEnabled || tab === 0 ? (
             <Stack spacing={2} component="form" onSubmit={submitPasswordLogin} noValidate>
               <TextField
                 label={t('auth.email')}

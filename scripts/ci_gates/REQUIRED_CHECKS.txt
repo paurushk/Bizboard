@@ -7,6 +7,7 @@
 # name            # advisory  -> runs in CI but is NOT a merge blocker
 # name                        -> merge blocker (add to branch protection)
 
+register-claims   # Verifies task register claims match product code
 backend
 frontend
 mobile
@@ -18,6 +19,7 @@ e2e               # merge blocker — 2026-09-11: promoted from advisory. Was "n
                   # caught here, not just in e2e-golden's narrow 5-test golden path.
 e2e-golden
 docker
+image-smoke       # advisory  — F-PORT-01: builds the API image and smokes it (python version, check --deploy, migrate, health)
 load-harness      # advisory  — presence check only, not a soak
 postgres-rls      # merge blocker — D16 (2026-09-12): promoted from advisory. Test
                   # selection widened to tests/test_rls_coverage.py + tests/tenancy/

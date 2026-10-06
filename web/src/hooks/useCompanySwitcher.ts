@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ACTIVE_COMPANY_STORAGE_KEY, apiClient, getErrorMessage, unwrapData } from '@/api/client';
-import { setAccessToken } from '@/auth/session';
+import { ACTIVE_COMPANY_STORAGE_KEY, apiClient, getErrorMessage, shouldUseMocks, unwrapData } from '@/api/client';
+import { mockUserForEmail } from '@/api/auth';
+import { getStoredUser, setAccessToken } from '@/auth/session';
 import type { User } from '@/types/domain';
 
 function readActiveCompanyId(): string | null {
@@ -40,6 +41,25 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    if (shouldUseMocks()) {
+      const stored = getStoredUser();
+      const user = stored?.email ? mockUserForEmail(stored.email) : null;
+      const company = user?.company;
+      setMemberships(
+        company
+          ? [
+              {
+                companyId: company.id,
+                companyName: company.name,
+                role: user?.role ?? 'OWNER',
+                isActiveSelection: true,
+              },
+            ]
+          : [],
+      );
+      setError(null);
+      return;
+    }
     const { data } = await apiClient.get('/auth/memberships/');
     const rows = unwrapData<
       Array<{
@@ -67,7 +87,14 @@ export function useCompanySwitcher(onSwitched?: (user: User) => void) {
   }, []);
 
   useEffect(() => {
-    void refresh().catch((err) => setError(getErrorMessage(err)));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void refresh().catch((err) => setError(getErrorMessage(err)));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
 
   const switchCompany = useCallback(

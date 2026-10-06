@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
@@ -23,6 +24,113 @@ def section_16_4_deadline(invoice_date: date | None) -> date | None:
         return None
     fy_end_year = invoice_date.year + 1 if invoice_date.month >= 4 else invoice_date.year
     return date(fy_end_year, 11, 30)
+
+
+def section_16_4_is_barred(row, as_of: date | None = None) -> bool:
+    """True when the 16(4) deadline has passed and no override reason is stored."""
+    as_of = as_of or timezone.localdate()
+    deadline = getattr(row, "section_16_4_deadline", None) or section_16_4_deadline(
+        getattr(row, "invoice_date", None)
+    )
+    if deadline is None or as_of <= deadline:
+        return False
+    reason = ((getattr(row, "raw", None) or {}).get("section_16_4_override") or "").strip()
+    return not reason
+
+
+def record_section_16_4_override(row, reason: str):
+    """Keep a time-barred row in GSTR-3B only when a reason is recorded."""
+    text = (reason or "").strip()
+    if not text:
+        raise BusinessRuleError("A Section 16(4) override requires a reason.")
+    raw = dict(row.raw or {})
+    raw["section_16_4_override"] = text[:512]
+    row.raw = raw
+    row.save(update_fields=["raw", "updated_at"])
+    return row
+
+
+def section_16_2_checklist(purchase, *, goods_will_be_received: bool = False) -> dict:
+    """Section 16(2): invoice in hand, goods received, tax in 2B, supplier return filed.
+
+    A completed bill, or the complete() call that is about to receive the goods,
+    satisfies goods-received. A draft with no completed GRN does not. When the
+    period has no 2B ingest yet, tax-deposited and return-filed stay unchecked.
+    """
+    from purchases.models import GoodsReceipt, PurchaseInvoice
+
+    possessed = bool(
+        (getattr(purchase, "supplier_bill_number", "") or "").strip()
+        or (getattr(purchase, "number", "") or "").strip()
+        or goods_will_be_received
+    )
+    grn_received = False
+    if getattr(purchase, "pk", None):
+        grn_received = GoodsReceipt.objects.filter(
+            company_id=purchase.company_id,
+            converted_purchase_id=purchase.pk,
+            status=GoodsReceipt.Status.COMPLETED,
+        ).exists()
+    completed = getattr(purchase, "status", "") == PurchaseInvoice.Status.COMPLETED
+    has_goods = True
+    if getattr(purchase, "pk", None):
+        has_goods = purchase.items.filter(product__product_type="GOODS").exists()
+    goods_received = (not has_goods) or grn_received or completed or goods_will_be_received
+
+    period = purchase.invoice_date.strftime("%Y-%m") if getattr(purchase, "invoice_date", None) else ""
+    period_has_2b = bool(
+        period and Gstr2bIngest.objects.filter(company_id=purchase.company_id, period=period).exists()
+    )
+    matched = False
+    if getattr(purchase, "pk", None):
+        matched = Gstr2bIngest.objects.filter(
+            company_id=purchase.company_id,
+            purchase_invoice_id=purchase.pk,
+            match_status=Gstr2bIngest.MatchStatus.MATCHED,
+        ).exists()
+    if not period_has_2b:
+        tax_deposited = True
+        return_filed = True
+    else:
+        tax_deposited = matched
+        return_filed = matched
+    override = ""
+    if getattr(purchase, "pk", None):
+        row = (
+            Gstr2bIngest.objects.filter(company_id=purchase.company_id, purchase_invoice_id=purchase.pk)
+            .order_by("-id")
+            .first()
+        )
+        if row is not None:
+            override = ((row.raw or {}).get("section_16_2_override") or "").strip()
+    passed = bool(override) or (possessed and goods_received and tax_deposited and return_filed)
+    return {
+        "invoice_possessed": possessed,
+        "goods_received": goods_received,
+        "tax_deposited_by_supplier": tax_deposited,
+        "supplier_return_filed": return_filed,
+        "override": override,
+        "passed": passed,
+    }
+
+
+def assert_section_16_2_for_claim(purchase, *, goods_will_be_received: bool = False) -> dict:
+    checklist = section_16_2_checklist(purchase, goods_will_be_received=goods_will_be_received)
+    if not checklist["passed"]:
+        missing = [
+            label
+            for key, label in (
+                ("invoice_possessed", "tax invoice possessed"),
+                ("goods_received", "goods or services received"),
+                ("tax_deposited_by_supplier", "tax deposited by the supplier (GSTR-2B match)"),
+                ("supplier_return_filed", "supplier return filed (GSTR-2B)"),
+            )
+            if not checklist[key]
+        ]
+        raise BusinessRuleError(
+            "Section 16(2) checklist is not met: " + ", ".join(missing) + "."
+        )
+    return checklist
 
 
 def _tax(row) -> Decimal:
@@ -64,16 +172,17 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
     from .gstr2b import _indian_fy_start_year
 
     fy_start_year = _indian_fy_start_year(_date(y, m, 1))
-    book_keys = {
-        ((gstin or "").upper(), (number or "").strip())
-        for gstin, number in PurchaseInvoice.objects.filter(
-            company=company,
-            status__in=OPEN_PAYABLE_STATUSES,
-            invoice_date__gte=_date(fy_start_year, 4, 1),
-            invoice_date__lt=_date(fy_start_year + 1, 4, 1),
-            is_opening_balance=False,
-        ).exclude(number="").values_list("supplier__gstin", "number")
-    }
+    book_keys = set()
+    for gstin, bill_no, number in PurchaseInvoice.objects.filter(
+        company=company,
+        status__in=OPEN_PAYABLE_STATUSES,
+        invoice_date__gte=_date(fy_start_year, 4, 1),
+        invoice_date__lt=_date(fy_start_year + 1, 4, 1),
+        is_opening_balance=False,
+    ).values_list("supplier__gstin", "supplier_bill_number", "number"):
+        book_no = (bill_no or number or "").strip()
+        if book_no:
+            book_keys.add(((gstin or "").upper(), book_no))
     ims_keys = {
         ((r.supplier_gstin or "").upper(), (r.invoice_number or "").strip())
         for r in rows
@@ -94,11 +203,13 @@ def classify_and_match(company, period: str, *, persist: bool = True) -> dict:
     if needed_numbers:
         candidate_qs = PurchaseInvoice.objects.filter(
             company=company,
-            number__in=list(needed_numbers),
             status__in=OPEN_PAYABLE_STATUSES,
+        ).filter(
+            Q(number__in=list(needed_numbers)) | Q(supplier_bill_number__in=list(needed_numbers))
         ).select_related("supplier")
         for inv in candidate_qs:
-            invoices_by_num.setdefault((inv.number or "").strip().upper(), []).append(inv)
+            book_no = (inv.supplier_bill_number or inv.number or "").strip().upper()
+            invoices_by_num.setdefault(book_no, []).append(inv)
 
     rows_to_update = []
     for row in rows:
@@ -212,6 +323,7 @@ def apply_ims_action(row: Gstr2bIngest, action: str, *, remark: str = "", user=N
                 from purchases.models import PurchaseInvoice
 
                 if inv.itc_eligibility == PurchaseInvoice.ItcEligibility.UNREVIEWED:
+                    assert_section_16_2_for_claim(inv)
                     inv.itc_eligibility = PurchaseInvoice.ItcEligibility.CLAIMABLE
                     inv.save(update_fields=["itc_eligibility", "updated_at"])
                 elif (

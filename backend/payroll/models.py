@@ -53,6 +53,11 @@ class PayRun(CompanyScopedModel):
 
     period = models.CharField(max_length=7, help_text="YYYY-MM")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.DRAFT)
+    # Null means a run completed before disbursement had to be chosen.
+    pay_from_cash = models.BooleanField(null=True, blank=True)
+    bank_account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.SET_NULL, related_name="pay_runs",
+    )
 
     class Meta:
         ordering = ["-period"]
@@ -100,3 +105,23 @@ class PaySlip(models.Model):
         if self.pay_run_id and not self.company_id:
             self.company_id = self.pay_run.company_id
         super().save(*args, **kwargs)
+
+
+class EarningDeductionLine(models.Model):
+    """Advance recovery, salary arrears, or a bonus on one slip."""
+
+    class Kind(models.TextChoices):
+        ADVANCE = "ADVANCE"
+        ARREAR = "ARREAR"
+        BONUS = "BONUS"
+
+    pay_slip = models.ForeignKey(PaySlip, on_delete=models.CASCADE, related_name="components")
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="+", db_index=True,
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=120, blank=True)
+
+    class Meta:
+        ordering = ["id"]

@@ -1,0 +1,30 @@
+id: "QOS-0101"
+category: "RELIABILITY_TRUST"
+title: "backup.sh reported success when pg_dump failed and could write plaintext dumps"
+persona:
+- "P1"
+journey: "Disaster recovery: restore the company from last night's backup"
+problem: "scripts/backup.sh ran `pg_dump | gzip` under /bin/sh, which has no pipefail, so a failed pg_dump still exited 0 and left a ~20-byte valid gzip as the backup. With no GPG/age recipient it silently wrote an unencrypted multi-tenant dump, and the postgres:17-alpine backup container has neither tool, so the encrypted branch could never run. Retention was by file count, not age; there was no offsite hook and restore.sh could not read encrypted dumps."
+evidence:
+  strength: "measured"
+  source:
+  - "scripts/backup.sh (HEAD)"
+  - "backend/tests/test_backup_scripts.py"
+  detail: "Reproduced 2026-10-02: the HEAD script run with a pg_dump stub that exits 3 returned exit 0 and wrote a bizboard-*.sql.gz of 20 bytes. After the rewrite the same scenario exits non-zero and leaves nothing."
+scoring:
+  reach: 5
+  severity: 5
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P0"
+priority_rationale: "Severity 5 (data loss): the one control meant to save the company after an incident could look green while holding nothing. Measured."
+effort: "S"
+recommendation: "Fail closed on encryption, dump to a checked temp file, verify gzip, optional offsite command, age-based retention with a minimum keep, LAST_SUCCESS marker, and a restore that decrypts and verifies. Done. Remaining ops work: choose the offsite target (needs the host, QOS-0020) and the RPO; PITR is not in scope."
+test_required: "backend/tests/test_backup_scripts.py (11 behavioural tests that run the real scripts under sh with stub binaries)."
+guard_ref:
+  test: "backend/tests/test_backup_scripts.py"
+lifecycle: "fixed"
+owner: "ops"
+opened: "2026-10-02"
+closed: "2026-10-02"

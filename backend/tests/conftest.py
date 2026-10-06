@@ -13,6 +13,31 @@ from masters.models import Customer, Product, Supplier
 
 
 @pytest.fixture(autouse=True)
+def _money_write_idempotency_key(monkeypatch):
+    """Existing money-write tests omit Idempotency-Key. Production rejects that.
+
+    A test that passes HTTP_IDEMPOTENCY_KEY, including an empty string, is left
+    alone so the missing-key rejection can be asserted.
+    """
+    import uuid
+
+    original = APIClient.post
+
+    def post(self, path, data=None, format=None, content_type=None, follow=False, **extra):
+        text = str(path).rstrip("/")
+        needs = (
+            text.endswith("/payments/receipts")
+            or text.endswith("/payments/allocations")
+            or text.endswith("/record-payment")
+        )
+        if needs and "HTTP_IDEMPOTENCY_KEY" not in extra:
+            extra["HTTP_IDEMPOTENCY_KEY"] = f"test-{uuid.uuid4()}"
+        return original(self, path, data=data, format=format, content_type=content_type, follow=follow, **extra)
+
+    monkeypatch.setattr(APIClient, "post", post)
+
+
+@pytest.fixture(autouse=True)
 def clear_cache_before_each_test():
     cache.clear()
     yield

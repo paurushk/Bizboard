@@ -1,0 +1,25 @@
+name: POS checkout baseline
+
+on:
+  schedule:
+    - cron: "30 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt
+      - name: Record checkout p95 outside the pull-request suite
+        env:
+          POS_BENCH: "1"
+          POS_CATALOGUE: "20000"
+          DJANGO_SETTINGS_MODULE: config.settings_test
+        run: pytest perf/test_r_0636_benchmark.py -q --tb=short -p no:randomly

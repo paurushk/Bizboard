@@ -250,15 +250,10 @@ class RazorpayWebhookView(APIView):
             ):
                 return Response({"ok": True, "ignored": True}, status=status.HTTP_410_GONE)
             if company is None:
-                try:
-                    ProcessedWebhookEvent.objects.create(
-                        dedup_key=dedup_key, provider="razorpay_subscription", company=None
-                    )
-                except IntegrityError:
-                    cache.set(dedup_key, "1", timeout=24 * 60 * 60)
-                    return Response({"ok": True, "duplicate": True})
-                cache.set(dedup_key, "1", timeout=24 * 60 * 60)
-                return Response({"ok": True, "ignored": True})
+                # BUG-BIL-002: an event that matched no local subscription must
+                # not be deduped. A row created a moment later has to accept
+                # Razorpay's retry.
+                return Response({"ok": True, "ignored": True, "reason": "unknown_subscription"})
 
         set_rls_company(company.id)
         try:

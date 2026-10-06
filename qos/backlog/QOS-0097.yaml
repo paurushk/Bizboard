@@ -1,0 +1,33 @@
+id: QOS-0097
+category: RELIABILITY_TRUST
+title: UX fixes and claims have not been verified on a real backend
+persona:
+- P1
+journey: Dashboard, POS and editors against real data
+problem: Most UX measurements were taken in mock mode. Several documentation claims (F2 tender, zero axe
+  violations, dense tables) and a few counts are unverified.
+evidence:
+  strength: hypothesis
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: Ledger rows CLAIM-1, CLAIM-2, CLAIM-3, UX-N17, UX-N19, UX-N20, UX-011, UX-019, UX-M14. Nothing
+    here is known to be wrong. It has not been checked with real data volumes or a real backend.
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 3
+  impact_band: Medium
+business_metric: none
+priority: P1-investigate
+priority_rationale: Hypothesis-grade evidence only allows an investigation priority.
+effort: M
+recommendation: Run the audit company on a real backend. Re-check the low-stock count against the alert
+  list, the billing checkout state text, and each documentation claim. Then run Lighthouse and INP against
+  staging.
+test_required: A signed result per ledger row, with the ledger status updated.
+guard_ref: null
+lifecycle: investigating
+owner: web
+opened: '2026-10-01'
+closed: null

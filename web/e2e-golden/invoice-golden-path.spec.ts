@@ -21,6 +21,7 @@ import {
  */
 
 test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page }) => {
+  test.setTimeout(150_000);
   const id = unique();
   const companyName = `E2E Golden ${id}`;
   const email = `e2e-golden-${id}@example.test`;
@@ -47,18 +48,24 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await expect(page.getByText('₹100.00').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Completed');
+  // An open completed invoice shows the payment chip, not the document word Completed.
+  await expect(invoiceRow).toContainText('Unpaid');
   await expect(invoiceRow).toContainText('₹100.00');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
-  expect(invoiceNumber).toMatch(/^INV-\d+$/);
+  const invoiceNumber = textCells
+    .map((c) => c.trim())
+    .find((c) => /^INV-/.test(c))
+    ?.split('·')[0]
+    .trim();
+  expect(invoiceNumber).toMatch(/^INV-/);
 
   // 6. Stock must have decremented by the invoiced quantity.
   await page.goto('/inventory/stock');
-  const stockRow = page.getByRole('row', { name: new RegExp(productName) });
-  await expect(stockRow).toContainText('49');
+  // "Show lots" owns the row's accessible name; match the product text instead.
+  const stockRow = page.getByRole('row').filter({ hasText: productName });
+  await expect(stockRow).toContainText('49', { timeout: 20_000 });
 
   // 7. Receive payment and allocate it to the invoice in one step.
   await page.goto('/sales/receipts');
@@ -81,7 +88,7 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
   await page.getByRole('link', { name: invoiceNumber! }).click();
   await expect(page).toHaveURL(/\/sales\/history\/\d+$/);
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Download ORIGINAL' }).click();
+  await page.getByRole('button', { name: 'Download', exact: true }).click();
   const download = await downloadPromise;
   const stream = await download.createReadStream();
   const chunks: Buffer[] = [];

@@ -1,4 +1,4 @@
-import { apiClient, unwrapData } from '../client';
+import { apiClient, shouldUseMocks, unwrapData } from '../client';
 import { mockCompany, mockPaymentHealth } from '@/mocks/data';
 import type { Company, LedgerStatement, ReportResponse, ReportRow, BusinessHealth, BusinessHealthSnapshot, DiscountReportResponse } from '@/types/domain';
 import { withMocks } from './common';
@@ -362,6 +362,9 @@ export async function downloadTcsWorksheet(period: string): Promise<Blob> {
 }
 
 export async function getBusinessHealth(): Promise<BusinessHealth> {
+  if (shouldUseMocks()) {
+    return { score: 0, grade: '', factors: [], limitedData: true, asOf: '' };
+  }
   const { data } = await apiClient.get('/insights/health/');
   return unwrapData<BusinessHealth>(data);
 }

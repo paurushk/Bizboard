@@ -10,7 +10,7 @@ from core.viewsets import CompanyScopedViewSet
 
 from decimal import Decimal, InvalidOperation
 
-from .models import Employee, PayRun, PaySlip
+from .models import EarningDeductionLine, Employee, PayRun, PaySlip
 from .permissions import assert_payroll_enabled
 from .serializers import EmployeeSerializer, PayRunSerializer
 from .services import cancel_pay_run, complete_pay_run, post_pay_run_gl
@@ -117,14 +117,61 @@ class PayRunViewSet(CompanyScopedViewSet):
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)
         return Response(self.get_serializer(pay_run).data)
 
+    @action(detail=True, methods=["post"], url_path="components")
+    def components(self, request, pk=None):
+        pay_run = self.get_object()
+        if pay_run.status != PayRun.Status.DRAFT:
+            return Response({"detail": "Components can be added only on a draft pay run."}, status=400)
+        kind = str(request.data.get("kind") or "").upper()
+        if kind not in EarningDeductionLine.Kind.values:
+            return Response({"detail": "Kind must be ADVANCE, ARREAR, or BONUS."}, status=400)
+        try:
+            amount = Decimal(str(request.data.get("amount")))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"detail": "Amount must be a number."}, status=400)
+        if amount <= 0:
+            return Response({"detail": "Amount must be greater than zero."}, status=400)
+        company = get_company_user(request).company
+        try:
+            employee = Employee.objects.get(pk=request.data.get("employee"), company=company)
+        except (Employee.DoesNotExist, TypeError, ValueError):
+            return Response({"detail": "Employee was not found."}, status=400)
+        slip, _created = PaySlip.objects.get_or_create(
+            pay_run=pay_run,
+            company=company,
+            employee=employee,
+            defaults={"gross": employee.salary, "net": Decimal("0")},
+        )
+        row = EarningDeductionLine.objects.create(
+            pay_slip=slip,
+            company=company,
+            kind=kind,
+            amount=amount,
+            note=str(request.data.get("note") or "")[:120],
+        )
+        return Response({"id": row.id, "kind": row.kind, "amount": str(row.amount)}, status=201)
+
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         pay_run = self.get_object()
-        pay_from_cash = request.data.get("pay_from_cash", True)
-        if isinstance(pay_from_cash, str):
-            pay_from_cash = pay_from_cash.lower() not in ("0", "false", "no")
+        has_cash = "pay_from_cash" in request.data
+        bank_id = request.data.get("bank_account_id")
+        if bank_id in ("", None) and not has_cash:
+            return Response(
+                {"detail": "Choose a bank account or confirm cash disbursement."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        pay_from_cash = None
+        if has_cash:
+            raw = request.data.get("pay_from_cash")
+            if isinstance(raw, str):
+                pay_from_cash = raw.lower() not in ("0", "false", "no")
+            else:
+                pay_from_cash = bool(raw)
         try:
-            pay_run = complete_pay_run(pay_run, request.user, pay_from_cash=pay_from_cash)
+            pay_run = complete_pay_run(
+                pay_run, request.user, pay_from_cash=pay_from_cash, bank_account_id=bank_id or None,
+            )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         pay_run = PayRun.objects.prefetch_related("slips__employee").get(pk=pay_run.pk)

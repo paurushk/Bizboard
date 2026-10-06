@@ -23,7 +23,7 @@ recommendation: Write the test first. Fix notes_services only if the outstanding
 test_required: Partial receipt, then a credit note for the remainder, one of each document.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_credit_note_after_a_partial_receipt
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { capsForJobTemplate, type JobTemplate } from '@/cognitive/loadHelpers';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -25,9 +26,10 @@ import { isReferralsEnabled } from '@/config/features';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { TwoStepVerificationPanel } from '@/components/TwoStepVerificationPanel';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -140,11 +142,13 @@ function hasAnyWorkCap(form: InviteForm): boolean {
 }
 
 export function UsersSettingsPage() {
+  useLocale();
   const { user } = useAuth();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<InviteForm>(emptyInviteForm);
+  const [jobTemplate, setJobTemplate] = useState<JobTemplate>('custom');
   const [error, setError] = useState<string | null>(null);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -195,13 +199,13 @@ export function UsersSettingsPage() {
   // F3-022: confirm the high-impact caps; a click no longer silently grants
   // export / cancel / financial-report access with no feedback.
   const SENSITIVE_CAPS: Record<string, string> = {
-    canExport: 'export company data',
-    canCancelDocuments: 'cancel completed documents',
-    canViewFinancialReports: 'view financial reports',
+    canExport: 'cog.capExport',
+    canCancelDocuments: 'cog.capCancel',
+    canViewFinancialReports: 'cog.capReports',
   };
   const togglePatch = (id: number, cap: string, checked: boolean) => {
     if (checked && SENSITIVE_CAPS[cap]) {
-      if (!window.confirm(`Allow this user to ${SENSITIVE_CAPS[cap]}?`)) return;
+      if (!window.confirm(t('cog.allowCap', { action: t(SENSITIVE_CAPS[cap]) }))) return;
     }
     patchMutation.mutate({ id, [cap]: checked });
   };
@@ -220,9 +224,7 @@ export function UsersSettingsPage() {
 
   const submitInvite = () => {
     if (!hasAnyWorkCap(form) && form.role === 'SALES_STAFF') {
-      const ok = window.confirm(
-        'No work permissions are selected. This person will only see a limited home page until you grant Sales, Purchases, or Payments. Continue?',
-      );
+      const ok = window.confirm(t('cog.noWorkPermissions'));
       if (!ok) return;
     }
     inviteMutation.mutate();
@@ -236,6 +238,7 @@ export function UsersSettingsPage() {
           variant="contained"
           onClick={() => {
             setForm(emptyInviteForm);
+            setJobTemplate('custom');
             setInviteToken(null);
             setInviteUrl(null);
             setCreatedWithPassword(false);
@@ -245,6 +248,7 @@ export function UsersSettingsPage() {
           {t('common.invite')}
         </Button>
       </Stack>
+      <TwoStepVerificationPanel />
       {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -252,21 +256,21 @@ export function UsersSettingsPage() {
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>{t('common.name')}</TableCell>
                 <TableCell>{t('common.email')}</TableCell>
-                <TableCell>Role</TableCell>
-                <TableCell>Sales</TableCell>
-                <TableCell>Purchases</TableCell>
-                <TableCell>Payments</TableCell>
-                <TableCell>Inventory</TableCell>
-                <TableCell>Import</TableCell>
-                <TableCell>Cancel</TableCell>
-                <TableCell>Reports</TableCell>
-                <TableCell>Export</TableCell>
+                <TableCell>{t('sweep2.role')}</TableCell>
+                <TableCell>{t('sweep2.sales')}</TableCell>
+                <TableCell>{t('sweep2.purchases')}</TableCell>
+                <TableCell>{t('sweep2.payments')}</TableCell>
+                <TableCell>{t('sweep2.inventory')}</TableCell>
+                <TableCell>{t('sweep2.import')}</TableCell>
+                <TableCell>{t('sweep2.cancel')}</TableCell>
+                <TableCell>{t('sweep2.reports')}</TableCell>
+                <TableCell>{t('sweep2.export')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
@@ -283,6 +287,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Sales: ${u.fullName || u.email}` }}
                       checked={!!u.canCreateSales}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -292,6 +297,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Purchases: ${u.fullName || u.email}` }}
                       checked={!!u.canCreatePurchases}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -301,6 +307,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Payments: ${u.fullName || u.email}` }}
                       checked={!!u.canCreatePayments}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -310,6 +317,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Inventory: ${u.fullName || u.email}` }}
                       checked={u.canManageInventory}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -319,6 +327,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Import: ${u.fullName || u.email}` }}
                       checked={u.canImport}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -328,6 +337,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Cancel: ${u.fullName || u.email}` }}
                       checked={!!u.canCancelDocuments}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -337,6 +347,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Reports: ${u.fullName || u.email}` }}
                       checked={u.canViewFinancialReports === true}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -346,6 +357,7 @@ export function UsersSettingsPage() {
                   </TableCell>
                   <TableCell>
                     <Checkbox
+                      inputProps={{ 'aria-label': `Export: ${u.fullName || u.email}` }}
                       checked={!!u.canExport}
                       disabled={isOwner || rowPending(u.id)}
                       onChange={(e) =>
@@ -443,7 +455,7 @@ export function UsersSettingsPage() {
               label={t('auth.password')}
               type="password"
               value={form.password}
-              helperText="Optional — leave blank to send an invite link instead of a password"
+              helperText={t('users.passwordOptional')}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
             />
             <TextField
@@ -453,21 +465,51 @@ export function UsersSettingsPage() {
             />
             <TextField
               select
-              label="Role"
+              label={t('users.role')}
               value={form.role}
               onChange={(e) => {
                 const role = e.target.value;
+                setJobTemplate('custom'); // the role's own defaults replace a template picked earlier
                 setForm((f) => ({ ...f, role, ...capsForRole(role) }));
               }}
             >
-              <MenuItem value="SALES_STAFF">Sales staff</MenuItem>
-              <MenuItem value="INVENTORY_STAFF">Inventory staff</MenuItem>
-              <MenuItem value="ACCOUNTANT">Accountant</MenuItem>
-              <MenuItem value="MANAGER">Manager</MenuItem>
-              <MenuItem value="AUDITOR">Auditor</MenuItem>
-              <MenuItem value="VIEWER">Viewer</MenuItem>
-              <MenuItem value="POLICY_DESK">Policy desk</MenuItem>
+              <MenuItem value="SALES_STAFF">{t('users.salesStaff')}</MenuItem>
+              <MenuItem value="INVENTORY_STAFF">{t('users.inventoryStaff')}</MenuItem>
+              <MenuItem value="ACCOUNTANT">{t('users.accountant')}</MenuItem>
+              <MenuItem value="MANAGER">{t('users.manager')}</MenuItem>
+              <MenuItem value="AUDITOR">{t('users.auditor')}</MenuItem>
+              <MenuItem value="VIEWER">{t('users.viewer')}</MenuItem>
+              <MenuItem value="POLICY_DESK">{t('users.policyDesk')}</MenuItem>
             </TextField>
+            <TextField
+              select
+              label={t('cog.jobBrowser')}
+              value={jobTemplate}
+              onChange={(e) => {
+                const template = e.target.value as JobTemplate;
+                const caps = capsForJobTemplate(template);
+                // A template can grant export, cancel and financial-report rights in one pick:
+                // ask for the same confirmation as ticking those boxes one by one.
+                if (caps) {
+                  const sensitive = Object.keys(SENSITIVE_CAPS).filter(
+                    (cap) => (caps as Record<string, unknown>)[cap] === true && !(form as Record<string, unknown>)[cap],
+                  );
+                  if (sensitive.length > 0) {
+                    const actions = sensitive.map((cap) => t(SENSITIVE_CAPS[cap])).join(', ');
+                    if (!window.confirm(t('cog.allowCap', { action: actions }))) return;
+                  }
+                }
+                setJobTemplate(template);
+                if (caps) setForm((f) => ({ ...f, ...caps }));
+              }}
+            >
+              <MenuItem value="cashier">{t('cog.jobCashier')}</MenuItem>
+              <MenuItem value="store">{t('cog.jobStore')}</MenuItem>
+              <MenuItem value="bookkeeper">{t('cog.jobBookkeeper')}</MenuItem>
+              <MenuItem value="owner">{t('cog.jobOwner')}</MenuItem>
+              <MenuItem value="custom">{t('cog.jobCustom')}</MenuItem>
+            </TextField>
+            <Typography variant="caption" color="text.secondary">{t('cog.jobBrowser')}</Typography>
             <FormControlLabel
               control={
                 <Checkbox
@@ -475,7 +517,7 @@ export function UsersSettingsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, canCreateSales: e.target.checked }))}
                 />
               }
-              label="Can create sales invoices"
+              label={t('users.canCreateSales')}
             />
             <FormControlLabel
               control={
@@ -484,7 +526,7 @@ export function UsersSettingsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, canCreatePurchases: e.target.checked }))}
                 />
               }
-              label="Can create purchase bills"
+              label={t('users.canCreatePurchases')}
             />
             <FormControlLabel
               control={
@@ -493,7 +535,7 @@ export function UsersSettingsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, canCreatePayments: e.target.checked }))}
                 />
               }
-              label="Can record receipts and payments"
+              label={t('users.canRecordPayments')}
             />
             <FormControlLabel
               control={
@@ -504,7 +546,7 @@ export function UsersSettingsPage() {
                   }
                 />
               }
-              label="Can manage inventory"
+              label={t('users.canManageInventory')}
             />
             <FormControlLabel
               control={
@@ -513,7 +555,7 @@ export function UsersSettingsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, canImport: e.target.checked }))}
                 />
               }
-              label="Can import"
+              label={t('users.canImport')}
             />
             <FormControlLabel
               control={
@@ -524,7 +566,7 @@ export function UsersSettingsPage() {
                   }
                 />
               }
-              label="Can cancel documents"
+              label={t('users.canCancel')}
             />
             <FormControlLabel
               control={
@@ -535,7 +577,7 @@ export function UsersSettingsPage() {
                   }
                 />
               }
-              label="Can view financial reports"
+              label={t('users.canViewReports')}
             />
             <FormControlLabel
               control={
@@ -544,24 +586,23 @@ export function UsersSettingsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, canExport: e.target.checked }))}
                 />
               }
-              label="Can export"
+              label={t('users.canExport')}
             />
             {!hasAnyWorkCap(form) ? (
               <Alert severity="warning">
-                No permissions selected — this person will land on a limited home page until an
-                owner grants at least Sales, Purchases, or Payments.
+                {t('users.noPermissions')}
               </Alert>
             ) : null}
             {createdWithPassword ? (
               <Alert severity="success">
-                Account created. They can sign in with the email and password you set.
+                {t('users.accountCreated')}
               </Alert>
             ) : null}
             {inviteUrl || inviteToken ? (
               <Alert severity="success">
                 <Stack spacing={1}>
                   <Typography variant="body2">
-                    {inviteUrl ? `Invite link: ${inviteUrl}` : `Invite token: ${inviteToken}`}
+                    {inviteUrl ? t('users.inviteLink', { url: inviteUrl }) : t('users.inviteToken', { token: inviteToken ?? '' })}
                   </Typography>
                   <Button
                     size="small"
@@ -569,7 +610,7 @@ export function UsersSettingsPage() {
                     sx={{ alignSelf: 'flex-start' }}
                     onClick={() => void navigator.clipboard.writeText(inviteUrl ?? inviteToken ?? '')}
                   >
-                    Copy invite link
+                    {t('users.copyInvite')}
                   </Button>
                 </Stack>
               </Alert>

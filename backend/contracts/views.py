@@ -73,10 +73,15 @@ class ContractViewSet(CompanyScopedViewSet):
             except BusinessRuleError as exc:
                 return Response({"detail": str(exc)}, status=400)
             contract = self.get_object()
+            invoice_id = getattr(schedule, "draft_invoice_id", None)
+            if invoice_id is None:
+                latest = schedule.runs.order_by("-id").first()
+                invoice_id = latest.invoice_id if latest is not None else None
             return Response({
                 "id": schedule.id,
                 "contract": contract.id,
                 "customer": schedule.customer_id,
+                "invoice": invoice_id,
                 "value": str(contract.value) if contract.value is not None else None,
             })
 

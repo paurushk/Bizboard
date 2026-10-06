@@ -39,18 +39,18 @@
   </head>
   <body>
     <main>
-      <h1>You’re offline</h1>
-      <p>Bizboard could not reach the network for this page. If your connection looks fine, the cached app may be stale.</p>
+      <h1 id="offline-title">Could not load Bizboard</h1>
+      <p id="offline-body">Bizboard could not load this page. If your connection looks fine, the cached app may be stale.</p>
       <p>Invoice drafts saved on this device stay in the local outbox and can sync when you reopen the app online. Background sync is not guaranteed on iOS.</p>
       <div class="actions">
-        <a class="btn primary" href="/?reload=1" id="try-again">Try again</a>
+        <a class="btn primary" href="/" id="try-again">Try again</a>
         <a class="btn secondary" href="/" id="hard-reload">Reload without cache</a>
       </div>
+      <p id="offline-alert" style="display: none; color: #d32f2f; margin-top: 0.75rem; font-weight: 500;"></p>
     </main>
     <script>
-      document.getElementById("hard-reload").addEventListener("click", function (e) {
-        e.preventDefault();
-        var url = "/?nocache=" + Date.now();
+      function unregisterAndReload() {
+        var url = "/login?nocache=" + Date.now();
         if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
           navigator.serviceWorker.getRegistrations().then(function (regs) {
             return Promise.all(regs.map(function (r) { return r.unregister(); }));
@@ -60,6 +60,27 @@
         } else {
           window.location.replace(url);
         }
+      }
+      if (navigator.onLine === false) {
+        document.getElementById("offline-title").textContent = "You’re offline";
+        document.getElementById("offline-body").textContent =
+          "Bizboard could not reach the network for this page. Drafts on this device are still here.";
+      }
+      document.getElementById("try-again").addEventListener("click", function (e) {
+        e.preventDefault();
+        if (navigator.onLine) {
+          window.location.replace("/");
+        } else {
+          var alertEl = document.getElementById("offline-alert");
+          if (alertEl) {
+            alertEl.textContent = "Device is still offline. Please check your connection.";
+            alertEl.style.display = "block";
+          }
+        }
+      });
+      document.getElementById("hard-reload").addEventListener("click", function (e) {
+        e.preventDefault();
+        unregisterAndReload();
       });
     </script>
   </body>

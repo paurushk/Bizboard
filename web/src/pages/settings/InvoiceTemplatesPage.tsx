@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -43,11 +43,12 @@ export function InvoiceTemplatesPage() {
     enabled: allowed,
   });
 
-  useEffect(() => {
-    if (query.data?.invoiceTerms != null) {
-      setTerms(query.data.invoiceTerms);
-    }
-  }, [query.data?.invoiceTerms]);
+  const loadedTerms = query.data?.invoiceTerms;
+  const [seenTerms, setSeenTerms] = useState<string | null | undefined>(undefined);
+  if (loadedTerms != null && loadedTerms !== seenTerms) {
+    setSeenTerms(loadedTerms);
+    setTerms(loadedTerms);
+  }
 
   const mutation = useMutation({
     mutationFn: () => updateCompany({ invoiceTerms: terms }),
@@ -87,7 +88,7 @@ export function InvoiceTemplatesPage() {
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} justifyContent="space-between">
           <Box>
             <Typography variant="overline" color="primary.main" fontWeight={700}>
-              Default template
+              {t('sweep2.defaultTemplate')}
             </Typography>
             <Typography variant="h5" sx={{ mt: 0.5 }}>
               GST Tax Invoice (A4)
@@ -103,7 +104,7 @@ export function InvoiceTemplatesPage() {
               variant="outlined"
               sx={{ mt: 2 }}
             >
-              Open a completed invoice
+              {t('sweep2.openCompletedInvoice')}
             </Button>
           </Box>
           <Box
@@ -117,7 +118,7 @@ export function InvoiceTemplatesPage() {
             }}
           >
             <Typography variant="subtitle2" gutterBottom>
-              On the PDF
+              {t('sweep2.onThePdf')}
             </Typography>
             <Stack component="ul" spacing={0.5} sx={{ m: 0, pl: 2 }}>
               {LAYOUT_LEGEND.map((line) => (
@@ -131,12 +132,12 @@ export function InvoiceTemplatesPage() {
       </Paper>
 
       <Paper sx={{ p: 3 }}>
-        <Typography variant="h6">Terms & conditions</Typography>
+        <Typography variant="h6">{t('sweep2.termsAndConditions')}</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
           Printed on every invoice PDF. Leave blank to use the system default.
         </Typography>
         <TextField
-          label="Invoice terms"
+          label={t('sweep.invoiceTerms')}
           value={terms}
           onChange={(e) => setTerms(e.target.value)}
           multiline
@@ -152,7 +153,7 @@ export function InvoiceTemplatesPage() {
           disabled={mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          Save terms
+          {t('sweep2.saveTerms')}
         </Button>
       </Paper>
     </Stack>

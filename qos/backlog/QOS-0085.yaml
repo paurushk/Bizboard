@@ -24,7 +24,7 @@ recommendation: Assert on-hand after bill complete. Fix purchase complete only i
 test_required: On-hand after GRN complete equals on-hand after bill complete.
 guard_ref:
   test: backend/tests/workflows/test_wf_grn.py::test_wf_grn_receive_complete_convert
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

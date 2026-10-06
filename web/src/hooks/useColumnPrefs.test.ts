@@ -27,3 +27,41 @@ describe('useColumnPrefs', () => {
     expect(result.current.visibleIds).toEqual(['name', 'sku', 'cf:color']);
   });
 });
+
+describe('useColumnPrefs when the owner changes', () => {
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('reloads the saved columns when the user or company changes', () => {
+    localStorage.setItem('bb:cols:1:2:items', JSON.stringify({ hidden: ['sku'] }));
+    localStorage.setItem('bb:cols:1:3:items', JSON.stringify({ hidden: ['cf:color'] }));
+    const { result, rerender } = renderHook(
+      ({ userId }: { userId: number }) => useColumnPrefs('items', COLUMNS, 1, userId),
+      { initialProps: { userId: 2 } },
+    );
+    expect(result.current.isVisible('sku')).toBe(false);
+    expect(result.current.isVisible('cf:color')).toBe(true);
+
+    rerender({ userId: 3 });
+    expect(result.current.isVisible('sku')).toBe(true);
+    expect(result.current.isVisible('cf:color')).toBe(false);
+  });
+
+  it('shows every column when there is no signed-in owner', () => {
+    localStorage.setItem('bb:cols:1:2:items', JSON.stringify({ hidden: ['sku'] }));
+    const { result, rerender } = renderHook(
+      ({ userId }: { userId: number | null }) => useColumnPrefs('items', COLUMNS, 1, userId),
+      { initialProps: { userId: 2 as number | null } },
+    );
+    expect(result.current.isVisible('sku')).toBe(false);
+    rerender({ userId: null });
+    expect(result.current.isVisible('sku')).toBe(true);
+  });
+
+  it('never hides a column that cannot be removed', () => {
+    localStorage.setItem('bb:cols:1:2:items', JSON.stringify({ hidden: ['name'] }));
+    const { result } = renderHook(() => useColumnPrefs('items', COLUMNS, 1, 2));
+    expect(result.current.isVisible('name')).toBe(true);
+  });
+});

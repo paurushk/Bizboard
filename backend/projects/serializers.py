@@ -7,7 +7,8 @@ class ProjectMilestoneSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProjectMilestone
         fields = [
-            "id", "name", "sequence", "amount", "service_product", "status", "sales_invoice",
+            "id", "name", "sequence", "amount", "target_completion_date",
+            "service_product", "status", "sales_invoice",
         ]
         read_only_fields = ["id", "status", "sales_invoice"]
 

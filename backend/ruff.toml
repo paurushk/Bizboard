@@ -21,3 +21,6 @@ ignore = [
     "B009", "B017", "B023", "B904", "B905",
     "S101", "S105", "S106", "S107", "S110", "S112", "S310",
 ]
+
+[lint.per-file-ignores]
+"tests/test_backup_scripts_extra.py" = ["F811"]  # re-imported pytest fixture `env`, used by name

@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.http import Http404
@@ -14,7 +15,42 @@ from masters.models import Customer, Product
 
 from .models import Project, ProjectMilestone
 from .serializers import ProjectSerializer
-from .services import add_milestone, close_project, create_project, invoice_milestone, mark_ready
+from .services import (
+    add_milestone,
+    close_project,
+    create_project,
+    delete_milestone,
+    invoice_milestone,
+    mark_ready,
+    update_milestone,
+)
+
+
+def _whole_number(value, label):
+    if value in (None, ""):
+        raise BusinessRuleError(f"{label} is required.")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise BusinessRuleError(f"{label} must be a whole number.") from None
+
+
+def _money(value, label):
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        raise BusinessRuleError(f"{label} must be a number.") from None
+
+
+def _day(value):
+    if value in (None, ""):
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise BusinessRuleError("Target date must be YYYY-MM-DD.") from None
 
 
 class ProjectViewSet(CompanyScopedViewSet):
@@ -31,7 +67,11 @@ class ProjectViewSet(CompanyScopedViewSet):
 
     def create(self, request, *args, **kwargs):
         def _execute():
-            customer = Customer.objects.filter(company=self.company, pk=request.data.get("customer")).first()
+            try:
+                customer_id = _whole_number(request.data.get("customer"), "Customer")
+            except BusinessRuleError:
+                raise
+            customer = Customer.objects.filter(company=self.company, pk=customer_id).first()
             project = create_project(self.company, request.user, customer=customer, name=request.data.get("name") or "")
             return Response(self.get_serializer(project).data, status=201)
 
@@ -53,15 +93,13 @@ class ProjectViewSet(CompanyScopedViewSet):
     @action(detail=True, methods=["post"], url_path="milestones")
     def milestones(self, request, pk=None):
         project = self.get_object()
-        product = Product.objects.filter(company=self.company, pk=request.data.get("service_product")).first()
         try:
-            sequence = int(request.data.get("sequence") or 1)
-        except (TypeError, ValueError):
-            raise BusinessRuleError("Sequence must be a whole number.") from None
-        try:
-            amount = Decimal(str(request.data.get("amount")))
-        except (InvalidOperation, TypeError, ValueError):
-            raise BusinessRuleError("Amount must be a number.") from None
+            product_id = _whole_number(request.data.get("service_product"), "Service product")
+        except BusinessRuleError:
+            raise
+        product = Product.objects.filter(company=self.company, pk=product_id).first()
+        sequence = _whole_number(request.data.get("sequence") or 1, "Sequence")
+        amount = _money(request.data.get("amount"), "Amount")
         add_milestone(
             project,
             request.user,
@@ -69,7 +107,28 @@ class ProjectViewSet(CompanyScopedViewSet):
             amount=amount,
             service_product=product,
             sequence=sequence,
+            target_completion_date=_day(request.data.get("target_completion_date")),
         )
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[0-9]+)/edit")
+    def edit_milestone(self, request, pk=None, milestone_id=None):
+        amount = request.data.get("amount")
+        sequence = request.data.get("sequence")
+        update_milestone(
+            self._milestone(self.get_object(), milestone_id),
+            request.user,
+            name=request.data.get("name"),
+            amount=_money(amount, "Amount") if amount not in (None, "") else None,
+            sequence=_whole_number(sequence, "Sequence") if sequence not in (None, "") else None,
+            target_completion_date=_day(request.data.get("target_completion_date")),
+            set_target="target_completion_date" in request.data,
+        )
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[0-9]+)/delete")
+    def remove_milestone(self, request, pk=None, milestone_id=None):
+        delete_milestone(self._milestone(self.get_object(), milestone_id), request.user)
         return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=["post"], url_path="milestones/(?P<milestone_id>[0-9]+)/ready")

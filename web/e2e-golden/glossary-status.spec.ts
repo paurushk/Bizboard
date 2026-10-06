@@ -40,19 +40,25 @@ test('glossary: POS Paid ≠ invoice Completed ≠ Returned on the same tenant',
   await selectPartyOnDocument(page, customerName);
   await addInvoiceItem(page, sku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   const completedRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(completedRow).toContainText('Completed');
-  await expect(completedRow).not.toContainText('Paid');
+  await expect(completedRow).toContainText('Unpaid');
   const textCells = await completedRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c));
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
-  await expect(page.getByRole('row').filter({ hasText: /Paid/ }).first()).toBeVisible();
+  // Row text is concatenated, so "CustomerPaid" has no word boundary. [^n]Paid
+  // still excludes the Unpaid credit-sale row.
+  await expect(page.getByRole('row').filter({ hasText: /[^n]Paid/ }).first()).toBeVisible();
 
   await completeSalesReturn(page, invoiceNumber!);
   await page.goto('/sales/history');
-  await expect(page.getByRole('row', { name: new RegExp(invoiceNumber!) })).toContainText(/Returned/i);
-  await expect(page.getByRole('row').filter({ hasText: /Paid/ }).first()).toBeVisible();
+  await expect(page.getByRole('progressbar', { name: 'Loading' })).toBeHidden({ timeout: 30_000 });
+  await expect(page.getByRole('row', { name: new RegExp(invoiceNumber!) })).toContainText(/Returned/i, {
+    timeout: 20_000,
+  });
+  // Row text is concatenated, so "CustomerPaid" has no word boundary. [^n]Paid
+  // still excludes the Unpaid credit-sale row.
+  await expect(page.getByRole('row').filter({ hasText: /[^n]Paid/ }).first()).toBeVisible();
 });

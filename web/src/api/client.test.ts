@@ -36,6 +36,37 @@ function clearCsrfCookie(): void {
 }
 
 describe('getErrorMessage', () => {
+  it('never shows axios raw status text when the server sent no message (UX-N01)', () => {
+    const e500 = new axios.AxiosError('Request failed with status code 500');
+    e500.response = { status: 500, data: {} } as never;
+    expect(getErrorMessage(e500)).toBe('Something went wrong on our side. Try again in a moment.');
+
+    const e403 = new axios.AxiosError('Request failed with status code 403');
+    e403.response = { status: 403, data: {} } as never;
+    expect(getErrorMessage(e403)).toBe("You don't have permission to do this.");
+
+    const offline = new axios.AxiosError('Network Error');
+    expect(getErrorMessage(offline)).toBe(
+      "We can't reach the server. Check your internet connection and try again.",
+    );
+  });
+
+  it('maps the other client errors to plain copy instead of axios status text', () => {
+    const cases: Array<[number, string]> = [
+      [401, 'Your session has ended. Sign in again to continue.'],
+      [402, "Your plan doesn't allow this right now. Check your subscription."],
+      [409, 'This changed since you opened it. Reload and try again.'],
+      [413, 'That is too large to send. Try a smaller file.'],
+      [405, 'That was not accepted. Check the details and try again.'],
+      [422, 'That was not accepted. Check the details and try again.'],
+    ];
+    for (const [status, message] of cases) {
+      const err = new axios.AxiosError(`Request failed with status code ${status}`);
+      err.response = { status, data: {} } as never;
+      expect(getErrorMessage(err), String(status)).toBe(message);
+    }
+  });
+
   it('reads message from Bizboard error envelope', () => {
     const err = new axios.AxiosError('Request failed with status code 400');
     err.response = {
@@ -442,6 +473,28 @@ describe('refresh token rejection (BUG-407 / P0-111 / R-045)', () => {
     const second = await silentRefreshAccessToken();
     expect(second).toBe('cookie');
     expect(postSpy.mock.calls.length).toBe(callsAfterFirst);
+  });
+
+  it('a refresh body that requires enrolment is not treated as a new session', async () => {
+    const { refreshBodyRequiresEnrolment, enrolTokenFromRefreshBody, isAuthCredentialUrl } = await import('@/api/client');
+    const body = { mfaEnrollmentRequired: true, enrolToken: 'enrol-9' };
+    expect(refreshBodyRequiresEnrolment(body)).toBe(true);
+    expect(enrolTokenFromRefreshBody(body)).toBe('enrol-9');
+    expect(refreshBodyRequiresEnrolment({ access: 'fresh' })).toBe(false);
+    expect(isAuthCredentialUrl('/api/v1/auth/invite/accept/')).toBe(true);
+  });
+
+  it('enrolment refresh clears the session and does not return a token', async () => {
+    document.cookie = 'csrftoken=test-csrf';
+    vi.spyOn(axios, 'post').mockResolvedValue({
+      status: 200,
+      data: { mfaEnrollmentRequired: true, enrolToken: 'enrol-9' },
+    } as never);
+    const { silentRefreshAccessToken, consumeEnrolToken } = await import('@/api/client');
+    const token = await silentRefreshAccessToken({ force: true, notifyOnFailure: false });
+    expect(token).toBeNull();
+    expect(sessionStorage.getItem('bizboard:enrol-token')).toBeNull();
+    expect(consumeEnrolToken()).toBe('enrol-9');
   });
 
   it('BB-000229: does not refresh-retry failed login', async () => {

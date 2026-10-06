@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -60,13 +60,18 @@ export function ShareInvoiceDialog({
   const [email, setEmail] = useState(defaultEmail);
   const [shareLink, setShareLink] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    setPhone(defaultPhone);
-    setEmail(defaultEmail);
-    setShareLink(null);
-    setChannel(defaultEmail && !defaultPhone ? 'EMAIL' : defaultPhone ? 'WHATSAPP' : 'EMAIL');
-  }, [open, defaultPhone, defaultEmail]);
+  // Start from the party's details each time the dialog opens or its defaults change.
+  const resetKey = open ? `${defaultPhone}|${defaultEmail}` : null;
+  const [seenResetKey, setSeenResetKey] = useState<string | null>(null);
+  if (seenResetKey !== resetKey) {
+    setSeenResetKey(resetKey);
+    if (resetKey !== null) {
+      setPhone(defaultPhone);
+      setEmail(defaultEmail);
+      setShareLink(null);
+      setChannel(defaultEmail && !defaultPhone ? 'EMAIL' : defaultPhone ? 'WHATSAPP' : 'EMAIL');
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: (payload: { channel: ShareChannel; recipient: string }) => {

@@ -27,7 +27,8 @@ class CrmOnboardingView(APIView):
         moves = Opportunity.objects.filter(company=company, stage_move_count__gt=0).count()
         booker = CompanyUser.objects.filter(
             company=company,
-            role=CompanyUser.Role.SALES_STAFF,
+            # Founder decision 2026-09-30: the owner can work the pipeline, so the owner counts.
+            role__in=[CompanyUser.Role.OWNER, CompanyUser.Role.SALES_STAFF],
             is_active=True,
             user__is_active=True,
         ).exists()

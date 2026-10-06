@@ -1,0 +1,32 @@
+id: "QOS-0105"
+category: "RELIABILITY_TRUST"
+title: "CI tested one Python/Node while the images shipped another"
+persona:
+- "P1"
+journey: "Deploy the image CI approved"
+problem: "ci.yml ran Python 3.13 and Node 22 while backend/Dockerfile was python:3.14 and web/Dockerfile node:26, so a green CI run said nothing about the runtime customers get. docker-compose.yml even claimed 3.14 matched CI."
+evidence:
+  strength: "measured"
+  source:
+  - "backend/Dockerfile"
+  - "web/Dockerfile"
+  - ".github/workflows/ci.yml"
+  - "scripts/ci_gates/guards/guard_runtime_alignment.py"
+  detail: "Read 2026-10-02. Images now pin 3.13 and node:22 by resolved digest; guard_runtime_alignment fails on any drift (its selftest proves it can fail). scripts/image_smoke.sh was run against the built image: Python 3.13, check --deploy and makemigrations --check passed. The migrate and health steps were not completed locally because the shared Postgres was saturated by a test run."
+scoring:
+  reach: 5
+  severity: 3
+  frequency: 2
+  impact_band: "Medium"
+business_metric: "none"
+priority: "P1"
+priority_rationale: "Medium impact. Measured, cheap to hold."
+effort: "S"
+recommendation: "Keep the guard. Add the image_smoke.sh job to CI (needs postgres and redis services) and re-run it end to end."
+test_required: "python scripts/ci_gates/run_guards.py, and run_guards.py --selftest"
+guard_ref:
+  test: "scripts/ci_gates/guards/guard_runtime_alignment.py"
+lifecycle: "fixed"
+owner: "devops"
+opened: "2026-10-02"
+closed: "2026-10-02"

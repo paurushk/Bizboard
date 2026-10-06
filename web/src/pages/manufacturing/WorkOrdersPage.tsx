@@ -22,13 +22,14 @@ import {
   cancelWorkOrder,
   completeWorkOrder,
   createWorkOrder,
+  getBom,
   listBomsPage,
   listWorkOrdersPage,
   releaseWorkOrder,
   updateWorkOrder,
   type WorkOrder,
 } from '@/api/manufacturing';
-import { listWarehouses } from '@/api/resources';
+import { getProduct, listWarehouses } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
@@ -136,6 +137,24 @@ function WorkOrdersPageInner() {
   }, [warehousesQuery.data]);
 
   const rows = query.data?.results ?? [];
+  const releaseWo = confirm?.action === 'release' ? rows.find((row) => row.id === confirm.id) : undefined;
+  const releaseBomQuery = useQuery({
+    queryKey: ['wo-release-bom', releaseWo?.bom],
+    queryFn: () => getBom(releaseWo!.bom),
+    enabled: confirm?.action === 'release' && releaseWo?.bom != null,
+  });
+  const componentIds = (releaseBomQuery.data?.lines ?? []).map((line) => line.component);
+  const componentProducts = useQuery({
+    queryKey: ['wo-release-components', componentIds],
+    queryFn: () => Promise.all(componentIds.map((id) => getProduct(id))),
+    enabled: confirm?.action === 'release' && componentIds.length > 0,
+  });
+  const serialNames = (componentProducts.data ?? []).filter((product) => product.trackSerial).map((product) => product.name);
+  const releaseNeedsSerials = serialNames.length > 0 && !componentSerialsText.trim();
+  const releaseChecking = confirm?.action === 'release' && (
+    releaseBomQuery.isFetching || (componentIds.length > 0 && componentProducts.isFetching)
+  );
+  const releaseLookupFailed = confirm?.action === 'release' && (releaseBomQuery.isError || componentProducts.isError);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -213,7 +232,6 @@ function WorkOrdersPageInner() {
   return (
     <Stack spacing={2}>
       <MvpModuleBanner module="manufacturing" />
-      <Alert severity="warning">{t('erp.serialsRequiredBeforeRelease')}</Alert>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.workOrders')}</PageTitle>
         <Button variant="contained" onClick={openCreate}>
@@ -229,7 +247,7 @@ function WorkOrdersPageInner() {
         <EmptyState description={t('empty.workOrders')} />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -426,8 +444,14 @@ function WorkOrdersPageInner() {
             <Typography variant="body2">
               {confirm?.action === 'release' ? t('erp.confirmReleaseWo') : t('erp.confirmCompleteWo')}
             </Typography>
-            {confirm?.action === 'release' ? (
-              <Alert severity="warning">{t('erp.serialsRequiredBeforeRelease')}</Alert>
+            {confirm?.action === 'complete' ? (
+              <Alert severity="info">{t('erp.woAbsorbsAllIssueCost')}</Alert>
+            ) : null}
+            {confirm?.action === 'release' && serialNames.length > 0 ? (
+              <Alert severity="warning">{t('erp.releaseNeedsSerials', { names: serialNames.join(', ') })}</Alert>
+            ) : null}
+            {releaseLookupFailed ? (
+              <Alert severity="error">{t('erp.releaseLookupFailed')}</Alert>
             ) : null}
             {confirm?.action === 'release' ? (
               <TextField
@@ -454,7 +478,7 @@ function WorkOrdersPageInner() {
           <Button onClick={() => setConfirm(null)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={releaseMutation.isPending || completeMutation.isPending}
+            disabled={releaseMutation.isPending || completeMutation.isPending || releaseNeedsSerials || releaseChecking || releaseLookupFailed}
             onClick={() => {
               if (!confirm) return;
               if (confirm.action === 'release') {

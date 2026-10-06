@@ -10,16 +10,24 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { listBusinessAlerts, snoozeBusinessAlert } from '@/api/resources';
 import { AlertInboxRow, DisclaimerBanner, PageHeader } from '@/components/insights';
+import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 
 export function InsightsAlertsPage() {
+  const consentOn = useAiConsentOn();
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['insights-alerts'], queryFn: () => listBusinessAlerts() });
+  const query = useQuery({
+    queryKey: ['insights-alerts'],
+    queryFn: () => listBusinessAlerts(),
+    enabled: consentOn,
+  });
   const snooze = useMutation({
     mutationFn: (id: number) => snoozeBusinessAlert(id, 7),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['insights-alerts'] }),
   });
+
+  if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsAlerts')} />;
 
   return (
     <Stack spacing={2}>
@@ -34,7 +42,7 @@ export function InsightsAlertsPage() {
         <EmptyState description={t('insights.noAlerts')} />
       ) : null}
       {(query.data?.length ?? 0) > 0 ? (
-        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+        <Paper variant="outlined" tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

@@ -32,6 +32,7 @@ import {
 } from '@/components/HistoryFilterBar';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
+import { partyNameError } from '@/utils/partyName';
 import type { Supplier } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
 import { getStateFromGstin } from '@/utils/indianStates';
@@ -98,7 +99,8 @@ export function SuppliersPage() {
     !!company.data?.isGstRegistered && !company.data?.assumeLocalStateForBlankParty;
   const placeOfSupplyOk =
     !requirePlaceOfSupply || placeOfSupplyKnown(form.state, form.gstin);
-  const canSave = Boolean(form.name.trim()) && placeOfSupplyOk;
+  const canSave =
+    Boolean(form.name.trim()) && partyNameError(form.name) == null && placeOfSupplyOk;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -110,11 +112,19 @@ export function SuppliersPage() {
       if (editing) return updateSupplier(editing.id, payload);
       return createSupplier({ ...payload, isActive: true });
     },
-    onSuccess: () => {
+    onSuccess: async (saved) => {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
       setError(null);
+      // A slow in-flight list request can finish after this create and write
+      // the pre-create empty list back over the cache. Cancel it, show the
+      // saved row immediately, then refresh from the server.
+      await qc.cancelQueries({ queryKey: ['suppliers'] });
+      qc.setQueryData<Supplier[]>(['suppliers'], (prev) => {
+        const list = (prev ?? []).filter((row) => row.id !== saved.id);
+        return [saved, ...list];
+      });
       void qc.invalidateQueries({ queryKey: ['suppliers'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -165,7 +175,7 @@ export function SuppliersPage() {
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data && query.data.length > 0 && visibleSuppliers.length === 0 && filtersActive ? (
-        <EmptyState description={t('common.noResults')} />
+        <EmptyState title={t('common.noResults')} />
       ) : null}
       {query.data?.length === 0 ? (
         <EmptyState
@@ -186,7 +196,7 @@ export function SuppliersPage() {
         />
       ) : null}
       {visibleSuppliers.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -195,7 +205,7 @@ export function SuppliersPage() {
                 <TableCell>GSTIN</TableCell>
                 <TableCell>GSTIN status</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
-                <TableCell align="right">Outstanding</TableCell>
+                <TableCell align="right">{t('sweep2.outstanding')}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -239,7 +249,7 @@ export function SuppliersPage() {
                           disabled={verifyMutation.isPending}
                           onClick={() => verifyMutation.mutate(s.id)}
                         >
-                          Verify
+                          {t('sweep2.verify')}
                         </Button>
                       </Stack>
                     ) : (
@@ -300,9 +310,16 @@ export function SuppliersPage() {
               label={t('common.name')}
               required
               value={form.name}
+              placeholder={t('billing.supplierNamePrompt')}
               onBlur={() => setNameTouched(true)}
-              error={nameTouched && !form.name.trim()}
-              helperText={nameTouched && !form.name.trim() ? 'Supplier name is required' : undefined}
+              error={nameTouched && (!form.name.trim() || partyNameError(form.name) != null)}
+              helperText={
+                nameTouched && !form.name.trim()
+                  ? 'Supplier name is required'
+                  : nameTouched && partyNameError(form.name)
+                    ? t('billing.partyNameInvalid')
+                    : undefined
+              }
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
             <TextField
@@ -345,7 +362,7 @@ export function SuppliersPage() {
               onChange={(state) => setForm((f) => ({ ...f, state }))}
             />
             <TextField
-              label="Address"
+              label={t('sweep.address')}
               value={form.address}
               onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
             />

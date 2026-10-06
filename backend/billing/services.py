@@ -78,6 +78,9 @@ def trial_plan_modules() -> dict:
     from core.services.feature_flags import ROLLOUT_GRANTABLE_KEYS
 
     modules = {key: True for key in sorted(ROLLOUT_GRANTABLE_KEYS)}
+    # Not grantable: company JSON cannot lift it. Stored false so a trial
+    # subscription still denies the GSTN-shaped export when the env is on.
+    modules["ENABLE_GSTN_JSON"] = False
     for key in TRIAL_HELD_FALSE:
         if key in modules:
             modules[key] = False
@@ -407,9 +410,23 @@ def apply_razorpay_subscription_status(
 ) -> Subscription | None:
     if not razorpay_subscription_id:
         return None
-    sub, via_pending = _subscription_for_razorpay_id(razorpay_subscription_id)
+    sub, _found_via_pending = _subscription_for_razorpay_id(razorpay_subscription_id)
     if sub is None:
         return None
+    from django.db import transaction
+
+    with transaction.atomic():
+        sub = Subscription.objects.select_for_update().get(pk=sub.pk)
+        via_pending = (
+            (sub.razorpay_subscription_id or "") != razorpay_subscription_id
+            and (sub.pending_razorpay_subscription_id or "") == razorpay_subscription_id
+        )
+        return _write_razorpay_subscription_status(
+            sub, razorpay_subscription_id, rzp_status, current_end, via_pending,
+        )
+
+
+def _write_razorpay_subscription_status(sub, razorpay_subscription_id, rzp_status, current_end, via_pending):
     mapped = _map_razorpay_status(rzp_status)
     if mapped is None:
         return sub
@@ -428,6 +445,7 @@ def apply_razorpay_subscription_status(
         return sub
     if via_pending and mapped != Subscription.Status.ACTIVE:
         return sub
+    previous_status = sub.status
     update_fields = ["status", "updated_at"]
     if via_pending and mapped == Subscription.Status.ACTIVE:
         previous_remote_id = (sub.razorpay_subscription_id or "").strip()
@@ -437,6 +455,10 @@ def apply_razorpay_subscription_status(
         if previous_remote_id and previous_remote_id != razorpay_subscription_id:
             _cancel_razorpay_subscription(previous_remote_id, at_cycle_end=True)
     sub.status = mapped
+    # BUG-BIL-001: a new past-due cycle must be able to start at step 1.
+    if previous_status == Subscription.Status.PAST_DUE and mapped != Subscription.Status.PAST_DUE:
+        sub.last_dunning_step = 0
+        update_fields.append("last_dunning_step")
     if mapped == Subscription.Status.ACTIVE:
         if isinstance(current_end, (int, float)) and current_end > 0:
             from datetime import datetime, timezone as dt_timezone
@@ -538,7 +560,6 @@ def replay_dead_letter(event, *, user=None):
     if event.status == DeadLetterEvent.Status.REPLAYED:
         return event
     payload = event.payload if isinstance(event.payload, dict) else {}
-    event.attempts = int(event.attempts or 0) + 1
     meta = {}
     company = event.company
     if payload.get("kind") == "payment_webhook":
@@ -581,6 +602,7 @@ def replay_dead_letter(event, *, user=None):
         )
         company = event.company or (sub.company if sub else None)
         meta = {"razorpay_status": rzp_status}
+    event.attempts = int(event.attempts or 0) + 1
     event.status = DeadLetterEvent.Status.REPLAYED
     event.replayed_at = dj_tz.now()
     event.replayed_by = user

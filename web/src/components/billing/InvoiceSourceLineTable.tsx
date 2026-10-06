@@ -79,7 +79,7 @@ export function InvoiceSourceLineTable({
 
   return (
     <Stack spacing={1}>
-      <Paper sx={{ overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <Table size="small">
           <TableHead>
             <TableRow>
@@ -238,13 +238,13 @@ export function InvoiceReturnLineTable({
   const showSerial = lines.some((l) => l.trackSerial);
 
   return (
-    <Paper sx={{ overflow: 'auto' }}>
+    <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
       <Table size="small">
         <TableHead>
           <TableRow>
             {!readOnly ? <TableCell padding="checkbox" /> : null}
             <TableCell>{t('nav.products')}</TableCell>
-            <TableCell>Condition</TableCell>
+            <TableCell>{t('sweep2.condition')}</TableCell>
             {showLot ? <TableCell>{t('billing.batchNo')}</TableCell> : null}
             {showSerial ? <TableCell>{t('erp.serialNumbers')}</TableCell> : null}
             <TableCell align="right">{t('billing.qty')}</TableCell>
@@ -276,8 +276,8 @@ export function InvoiceReturnLineTable({
                     }
                     sx={{ minWidth: 120 }}
                   >
-                    <MenuItem value="SELLABLE">Sellable</MenuItem>
-                    <MenuItem value="DAMAGED">Damaged</MenuItem>
+                    <MenuItem value="SELLABLE">{t('sweep2.sellable')}</MenuItem>
+                    <MenuItem value="DAMAGED">{t('sweep2.damaged')}</MenuItem>
                   </TextField>
                 )}
               </TableCell>

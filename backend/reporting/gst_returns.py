@@ -27,6 +27,39 @@ from sales.models import SalesCreditNote, SalesDebitNote, SalesInvoice
 from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
 from .models import GstReturnPeriod, GstReturnSnapshot
+
+
+def _iter_prefetched(qs, *related, chunk_size=200, retain=None):
+    """Stream a queryset and attach relations one chunk at a time (BUG-PERF-003).
+
+    Item rows are dropped after the caller finishes the chunk so a month of
+    invoices does not keep every line in memory. Pass ``retain`` to keep the
+    header instances for a later pass.
+    """
+    from django.db.models import prefetch_related_objects
+
+    buf: list = []
+
+    def flush():
+        if not buf:
+            return
+        if related:
+            prefetch_related_objects(buf, *related)
+        yield from buf
+        for row in buf:
+            cache = getattr(row, "_prefetched_objects_cache", None)
+            if isinstance(cache, dict):
+                for name in related:
+                    cache.pop(name, None)
+        if retain is not None:
+            retain.extend(buf)
+        buf.clear()
+
+    for row in qs.iterator(chunk_size=chunk_size):
+        buf.append(row)
+        if len(buf) >= chunk_size:
+            yield from flush()
+    yield from flush()
 from .gst_returns_sections import (
     accumulate_hsn_line,
     append_b2_outward_rows,
@@ -599,9 +632,9 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     stamp_id = _resolve_filing_gstin_id(
         company, _gst_sales_gstin_stamps(company, date_from, date_to), company_gstin=company_gstin
     )
-    invoices = list(_gst_sales_invoices(company, date_from, date_to, company_gstin_id=stamp_id))
-    credit_notes = list(_gst_credit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
-    debit_notes = list(_gst_debit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
+    invoices: list = []
+    credit_notes = list(_gst_credit_notes(company, date_from, date_to, company_gstin_id=stamp_id).iterator(chunk_size=1000))
+    debit_notes = list(_gst_debit_notes(company, date_from, date_to, company_gstin_id=stamp_id).iterator(chunk_size=1000))
 
     issues: list[dict] = []
     b2b: list[dict] = []
@@ -626,7 +659,11 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     }
     supecom_rows: list[dict] = []
 
-    for inv in invoices:
+    for inv in _iter_prefetched(
+        _gst_sales_invoices(company, date_from, date_to, company_gstin_id=stamp_id),
+        "items",
+        retain=invoices,
+    ):
         items = list(inv.items.all())
         for idx, item in enumerate(items, start=1):
             hsn_raw = (item.hsn_code or "").strip()
@@ -1023,6 +1060,28 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
 
     footing_delta = outward_taxable - section_taxable
     footing_mismatch = abs(footing_delta) > Decimal("0.01")
+    assumed_ids = list(
+        SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoice.Status.COMPLETED,
+            invoice_date__gte=date_from,
+            invoice_date__lte=date_to,
+            pos_assumed_local=True,
+        ).values_list("id", "number")
+    )
+    for invoice_id, number in assumed_ids:
+        issues.append({
+            "code": "POS_ASSUMED_LOCAL",
+            "severity": "warning",
+            "document_type": "sales_invoice",
+            "document_id": invoice_id,
+            "number": number or "",
+            "message": (
+                "Place of supply was assumed intra-state because the customer "
+                "had no state and no GSTIN. Confirm before your CA files."
+            ),
+        })
+
     if footing_mismatch:
         # GST-07: a sub-rupee delta is rounding drift (warn); anything larger is
         # a real bucketing bug that must block the file, not just caution.
@@ -1482,7 +1541,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             gstr1.get("_stamp_invoices") or [],
             company_gstin=company_gstin,
         )
-    purchases = list(_gst_purchase_invoices(company, date_from, date_to, company_gstin_id=stamp_id))
+    purchases = list(_gst_purchase_invoices(company, date_from, date_to, company_gstin_id=stamp_id).iterator(chunk_size=1000))
     purchase_cns = list(_gst_purchase_credit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
     purchase_dns = list(_gst_purchase_debit_notes(company, date_from, date_to, company_gstin_id=stamp_id))
     purchase_cns_rcm = list(_gst_purchase_credit_notes_rcm(company, date_from, date_to, company_gstin_id=stamp_id))
@@ -2110,8 +2169,12 @@ def build_gstr9(company, fy_label: str, *, company_gstin=None) -> dict:
         outward_tax += tax
 
         date_from, date_to = parse_period(period)
-        purchases = list(_gst_purchase_invoices(company, date_from, date_to, company_gstin_id=stamp_id))
-        for inv in purchases:
+        purchases = []
+        for inv in _iter_prefetched(
+            _gst_purchase_invoices(company, date_from, date_to, company_gstin_id=stamp_id),
+            "items",
+            retain=purchases,
+        ):
             if getattr(inv, "is_reverse_charge", False):
                 continue
             for item in inv.items.all():

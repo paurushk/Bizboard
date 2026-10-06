@@ -44,7 +44,7 @@ test.describe('purchases: history + editor', () => {
 
     await page.getByRole('combobox', { name: /bill from/i }).fill('Western');
     await page.getByRole('option', { name: /Western Distributors/i }).click();
-    await page.getByRole('button', { name: /save draft/i }).click();
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(page.getByText(/draft .*saved|saved/i).first()).toBeVisible({ timeout: 15_000 });
   });
 });

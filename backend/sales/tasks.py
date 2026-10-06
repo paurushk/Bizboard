@@ -32,6 +32,51 @@ def _store_doc_pdf(*, company, content, filename, kind, document, status_field="
             logger.exception("Failed to delete prior PDF asset %s", previous.pk)
 
 
+def _retries_left(task) -> bool:
+    retries = int(getattr(getattr(task, "request", None), "retries", 0) or 0)
+    limit = int(getattr(task, "max_retries", 0) or 0)
+    return retries < limit
+
+
+def _mark_pdf_for_retry(document) -> None:
+    from .models import SalesInvoice
+
+    document.pdf_status = SalesInvoice.PdfStatus.QUEUED
+    document.save(update_fields=["pdf_status"])
+
+
+def _mark_pdf_failed(document) -> None:
+    from .models import SalesInvoice
+
+    document.pdf_status = SalesInvoice.PdfStatus.FAILED
+    document.save(update_fields=["pdf_status"])
+
+
+def _notify_pdf_failed(document, kind: str) -> None:
+    """One in-app note when rendering has used its Celery retries."""
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    label = document.number or document.pk
+    body = f"The {kind} PDF for {label} could not be rendered."
+    owners = CompanyUser.objects.filter(
+        company=document.company, is_active=True, role=CompanyUser.Role.OWNER,
+    ).select_related("user")
+    for membership in owners:
+        try:
+            NotificationService.send(
+                company=document.company,
+                channel=Notification.Channel.IN_APP,
+                recipient=membership.user.email or str(membership.user_id),
+                subject="PDF failed",
+                body=body,
+                user=membership.user,
+            )
+        except Exception:
+            logger.exception("pdf failed notify company=%s", document.company_id)
+
+
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def generate_invoice_pdf(self, invoice_id, company_id=None):
     from core.models import FileAsset
@@ -64,21 +109,25 @@ def generate_invoice_pdf(self, invoice_id, company_id=None):
             )
     except Exception:
         logger.exception("PDF generation failed for invoice %s", invoice_id)
-        invoice.pdf_status = SalesInvoice.PdfStatus.FAILED
-        invoice.save(update_fields=["pdf_status"])
+        if _retries_left(self):
+            _mark_pdf_for_retry(invoice)
+            raise
+        _mark_pdf_failed(invoice)
         try:
             from insights.telemetry import record_pdf_failed
 
             record_pdf_failed(invoice.company)
         except Exception:  # noqa: BLE001 — telemetry must not hide the PDF failure
             pass
+        _notify_pdf_failed(invoice, "invoice")
+        raise
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def generate_credit_note_pdf(self, note_id, company_id=None):
     from core.models import FileAsset
 
-    from .models import SalesCreditNote, SalesInvoice
+    from .models import SalesCreditNote
     from .pdf import render_credit_note
 
     try:
@@ -102,15 +151,19 @@ def generate_credit_note_pdf(self, note_id, company_id=None):
         )
     except Exception:
         logger.exception("PDF generation failed for credit note %s", note_id)
-        note.pdf_status = SalesInvoice.PdfStatus.FAILED
-        note.save(update_fields=["pdf_status"])
+        if _retries_left(self):
+            _mark_pdf_for_retry(note)
+            raise
+        _mark_pdf_failed(note)
+        _notify_pdf_failed(note, "credit note")
+        raise
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def generate_debit_note_pdf(self, note_id, company_id=None):
     from core.models import FileAsset
 
-    from .models import SalesDebitNote, SalesInvoice
+    from .models import SalesDebitNote
     from .pdf import render_debit_note
 
     try:
@@ -134,15 +187,19 @@ def generate_debit_note_pdf(self, note_id, company_id=None):
         )
     except Exception:
         logger.exception("PDF generation failed for debit note %s", note_id)
-        note.pdf_status = SalesInvoice.PdfStatus.FAILED
-        note.save(update_fields=["pdf_status"])
+        if _retries_left(self):
+            _mark_pdf_for_retry(note)
+            raise
+        _mark_pdf_failed(note)
+        _notify_pdf_failed(note, "debit note")
+        raise
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
 def generate_challan_pdf(self, challan_id, company_id=None):
     from core.models import FileAsset
 
-    from .models import DeliveryChallan, SalesInvoice
+    from .models import DeliveryChallan
     from .pdf import render_delivery_challan
 
     qs = DeliveryChallan.objects.select_related(
@@ -164,8 +221,12 @@ def generate_challan_pdf(self, challan_id, company_id=None):
         )
     except Exception:
         logger.exception("PDF generation failed for challan %s", challan_id)
-        challan.pdf_status = SalesInvoice.PdfStatus.FAILED
-        challan.save(update_fields=["pdf_status"])
+        if _retries_left(self):
+            _mark_pdf_for_retry(challan)
+            raise
+        _mark_pdf_failed(challan)
+        _notify_pdf_failed(challan, "delivery challan")
+        raise
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
@@ -269,6 +330,41 @@ def _cached_sequence(suggestion):
         }
         for stop in suggestion
     ]
+
+
+@shared_task
+def requeue_stale_invoice_pdfs():
+    """FMEA-012: a dead worker leaves pdf_status QUEUED. Requeue and tell the owner once."""
+    from datetime import timedelta
+
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from core.services.telegram import notify_company_owners
+
+    from .models import SalesInvoice
+
+    from core.rls import rls_bypass
+
+    cutoff = timezone.now() - timedelta(minutes=15)
+    # A cross-tenant sweep: under row-level security it sees nothing without the bypass.
+    with rls_bypass():
+        stale = list(
+            SalesInvoice.objects.filter(
+                pdf_status=SalesInvoice.PdfStatus.QUEUED,
+                updated_at__lt=cutoff,
+            ).select_related("company")[:50]
+        )
+        for invoice in stale:
+            generate_invoice_pdf.delay(invoice.pk, company_id=invoice.company_id)
+            key = f"pdf-stale-notified:{invoice.pk}"
+            if cache.add(key, "1", timeout=24 * 60 * 60):
+                notify_company_owners(
+                    invoice.company,
+                    subject="Invoice PDF still queued",
+                    body=f"Invoice {invoice.number or invoice.pk} has been waiting on its PDF.",
+                )
+    return {"requeued": len(stale)}
 
 
 @shared_task

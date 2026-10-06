@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { apiClient, getErrorCode, getLastRequestId, isNetworkError, unwrapData } from '@/api/client';
+import { apiClient, getErrorCode, getLastRequestId, isNetworkError, shouldUseMocks, unwrapData } from '@/api/client';
 import helpCodes from '@/pages/help/helpCodes.json';
 
 const HELP_ERROR_CODES = new Set(helpCodes.codes);
@@ -16,6 +16,10 @@ const ALLOWED = new Set([
   'wizard_completed',
   'journey_started',
   'journey_failed',
+  'form_abandoned',
+  'draft_restored',
+  'document_voided',
+  'form_validation_failed',
 ]);
 
 export type JourneyName = 'signup' | 'invoice_complete' | 'pdf' | 'payment';
@@ -211,6 +215,7 @@ export function funnelReasons(
 }
 
 export async function getShopFloorSummary(): Promise<ShopFloorSummary> {
+  if (shouldUseMocks()) return { days: 0, funnel: {} };
   const { data } = await apiClient.get('/insights/telemetry/');
   return unwrapData<ShopFloorSummary>(data);
 }

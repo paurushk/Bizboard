@@ -13,6 +13,7 @@ from core.csv_utils import csv_safe
 from core.idempotency import (
     begin_record,
     release_record,
+    request_fingerprint,
     store_record,
 )
 from core.models import FileAsset
@@ -110,7 +111,8 @@ class ImportJobViewSet(
         claimed = None
         if use_idempotency:
             claimed = begin_record(
-                company=self.company, scope="import_job_create", raw_key=raw_key
+                company=self.company, scope="import_job_create", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
             )
             if isinstance(claimed, Response):
                 return claimed
@@ -220,7 +222,8 @@ class ImportJobViewSet(
             # concurrent retry while the first commit is still running replays
             # instead of committing a second draft invoice.
             claimed = begin_record(
-                company=self.company, scope="import_job_commit", raw_key=raw_key
+                company=self.company, scope="import_job_commit", raw_key=raw_key,
+                fingerprint=request_fingerprint(request),
             )
             if isinstance(claimed, Response):
                 return claimed

@@ -453,6 +453,10 @@ _TELEMETRY_EVENTS = {
     "wizard_completed",
     "journey_started",
     "journey_failed",
+    "form_abandoned",
+    "draft_restored",
+    "document_voided",
+    "form_validation_failed",
 }
 
 _ALLOWED_TELEMETRY_KEYS = {
@@ -469,7 +473,7 @@ _ALLOWED_TELEMETRY_KEYS = {
 }
 _IGNORED_TELEMETRY_KEYS = {"company_id", "company_hash", "companyId", "companyHash"}
 _JOURNEY_ALLOWLIST = {"signup", "invoice_complete", "pdf", "payment"}
-_FEATURE_ALLOWLIST = _JOURNEY_ALLOWLIST | {"pos", "offline"}
+_FEATURE_ALLOWLIST = _JOURNEY_ALLOWLIST | {"pos", "offline", "form"}
 _FAILURE_REASONS = {"validation", "help_code", "timeout", "5xx", "offline", "unknown"}
 
 

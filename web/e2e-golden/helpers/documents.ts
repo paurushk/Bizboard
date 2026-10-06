@@ -109,7 +109,12 @@ export async function createProduct(
     await page.getByLabel(/HSN code/i).fill(opts.hsnCode);
   }
   if (opts.serialNo || opts.reorderLevel) {
-    await page.getByRole('tab', { name: 'Stock details' }).click();
+    // A new item hides the stock tab until opening stock is opted in.
+    const stockTab = page.getByRole('tab', { name: 'Stock details' });
+    if (!(await stockTab.isVisible().catch(() => false))) {
+      await page.getByRole('button', { name: /Add opening stock, lots or serials/i }).click();
+    }
+    await stockTab.click();
     if (opts.serialNo) {
       await page.getByRole('radio', { name: 'Serial' }).click();
       await page.getByLabel('Serial no').fill(opts.serialNo);
@@ -172,9 +177,10 @@ export async function addStockAdjustment(
   await productsCombo.click();
   await productsCombo.fill(opts.sku);
   await page.getByRole('option', { name: new RegExp(opts.sku) }).click();
+  await page.keyboard.press('Escape');
   if (opts.warehouseName) {
     await page.getByLabel('Godowns').click();
-    await page.getByRole('option', { name: opts.warehouseName, exact: true }).click();
+    await chooseVisibleOption(page, opts.warehouseName);
   }
   await page.getByLabel('Quantity to Add').fill(opts.quantity);
   await page.getByLabel('Reason for Adjustment').click();
@@ -193,7 +199,7 @@ export async function createCustomer(
   await page.getByLabel('State').click();
   await page.getByRole('option', { name: opts.state ?? 'Karnataka' }).click();
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(opts.name)).toBeVisible();
+  await expect(page.getByText(opts.name)).toBeVisible({ timeout: 15_000 });
 }
 
 export async function createSupplier(
@@ -206,7 +212,7 @@ export async function createSupplier(
   await page.getByLabel('State').click();
   await page.getByRole('option', { name: opts.state ?? 'Karnataka' }).click();
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText(opts.name)).toBeVisible();
+  await expect(page.getByText(opts.name)).toBeVisible({ timeout: 15_000 });
 }
 
 /**
@@ -231,24 +237,45 @@ export async function selectPartyOnDocument(page: Page, partyName: string) {
  * reusing selectPartyOnDocument.
  */
 export async function selectReceiptCustomer(page: Page, customerName: string) {
-  const combo = page.getByPlaceholder('Search customer by name or phone');
+  const combo = page.getByPlaceholder(/search active customer by name or phone/i);
   await combo.click();
   await combo.fill(customerName);
   await page.getByRole('option', { name: customerName }).click();
 }
 
-/** Select a specific godown on the sales/purchase invoice form's "Godowns" field. */
+/** Select a specific godown on the sales/purchase invoice form. */
 export async function selectDocumentWarehouse(page: Page, warehouseName: string, isDefault = false) {
-  await page.getByLabel('Godowns').click();
+  await page.getByLabel('Godown', { exact: true }).click();
   const label = isDefault ? `${warehouseName} (default)` : warehouseName;
-  await page.getByRole('option', { name: label, exact: true }).click();
+  await chooseVisibleOption(page, label);
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** MUI menus can leave Playwright's click action running until the test
+ * timeout even though the item is already visible. A DOM click still selects. */
+async function chooseVisibleOption(page: Page, name: string, exact = true) {
+  const option = page.getByRole('option', { name, exact });
+  await option.waitFor({ state: 'visible', timeout: 15_000 });
+  await option.evaluate((node) => (node as HTMLElement).click());
 }
 
 export async function addInvoiceItem(page: Page, sku: string) {
   const itemInput = page.getByPlaceholder('+ Add Item / Scan barcode or search SKU / name');
   await itemInput.click();
   await itemInput.fill(sku);
-  await page.getByRole('option', { name: new RegExp(sku) }).click();
+  await page.getByRole('option', { name: new RegExp(escapeRegExp(sku)) }).click();
+  await page.keyboard.press('Escape');
+  // Typing an exact SKU also auto-inserts the line, so this click can leave
+  // quantity at 2 and block a one-serial Complete. One call adds one unit.
+  const qty = page.getByLabel('QTY').last();
+  await expect(qty).toBeVisible({ timeout: 10_000 });
+  await page.waitForTimeout(400);
+  if ((await qty.inputValue()) !== '1') {
+    await qty.fill('1');
+  }
 }
 
 export async function createWarehouse(page: Page, name: string) {
@@ -266,8 +293,10 @@ export async function createWarehouse(page: Page, name: string) {
 export async function readGodownStock(page: Page, warehouseName: string, productName: string): Promise<number> {
   await page.goto('/inventory/stock');
   await page.getByLabel('Godowns').click();
-  await page.getByRole('option', { name: warehouseName, exact: true }).click();
-  const row = page.getByRole('row', { name: new RegExp(productName) });
+  await chooseVisibleOption(page, warehouseName);
+  // "Show lots" is a button inside the name cell, so the row's accessible
+  // name is that button and getByRole({ name: product }) misses the text.
+  const row = page.getByRole('row').filter({ hasText: productName });
   await expect(row).toBeVisible();
   const cells = await row.locator('td').allTextContents();
   // Columns: Name, SKU, Godowns, Nearest expiry, On Hand, Reserved, Available.
@@ -312,6 +341,8 @@ export async function saveCompanyGstin(page: Page, gstin = '29AAAAA0000A1ZY') {
   const field = page.getByLabel('Primary GSTIN (15 characters)');
   await expect(field).toBeVisible({ timeout: 20_000 });
   await field.fill(gstin);
+  // A new GSTIN is not saved until this confirmation is checked.
+  await page.getByRole('checkbox', { name: /future bills follow this tax setup/i }).check();
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('GST settings saved')).toBeVisible({ timeout: 15_000 });
 }
@@ -364,8 +395,10 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const row = page.getByRole('row', { name: rowMatcher }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
+  // Open completed invoices show Unpaid/Paid, not the document word Completed.
+  const settledChip = /^(Completed|Unpaid|Paid)$/;
   const completedNow = await row
-    .getByText('Completed')
+    .getByText(settledChip)
     .isVisible()
     .catch(() => false);
   if (!completedNow) {
@@ -382,7 +415,7 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
     await page.getByRole('button', { name: 'Save & Complete' }).click();
     await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   }
-  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText('Completed')).toBeVisible({
+  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText(/^(Completed|Unpaid|Paid)$/)).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -407,7 +440,14 @@ export async function completeResidualSalesDebitNote(
 ) {
   await page.goto('/sales/debit-notes/new');
   await fillNamedCombobox(page, 'Source invoice', opts.invoiceNumber, new RegExp(opts.invoiceNumber));
-  await page.getByRole('button', { name: opts.productName }).click();
+  const addLine = page.getByRole('button', { name: opts.productName });
+  if (await addLine.isVisible().catch(() => false)) {
+    await addLine.click();
+  } else {
+    await expect(page.getByRole('cell', { name: opts.productName })).toBeVisible({ timeout: 15_000 });
+    const qty = page.locator('table').getByRole('spinbutton', { name: /^(qty|quantity)$/i }).first();
+    await qty.fill('1');
+  }
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/debit-notes\/\d+/, { timeout: 20_000 });
   await expect(

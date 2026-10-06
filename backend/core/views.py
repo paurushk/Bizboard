@@ -36,6 +36,11 @@ _READY_PROBE_CACHE_KEY = "bizboard:ready_probe"
 _READY_PROBE_TTL = 15
 
 
+def _same_secret(provided, expected) -> bool:
+    """Constant-time compare. Bytes, because compare_digest raises TypeError on non-ASCII str."""
+    return hmac.compare_digest(str(provided or "").encode("utf-8"), str(expected or "").encode("utf-8"))
+
+
 def probe_infra(*, use_cache: bool = True):
     """Cached (celery_ok, pdf_queue_depth, workers_ok, beat_ok).
 
@@ -152,7 +157,17 @@ class IntegrationsInventoryView(APIView):
                     "settings_present": present,
                 }
             )
-        return Response({"integrations": rows})
+        from integrations.models import IntegrationConnection
+
+        company = get_company_user(request).company
+        conn = IntegrationConnection.objects.filter(
+            company=company, provider=IntegrationConnection.Provider.SHOPIFY,
+        ).first()
+        pending = ((conn.metadata or {}).get("shopify_pending") or {}) if conn else {}
+        return Response({
+            "integrations": rows,
+            "shopify_pending_count": len(pending) if isinstance(pending, dict) else 0,
+        })
 
 
 class InvariantsCheckView(APIView):
@@ -313,13 +328,16 @@ class FileAssetViewSet(
         company = get_company_user(self.request).company
         from billing.quotas import assert_storage_allowed
 
-        assert_storage_allowed(company, additional_bytes=int(getattr(uploaded, "size", 0) or 0))
-        serializer.instance = FileService.store_upload(
-            company=company,
-            uploaded_file=uploaded,
-            kind=kind,
-            user=self.request.user,
-        )
+        from django.db import transaction
+
+        with transaction.atomic():
+            assert_storage_allowed(company, additional_bytes=int(getattr(uploaded, "size", 0) or 0))
+            serializer.instance = FileService.store_upload(
+                company=company,
+                uploaded_file=uploaded,
+                kind=kind,
+                user=self.request.user,
+            )
 
     @action(detail=True, methods=["get"])
     def download(self, request, pk=None):
@@ -442,7 +460,7 @@ class MetricsView(APIView):
             auth = request.headers.get("Authorization", "")
             provided = auth[7:] if auth.startswith("Bearer ") else ""
             try:
-                matched = bool(provided) and hmac.compare_digest(provided, token)
+                matched = bool(provided) and _same_secret(provided, token)
             except (TypeError, ValueError):
                 matched = False
             if not matched:
@@ -523,7 +541,7 @@ def telegram_webhook(request):
     """
     secret = (getattr(settings, "TELEGRAM_WEBHOOK_SECRET", "") or "").strip()
     provided = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-    if not secret or not hmac.compare_digest(provided, secret):
+    if not secret or not _same_secret(provided, secret):
         return Response(status=status.HTTP_401_UNAUTHORIZED)
 
     message = (request.data or {}).get("message") or {}
@@ -606,8 +624,14 @@ def ops_alert_webhook(request):
     OPS_TELEGRAM_CHAT_ID — a free stand-in for a dedicated on-call product.
     """
     configured = (getattr(settings, "OPS_ALERT_TOKEN", "") or "").strip()
-    provided = request.query_params.get("token", "") or request.headers.get("X-Ops-Alert-Token", "")
-    if not configured or not hmac.compare_digest(provided, configured):
+    header = request.headers.get("X-Ops-Alert-Token", "") or ""
+    # BUG-SEC-021: production and staging accept the header only. A query-string
+    # token lands in access logs and Referer.
+    if getattr(settings, "DJANGO_ENV", "") in ("production", "staging"):
+        provided = header
+    else:
+        provided = request.query_params.get("token", "") or header
+    if not configured or not _same_secret(provided, configured):
         return Response(status=status.HTTP_401_UNAUTHORIZED)
 
     payload = request.data if isinstance(request.data, dict) else {}

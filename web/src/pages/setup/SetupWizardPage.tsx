@@ -24,7 +24,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { PreventionNote } from '@/pages/help/PreventionNote';
 import {
-  completeSalesInvoice,
   createCustomer,
   createOpeningStock,
   createProduct,
@@ -43,6 +42,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { isSetupWizardEnabled } from '@/config/features';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
+import { isValidIndianPincode } from '@/utils/pincode';
 import { trackOnboardingEvent } from '@/onboarding/analytics';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { RegistrationType } from '@/types/domain';
@@ -52,9 +52,9 @@ const STEP_KEYS = ['tax', 'shop', 'payments', 'catalog', 'first_bill'] as const;
 type StepKey = (typeof STEP_KEYS)[number] | 'pack';
 
 const SAMPLE_PRODUCTS = [
-  { name: 'Sample Item', sku: 'SAMPLE-ITEM', sellingPrice: 100, gstRate: 18 },
-  { name: 'Sample Service', sku: 'SAMPLE-SERVICE', sellingPrice: 500, gstRate: 18 },
-  { name: 'Delivery Charge', sku: 'SAMPLE-DELIVERY', sellingPrice: 50, gstRate: 0 },
+  { nameKey: 'cog.sampleItem', sku: 'SAMPLE-ITEM', sellingPrice: 100, gstRate: 18 },
+  { nameKey: 'cog.sampleService', sku: 'SAMPLE-SERVICE', sellingPrice: 500, gstRate: 18 },
+  { nameKey: 'cog.deliveryCharge', sku: 'SAMPLE-DELIVERY', sellingPrice: 50, gstRate: 0 },
 ];
 
 export function SetupWizardPage() {
@@ -104,8 +104,10 @@ export function SetupWizardPage() {
   const [proposedPack, setProposedPack] = useState('');
   const [packNote, setPackNote] = useState('');
 
-  useEffect(() => {
-    if (!company) return;
+  // Fill the wizard from the saved company record when it loads (or the requested step changes).
+  const [seenCompany, setSeenCompany] = useState<{ company: typeof company; requestedStep: typeof requestedStep } | null>(null);
+  if (company && (seenCompany?.company !== company || seenCompany.requestedStep !== requestedStep)) {
+    setSeenCompany({ company, requestedStep });
     setRegistrationType(company.registrationType);
     setGstin(company.gstin ?? '');
     setShop({
@@ -121,7 +123,7 @@ export function SetupWizardPage() {
       const stored = company.onboarding?.uiStep ?? company.onboarding?.step;
       if (stored && stepKeys.includes(stored as StepKey)) setStepKey(stored as StepKey);
     }
-  }, [company, requestedStep, stepKeys]);
+  }
 
   useEffect(() => {
     if (!company || startedRef.current || company.onboarding?.started) return;
@@ -132,11 +134,9 @@ export function SetupWizardPage() {
     });
   }, [company]);
 
-  useEffect(() => {
-    if (requestedStep && stepKeys.includes(requestedStep as StepKey) && requestedStep !== stepKey) {
-      setStepKey(requestedStep as StepKey);
-    }
-  }, [requestedStep, stepKeys, stepKey]);
+  if (requestedStep && stepKeys.includes(requestedStep as StepKey) && requestedStep !== stepKey) {
+    setStepKey(requestedStep as StepKey);
+  }
 
   useEffect(() => {
     trackOnboardingEvent('setup_step_view', { step: stepKeys[activeStep] });
@@ -208,6 +208,12 @@ export function SetupWizardPage() {
       setError(t('setup.errors.addressRequired'));
       return;
     }
+    const pin = shop.pincode.trim();
+    const loadedPin = (company?.pincode ?? '').trim();
+    if (pin !== loadedPin && !isValidIndianPincode(shop.pincode)) {
+      setError(t('validation.pincode'));
+      return;
+    }
     void finishStep('shop', async () => {
       await updateCompany({
         address: shop.address.trim(),
@@ -228,10 +234,6 @@ export function SetupWizardPage() {
   const addProduct = () => {
     if (!product.name.trim() || Number(product.sellingPrice) <= 0) {
       setError(t('setup.errors.productRequired'));
-      return;
-    }
-    if (registrationType === 'REGULAR' && !product.hsnCode.trim()) {
-      setError(t('setup.errors.hsnRequired'));
       return;
     }
     void finishStep('catalog', async () => {
@@ -264,8 +266,11 @@ export function SetupWizardPage() {
       await Promise.all(
         SAMPLE_PRODUCTS.map((sample) =>
           createProduct({
-            ...sample,
-            description: 'Sample data — safe to delete once you have added your own products.',
+            name: t(sample.nameKey),
+            sku: sample.sku,
+            sellingPrice: sample.sellingPrice,
+            gstRate: sample.gstRate,
+            description: t('cog.sampleDataNote'),
             purchasePrice: 0,
             reorderLevel: 0,
             status: 'ACTIVE',
@@ -297,8 +302,11 @@ export function SetupWizardPage() {
       if (!firstProduct) throw new Error(t('setup.errors.catalogRequired'));
       const customers = await listCustomers();
       const customer =
-        customers.find((item) => item.name.toLowerCase() === 'walk-in customer') ??
-        (await createCustomer({ name: 'Walk-in Customer', state: company.state, status: 'ACTIVE' }));
+        customers.find((item) => {
+          const name = item.name.toLowerCase();
+          return name === 'walk-in customer' || name === t('cog.sampleWalkIn').toLowerCase();
+        }) ??
+        (await createCustomer({ name: t('cog.sampleWalkIn'), state: company.state, status: 'ACTIVE' }));
       const invoice = await createSalesInvoice({
         customer: customer.id,
         invoiceType: preferredInvoiceType(registrationType),
@@ -311,10 +319,9 @@ export function SetupWizardPage() {
           hsnCode: firstProduct.hsnCode,
         }],
       });
-      const completed = await completeSalesInvoice(invoice.id);
-      setCompletedInvoiceId(completed.id);
+      setCompletedInvoiceId(invoice.id);
       trackOnboardingEvent('setup_step_complete', { step: 'first_bill' });
-      trackOnboardingEvent('setup_first_bill_complete', { invoiceId: completed.id });
+      trackOnboardingEvent('setup_first_bill_complete', { invoiceId: invoice.id });
       await queryClient.invalidateQueries({ queryKey: ['company'] });
       await queryClient.invalidateQueries({ queryKey: ['dashboard'] });
     });
@@ -366,7 +373,11 @@ export function SetupWizardPage() {
           <Button color="inherit" disabled={busy} onClick={dismiss}>{t('setup.skipForNow')}</Button>
         </Stack>
       </Box>
-      <LinearProgress variant="determinate" value={((activeStep + 1) / stepKeys.length) * 100} />
+      <LinearProgress
+        aria-label={t('setup.title')}
+        variant="determinate"
+        value={((activeStep + 1) / stepKeys.length) * 100}
+      />
 
       <Box sx={{ maxWidth: 960, mx: 'auto', p: { xs: 2, sm: 4 } }}>
         <Stepper activeStep={activeStep} alternativeLabel sx={{ mb: 4, display: { xs: 'none', sm: 'flex' } }}>
@@ -409,7 +420,19 @@ export function SetupWizardPage() {
                 <TextField label={t('setup.address')} required multiline minRows={2} value={shop.address} onChange={(e) => setShop((v) => ({ ...v, address: e.target.value }))} />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                   <TextField fullWidth label={t('setup.city')} value={shop.city} onChange={(e) => setShop((v) => ({ ...v, city: e.target.value }))} />
-                  <TextField fullWidth label={t('setup.pincode')} value={shop.pincode} onChange={(e) => setShop((v) => ({ ...v, pincode: e.target.value }))} />
+                  <TextField
+                    fullWidth
+                    label={t('setup.pincode')}
+                    value={shop.pincode}
+                    onChange={(e) => setShop((v) => ({ ...v, pincode: e.target.value }))}
+                    error={
+                      Boolean(shop.pincode.trim()) &&
+                      shop.pincode.trim() !== (company.pincode ?? '').trim() &&
+                      !isValidIndianPincode(shop.pincode)
+                    }
+                    helperText={t('validation.pincode')}
+                    inputProps={{ maxLength: 10 }}
+                  />
                 </Stack>
                 <Alert severity="info">{t('setup.stateFromRegistration', { state: company.state })}</Alert>
               </>
@@ -431,7 +454,7 @@ export function SetupWizardPage() {
                   <TextField fullWidth label={t('setup.sellingPrice')} required type="number" value={product.sellingPrice} onChange={(e) => setProduct((v) => ({ ...v, sellingPrice: e.target.value }))} />
                   <TextField fullWidth label={t('setup.gstRate')} type="number" value={product.gstRate} onChange={(e) => setProduct((v) => ({ ...v, gstRate: e.target.value }))} />
                 </Stack>
-                {registrationType === 'REGULAR' ? <TextField label={t('setup.hsnCode')} required value={product.hsnCode} onChange={(e) => setProduct((v) => ({ ...v, hsnCode: e.target.value }))} /> : null}
+                {registrationType === 'REGULAR' ? <TextField label={t('setup.hsnCode')} value={product.hsnCode} onChange={(e) => setProduct((v) => ({ ...v, hsnCode: e.target.value }))} /> : null}
                 <TextField label={t('setup.openingQty')} type="number" value={product.openingQty} onChange={(e) => setProduct((v) => ({ ...v, openingQty: e.target.value }))} />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <Button variant="outlined" onClick={addSamples} disabled={busy}>{t('setup.addSamples')}</Button>
@@ -464,11 +487,11 @@ export function SetupWizardPage() {
               completedInvoiceId ? (
                 <Stack alignItems="center" textAlign="center" spacing={2} sx={{ py: 3 }}>
                   <CheckCircleOutlineIcon color="success" sx={{ fontSize: 72 }} />
-                  <Typography variant="h4">{t('setup.completeTitle')}</Typography>
+                  <Typography variant="h4">{t('setup.draftCreatedTitle')}</Typography>
                   <Typography color="text.secondary">{t('setup.completeDescription')}</Typography>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <Button component={RouterLink} to={`/sales/history/${completedInvoiceId}`} variant="outlined">{t('setup.viewInvoice')}</Button>
-                    <Button component={RouterLink} to="/" variant="contained">{t('setup.goDashboard')}</Button>
+                    <Button component={RouterLink} to={`/sales/history/${completedInvoiceId}/edit`} variant="outlined">{t('setup.openDraftAction')}</Button>
+                    <Button component={RouterLink} to="/" variant="contained">{t('setup.goDashboardAction')}</Button>
                   </Stack>
                 </Stack>
               ) : (

@@ -1,0 +1,30 @@
+id: "QOS-0106"
+category: "RELIABILITY_TRUST"
+title: "config_consistency guard failed at HEAD: 24 feature flags unclassified in FREEZE_SCOPE.md"
+persona:
+- "P1"
+journey: "Every backend change (CI)"
+problem: "guard_config_consistency requires every _env_bool flag to be classified in docs/FREEZE_SCOPE.md. ENABLE_INSURANCE, ENABLE_WORKSHOP, ENABLE_PROJECTS and about twenty other flags, plus PORTAL_DEBUG_ECHO and the new ENABLE_GSTR_EXTENDED, were not, so the guard failed independently of any new change and the frozen surface was undefined for those flags."
+evidence:
+  strength: "measured"
+  source:
+  - "scripts/ci_gates/run_guards.py"
+  - "docs/FREEZE_SCOPE.md"
+  detail: "Ran run_guards.py on 2026-10-02: FAIL config_consistency listing 24 flags, 20 of them already unclassified at HEAD. After classifying them from settings.py defaults and ROLLOUT_GRANTABLE_KEYS every guard passes."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 4
+  impact_band: "Low"
+business_metric: "none"
+priority: "P2"
+priority_rationale: "Process gate; low user impact."
+effort: "S"
+recommendation: "Done. Whether a pilot tenant may be granted each extension flag is still a founder scope decision."
+test_required: "python scripts/ci_gates/run_guards.py"
+guard_ref:
+  test: "scripts/ci_gates/guards/guard_config_consistency.py"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-02"
+closed: "2026-10-02"

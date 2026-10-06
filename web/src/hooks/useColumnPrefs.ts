@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 export type ColumnSpec = {
   id: string;
@@ -42,9 +42,12 @@ export function useColumnPrefs(
   const key = companyId && userId ? storageKey(companyId, userId, tableId) : '';
   const [hidden, setHidden] = useState<string[]>(() => (key ? readPrefs(key)?.hidden ?? [] : []));
 
-  useEffect(() => {
+  // Reload the saved columns when the company, user or table changes.
+  const [seenKey, setSeenKey] = useState(key);
+  if (seenKey !== key) {
+    setSeenKey(key);
     setHidden(key ? readPrefs(key)?.hidden ?? [] : []);
-  }, [key]);
+  }
 
   const visibleIds = useMemo(() => {
     const hide = new Set(hidden);

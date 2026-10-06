@@ -44,12 +44,14 @@ export default defineConfig(({ command, mode }) => {
         manifest: false,
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,webmanifest}'],
-          // BB-000737: offline nav must not serve the SPA shell as a fake online app
-          // when the network errors — handlerDidError returns offline.html.
-          // UXW2-004: keep SPA navigateFallback for deep links; raise timeout so
-          // slow networks are not misclassified as offline.
-          navigateFallback: '/offline.html',
-          navigateFallbackDenylist: [/^\/api\//],
+          // Deep links are NetworkFirst against the network (nginx returns index.html).
+          // offline.html is only the handlerDidError document when that fetch fails.
+          // navigateFallback must stay null. Pointing it at offline.html serves the
+          // offline page for every non-precached URL while the network is up.
+          // Pointing it at index.html hits the precache and skips this NetworkFirst rule.
+          // vite-plugin-pwa's own default is "index.html"; null overrides that.
+          // UXW2-004: networkTimeoutSeconds stays 10.
+          navigateFallback: null,
           runtimeCaching: [
             // BB-000738: never NetworkFirst-cache authenticated /api (no status-0 poison).
             {
@@ -57,6 +59,7 @@ export default defineConfig(({ command, mode }) => {
               handler: 'NetworkFirst',
               options: {
                 cacheName: 'bizboard-pages',
+                // Stay at 10s. A longer wait keeps a dead shell on screen; Try again unregisters the worker.
                 networkTimeoutSeconds: 10,
                 plugins: [
                   {
@@ -100,8 +103,9 @@ export default defineConfig(({ command, mode }) => {
       environment: 'jsdom',
       setupFiles: ['./src/test/setup.ts'],
       css: true,
-      testTimeout: 15_000,
-      exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/e2e-golden/**'],
+      // The editor and list-page tests mount whole screens; under a full parallel run 15s was not enough.
+      testTimeout: 30_000,
+      exclude: ['**/node_modules/**', '**/dist/**', '**/e2e/**', '**/e2e-golden/**', '**/e2e-sw/**'],
     },
   };
 });

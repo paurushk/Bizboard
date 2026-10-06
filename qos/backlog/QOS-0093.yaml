@@ -23,7 +23,7 @@ recommendation: Optional stop_cap on suggest_sequence. CanCreateSales. Flag stay
 test_required: Five stops, cap 2, first two sequenced, last three unassigned in the same order.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_stop_cap_keeps_a_prefix_of_the_existing_sequence
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

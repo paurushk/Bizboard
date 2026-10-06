@@ -1,0 +1,325 @@
+[
+ {
+  "task_id": "X-0513",
+  "test_ids": [
+   "backend/tests/test_einvoice_eway.py::test_prepare_eway_from_invoice",
+   "backend/tests/personas/test_pj_einvoice_eway.py::test_pj_einvoice_and_eway_statutory_lifecycle"
+  ],
+  "confidence": "Medium",
+  "note": "Asserts e-way payload built for >50k invoice (distance, totals, READY status); live 12-digit EWB generation by invoice flow not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/personas/test_pj_einvoice_eway.py::test_pj_einvoice_and_eway_statutory_lifecycle",
+   "backend/tests/test_einvoice_eway.py::test_prepare_eway_from_invoice"
+  ]
+ },
+ {
+  "task_id": "X-0514",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for the e-way bill update-vehicle action or Part B vehicle change.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "X-0515",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for e-way bill validity extension, reason codes, or Rule 138(10) window.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "X-0516",
+  "test_ids": [
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_certified_live_dev_submit_marks_generated_with_ack_qr",
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_missing_signed_qr_marks_failed"
+  ],
+  "confidence": "High",
+  "note": "IRP cassette submit asserts status GENERATED, 64-char IRN, ack number and signed QR stored; missing QR marks FAILED.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_certified_live_dev_submit_marks_generated_with_ack_qr",
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_missing_signed_qr_marks_failed"
+  ]
+ },
+ {
+  "task_id": "X-0517",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test renders IRN, Ack No or signed QR onto the invoice PDF; PDF tests never reference e-invoice fields.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "X-0518",
+  "test_ids": [
+   "backend/tests/test_sprint2_cn_einvoice.py::test_cr_013_einvoice_cancel_retains_statutory_irn",
+   "backend/tests/test_remaining_fixes.py::test_irn_cancel_requires_reason"
+  ],
+  "confidence": "High",
+  "note": "Cancel with reason code sets status CANCELLED, retains IRN/ack, clears QR, blocks resubmit; reason is mandatory.",
+  "test_ids_resolved": [
+   "backend/tests/test_remaining_fixes.py::test_irn_cancel_requires_reason",
+   "backend/tests/test_sprint2_cn_einvoice.py::test_cr_013_einvoice_cancel_retains_statutory_irn"
+  ]
+ },
+ {
+  "task_id": "X-0550",
+  "test_ids": [
+   "backend/tests/test_sprint_c_fy_close.py::test_fy_close_profit_year_zeros_sales_to_retained_earnings",
+   "backend/tests/test_sprint_c_fy_close.py::test_fy_close_other_income_and_expense_mix"
+  ],
+  "confidence": "High",
+  "note": "Year close zeroes P&L accounts into retained earnings, closes FY period, idempotent, owner-only; opening balance rollforward not separately asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint_c_fy_close.py::test_fy_close_other_income_and_expense_mix",
+   "backend/tests/test_sprint_c_fy_close.py::test_fy_close_profit_year_zeros_sales_to_retained_earnings"
+  ]
+ },
+ {
+  "task_id": "X-0707",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "Only buyer-GSTIN inactive alerts are tested; no supplier cancelled-GSTIN ITC quarantine or payment hold test.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0616",
+  "test_ids": [
+   "backend/tests/test_audit_chain_edge_cases.py::test_swapping_two_sealed_events_is_detected",
+   "backend/tests/test_audit_chain_edge_cases.py::test_nightly_task_reports_a_tampered_chain_without_raising"
+  ],
+  "confidence": "Medium",
+  "note": "Tamper-evident audit hash chain verification is tested; no MCA Rule 11(g) compliance report or certificate export tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_audit_chain_edge_cases.py::test_nightly_task_reports_a_tampered_chain_without_raising",
+   "backend/tests/test_audit_chain_edge_cases.py::test_swapping_two_sealed_events_is_detected"
+  ]
+ },
+ {
+  "task_id": "P-0099",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of per-shop or warehouse assignment restricting staff access; assigned_warehouses is not referenced in any test.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0115",
+  "test_ids": [
+   "backend/tests/test_d01_d03_company_audit.py::test_invoice_audit_endpoint_returns_amend_diff",
+   "backend/tests/test_search_reports_audit.py::test_audit_log_records_and_is_owner_only"
+  ],
+  "confidence": "Medium",
+  "note": "Amend writes audit rows with before/after values and CREATE events; IP address, immutability and cancel/approve coverage not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_d01_d03_company_audit.py::test_invoice_audit_endpoint_returns_amend_diff",
+   "backend/tests/test_search_reports_audit.py::test_audit_log_records_and_is_owner_only"
+  ]
+ },
+ {
+  "task_id": "P-0185",
+  "test_ids": [
+   "backend/tests/test_search_reports_audit.py::test_audit_log_records_and_is_owner_only"
+  ],
+  "confidence": "Medium",
+  "note": "Owner can list audit log with CREATE actions and staff gets 403; user, entity and date filtering not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_search_reports_audit.py::test_audit_log_records_and_is_owner_only"
+  ]
+ },
+ {
+  "task_id": "S-0572",
+  "test_ids": [
+   "backend/tests/test_auth.py::test_login_locks_out_after_repeated_failures",
+   "backend/tests/test_auth.py::test_otp_request_throttle_scope_enforced_by_drf",
+   "backend/tests/test_public_pay_rate_limit.py::test_public_pay_token_endpoint_is_rate_limited"
+  ],
+  "confidence": "High",
+  "note": "Repeated login failures, OTP requests, registration and public pay endpoint return HTTP 429; Redis backend itself not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_auth.py::test_login_locks_out_after_repeated_failures",
+   "backend/tests/test_auth.py::test_otp_request_throttle_scope_enforced_by_drf",
+   "backend/tests/test_public_pay_rate_limit.py::test_public_pay_token_endpoint_is_rate_limited"
+  ]
+ },
+ {
+  "task_id": "SEC-0621",
+  "test_ids": [
+   "backend/tests/test_rls_coverage.py::test_rls_policy_present_and_forced_on_postgres",
+   "backend/tests/test_rls_coverage.py::test_every_tenant_table_is_in_the_rls_migration"
+  ],
+  "confidence": "Medium",
+  "note": "Asserts every tenant table has forced RLS policy (Postgres-only); no test that a cross-tenant query is rejected via the GUC.",
+  "test_ids_resolved": [
+   "backend/tests/test_rls_coverage.py::test_every_tenant_table_is_in_the_rls_migration",
+   "backend/tests/test_rls_coverage.py::test_rls_policy_present_and_forced_on_postgres"
+  ]
+ },
+ {
+  "task_id": "SEC-0622",
+  "test_ids": [
+   "backend/tests/test_a03_preview.py::test_preview_totals_omits_margin_for_staff_without_financial_reports_permission"
+  ],
+  "confidence": "Medium",
+  "note": "Invoice preview omits margin and COGS for staff lacking financial-reports permission; product cost_price serializer masking not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_a03_preview.py::test_preview_totals_omits_margin_for_staff_without_financial_reports_permission"
+  ]
+ },
+ {
+  "task_id": "SEC-0623",
+  "test_ids": [
+   "backend/tests/test_search_reports_audit.py::test_csv_export_requires_can_export",
+   "backend/tests/test_search_reports_audit.py::test_cash_book_xlsx_requires_can_export"
+  ],
+  "confidence": "High",
+  "note": "Staff without can_export get 403 on customer and sales register exports while owner succeeds; access-attempt logging not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_search_reports_audit.py::test_cash_book_xlsx_requires_can_export",
+   "backend/tests/test_search_reports_audit.py::test_csv_export_requires_can_export"
+  ]
+ },
+ {
+  "task_id": "SEC-0624",
+  "test_ids": [
+   "backend/tests/test_mfa.py::test_password_login_with_mfa_issues_no_session",
+   "backend/tests/test_mfa.py::test_correct_code_completes_login_with_a_normal_session"
+  ],
+  "confidence": "High",
+  "note": "With TOTP enrolled, password login issues no session until a valid code is verified; replay and lockout also tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_mfa.py::test_correct_code_completes_login_with_a_normal_session",
+   "backend/tests/test_mfa.py::test_password_login_with_mfa_issues_no_session"
+  ]
+ },
+ {
+  "task_id": "SEC-0625",
+  "test_ids": [
+   "backend/tests/test_auth.py::test_logout_blacklists_refresh_token_and_prevents_reuse"
+  ],
+  "confidence": "Medium",
+  "note": "Logout blacklists refresh token against reuse; no test that deactivating a user revokes already-issued sessions or sockets.",
+  "test_ids_resolved": [
+   "backend/tests/test_auth.py::test_logout_blacklists_refresh_token_and_prevents_reuse"
+  ]
+ },
+ {
+  "task_id": "SEC-0626",
+  "test_ids": [
+   "backend/tests/test_party_name.py::test_customer_serializer_rejects_script_name"
+  ],
+  "confidence": "Medium",
+  "note": "Customer name containing a script tag is rejected; notes and invoice description sanitization and SQL parameterization not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_party_name.py::test_customer_serializer_rejects_script_name"
+  ]
+ },
+ {
+  "task_id": "SEC-0630",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test asserts HSTS seconds or secure, HttpOnly, SameSite cookie settings.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "SaaS-0666",
+  "test_ids": [
+   "backend/tests/test_auth.py::test_register_creates_user_company_and_owner_membership"
+  ],
+  "confidence": "Medium",
+  "note": "Registration creates company and OWNER membership then login works; default chart of accounts and primary warehouse not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_auth.py::test_register_creates_user_company_and_owner_membership"
+  ]
+ },
+ {
+  "task_id": "SaaS-0668",
+  "test_ids": [
+   "backend/tests/test_saas_quotas_and_dlq.py::test_monthly_complete_quota_blocks_second_complete",
+   "backend/tests/test_saas_quotas_and_dlq.py::test_monthly_complete_quota_blocks_purchase_complete"
+  ],
+  "confidence": "High",
+  "note": "Plan monthly complete limit blocks the next invoice with PLAN_QUOTA_EXCEEDED; SKU and user quotas not covered.",
+  "test_ids_resolved": [
+   "backend/tests/test_saas_quotas_and_dlq.py::test_monthly_complete_quota_blocks_purchase_complete",
+   "backend/tests/test_saas_quotas_and_dlq.py::test_monthly_complete_quota_blocks_second_complete"
+  ]
+ },
+ {
+  "task_id": "SaaS-0678",
+  "test_ids": [
+   "backend/tests/tenancy/test_endpoint_isolation.py::test_tenant_a_cannot_read_tenant_b_row",
+   "backend/tests/tenancy/test_route_isolation_matrix.py::test_every_detail_route_is_isolated_across_tenants"
+  ],
+  "confidence": "High",
+  "note": "Pytest suite probes cross-tenant read and mutate across all routes and fails if scoping is removed; runs in CI.",
+  "test_ids_resolved": [
+   "backend/tests/tenancy/test_endpoint_isolation.py::test_tenant_a_cannot_read_tenant_b_row",
+   "backend/tests/tenancy/test_route_isolation_matrix.py::test_every_detail_route_is_isolated_across_tenants"
+  ]
+ },
+ {
+  "task_id": "X-0545",
+  "test_ids": [
+   "backend/tests/test_document_numbers.py::test_sequences_are_sequential",
+   "backend/tests/test_sprint3_series_gstin.py::test_bb_000646_series_unique_per_gstin_and_fy"
+  ],
+  "confidence": "Medium",
+  "note": "Sequential numbering and per-GSTIN and FY series are asserted; custom prefix configuration and settings document-series UI not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_document_numbers.py::test_sequences_are_sequential",
+   "backend/tests/test_sprint3_series_gstin.py::test_bb_000646_series_unique_per_gstin_and_fy"
+  ]
+ },
+ {
+  "task_id": "GOS-0737",
+  "test_ids": [
+   "backend/tests/test_fmea_mitigations.py::test_fmea2_007_complaint_return_xor_credit_note",
+   "backend/tests/test_growth_os.py::test_complaint_credit_note_replacement_isolation_and_flag"
+  ],
+  "confidence": "Medium",
+  "note": "Approved complaint yields sales return, stock movement and completed credit note, idempotently; replacement order only status-checked, khata balance not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_fmea_mitigations.py::test_fmea2_007_complaint_return_xor_credit_note",
+   "backend/tests/test_growth_os.py::test_complaint_credit_note_replacement_isolation_and_flag"
+  ]
+ },
+ {
+  "task_id": "GOS-0739",
+  "test_ids": [
+   "backend/tests/test_supplier_complaints.py::test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it"
+  ],
+  "confidence": "Medium",
+  "note": "Approved supplier complaint creates idempotent draft purchase debit note linked to bill; tax reversal items and vendor ledger debit not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_supplier_complaints.py::test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it"
+  ]
+ },
+ {
+  "task_id": "P-0128",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of a manager approval queue for credit limit, stock write-off or discount exceptions with signature and comments.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0187",
+  "test_ids": [
+   "backend/tests/test_backup_scripts.py::test_encrypted_dump_uses_age_and_is_not_plaintext_named",
+   "backend/tests/test_backup_scripts.py::test_offsite_command_receives_the_file_and_failure_is_fatal"
+  ],
+  "confidence": "High",
+  "note": "Backup script asserts encrypted pg_dump output, offsite archive, retention, fail-closed errors and restore; daily cron scheduling not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_backup_scripts.py::test_encrypted_dump_uses_age_and_is_not_plaintext_named",
+   "backend/tests/test_backup_scripts.py::test_offsite_command_receives_the_file_and_failure_is_fatal"
+  ]
+ },
+ {
+  "task_id": "R-0641",
+  "test_ids": [
+   "backend/tests/test_ops_templates.py::test_postgres_statement_timeouts_are_configured"
+  ],
+  "confidence": "Medium",
+  "note": "Static check that settings enable health checks and pgbouncer.ini uses transaction pool mode; no runtime pooling or load behaviour tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_ops_templates.py::test_postgres_statement_timeouts_are_configured"
+  ]
+ }
+]

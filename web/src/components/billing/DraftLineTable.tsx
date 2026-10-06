@@ -21,6 +21,7 @@ import { formatMoney, roundMoney } from '@/utils/money';
 import { formatUnitLabel } from '@/constants/unitLabels';
 import type { LineTaxResult } from '@/utils/tax';
 import { unitSwitchPatch } from './lineHelpers';
+import { expiryTone } from '@/utils/expiryTone';
 
 export type DraftLinePatchOpts = { fromDiscountAmount?: boolean };
 
@@ -38,6 +39,8 @@ interface DraftLineTableProps {
   onUpdate: (key: string, patch: Partial<DraftLine>, opts?: DraftLinePatchOpts) => void;
   onDelete: (key: string) => void;
   onFocusAdd?: () => void;
+  availableByProduct?: Map<number, number>;
+  blockNegativeStock?: boolean;
   renderBatchSlot?: (line: DraftLine) => ReactNode;
   renderSerialSlot?: (line: DraftLine) => ReactNode;
   /** Small, unobtrusive informational text under the rate field (e.g. a
@@ -59,6 +62,8 @@ export function DraftLineTable({
   onUpdate,
   onDelete,
   onFocusAdd,
+  availableByProduct,
+  blockNegativeStock = false,
   renderBatchSlot,
   renderSerialSlot,
   renderPriceHint,
@@ -90,7 +95,7 @@ export function DraftLineTable({
               <TableCell width={110}>{t('billing.mfgDate')}</TableCell>
             </>
           ) : null}
-          {showSerialSlot ? <TableCell width={140}>Serials</TableCell> : null}
+          {showSerialSlot ? <TableCell width={140}>{t('sweep2.serials')}</TableCell> : null}
           <TableCell width={80} align="right">
             {t('billing.mrp')}
           </TableCell>
@@ -139,6 +144,16 @@ export function DraftLineTable({
               >
                 <Typography fontWeight={600} variant="body2">
                   {line.productName}
+                  {blockNegativeStock && availableByProduct?.has(line.product) && line.quantity > (availableByProduct.get(line.product) ?? 0) ? (
+                    <Typography variant="caption" color="error" display="block">
+                      {t('pos.warehouseQtyBlock', { n: availableByProduct.get(line.product) ?? 0 })}
+                    </Typography>
+                  ) : null}
+                  {line.expDate ? (
+                    <Typography variant="caption" color={`${expiryTone(line.expDate) ?? 'success'}.main`} display="block">
+                      {t('pos.expiryTag', { date: line.expDate })}
+                    </Typography>
+                  ) : null}
                 </Typography>
                 {line.rateNotice ? (
                   <Typography variant="caption" color="text.secondary" display="block">
@@ -171,7 +186,7 @@ export function DraftLineTable({
               <TableCell align="right">
                 <Typography variant="body2">{line.mrp > 0 ? formatMoney(line.mrp) : '—'}</Typography>
                 {showMrpSavings && mrpOff != null ? (
-                  <Typography variant="caption" color="success.main" title="Savings vs MRP (not line discount)">
+                  <Typography variant="caption" color="success.main" title={t('sweep.savingsVsMrp')}>
                     {mrpOff}% vs MRP
                   </Typography>
                 ) : null}
@@ -285,7 +300,7 @@ export function DraftLineTable({
                     decimals={2}
                     fullWidth={false}
                     disabled={moneyDisabled}
-                    title="Cess %"
+                    title={t('sweep.cessPct')}
                     sx={{ width: 108, mt: 0.5, display: { xs: 'none', md: 'inline-flex' } }}
                     InputProps={{
                       endAdornment: <InputAdornment position="end">cess %</InputAdornment>,

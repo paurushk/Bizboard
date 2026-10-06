@@ -1,0 +1,1630 @@
+[
+ {
+  "path": "/insights",
+  "phase": "G7",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Open Insights settings",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet Turn on bill scan and the lateness screen in Insights settings. Open Insights settings Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/insights/alerts",
+  "phase": "G7",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Open Insights settings",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet Turn on bill scan and the lateness screen in Insights settings. Open Insights settings Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/insights/health",
+  "phase": "G7",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Open Insights settings",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet Turn on bill scan and the lateness screen in Insights settings. Open Insights settings Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/insights/cashflow",
+  "phase": "G7",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Open Insights settings",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet Turn on bill scan and the lateness screen in Insights settings. Open Insights settings Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/insights/assistant",
+  "phase": "G7",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Open Insights settings",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet Turn on bill scan and the lateness screen in Insights settings. Open Insights settings Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/purchases/bills-of-entry",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Bills of Entry"
+  ],
+  "buttons": [
+   "Create Bill of Entry"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 13,
+  "alerts": [
+   "Customs IGST belongs on the Bill of Entry. On the purchase, set type NON_GST and select this completed BoE. A GST purchase of imports is blocked.",
+   "Customs IGST belongs on the Bill of Entry. On the purchase, set type NON_GST and select this completed BoE. A GST purchase of imports is blocked."
+  ],
+  "textHead": "Bills of Entry Customs Bill of Entry for import IGST. Complete the BoE, then link it on a NON_GST purchase for that supplier. Customs IGST belongs on the Bill of Entry. On the purchase, set type NON_GST and select this completed BoE. A GST purchase of imports is blocked. Supplier ​ Supplier BoE number BoE number BoE date BoE date Port code Port code Assessable value Assessable value BCD BCD IGST IGST Cess Cess ITC eligibility Eligible ITC eligibility ICEGATE verified No ICEGATE verified Create Bill of Entry Nothing here yet No Bills of Entry yet.",
+  "cta": "Create Bill of Entry",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/inventory/expiry-alerts",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Expiry alerts"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [],
+  "textHead": "Expiry alerts Lots with remaining qty expiring within 7 / 30 / 60 / 90 days. Write-off posts ADJUSTMENT / EXPIRED. 7 days 30 days 60 days 90 days Godown ​ Godown Nothing here yet No expiry risks in this horizon."
+ },
+ {
+  "path": "/inventory/warehouses",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Godowns"
+  ],
+  "buttons": [
+   "Add godown"
+  ],
+  "tableHeaders": [
+   "Name",
+   "Code",
+   "Default",
+   "Active",
+   "Actions"
+  ],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Godowns Stock locations. Every company has one default godown. UI label is Godown; API name stays Warehouse. Add godown Name Code Default Active Actions Main MAIN Yes Yes ",
+  "cta": "Add godown",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/inventory/transfers",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Stock transfers"
+  ],
+  "buttons": [
+   "New transfer"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Stock transfers Move stock between godowns with append-only TRANSFER_OUT / TRANSFER_IN movements. New transfer Nothing here yet No transfers yet.",
+  "cta": "New transfer",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/inventory/serials",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Serial numbers"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [],
+  "textHead": "Serial numbers Serial tracking for products with track_serial enabled. Status ​ Status Nothing here yet No serials recorded."
+ },
+ {
+  "path": "/accounting/expenses",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Expenses"
+  ],
+  "buttons": [
+   "Day Book",
+   "Create expense",
+   "+ Add / manage category"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 4,
+  "alerts": [],
+  "textHead": "Expenses Cash/bank expense vouchers. These are not GST purchase invoices. Day Book Create expense Category ​ Category From From To To + Add / manage category Nothing here yet No expenses yet.",
+  "cta": "Create expense",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/reports/tds-tcs",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "TDS / TCS worksheets"
+  ],
+  "buttons": [
+   "Download 26Q TDS aid",
+   "Download 27EQ TCS aid"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "These CSVs help prepare Form 26Q (TDS) and 27EQ (TCS). BizBoard does not upload to the IT portal.",
+   "These CSVs help prepare Form 26Q (TDS) and 27EQ (TCS). BizBoard does not upload to the IT portal."
+  ],
+  "textHead": "TDS / TCS worksheets This is a worksheet of 194Q and 206C amounts. It is not Form 16A or Form 27D, and it is not uploaded to the Income-tax portal. These CSVs help prepare Form 26Q (TDS) and 27EQ (TCS). BizBoard does not upload to the IT portal. Period Period Download 26Q TDS aid Download 27EQ TCS aid Owner only. Requires ENABLE_TDS."
+ },
+ {
+  "path": "/reports/trial-balance",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Trial Balance"
+  ],
+  "buttons": [
+   "Download XLSX",
+   "Preview back-fill",
+   "Post back-fill"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.\nPreview back-fill\nPost back-fill",
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.",
+   "Total debit ₹0.00 · Total credit ₹0.00",
+   "Total debit ₹0.00 · Total credit ₹0.00"
+  ],
+  "textHead": "Trial Balance As of As of Download XLSX Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure. Preview back-fill Post back-fill Total debit ₹0.00 · Total credit ₹0.00 Nothing here yet No rows — post documents with accounting enabled."
+ },
+ {
+  "path": "/reports/profit-and-loss",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Profit & Loss"
+  ],
+  "buttons": [
+   "Download XLSX",
+   "Preview back-fill",
+   "Post back-fill"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 4,
+  "alerts": [
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.\nPreview back-fill\nPost back-fill",
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.",
+   "Income ₹0.00 · Expenses ₹0.00 · Net ₹0.00",
+   "Income ₹0.00 · Expenses ₹0.00 · Net ₹0.00"
+  ],
+  "textHead": "Profit & Loss From From Cost center ​ Cost center To To Download XLSX Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure. Preview back-fill Post back-fill Income ₹0.00 · Expenses ₹0.00 · Net ₹0.00 Nothing here yet No rows — post documents with accounting enabled."
+ },
+ {
+  "path": "/reports/balance-sheet",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Balance Sheet"
+  ],
+  "buttons": [
+   "Download XLSX",
+   "Preview back-fill",
+   "Post back-fill"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.\nPreview back-fill\nPost back-fill",
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.",
+   "Inventory GL ₹0.00 · Valuation ₹0.00 — No valuation replay available; inventory line is the GL 1400 approximation.",
+   "Inventory GL ₹0.00 · Valuation ₹0.00 — No valuation replay available; inventory line is the GL 1400 approximation."
+  ],
+  "textHead": "Balance Sheet As of As of Download XLSX Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure. Preview back-fill Post back-fill Inventory GL ₹0.00 · Valuation ₹0.00 — No valuation replay available; inventory line is the GL 1400 approximation. Nothing here yet No rows — post documents with accounting enabled."
+ },
+ {
+  "path": "/reports/books-health",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Books Health"
+  ],
+  "buttons": [
+   "Preview back-fill",
+   "Post back-fill"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.\nPreview back-fill\nPost back-fill",
+   "Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure.",
+   "DOCUMENT_MISSING_POSTING — Completed documents are missing their accounting posting.",
+   "DOCUMENT_MISSING_POSTING — Completed documents are missing their accounting posting.",
+   "CUSTOMER_ADVANCE_MISMATCH — Customer advance GL 2300 (0) differs from unallocated receipts (6000.00).",
+   "CUSTOMER_ADVANCE_MISMATCH — Customer advance GL 2300 (0) differs from unallocated receipts (6000.00)."
+  ],
+  "textHead": "Books Health Books are on, but the trial balance does not yet tie. Preview the back-fill, then post it. Until it ties, who owes uses the document figure. Preview back-fill Post back-fill Accounts Receivable GL ₹0.00 Ledger ₹0.00 Healthy Accounts Payable GL ₹0.00 Ledger ₹0.00 Healthy DOCUMENT_MISSING_POSTING — Completed documents are missing their accounting posting. CUSTOMER_ADVANCE_MISMATCH — Customer advance GL 2300 (0) differs from unallocated receipts (6000.00). Nothing here yet No rows — post documents with accounting enabled."
+ },
+ {
+  "path": "/reports/gstr1",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-1"
+  ],
+  "buttons": [
+   "Export",
+   "CA pack (ZIP)",
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 5,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Worksheet totals tie to the sales register for this period.",
+   "Worksheet totals tie to the sales register for this period.",
+   "E-commerce operator supplies (SUPECOM / Table 15) appear when ecommerce operator GSTIN is set on the invoice. Do not file Table 15 from this aid without CA review.",
+   "E-commerce operator supplies (SUPECOM / Table 15) appear when ecommerce operator GSTIN is set on the invoice. Do not file Table 15 from this aid without CA review."
+  ],
+  "textHead": "GSTR-1 Return period Return period Company GSTIN ​ Company GSTIN Format XLSX Format Export CA pack (ZIP) Not filed — worksheet for your CA. File on the GST portal Worksheet totals tie to the sales register for this period. E-commerce operator supplies (SUPECOM / Table 15) appear when ecommerce operator GSTIN is set on the invoice. Do not file Table 15 from this aid without CA review. Summary B2B invoices 0 B2CL invoices 0 B2CS rate buckets 0 Credit / debit notes 0 Outward taxable value ₹0.00"
+ },
+ {
+  "path": "/reports/gstr3b",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-3B",
+   "₹0.00"
+  ],
+  "buttons": [
+   "Export",
+   "CA pack (ZIP)",
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 5,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Worksheet totals tie to the sales register for this period.\nWorksheet totals tie to the purchase register for this period.",
+   "Worksheet totals tie to the sales register for this period.\nWorksheet totals tie to the purchase register for this period.",
+   "ITC is provisional or GSTR-2B is not matched. Do not treat this figure as an amount to file or pay.",
+   "ITC is provisional or GSTR-2B is not matched. Do not treat this figure as an amount to file or pay."
+  ],
+  "textHead": "GSTR-3B Return period Return period Company GSTIN ​ Company GSTIN Format XLSX Format Export CA pack (ZIP) Not filed — worksheet for your CA. File on the GST portal Worksheet totals tie to the sales register for this period. Worksheet totals tie to the purchase register for this period. Worksheet net (books) ITC is provisional or GSTR-2B is not matched. Do not treat this figure as an amount to file or pay. ₹0.00 This is a books aid, not a payment challan. Tax on sales (₹0.00) − ITC from purchases (₹0.00) Summary Outward taxable value ₹0.00 IGST ₹0.00 CGST ₹0.00 SGST ₹0.00"
+ },
+ {
+  "path": "/reports/gstr4",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-4 (not a filing engine)"
+  ],
+  "buttons": [
+   "File on the GST portal",
+   "GSTR-1",
+   "GSTR-3B"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "CMP-08 and GSTR-4 are only for composition dealers.\nGSTR-1\nGSTR-3B",
+   "CMP-08 and GSTR-4 are only for composition dealers."
+  ],
+  "textHead": "GSTR-4 (not a filing engine) Financial year Financial year e.g. 2025-26 Not filed — worksheet for your CA. File on the GST portal CMP-08 and GSTR-4 are only for composition dealers. GSTR-1 GSTR-3B"
+ },
+ {
+  "path": "/reports/cmp08",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "CMP-08 (not a filing engine)"
+  ],
+  "buttons": [
+   "File on the GST portal",
+   "GSTR-1",
+   "GSTR-3B"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "CMP-08 and GSTR-4 are only for composition dealers.\nGSTR-1\nGSTR-3B",
+   "CMP-08 and GSTR-4 are only for composition dealers."
+  ],
+  "textHead": "CMP-08 (not a filing engine) Return period Return period Not filed — worksheet for your CA. File on the GST portal CMP-08 and GSTR-4 are only for composition dealers. GSTR-1 GSTR-3B"
+ },
+ {
+  "path": "/reports/gstr6",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-6 (not filing)"
+  ],
+  "buttons": [
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+  ],
+  "textHead": "GSTR-6 (not filing) Not filed — worksheet for your CA. File on the GST portal Not a filing engine This return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+ },
+ {
+  "path": "/reports/gstr7",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-7 (not filing)"
+  ],
+  "buttons": [
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+  ],
+  "textHead": "GSTR-7 (not filing) Not filed — worksheet for your CA. File on the GST portal Not a filing engine This return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+ },
+ {
+  "path": "/reports/gstr8",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-8 (not filing)"
+  ],
+  "buttons": [
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing.",
+   "Not a filing engine\n\nThis return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+  ],
+  "textHead": "GSTR-8 (not filing) Not filed — worksheet for your CA. File on the GST portal Not a filing engine This return type is not implemented. The API returns an empty payload with supported: false. Do not use this for GSTN filing."
+ },
+ {
+  "path": "/reports/gstr9",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-9 outward FY aid"
+  ],
+  "buttons": [
+   "Export",
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Books worksheet, not filing pack. Outward FY reconciliation aid — not a complete GSTR-9 portal upload. Inward figures are best-effort from purchases.",
+   "Books worksheet, not filing pack. Outward FY reconciliation aid — not a complete GSTR-9 portal upload. Inward figures are best-effort from purchases.",
+   "Tables 6–8 are books worksheets (claimable ITC, purchase CN reversal, 2B vs books). Not a portal-fileable GSTR-9 engine. Review with your CA.",
+   "Tables 6–8 are books worksheets (claimable ITC, purchase CN reversal, 2B vs books). Not a portal-fileable GSTR-9 engine. Review with your CA."
+  ],
+  "textHead": "GSTR-9 outward FY aid Financial year Financial year e.g. 2025-26 Export Not filed — worksheet for your CA. File on the GST portal Books worksheet, not filing pack. Outward FY reconciliation aid — not a complete GSTR-9 portal upload. Inward figures are best-effort from purchases. Tables 6–8 are books worksheets (claimable ITC, purchase CN reversal, 2B vs books). Not a portal-fileable GSTR-9 engine. Review with your CA. Loading…"
+ },
+ {
+  "path": "/reports/gstr2b",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GSTR-2B / IMS"
+  ],
+  "buttons": [
+   "File on the GST portal",
+   "Match purchases",
+   "Bulk accept exact",
+   "Import GSTN file",
+   "Export GSTN file"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 3,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "GSTR-3B Table 4A follows IMS / 2B. No auto-accept. Use the GSTN offline-tool JSON if GSP is not configured.",
+   "GSTR-3B Table 4A follows IMS / 2B. No auto-accept. Use the GSTN offline-tool JSON if GSP is not configured.",
+   "Exact matches can be bulk-accepted in chunks of 500. Every accept is a recorded decision.",
+   "Exact matches can be bulk-accepted in chunks of 500. Every accept is a recorded decision."
+  ],
+  "textHead": "GSTR-2B / IMS Invoice Management System — accept, reject, or park each 2B row. Books stay the source. Not filed — worksheet for your CA. File on the GST portal GSTR-3B Table 4A follows IMS / 2B. No auto-accept. Use the GSTN offline-tool JSON if GSP is not configured. Total ITC ₹0.00 Matched ITC ₹0.00 Unresolved ITC ₹0.00 Credit at risk ₹0.00 Expiring ITC ₹0.00 0 near Section 16(4) Ineligible ITC ₹0.00 Return period Return period IMS action ​ IMS action Match purchases Bulk accept exact Import GSTN file Export GSTN file Exact matches can be bulk-accepted in chunks of 500. Every accept is a recorded decision. Nothing here yet Supplier scorecard No supplier defects in this period.",
+  "cta": "Import GSTN file",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/reports/missing-documents",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Documents your books are missing"
+  ],
+  "buttons": [
+   "WhatsApp request"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue.",
+   "These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue."
+  ],
+  "textHead": "Documents your books are missing WhatsApp request These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue. Period Period Nothing here yet No missing IMS/2B bills for this period. 0 bills"
+ },
+ {
+  "path": "/ca-needs",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Documents your books are missing"
+  ],
+  "buttons": [
+   "WhatsApp request"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue.",
+   "These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue."
+  ],
+  "textHead": "Documents your books are missing WhatsApp request These IMS/GSTR-2B bills are not in your purchase book. Send a WhatsApp request or attach a photo to the import queue. Period Period Nothing here yet No missing IMS/2B bills for this period. 0 bills"
+ },
+ {
+  "path": "/reports/gst-health",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GST Health"
+  ],
+  "buttons": [
+   "File on the GST portal"
+  ],
+  "tableHeaders": [
+   "Severity",
+   "Code",
+   "Message",
+   "Document"
+  ],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA."
+  ],
+  "textHead": "GST Health Return period Return period Not filed — worksheet for your CA. File on the GST portal Critical: 1 Warning: 0 Info: 1 Severity Code Message Document Critical GSTIN_MISSING_COMPANY Registered company has no GSTIN. — Info GSTR_PERIOD_OPEN Previous period 2026-08 has no GSTR-1 snapshot yet. —"
+ },
+ {
+  "path": "/reports/gst-rate-exposure",
+  "phase": "G2",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GST rate back-scan"
+  ],
+  "buttons": [
+   "File on the GST portal"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [
+   "Not filed — worksheet for your CA.",
+   "Not filed — worksheet for your CA.",
+   "Starter HSN table only — rates are not updated automatically until a curator is named.",
+   "Starter HSN table only — rates are not updated automatically until a curator is named."
+  ],
+  "textHead": "GST rate back-scan Not filed — worksheet for your CA. File on the GST portal Starter HSN table only — rates are not updated automatically until a curator is named. From From To To Estimated tax delta ₹0.00 Nothing here yet No mis-rated completed lines in this range."
+ },
+ {
+  "path": "/settings/payment-gateway",
+  "phase": "G8",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Payment gateway"
+  ],
+  "buttons": [
+   "Save settings"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 7,
+  "alerts": [
+   "No live payment connection. Cashfree, PayU, and Razorpay need a key id and secret saved here. Until then this page does not create a charge.",
+   "No live payment connection. Cashfree, PayU, and Razorpay need a key id and secret saved here. Until then this page does not create a charge."
+  ],
+  "textHead": "Payment gateway Razorpay is primary; Cashfree and PayU share the same adapter interface. Provider Razorpay Provider Test mode Require payment reference (UTR) for UPI/Bank receipts Auto-match bank lines on exact unique UTR No live payment connection. Cashfree, PayU, and Razorpay need a key id and secret saved here. Until then this page does not create a charge. Key / App ID Key / App ID Secret Secret Save settings Webhook URLs razorpay: /api/v1/webhooks/payments/razorpay/?company_id=232 sandbox: /api/v1/webhooks/payments/sandbox/?company_id=232"
+ },
+ {
+  "path": "/settings/billing",
+  "phase": "G8",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Billing"
+  ],
+  "buttons": [
+   "Suspend",
+   "Current",
+   "Start checkout",
+   "Start checkout",
+   "Start checkout",
+   "Start checkout",
+   "Start checkout"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 1,
+  "alerts": [
+   "Plan limit reached (seats). Choose a larger plan below.",
+   "Plan limit reached (seats). Choose a larger plan below."
+  ],
+  "textHead": "Billing Current plan Free · status: trial Seats: 1 · trial ends 2026-10-14T21:09:36.193809+05:30 Plan limit reached (seats). Choose a larger plan below. Churn reason Churn reason Suspend Available plans Free ₹0.00 / mo · 1 seats Current Trial ₹0.00 / mo · 3 seats Start checkout UX full demo ₹0.00 / mo · 50 seats Start checkout Starter ₹499.00 / mo · 2 seats Start checkout Professional ₹1,499.00 / mo · 5 seats Start checkout Enterprise ₹4,999.00 / mo · 999 seats Start checkout",
+  "cta": "Start checkout",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/settings/price-lists",
+  "phase": "G8",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Price lists"
+  ],
+  "buttons": [
+   "New list"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [
+   "Price lists are stored in this company. They are not an external connection and need no credential.",
+   "Price lists are stored in this company. They are not an external connection and need no credential.",
+   "Quantity slabs (e.g. 1–10 @ ₹100, 11+ @ ₹92) apply at line qty. Assign a list on the customer. Credit notes keep the original invoice rate.",
+   "Quantity slabs (e.g. 1–10 @ ₹100, 11+ @ ₹92) apply at line qty. Assign a list on the customer. Credit notes keep the original invoice rate."
+  ],
+  "textHead": "Price lists Named rate cards assigned to customers at billing time. New list Price lists are stored in this company. They are not an external connection and need no credential. Quantity slabs (e.g. 1–10 @ ₹100, 11+ @ ₹92) apply at line qty. Assign a list on the customer. Credit notes keep the original invoice rate. Nothing here yet No price lists.",
+  "cta": "New list",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/settings/telegram",
+  "phase": "G8",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Telegram Notifications"
+  ],
+  "buttons": [
+   "Connect Telegram"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Telegram Notifications Connect your Telegram account to receive alerts here — expiry/low-stock warnings, payment confirmations and overdue reminders — in addition to email. Status Not connected Connect Telegram"
+ },
+ {
+  "path": "/settings/statutory-licences",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Statutory licences"
+  ],
+  "buttons": [
+   "Add licence"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Statutory licences Drug licence (Form 20B/21B) and FSSAI registrations for ARCH-05 regulated products (drugs, food). Add licence Nothing here yet No statutory licences on file.",
+  "cta": "Add licence",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/settings/tally",
+  "phase": "G8",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Tally migration"
+  ],
+  "buttons": [
+   "Download signature sheet",
+   "Download sales voucher CSV aid"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [
+   "Tally is a one-shot dump, not live sync.",
+   "Tally is a one-shot dump, not live sync.",
+   "Guided import/export aid for migration. The file is imported once. This is not a live Tally connection or certified Tally parity.",
+   "Guided import/export aid for migration. The file is imported once. This is not a live Tally connection or certified Tally parity."
+  ],
+  "textHead": "Tally migration Tally is a one-shot dump, not live sync. Guided import/export aid for migration. The file is imported once. This is not a live Tally connection or certified Tally parity. Compare Tally totals Batch id Batch id Tally XML Tally XML Download signature sheet 1 Upload & validate 2 Map 3 Commit 4 Export aid Upload masters CSV CSV or Excel (.xlsx). Columns: entity_type (customer|supplier|product), name, phone, gstin, state, sku, hsn_code, gst_rate, purchase_price, selling_price, reorder_level, opening_qty, opening_outstanding Choose CSV / Excel Download export aid Download sales voucher CSV aid"
+ },
+ {
+  "path": "/accounting/accounts",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Chart of accounts"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Chart of accounts Seeded Indian SME CoA when accounting is enabled. Nothing here yet No accounts — enable accounting in Settings."
+ },
+ {
+  "path": "/accounting/journals",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Journals"
+  ],
+  "buttons": [
+   "New voucher"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Journals Manual vouchers. Posted lines are immutable — reverse with a contra entry. New voucher Nothing here yet No journals yet.",
+  "cta": "New voucher",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/accounting/bank-reconciliation",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "GL bank reconciliation"
+  ],
+  "buttons": [
+   "Open bank statements",
+   "Create session",
+   "Match lines"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 10,
+  "alerts": [
+   "No bank statements yet. Upload and commit a statement first, then pick it here.\nOpen bank statements",
+   "No bank statements yet. Upload and commit a statement first, then pick it here."
+  ],
+  "textHead": "GL bank reconciliation GL match — clears posted bank journal lines against statement lines. Not the operational payments recon. No bank statements yet. Upload and commit a statement first, then pick it here. Open bank statements GL account ​ GL account Bank statement ​ Bank statement Create session Session ​ Session Journal line ​ Journal line Statement line ​ Statement line Match lines Nothing here yet No recon sessions yet.",
+  "cta": "Create session",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/accounting/cost-centers",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Cost centers"
+  ],
+  "buttons": [
+   "Add"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Cost centers Optional dimension for P&L slicing. Add Nothing here yet No cost centers.",
+  "cta": "Add",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/accounting/fixed-assets",
+  "phase": "G3",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Fixed assets"
+  ],
+  "buttons": [
+   "Add asset"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Fixed assets Asset register with SLM depreciation support. Add asset Nothing here yet No fixed assets.",
+  "cta": "Add asset",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/accounting/periods",
+  "phase": "G1",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Accounting periods"
+  ],
+  "buttons": [
+   "Create",
+   "Close FY"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 4,
+  "alerts": [],
+  "textHead": "Accounting periods Soft-close warns; closed periods block new postings. Books close Trial balance debit: ₹0.00 Trial balance credit: ₹0.00 Debit and credit match Profit and loss income: ₹0.00 Customer total: UX Audit Customer ₹0.00 Name Name Start Start End End Create FY end FY end Close FY Nothing here yet No periods configured.",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/manufacturing/boms",
+  "phase": "G6",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/manufacturing/work-orders",
+  "phase": "G6",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/payroll/employees",
+  "phase": "G6",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/payroll/pay-runs",
+  "phase": "G6",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/leads",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/onboarding",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/opportunities",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/campaigns",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/pipeline",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/crm/referrals",
+  "phase": "G4",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/complaints",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Complaints"
+  ],
+  "buttons": [
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 8,
+  "alerts": [],
+  "textHead": "Complaints Customer Customer Category OTHER Category Description Description Create Status ​ Status Category ​ Category Report Resolved: 0 · With a document: 0 · Without a document: 0 Average resolution (seconds): —",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/complaints/suppliers",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Supplier complaints"
+  ],
+  "buttons": [
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 8,
+  "alerts": [],
+  "textHead": "Supplier complaints Supplier Supplier Category OTHER Category Description Description Create Status ​ Status Category ​ Category Report Resolved: 0 · With a document: 0 · Without a document: 0 Average resolution (seconds): —",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/support/tickets",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Support tickets"
+  ],
+  "buttons": [
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 9,
+  "alerts": [],
+  "textHead": "Support tickets This is an internal queue. Customers cannot open a ticket here. Customer Customer Subject Subject Priority MEDIUM Priority Create Priority ​ Priority Assignee ​ Assignee Assigned to me OPEN IN_PROGRESS WAITING RESOLVED CLOSED Report Average resolution (seconds): —",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/support/shared",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Shared tickets"
+  ],
+  "buttons": [],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "Shared tickets No shared tickets."
+ },
+ {
+  "path": "/workshop/jobs",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Job cards"
+  ],
+  "buttons": [
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [],
+  "textHead": "Job cards A job card is a workshop record. Converting it creates a draft invoice. Customer Customer Complaint Complaint Create",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/projects",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Projects"
+  ],
+  "buttons": [
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 2,
+  "alerts": [],
+  "textHead": "Projects Invoicing a milestone creates a draft invoice. Completing that invoice is a separate step. Customer Customer Name Name Create",
+  "cta": "Create",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/insurance",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": true,
+  "headings": [],
+  "buttons": [
+   "Go to your workspace",
+   "Dashboard",
+   "Needs attention",
+   "Point of Sale",
+   "New Invoice",
+   "Sales History",
+   "Quotations"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 0,
+  "alerts": [],
+  "textHead": "This module is not on yet You are the company owner. This area is off until you enable it in Settings — you do not need to ask anyone else. Go to your workspace Areas you can access Dashboard Needs attention Point of Sale New Invoice Sales History Quotations",
+  "cta": "New Invoice",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ },
+ {
+  "path": "/contracts",
+  "phase": "G5",
+  "project": "mobile",
+  "title": "Bizboard",
+  "landing": false,
+  "headings": [
+   "Contracts"
+  ],
+  "buttons": [
+   "Add line",
+   "Create"
+  ],
+  "tableHeaders": [],
+  "tabs": [],
+  "fieldsVisible": 9,
+  "alerts": [],
+  "textHead": "Contracts The value is copied onto one recurring invoice. Customer Customer Product Product Add line Type WARRANTY Type Start date Start date End date End date Value Value Reminder days Reminder days Notes Notes Create Report",
+  "cta": "Add line",
+  "dialog": {
+   "opened": true,
+   "labels": [],
+   "required": 0,
+   "buttons": [
+    "Sign out"
+   ],
+   "inputs": 0
+  }
+ }
+]

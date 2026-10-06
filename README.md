@@ -97,6 +97,7 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements-dev.txt
 .venv/Scripts/python manage.py migrate
 .venv/Scripts/python manage.py seed_demo
+# The pilot profile demands TOTP for an owner or accountant. seed_demo does not enrol MFA.
 .venv/Scripts/python manage.py runserver
 ```
 
@@ -147,6 +148,17 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml config
 # staging overlay requires .env.staging (copy from .env.staging.example)
 docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml config
 ```
+
+Postgres-marked tests stay off the default SQLite run. On Windows, money and
+stock changes use the PowerShell script. SQLite remains the default for a
+fast local run.
+
+```powershell
+powershell -File scripts/test_postgres.ps1 -q backend/tests/test_concurrency_races.py
+```
+
+`scripts/test_postgres.sh` is the same contract for a POSIX shell. It is not
+the script this workstation runs.
 
 GST calculations and invoice layouts require CA approval before a production
 pilot.

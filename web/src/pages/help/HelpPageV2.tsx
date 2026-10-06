@@ -57,9 +57,12 @@ export function HelpPageV2() {
     leaf: leafParam,
   };
 
-  useEffect(() => {
+  // The address bar's ?q= drives the search box.
+  const [seenQParam, setSeenQParam] = useState(qParam);
+  if (seenQParam !== qParam) {
+    setSeenQParam(qParam);
     setQuery(qParam);
-  }, [qParam]);
+  }
 
   useEffect(() => {
     const source: HelpOpenSource =
@@ -108,7 +111,7 @@ export function HelpPageV2() {
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('help.title')}</Typography>
+      <Typography variant="h4" component="h1">{t('help.title')}</Typography>
       <Typography variant="body2" color="text.secondary">
         {t('help.subtitleV2')}
       </Typography>

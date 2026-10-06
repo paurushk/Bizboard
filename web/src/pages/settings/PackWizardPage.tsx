@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -31,8 +31,10 @@ export function PackWizardPage() {
   const [saved, setSaved] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
   const loaded = query.data;
-  useEffect(() => {
-    if (!query.data) return;
+  // Fill the form from the saved answers each time they load.
+  const [seenData, setSeenData] = useState<typeof query.data>(undefined);
+  if (query.data && query.data !== seenData) {
+    setSeenData(query.data);
     setAnswers({
       what_you_sell: query.data.answers.what_you_sell || '',
       how_you_sell: query.data.answers.how_you_sell || '',
@@ -40,7 +42,7 @@ export function PackWizardPage() {
       gst_registered: query.data.answers.gst_registered || '',
     });
     if (query.data.proposedPack) setProposed(query.data.proposedPack);
-  }, [query.data]);
+  }
 
   const propose = useMutation({
     mutationFn: () => proposePack(answers),

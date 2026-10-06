@@ -1,0 +1,311 @@
+[
+ {
+  "task_id": "C-0601",
+  "test_ids": [
+   "backend/tests/errors/test_error_paths.py::test_gst_invoice_without_place_of_supply_is_4xx_with_help_code",
+   "backend/tests/test_gst_guard_v2.py::test_missing_hsn_b2b_blocks_completion"
+  ],
+  "confidence": "Medium",
+  "note": "Complete is blocked (4xx) when place of supply or B2B HSN is missing; other Rule 46 particulars (date, serial) not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/errors/test_error_paths.py::test_gst_invoice_without_place_of_supply_is_4xx_with_help_code",
+   "backend/tests/test_gst_guard_v2.py::test_missing_hsn_b2b_blocks_completion"
+  ]
+ },
+ {
+  "task_id": "C-0602",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for the Section 16(2) four-condition ITC verification checklist on purchase bills.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0603",
+  "test_ids": [
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever"
+  ],
+  "confidence": "Medium",
+  "note": "Past-window GSTR-2B row classed POTENTIALLY_INELIGIBLE, excluded from at-risk ITC; no 60/30/7-day alerts or TIME_BARRED status asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever"
+  ]
+ },
+ {
+  "task_id": "C-0604",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for Section 17(5) blocked-credit classification or reclassifying tax to expense; only IMS reject-to-COGS exists.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0605",
+  "test_ids": [
+   "backend/tests/test_b4_b5_notes_serial.py::test_cr129_purchase_cn_rejects_note_date_before_invoice",
+   "backend/tests/test_b4_b5_notes_serial.py::test_cr129_purchase_cn_rejects_draft_source_invoice"
+  ],
+  "confidence": "Medium",
+  "note": "Purchase credit note completion rejected when dated before source invoice or source not completed; 30-Nov cutoff and sales-side not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_b4_b5_notes_serial.py::test_cr129_purchase_cn_rejects_draft_source_invoice",
+   "backend/tests/test_b4_b5_notes_serial.py::test_cr129_purchase_cn_rejects_note_date_before_invoice"
+  ]
+ },
+ {
+  "task_id": "C-0606",
+  "test_ids": [
+   "backend/tests/test_partial_closures.py::test_bb_000639_eway_requires_distance"
+  ],
+  "confidence": "Medium",
+  "note": "E-way payload build fails without transport distance; NIC PIN-to-PIN lookup and 1 day per 200 km validity not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_partial_closures.py::test_bb_000639_eway_requires_distance"
+  ]
+ },
+ {
+  "task_id": "C-0607",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for Section 50 delayed-tax interest calculation (18%/24%).",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0608",
+  "test_ids": [
+   "backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf"
+  ],
+  "confidence": "High",
+  "note": "Drug-regulated invoice blocks Complete without licence; after adding DRUG_20B licence, GST invoice PDF text contains licence number and batch.",
+  "test_ids_resolved": [
+   "backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf"
+  ]
+ },
+ {
+  "task_id": "C-0609",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for Schedule H/H1 register or doctor/patient prescription logging and export.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0610",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test of 14-digit FSSAI validation or printing; WF-60 test only exercises DRUG licence despite FSSAI in its docstring.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "C-0618",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for E-way Bill Part B multi-vehicle splitting or transshipment manifest.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "D-0690",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for fuzzy invoice-number matching in GSTR-2B reconciliation (only exact-number match tested).",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "I-0661",
+  "test_ids": [
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_http_sandbox_irp_cassette"
+  ],
+  "confidence": "Medium",
+  "note": "Sandbox IRP adapter returns IRN, ack number and signed QR from cassette and cancels; live NIC IRP and PDF embedding not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint_e_gsp_protocol.py::test_http_sandbox_irp_cassette"
+  ]
+ },
+ {
+  "task_id": "P-0034",
+  "test_ids": [
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gst_tax_invoice_pdf_text_snapshot"
+  ],
+  "confidence": "Medium",
+  "note": "GST invoice PDF text contains TAX INVOICE, number, buyer, item, seller GSTIN and total 236.00; GSTR-1 B2B population not asserted here.",
+  "test_ids_resolved": [
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gst_tax_invoice_pdf_text_snapshot"
+  ]
+ },
+ {
+  "task_id": "P-0049",
+  "test_ids": [
+   "backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf"
+  ],
+  "confidence": "Medium",
+  "note": "Pharmacy invoice PDF carries drug licence number and batch, grand total 672 with 12% GST; expiry and GST split not asserted in PDF.",
+  "test_ids_resolved": [
+   "backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf"
+  ]
+ },
+ {
+  "task_id": "P-0102",
+  "test_ids": [
+   "backend/tests/test_gst_guard_v2.py::test_missing_hsn_b2b_blocks_completion",
+   "backend/tests/test_gst_guard_v2.py::test_validate_document_bad_gstin_is_blocking_regardless_of_hsn"
+  ],
+  "confidence": "High",
+  "note": "GST Guard blocks completion on missing B2B HSN and bad GSTIN checksum, with blocking codes; HSN digit-length and POS checks also tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_gst_guard_v2.py::test_missing_hsn_b2b_blocks_completion",
+   "backend/tests/test_gst_guard_v2.py::test_validate_document_bad_gstin_is_blocking_regardless_of_hsn"
+  ]
+ },
+ {
+  "task_id": "P-0104",
+  "test_ids": [
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gstr2b_reconciliation_snapshot",
+   "backend/tests/test_wave17_gst_books.py::test_gstr2b_upload_and_match_api"
+  ],
+  "confidence": "High",
+  "note": "Books purchase matched against 2B row by supplier GSTIN, number and amounts; unmatched row stays unmatched; summary rows=2, matched=1.",
+  "test_ids_resolved": [
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gstr2b_reconciliation_snapshot",
+   "backend/tests/test_wave17_gst_books.py::test_gstr2b_upload_and_match_api"
+  ]
+ },
+ {
+  "task_id": "P-0107",
+  "test_ids": [
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever",
+   "backend/tests/test_b03_ims.py::test_ims_summary_api"
+  ],
+  "confidence": "Medium",
+  "note": "credit_at_risk summary separates itc_at_risk from ineligible ITC and API returns the key; supplier hold alert and not-filed flagging not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_b03_ims.py::test_ims_summary_api",
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever"
+  ]
+ },
+ {
+  "task_id": "P-0108",
+  "test_ids": [
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever"
+  ],
+  "confidence": "Medium",
+  "note": "Section 16(4) deadline computed per row and expired rows classed ineligible; Expiry Warning widget and approaching-deadline alerts not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_b03_ims.py::test_section_16_4_past_window_not_pending_forever"
+  ]
+ },
+ {
+  "task_id": "P-0110",
+  "test_ids": [
+   "backend/tests/test_gst_returns.py::test_gstr1_json_shape_and_totals",
+   "backend/tests/test_gst_returns.py::test_gstr3b_json_and_xlsx_export"
+  ],
+  "confidence": "Medium",
+  "note": "GSTR-1 has b2b/b2cl/b2cs/cdnr/docs and taxable total ties to sales register; GSTR-3B sections and xlsx tested; CMP-08 and HSN tables absent.",
+  "test_ids_resolved": [
+   "backend/tests/test_gst_returns.py::test_gstr1_json_shape_and_totals",
+   "backend/tests/test_gst_returns.py::test_gstr3b_json_and_xlsx_export"
+  ]
+ },
+ {
+  "task_id": "P-0114",
+  "test_ids": [
+   "backend/tests/test_tax_calc_properties.py::test_line_total_equals_taxable_plus_tax",
+   "backend/tests/test_billing_totals.py::test_line_tax_matches_frontend_fixture"
+  ],
+  "confidence": "Medium",
+  "note": "Line tax equals taxable times rate within a paisa and line totals add up; no historical-voucher error detection or document-total reconciliation.",
+  "test_ids_resolved": [
+   "backend/tests/test_billing_totals.py::test_line_tax_matches_frontend_fixture",
+   "backend/tests/test_tax_calc_properties.py::test_line_total_equals_taxable_plus_tax"
+  ]
+ },
+ {
+  "task_id": "P-0179",
+  "test_ids": [
+   "backend/tests/test_sprint3_series_gstin.py::test_bb_000674_owner_company_gstin_crud"
+  ],
+  "confidence": "Medium",
+  "note": "Owner can create, list and deactivate CompanyGstin records via API; state-code Place of Supply and composition toggles not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint3_series_gstin.py::test_bb_000674_owner_company_gstin_crud"
+  ]
+ },
+ {
+  "task_id": "P-0181",
+  "test_ids": [
+   "backend/tests/test_pr9_p2_edges.py::test_r036_tax_rate_list_fresh_after_patch"
+  ],
+  "confidence": "Medium",
+  "note": "TaxRate create and patch via API with cache invalidation; slab set and cess rules not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_pr9_p2_edges.py::test_r036_tax_rate_list_fresh_after_patch"
+  ]
+ },
+ {
+  "task_id": "P-0503",
+  "test_ids": [
+   "backend/tests/test_b03_ims.py::test_reject_splits_ineligible_tax_to_cogs_when_goods_already_sold",
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gstr2b_reconciliation_snapshot"
+  ],
+  "confidence": "Medium",
+  "note": "2B-to-books matching and claimable ITC figures tested, plus ineligible-tax reclass on reject; explicit Section 17(5) blocked classification not tested.",
+  "test_ids_resolved": [
+   "backend/tests/snapshots/test_gstr2b_and_pdf.py::test_gstr2b_reconciliation_snapshot",
+   "backend/tests/test_b03_ims.py::test_reject_splits_ineligible_tax_to_cogs_when_goods_already_sold"
+  ]
+ },
+ {
+  "task_id": "P-0507",
+  "test_ids": [
+   "backend/tests/test_audit_append_only.py::test_saving_an_existing_event_is_refused",
+   "backend/tests/test_audit_append_only.py::test_deleting_is_refused_on_instance_and_queryset",
+   "backend/tests/test_audit_append_only.py::test_editing_a_sealed_event_is_detected"
+  ],
+  "confidence": "Medium",
+  "note": "Audit events cannot be edited or deleted and tampering is detected; implementation is AuditEvent not SimpleHistory and no certification report tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_audit_append_only.py::test_deleting_is_refused_on_instance_and_queryset",
+   "backend/tests/test_audit_append_only.py::test_editing_a_sealed_event_is_detected",
+   "backend/tests/test_audit_append_only.py::test_saving_an_existing_event_is_refused"
+  ]
+ },
+ {
+  "task_id": "S-0579",
+  "test_ids": [
+   "backend/tests/test_audit_append_only.py::test_seal_assigns_a_contiguous_chain_and_verifies",
+   "backend/tests/test_audit_append_only.py::test_editing_a_sealed_event_is_detected"
+  ],
+  "confidence": "High",
+  "note": "Sealing links each event to previous hash (chain_prev equals prior chain_hash) and verify() detects edits, deletions and reordering.",
+  "test_ids_resolved": [
+   "backend/tests/test_audit_append_only.py::test_editing_a_sealed_event_is_detected",
+   "backend/tests/test_audit_append_only.py::test_seal_assigns_a_contiguous_chain_and_verifies"
+  ]
+ },
+ {
+  "task_id": "S-0580",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test for hourly E-way Bill expiry warning crawler or EWB_EXPIRING_SOON alert; only valid_upto parsing is tested.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "SEC-0628",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test that bank account numbers or IFSC are encrypted at rest; only GSP credentials and MFA secrets have encryption tests.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "X-0432",
+  "test_ids": [
+   "backend/tests/test_register_audit_coverage.py::test_sales_invoice_complete_writes_audit_event",
+   "backend/tests/test_register_audit_coverage.py::test_purchase_invoice_complete_writes_audit_event",
+   "backend/tests/errors/test_freeze_gate_contracts.py::test_complete_cancel_allocate_amend_write_audit_events"
+  ],
+  "confidence": "High",
+  "note": "Completing sales and purchase invoices and other posting actions write an AuditEvent for the right company, entity and id.",
+  "test_ids_resolved": [
+   "backend/tests/errors/test_freeze_gate_contracts.py::test_complete_cancel_allocate_amend_write_audit_events",
+   "backend/tests/test_register_audit_coverage.py::test_purchase_invoice_complete_writes_audit_event",
+   "backend/tests/test_register_audit_coverage.py::test_sales_invoice_complete_writes_audit_event"
+  ]
+ }
+]

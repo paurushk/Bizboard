@@ -1,5 +1,13 @@
 from django.urls import path
 
+from .mfa_views import (
+    MfaConfirmView,
+    MfaDisableView,
+    MfaLoginVerifyView,
+    MfaRecoveryCodesView,
+    MfaSetupView,
+    MfaStatusView,
+)
 from .views import (
     AcceptInviteView,
     ChangePasswordView,
@@ -33,6 +41,12 @@ urlpatterns = [
     path("otp/verify/", VerifyOtpView.as_view(), name="auth-otp-verify"),
     path("password/reset/", RequestPasswordResetView.as_view(), name="auth-password-reset"),
     path("password/reset/confirm/", ConfirmPasswordResetView.as_view(), name="auth-password-reset-confirm"),
+    path("mfa/status/", MfaStatusView.as_view(), name="auth-mfa-status"),
+    path("mfa/setup/", MfaSetupView.as_view(), name="auth-mfa-setup"),
+    path("mfa/confirm/", MfaConfirmView.as_view(), name="auth-mfa-confirm"),
+    path("mfa/disable/", MfaDisableView.as_view(), name="auth-mfa-disable"),
+    path("mfa/recovery-codes/", MfaRecoveryCodesView.as_view(), name="auth-mfa-recovery-codes"),
+    path("mfa/verify/", MfaLoginVerifyView.as_view(), name="auth-mfa-verify"),
     path("me/", MeView.as_view(), name="auth-me"),
     path("memberships/", MembershipsListView.as_view(), name="auth-memberships"),
     path("switch-company/", SwitchCompanyView.as_view(), name="auth-switch-company"),

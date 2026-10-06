@@ -1,4 +1,4 @@
-import { apiClient, idempotencyHeaders, newIdempotencyKey, unwrapData } from '../client';
+import { apiClient, idempotencyHeaders, newIdempotencyKey, shouldUseMocks, unwrapData } from '../client';
 import {
   mockAccountingAccounts,
   mockAccountingPeriods,
@@ -388,6 +388,7 @@ export type UnreconciledGlLine = {
   narration: string;
   debit: string;
   credit: string;
+  signedAmount?: string;
 };
 
 // F2-028: still-unreconciled GL lines for one account, resolved server-side so
@@ -439,7 +440,8 @@ export async function listFixedAssetsPage(params?: PageParams): Promise<PageResu
 export const createFixedAsset = (payload: Record<string, unknown>) => apiClient.post('/accounting/fixed-assets/', payload).then(({ data }) => unwrapData(data));
 // F3-024: correct a wrong useful-life/acquisition-date entered at create time.
 export const updateFixedAsset = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/fixed-assets/${id}/`, payload).then(({ data }) => unwrapData(data));
-export const disposeFixedAsset = (id: number) => apiClient.post(`/accounting/fixed-assets/${id}/dispose/`).then(({ data }) => unwrapData(data));
+export const disposeFixedAsset = (id: number, payload?: Record<string, unknown>) =>
+  apiClient.post(`/accounting/fixed-assets/${id}/dispose/`, payload).then(({ data }) => unwrapData(data));
 export async function listAccountingPeriods(params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   return withMocks(
     () => fetchAllPagesMasters<Record<string, unknown>>('/accounting/periods/', params),
@@ -457,9 +459,14 @@ export const createAccountingPeriod = (payload: Record<string, unknown>) => apiC
 export const updateAccountingPeriod = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/periods/${id}/`, payload).then(({ data }) => unwrapData(data));
 export const softCloseAccountingPeriod = (id: number) => apiClient.post(`/accounting/periods/${id}/soft-close/`).then(({ data }) => unwrapData(data));
 export const closeAccountingPeriod = (id: number) => apiClient.post(`/accounting/periods/${id}/close/`).then(({ data }) => unwrapData(data));
+export const closeAccountingAndGstPeriod = (id: number) =>
+  apiClient.post(`/accounting/periods/${id}/close-period/`).then(({ data }) => unwrapData(data));
 export const softCloseGstPeriod = (period: string) =>
   apiClient.post('/reports/gst-period/', { period, action: 'soft_close' }).then(({ data }) => unwrapData(data));
 export async function getDailySummary(params?: { date?: string }): Promise<DailyBusinessSummary> {
+  if (shouldUseMocks()) {
+    return { id: 0, summaryDate: '', kpis: {}, alertCodes: [], narrative: '' };
+  }
   const { data } = await apiClient.get('/insights/daily-summary/', { params });
   return unwrapData<DailyBusinessSummary>(data);
 }
@@ -473,6 +480,7 @@ export async function listBusinessAlerts(params?: {
   status?: string;
   severity?: string;
 }): Promise<BusinessAlert[]> {
+  if (shouldUseMocks()) return [];
   const { data } = await apiClient.get('/insights/alerts/', { params });
   const body = unwrapData<BusinessAlert[] | { results: BusinessAlert[] }>(data);
   return Array.isArray(body) ? body : (body.results ?? []);
@@ -489,12 +497,14 @@ export async function getCashflowForecast(horizon = 14): Promise<CashflowForecas
 }
 
 export async function listGrowthHints(): Promise<GrowthHint[]> {
+  if (shouldUseMocks()) return [];
   const { data } = await apiClient.get('/insights/growth-hints/');
   const body = unwrapData<{ hints: GrowthHint[] }>(data);
   return body.hints ?? [];
 }
 
 export async function listAttentionRows(options?: { mine?: boolean }): Promise<AttentionRow[]> {
+  if (shouldUseMocks()) return [];
   const { data } = await apiClient.get('/insights/attention/', {
     params: options?.mine ? { mine: 1 } : undefined,
   });

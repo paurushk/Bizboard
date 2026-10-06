@@ -68,7 +68,7 @@ test('lifecycle roles: cashier POS Paid, Owner return, cashier Returned, account
   const paidRow = page.getByRole('row').filter({ hasText: /Paid/ }).first();
   await expect(paidRow).toBeVisible();
   const textCells = await paidRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   await page.goto('/sales/returns');
@@ -107,17 +107,17 @@ test('lifecycle roles: cashier POS Paid, Owner return, cashier Returned, account
   await signOut(page);
   await loginWithPassword(page, acctEmail, password);
   await page.goto('/accounting/periods');
-  await page.getByRole('button', { name: 'Close', exact: true }).first().click();
-  await expect(page.getByText(/permission|not allowed|owner|403|cannot/i).first()).toBeVisible({
-    timeout: 15_000,
-  });
+  // Close is owner-only, so an accountant never gets a button that could 403.
   const periodRow = page.getByRole('row', { name: new RegExp(`Roles close ${id}`) });
   await expect(periodRow.getByText('OPEN', { exact: true })).toBeVisible();
+  // Only after the table has rendered: a count of 0 on a page that has not loaded proves nothing.
+  await expect(page.getByRole('button', { name: 'Close period', exact: true })).toHaveCount(0);
   await expect(periodRow.getByText('CLOSED', { exact: true })).toHaveCount(0);
 
   await signOut(page);
   await loginWithPassword(page, ownerEmail, password);
   await page.goto('/accounting/periods');
-  await page.getByRole('button', { name: 'Close', exact: true }).first().click();
+  // Dialogs are already accepted by the listener registered at the start of the test.
+  await page.getByRole('button', { name: 'Close period', exact: true }).first().click();
   await expect(periodRow.getByText('CLOSED', { exact: true })).toBeVisible({ timeout: 20_000 });
 });

@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "X-0386",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService; backend/reporting/views.py:DashboardView",
+  "reason": "Dashboard computes live month purchases net of notes and payables aging; no top-supplier spend or pending-receipts figure."
+ },
+ {
+  "task_id": "X-0387",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/inventory/views.py:low_stock_alert_payload",
+  "reason": "inventory_summary returns on-hand, reserved, reorder level and total stock value; dashboard carries low_stock_count from live data."
+ },
+ {
+  "task_id": "X-0388",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/views.py:Gstr3bView; backend/reporting/gst_health.py:build_gst_health",
+  "reason": "GSTR-3B report gives output tax and ITC per period, but no live dashboard cards; GST health only raises compliance alerts."
+ },
+ {
+  "task_id": "X-0389",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/reporting/views.py:DashboardView",
+  "reason": "Dashboard returns receivables total and aging buckets computed live from invoices; top-debtor ranking is not in the dashboard payload."
+ },
+ {
+  "task_id": "X-0390",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService",
+  "reason": "Payables total and aging buckets exist; no upcoming 7-day payment commitment or scheduled-payment view found."
+ },
+ {
+  "task_id": "X-0391",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/models.py:InvoiceProfitSnapshot; backend/reporting/invoice_profit_service.py; backend/reporting/services.py:ReportService",
+  "reason": "Per-invoice revenue minus FIFO COGS snapshot is persisted at completion and rolled up by customer, period, product."
+ },
+ {
+  "task_id": "X-0392",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/DashboardPage.tsx",
+  "reason": "Only some dashboard items link out (recent invoices, low stock); claimed drill-down on every metric card is not implemented."
+ },
+ {
+  "task_id": "X-0393",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/sales/InvoiceDetailPage.tsx:InvoiceDetailPage; web/src/App.tsx:Route",
+  "reason": "Ledger and history rows open /sales/history/:id invoice detail view."
+ },
+ {
+  "task_id": "X-0394",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched salesperson, sales_rep, commission in backend and web",
+  "reason": "No per-salesperson performance, commission or rep self-service card exists."
+ },
+ {
+  "task_id": "X-0395",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched leaderboard, salesperson, sales_rep",
+  "reason": "No sales team leaderboard or per-rep aggregation exists."
+ },
+ {
+  "task_id": "X-0396",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/insights/InsightsHubPage.tsx:InsightsHubPage; backend/insights/views.py:DailySummaryView",
+  "reason": "Single-company insights hub with daily summary and health score exists; no multi-outlet or multi-department rollup."
+ },
+ {
+  "task_id": "X-0397",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched multi-store, outlet, branch in backend/reporting and routes",
+  "reason": "No multi-store comparison report or route exists."
+ },
+ {
+  "task_id": "X-0398",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService; backend/reporting/views.py:CustomerSalesView",
+  "reason": "Customers ranked by revenue and margin rollup per customer exist; no frequency, payment promptness scoring or credit-risk tiers."
+ },
+ {
+  "task_id": "X-0399",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService; backend/reporting/views.py:ProductSalesView",
+  "reason": "Product ranking by quantity and amount and product margin rollup exist; no velocity-versus-margin matrix or return frequency."
+ },
+ {
+  "task_id": "X-0400",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched pareto, cumulative revenue contribution, VIP in backend",
+  "reason": "No Pareto or 80/20 customer analysis or VIP flagging exists."
+ },
+ {
+  "task_id": "X-0401",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService",
+  "reason": "Invoice-profit rollup grouped by product shows margin per SKU; no threshold-based low-margin exception filter."
+ },
+ {
+  "task_id": "X-0402",
+  "verdict": "Partial",
+  "evidence": "backend/insights/alerts.py:DEAD_STOCK; backend/reporting/views.py:InventorySummaryView",
+  "reason": "Only a 60-day dead-stock alert with tied-up value exists; no 60/90/180 aging report at /reports/inventory-aging."
+ },
+ {
+  "task_id": "X-0403",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:ReportService",
+  "reason": "Product sales ranks SKUs by quantity and amount; no turnover rate or dedicated fast-moving leaderboard."
+ },
+ {
+  "task_id": "X-0404",
+  "verdict": "Partial",
+  "evidence": "backend/insights/views.py:CollectionsWorklistView; backend/payments/predictive_dunning.py:collections_worklist",
+  "reason": "Collections worklist and aging buckets exist behind a flag; no specific 45-day critical-overdue filter report."
+ },
+ {
+  "task_id": "X-0405",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched herfindahl, supplier concentration, concentration risk",
+  "reason": "No supplier concentration or Herfindahl calculation exists."
+ },
+ {
+  "task_id": "X-0406",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/views.py:SalesSummaryView",
+  "reason": "Daily revenue series exists in sales summary; no multi-month procurement, margin, expense trend or /insights/trends page."
+ },
+ {
+  "task_id": "X-0536",
+  "verdict": "Partial",
+  "evidence": "backend/insights/assistant.py:ToolExecutor; backend/insights/assistant.py:run_assistant_turn; web/src/pages/insights/InsightsAssistantPage.tsx",
+  "reason": "LLM assistant calls fixed read-only tools for aging and outstanding; not general query translation, and no customer-over-threshold list or charts."
+ },
+ {
+  "task_id": "D-0682",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched handwritten, whatsapp inbound, media in backend/core/services/whatsapp.py",
+  "reason": "No WhatsApp inbound image handling or handwritten order extraction into sales orders; only supplier-bill photo extraction prompt exists."
+ },
+ {
+  "task_id": "D-0686",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRoute; backend/sales/route_service.py",
+  "reason": "Routes store logistics cost, realized revenue, COGS and profit; no loss-making route flag or minimum order recommendation."
+ },
+ {
+  "task_id": "D-0689",
+  "verdict": "Partial",
+  "evidence": "backend/masters/models.py:PriceListItem; backend/sales/order_gates.py:margin_warnings",
+  "reason": "Quantity-slab price lists exist; margin check only warns on sales orders and does not enforce a floor."
+ },
+ {
+  "task_id": "D-0691",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/portal_views.py:CustomerPortalView; backend/payments/portal_views.py:CustomerPortalPayView; backend/payments/portal_views.py:CustomerPortalComplaintView",
+  "reason": "Magic-link portal lists open invoices, serves PDF, starts payment link and files a complaint; no UPI deep link in portal itself."
+ },
+ {
+  "task_id": "D-0696",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched geofence, haversine against POD, tamper in backend/sales",
+  "reason": "POD stores photo, OTP and recipient but no GPS capture, geo-fence comparison or tamper check; haversine is only for route sequencing."
+ },
+ {
+  "task_id": "D-0697",
+  "verdict": "Partial",
+  "evidence": "backend/payments/portal_views.py:CustomerPortalView",
+  "reason": "Portal shows open invoices, PDF and pay link only; no contracted price lists, ledger statements or re-ordering."
+ },
+ {
+  "task_id": "I-0651",
+  "verdict": "Partial",
+  "evidence": "web/src/lib/native.ts:printEscPos; web/src/pages/pos/printPosThermal.ts:printPosThermalOrWarn",
+  "reason": "Only a Capacitor Bluetooth plugin path sending a minimal text stub; no WebUSB or network printing, falls back to PDF print dialog."
+ },
+ {
+  "task_id": "I-0652",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched cash drawer, kick, 0x1b 0x70 in web/src",
+  "reason": "No drawer kick bytes are added to the print stream."
+ },
+ {
+  "task_id": "I-0653",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched navigator.serial, weighing scale, RS-232 in web/src",
+  "reason": "No Web Serial or weighing scale integration exists."
+ },
+ {
+  "task_id": "I-0654",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched pole display, customer display, secondary screen in web/src",
+  "reason": "No customer-facing display driver or secondary window exists."
+ },
+ {
+  "task_id": "I-0655",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/pos/PosPage.tsx:tryAddByBarcode; web/src/lib/native.ts:scanBarcode; web/src/pages/pos/posEnter.ts",
+  "reason": "Enter-key barcode lookup works with wedge scanners and native camera scan in the mobile app; no 50ms timing heuristic or browser camera scanner."
+ },
+ {
+  "task_id": "I-0664",
+  "verdict": "Partial",
+  "evidence": "backend/sales/route_optimization.py:NearestNeighborTwoOptStrategy; backend/sales/route_optimization.py:haversine_km",
+  "reason": "Stop sequencing uses local nearest-neighbour and pincode haversine; no Google Maps or OSM Directions API call."
+ },
+ {
+  "task_id": "P-0001",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:SalesService; web/src/pages/pos/PosPage.tsx; backend/accounting/services.py:PostingService",
+  "reason": "POS checkout completes invoice with SALE stock movements and GL posting; thermal print path exists; drawer pulse not implemented."
+ },
+ {
+  "task_id": "P-0014",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:SalesReturn; backend/sales/return_service.py:ReturnService",
+  "reason": "Complete return posts SALES_RETURN stock movements, auto-creates a credit note and posts COGS reversal."
+ },
+ {
+  "task_id": "P-0018",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:SalesService; backend/accounting/services.py:PostingService",
+  "reason": "Invoice completion posts SALE stock movements, customer outstanding and GL revenue and COGS."
+ },
+ {
+  "task_id": "P-0030",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/return_service.py:ReturnService; backend/sales/models.py:SalesReturnItem",
+  "reason": "Returns restore sellable stock, scrap damaged items, and generate a credit note."
+ },
+ {
+  "task_id": "P-0031",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/services.py:PurchaseService; backend/purchases/models.py:PurchaseDebitNote",
+  "reason": "Purchase return posts outward stock movements but auto-generates a PurchaseCreditNote, not a PurchaseDebitNote."
+ },
+ {
+  "task_id": "P-0032",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/tax_engine/india.py:compute_document_totals",
+  "reason": "Line and invoice discounts are deducted from taxable value before GST is computed."
+ },
+ {
+  "task_id": "P-0038",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/models.py:BatchLot; backend/sales/models.py:SalesItem; backend/sales/services.py:SalesService",
+  "reason": "SalesItem stores batch, batch_no and MRP; sale allocates FEFO batch lots."
+ },
+ {
+  "task_id": "P-0046",
+  "verdict": "Partial",
+  "evidence": "backend/masters/views.py:ProductViewSet",
+  "reason": "Product search matches name, SKU, barcode, HSN and custom fields; no native salt/composition or manufacturer field."
+ },
+ {
+  "task_id": "P-0052",
+  "verdict": "Partial",
+  "evidence": "backend/sales/services.py:SalesService; backend/masters/models.py:PriceListItem",
+  "reason": "Invoices apply price lists and post stock, AR and GST; bulk CSV entry for invoices not found."
+ },
+ {
+  "task_id": "P-0053",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesOrder; backend/sales/order_gates.py:apply_order_gates",
+  "reason": "Orders are created with credit-limit gating and stock reservation on confirm; field-salesman capture and explicit stock validation not confirmed."
+ },
+ {
+  "task_id": "P-0056",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesOrder; web/src/App.tsx:Route",
+  "reason": "Orders list by status exists; no dispatch-status grouping or aging backlog widget."
+ },
+ {
+  "task_id": "P-0070",
+  "verdict": "Contradicted",
+  "evidence": "backend/sales/models.py:DeliveryChallan; backend/sales/models.py:SalesOrder",
+  "reason": "Challans record vehicle details but no pick list exists and SalesOrder has no DISPATCHED status."
+ },
+ {
+  "task_id": "P-0135",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesOrder; backend/sales/models.py:DeliveryRouteStop",
+  "reason": "Order statuses are DRAFT/CONFIRMED/CONVERTED/CANCELLED; only route stops carry DELIVERED, no PICKED or DISPATCHED order tracking."
+ },
+ {
+  "task_id": "P-0167",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched replacement, exchange in backend/sales and web/src/pages/pos",
+  "reason": "No replacement or exchange workflow linking a return to a replacement order."
+ },
+ {
+  "task_id": "P-0182",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/settings/InvoiceTemplatesPage.tsx:InvoiceTemplatesPage",
+  "reason": "Page edits invoice terms only; no layout, thermal size, logo or QR placement configuration with preview."
+ },
+ {
+  "task_id": "P-0495",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRoute; backend/sales/route_service.py",
+  "reason": "Route can be started to IN_TRANSIT with ordered stops; no DispatchRun, OUT_FOR_DELIVERY status or driver PWA."
+ },
+ {
+  "task_id": "P-0496",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRouteStop; web/src/pages/sales/DeliveryRoutesPage.tsx",
+  "reason": "Stops have sequence and delivered_at timestamp; no per-stop map or turn-by-turn navigation link."
+ },
+ {
+  "task_id": "P-0497",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched parcel count, carton verification in backend/sales and DeliveryRoutesPage",
+  "reason": "No parcel or carton count verification checklist at stop level."
+ },
+ {
+  "task_id": "P-0498",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py",
+  "reason": "POD stores received-by name, photo and entered OTP and marks stop DELIVERED; OTP is not validated against SMS and no signature canvas."
+ },
+ {
+  "task_id": "P-0499",
+  "verdict": "Partial",
+  "evidence": "backend/sales/route_service.py; backend/sales/models.py:DeliveryChallanReturn",
+  "reason": "Stop can be FAILED or RETURNED and challan returns exist; no partial-rejection note with mandatory photo or auto transit movement."
+ },
+ {
+  "task_id": "P-0500",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRouteStop; web/src/utils/upi.ts:buildUpiUri",
+  "reason": "Stop can link a customer receipt and a UPI URI builder exists; no DriverPaymentReceipt or driver cash liability ledger."
+ },
+ {
+  "task_id": "P-0501",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched driver settlement, DriverPaymentReceipt, DispatchRun",
+  "reason": "No driver cash reconciliation or route-close settlement screen exists."
+ },
+ {
+  "task_id": "R-0636",
+  "verdict": "Partial",
+  "evidence": "load/locust_smoke.py:HealthUser",
+  "reason": "Locust smoke script exists but only exercises health endpoint; no POS checkout latency benchmark or optimization."
+ },
+ {
+  "task_id": "R-0638",
+  "verdict": "Confirmed",
+  "evidence": "web/src/offline/invoiceDraftCache.ts:enqueueDraft; web/src/offline/invoiceDraftCache.ts:flushOutbox; web/src/offline/flushPosCheckout.ts:flushPosDraft",
+  "reason": "IndexedDB invoice outbox flushes on reconnect with stable idempotency key; relies on app-level flush, not service-worker background sync."
+ },
+ {
+  "task_id": "R-0639",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/idempotency.py:wrap_idempotent; backend/core/idempotency.py:begin_record",
+  "reason": "Durable Idempotency-Key records replay the stored response for duplicates; stored in DB with fingerprint, not Redis 120s."
+ },
+ {
+  "task_id": "S-0564",
+  "verdict": "Partial",
+  "evidence": "backend/sales/tasks.py:generate_invoice_pdf; backend/sales/views.py",
+  "reason": "PDF generation is queued to Celery with pdf_status polling; no WebSocket push of download URL."
+ }
+]

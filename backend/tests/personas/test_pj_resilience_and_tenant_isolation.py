@@ -86,16 +86,17 @@ def test_pj_idempotency_safe_retry_single_transaction_effect():
     assert_all_invariants(company)
 
 
-def test_pj_idempotency_key_reused_with_different_payload_replays_first_response():
-    """T7 Resilience — negative case for FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md §9:
-    `core.idempotency` keys purely on (company, scope, key) — it never hashes or
-    compares the request body (see `IdempotencyRecord` lookup in `begin_record`).
-    So a client that reuses an Idempotency-Key across two *different* payloads
-    (a client bug, e.g. a retried request whose body was mutated) gets the FIRST
-    request's cached response replayed verbatim; the second, different payload is
-    silently never processed — no second invoice, no error surfaced. This pins
-    that behaviour so a future change to the idempotency layer is a deliberate
-    decision, not an accidental regression either way."""
+def test_pj_idempotency_key_reused_with_different_payload_is_refused():
+    """T7 Resilience — negative case for FULL_SPECTRUM_PERSONA_VALIDATION_PLAN.md §9.
+
+    History: `core.idempotency` used to key purely on (company, scope, key), so a client
+    that reused an Idempotency-Key for a *different* payload (a client bug, e.g. a retried
+    request whose body was mutated) got the FIRST response replayed as a 201: the second
+    payload was silently never processed and nothing told the caller. The earlier version of
+    this test pinned that behaviour "so a future change is a deliberate decision". This is
+    that deliberate change (2026-10-02): the key now carries a hash of the request, and a
+    reused key with a different body is refused with 422 `idempotency_key_reused`. The first
+    invoice is untouched, no second one appears, and an exact retry still replays."""
     ns = seed_archetype("trader")
     company = ns.company
     oc = ns.owner_client
@@ -126,11 +127,14 @@ def test_pj_idempotency_key_reused_with_different_payload_replays_first_response
     ]
     r2 = oc.post("/api/v1/sales/invoices/", second_payload, format="json", HTTP_IDEMPOTENCY_KEY=idem_key)
 
-    # Current, pinned behaviour: the cached first response is replayed as-is —
-    # same invoice id, same (5-unit) line — the 20-unit request is never posted.
-    assert r2.status_code == 201, r2.data
-    assert r2.data["id"] == first_invoice_id
-    assert r2.data["items"][0]["quantity"] == first_payload["items"][0]["quantity"] == "5.000"
+    # Refused loudly: no false "success" for a request that was never saved.
+    assert r2.status_code == 422, r2.data
+    assert "idempotency_key_reused" in str(r2.data)
+
+    # An exact retry of the ORIGINAL request still replays the first response.
+    r3 = oc.post("/api/v1/sales/invoices/", first_payload, format="json", HTTP_IDEMPOTENCY_KEY=idem_key)
+    assert r3.status_code == 201 and r3.data["id"] == first_invoice_id
+    assert r3.data["items"][0]["quantity"] == "5.000"
 
     assert SalesInvoice.objects.filter(company=company, customer=cust).count() == 1
 

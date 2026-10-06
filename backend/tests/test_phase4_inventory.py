@@ -35,6 +35,7 @@ def test_transfer_conserves_stock_between_warehouses(tenant_a):
     )
     StockTransferLine.objects.create(transfer=transfer, product=product, quantity="4")
     StockTransferService.complete(transfer, tenant_a.owner)
+    StockTransferService.receive(transfer, tenant_a.owner)
     assert InventoryService.available_quantity(tenant_a.company, product, source) == Decimal("6")
     assert InventoryService.available_quantity(tenant_a.company, product, destination) == Decimal("4")
     StockTransferService.cancel(transfer, tenant_a.owner)
@@ -55,6 +56,7 @@ def test_wavg_transfer_carries_unit_cost_and_product_name(tenant_a):
     )
     StockTransferLine.objects.create(transfer=transfer, product=product, quantity="4")
     StockTransferService.complete(transfer, tenant_a.owner)
+    StockTransferService.receive(transfer, tenant_a.owner)
     dest_rows = InventoryValuationService.valuation(
         tenant_a.company, warehouse=dest, product=product,
     )
@@ -231,6 +233,7 @@ def test_serial_transfer_moves_warehouse_on_complete(tenant_a):
         transfer=transfer, product=product, quantity="1", serial_numbers=["SN-TRF"],
     )
     StockTransferService.complete(transfer, tenant_a.owner)
+    StockTransferService.receive(transfer, tenant_a.owner)
     serial.refresh_from_db()
     assert serial.warehouse_id == destination.id
     assert serial.status == SerialNumber.Status.AVAILABLE

@@ -36,8 +36,10 @@ import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
+import { partyNameError } from '@/utils/partyName';
 import type { Customer } from '@/types/domain';
 import { isValidGstin, isValidIndianPhone } from '@/utils/gst';
+import { isValidIndianPincode } from '@/utils/pincode';
 import { getStateFromGstin } from '@/utils/indianStates';
 import { formatMoney } from '@/utils/money';
 import { isViewer } from '@/utils/permissions';
@@ -121,10 +123,17 @@ export function CustomersPage() {
     !!company.data?.isGstRegistered && !company.data?.assumeLocalStateForBlankParty;
   const placeOfSupplyOk =
     !requirePlaceOfSupply || placeOfSupplyKnown(form.state, form.gstin);
+  const loadedPincode = (editing?.pincode ?? '').trim();
+  const pincodeText = form.pincode.trim();
+  // A stored legacy PIN may be saved again unchanged. A new or edited value must be a real PIN.
+  const pincodeOk =
+    (editing != null && pincodeText === loadedPincode) || isValidIndianPincode(form.pincode);
   const canSave =
     Boolean(form.name.trim()) &&
+    partyNameError(form.name) == null &&
     placeOfSupplyOk &&
-    (!form.phone.trim() || isValidIndianPhone(form.phone));
+    (!form.phone.trim() || isValidIndianPhone(form.phone)) &&
+    pincodeOk;
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -139,6 +148,7 @@ export function CustomersPage() {
       }
       const payload = {
         ...form,
+        pincode: form.pincode.trim(),
         gstin: gstin || form.gstin,
         priceList: form.priceList === '' ? null : form.priceList,
         latitude: latitude || null,
@@ -147,11 +157,21 @@ export function CustomersPage() {
       if (editing) return updateCustomer(editing.id, payload);
       return createCustomer({ ...payload, status: 'ACTIVE' });
     },
-    onSuccess: () => {
+    onSuccess: async (saved) => {
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
       setError(null);
+      await qc.cancelQueries({ queryKey: ['customers'] });
+      qc.setQueriesData<{ results: Customer[]; count: number }>(
+        { queryKey: ['customers'] },
+        (prev) => {
+          if (!prev) return prev;
+          const already = prev.results.some((row) => row.id === saved.id);
+          const results = [saved, ...prev.results.filter((row) => row.id !== saved.id)];
+          return { ...prev, results, count: prev.count + (already ? 0 : 1) };
+        },
+      );
       void qc.invalidateQueries({ queryKey: ['customers'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -172,7 +192,7 @@ export function CustomersPage() {
 
   const openCreate = () => {
     setEditing(null);
-    setForm({ ...emptyForm, state: company.data?.state || '' });
+    setForm(emptyForm);
     setNameTouched(false);
     setOpen(true);
   };
@@ -259,10 +279,10 @@ export function CustomersPage() {
         />
       ) : null}
       {rows.length === 0 && !query.isLoading && !query.isError && (filters.status || debouncedQ) ? (
-        <EmptyState description={t('common.noResults')} />
+        <EmptyState title={t('common.noResults')} />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -271,7 +291,7 @@ export function CustomersPage() {
                 <TableCell>GSTIN</TableCell>
                 <TableCell>GSTIN status</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
-                <TableCell align="right">Outstanding</TableCell>
+                <TableCell align="right">{t('sweep2.outstanding')}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -319,7 +339,7 @@ export function CustomersPage() {
                             disabled={verifyMutation.isPending}
                             onClick={() => verifyMutation.mutate(c.id)}
                           >
-                            Verify
+                            {t('sweep2.verify')}
                           </Button>
                         ) : null}
                       </Stack>
@@ -398,9 +418,16 @@ export function CustomersPage() {
               label={t('common.name')}
               required
               value={form.name}
+              placeholder={t('billing.partyNamePrompt')}
               onBlur={() => setNameTouched(true)}
-              error={nameTouched && !form.name.trim()}
-              helperText={nameTouched && !form.name.trim() ? 'Customer name is required' : undefined}
+              error={nameTouched && (!form.name.trim() || partyNameError(form.name) != null)}
+              helperText={
+                nameTouched && !form.name.trim()
+                  ? 'Customer name is required'
+                  : nameTouched && partyNameError(form.name)
+                    ? t('billing.partyNameInvalid')
+                    : undefined
+              }
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
             <TextField
@@ -437,7 +464,7 @@ export function CustomersPage() {
             />
             <TextField
               select
-              label="Price list"
+              label={t('sweep.priceList')}
               value={form.priceList === '' ? '' : form.priceList}
               onChange={(e) =>
                 setForm((f) => ({
@@ -446,7 +473,7 @@ export function CustomersPage() {
                 }))
               }
             >
-              <MenuItem value="">None</MenuItem>
+              <MenuItem value="">{t('sweep2.none')}</MenuItem>
               {(priceLists.data ?? []).map((pl) => (
                 <MenuItem key={pl.id} value={pl.id}>
                   {pl.name}
@@ -492,28 +519,26 @@ export function CustomersPage() {
               label={t('osPlan.pincode')}
               value={form.pincode}
               onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
-              inputProps={{ maxLength: 10 }}
-            />
-            <TextField
-              label={t('osPlan.pincode')}
-              value={form.pincode}
-              onChange={(e) => setForm((f) => ({ ...f, pincode: e.target.value }))}
-              inputProps={{ maxLength: 10 }}
+              error={!pincodeOk && Boolean(pincodeText)}
+              helperText={!pincodeOk || !pincodeText ? t('validation.pincode') : undefined}
+              inputProps={{ maxLength: 10, inputMode: 'numeric' }}
             />
             <TextField
               label={t('osPlan.latitude')}
               value={form.latitude}
               onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))}
+              helperText={t('customers.coordinatesHelper')}
               inputProps={{ inputMode: 'decimal' }}
             />
             <TextField
               label={t('osPlan.longitude')}
               value={form.longitude}
               onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))}
+              helperText={t('customers.coordinatesHelper')}
               inputProps={{ inputMode: 'decimal' }}
             />
             <TextField
-              label="Billing address"
+              label={t('sweep.billingAddress')}
               value={form.billingAddress}
               onChange={(e) => setForm((f) => ({ ...f, billingAddress: e.target.value }))}
             />
@@ -525,6 +550,8 @@ export function CustomersPage() {
             title={
               !form.name.trim()
                 ? 'Enter customer name to save'
+                : partyNameError(form.name)
+                  ? t('billing.partyNameInvalid')
                 : !placeOfSupplyOk
                   ? 'Add State or GSTIN for GST invoices (or enable assume-local in GST settings)'
                   : ''

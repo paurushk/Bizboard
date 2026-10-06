@@ -1,0 +1,36 @@
+{
+ "P-0115": [
+  "backend/tests/test_register_audit_coverage.py::test_sales_invoice_complete_writes_audit_event",
+  "backend/tests/test_register_audit_coverage.py::test_journal_post_writes_audit_event"
+ ],
+ "X-0432": [
+  "backend/tests/test_register_audit_coverage.py::test_sales_invoice_cancel_writes_audit_event",
+  "backend/tests/test_register_audit_coverage.py::test_customer_receipt_post_writes_audit_event",
+  "backend/tests/test_register_audit_coverage.py::test_supplier_payment_post_writes_audit_event"
+ ],
+ "P-0507": [
+  "backend/tests/test_register_audit_coverage.py::test_stock_adjustment_writes_audit_event"
+ ],
+ "SEC-0624": [
+  "backend/tests/test_register_integrity_gaps.py::test_owner_without_mfa_cannot_complete_login_with_password_alone"
+ ],
+ "S-0561": [
+  "backend/tests/test_register_integrity_gaps.py::test_check_invariants_passes_on_balanced_postings",
+  "backend/tests/test_register_integrity_gaps.py::test_check_invariants_fails_on_unbalanced_journal_inserted_via_orm"
+ ],
+ "S-0573": [
+  "backend/tests/test_register_integrity_gaps.py::test_duplicate_captured_webhook_yields_one_receipt_and_one_journal_set"
+ ],
+ "X-0239": [
+  "backend/tests/test_register_race_gaps.py::test_concurrent_stock_transfers_cannot_overdraw_source"
+ ],
+ "X-0243": [
+  "backend/tests/test_register_race_gaps.py::test_concurrent_stock_adjustments_both_apply"
+ ],
+ "P-0142": [
+  "backend/tests/test_register_race_gaps.py::test_concurrent_goods_receipt_completion_receives_stock_once"
+ ],
+ "D-0690": [
+  "backend/tests/test_register_race_gaps.py::test_concurrent_duplicate_gstr2b_upload_adds_no_duplicate_rows"
+ ]
+}

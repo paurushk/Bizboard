@@ -72,7 +72,7 @@ test('promise-to-pay: created via API (no UI exists yet), surfaces on the Attent
   await saveAndCompleteSalesInvoice(page, new RegExp(customerName));
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).first();
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   // Look up the customer/invoice ids via the same authenticated session the
@@ -101,6 +101,7 @@ test('promise-to-pay: created via API (no UI exists yet), surfaces on the Attent
       customer: customerId,
       invoice: invoiceId,
       promised_date: todayIso,
+      promised_amount: '100',
       note,
     },
   });
@@ -121,7 +122,9 @@ test('promise-to-pay: created via API (no UI exists yet), surfaces on the Attent
   // `_promise_to_pay_rows` builds. The raw feed is cached per
   // (company, as_of) for 60s with no invalidation on write; poll with
   // reloads past the TTL instead of a single fetch.
-  const promiseRowText = page.getByText(new RegExp(`${customerName} promised to pay today`)).first();
+  const promiseRowText = page
+    .getByText(new RegExp(`${customerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} promised to pay .+ today`))
+    .first();
   await expect(async () => {
     await page.goto('/attention');
     await expect(promiseRowText).toBeVisible({ timeout: 3_000 });

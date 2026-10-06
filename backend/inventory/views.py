@@ -1,7 +1,8 @@
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Subquery
+from django.http import HttpResponse, StreamingHttpResponse
+from django.db.models import F, Max, OuterRef, Subquery, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -53,50 +54,70 @@ def _effective_reorder_annotation():
 
 
 def low_stock_alert_payload(company):
-    """Company-wide low stock unless a per-godown reorder override exists (E2E3-019)."""
-    from collections import defaultdict
+    """Company-wide low stock unless a per-godown reorder override exists (E2E3-019).
 
-    override_keys = set(
+    BUG-PERF-006: totals are one GROUP BY. Override rows are loaded by the
+    override key set, not a correlated subquery per balance.
+    """
+    override_rows = list(
         WarehouseReorderLevel.objects.filter(company=company).values_list(
-            "product_id", "warehouse_id"
+            "product_id", "warehouse_id", "reorder_level"
         )
     )
-    balances = list(
-        StockBalance.objects.select_related("product", "warehouse")
-        .filter(company=company, product__status="ACTIVE")
-        .annotate(
-            _available=F("on_hand") - F("reserved"),
-            _reorder=_effective_reorder_annotation(),
+    override_keys = {(pid, wid) for pid, wid, _level in override_rows}
+    override_level = {(pid, wid): level for pid, wid, level in override_rows}
+
+    base = StockBalance.objects.filter(company=company, product__status="ACTIVE")
+    total_rows = list(
+        base.values("product_id").annotate(
+            available=Sum(F("on_hand") - F("reserved")),
+            reorder=Max("product__reorder_level"),
         )
     )
-    totals = defaultdict(lambda: Decimal("0"))
-    for row in balances:
-        totals[row.product_id] += row._available
+    totals = {row["product_id"]: row["available"] or Decimal("0") for row in total_rows}
+    low_product_ids = {
+        row["product_id"]
+        for row in total_rows
+        if (row["available"] or Decimal("0")) <= (row["reorder"] or Decimal("0"))
+    }
 
     items = []
-    seen = set()
-    for row in balances:
-        key = (row.product_id, row.warehouse_id)
-        if key in override_keys:
-            if row._available <= row._reorder:
-                # F1-002: a real, single warehouse's own shortage — safe to
-                # reason about "this warehouse" for a transfer suggestion.
+    if override_keys:
+        specific = (
+            base.filter(
+                product_id__in={pid for pid, _wid in override_keys},
+                warehouse_id__in={wid for _pid, wid in override_keys},
+            )
+            .select_related("product", "warehouse")
+            .annotate(_available=F("on_hand") - F("reserved"))
+        )
+        for row in specific:
+            key = (row.product_id, row.warehouse_id)
+            if key not in override_keys:
+                continue
+            level = override_level[key] or Decimal("0")
+            row._reorder = level
+            if row._available <= level:
                 row.is_warehouse_specific = True
                 items.append(row)
-            continue
-        if row.product_id in seen:
-            continue
-        seen.add(row.product_id)
-        reorder = row.product.reorder_level or Decimal("0")
-        if totals[row.product_id] <= reorder:
+
+    if low_product_ids:
+        seen = set()
+        candidates = (
+            base.filter(product_id__in=low_product_ids)
+            .select_related("product", "warehouse")
+            .order_by("product_id", "id")
+        )
+        for row in candidates:
+            if row.product_id in seen:
+                continue
+            if (row.product_id, row.warehouse_id) in override_keys:
+                continue
+            seen.add(row.product_id)
             row.on_hand = totals[row.product_id]
             row.reserved = Decimal("0")
-            # F1-002: company-wide aggregate across warehouses with no
-            # override — `row.warehouse` is whichever StockBalance happened
-            # to be first in queryset order, not a meaningful "current
-            # warehouse". Callers must not treat it as one (e.g. must not
-            # exclude it from, or suggest a transfer into, this warehouse
-            # specifically — see inventory/services.py:suggest_replenishment).
+            row._reorder = row.product.reorder_level or Decimal("0")
+            row._available = row.on_hand
             row.is_warehouse_specific = False
             items.append(row)
     return items
@@ -106,7 +127,7 @@ class StockBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
     serializer_class = StockBalanceSerializer
     # BB-000420: cost/qty balances are not for VIEWER.
     permission_classes = [IsAuthenticated, HasCompany, CanViewInventorySurfaces]
-    queryset = StockBalance.objects.select_related("product")
+    queryset = StockBalance.objects.select_related("product", "warehouse", "batch")
 
     def get_queryset(self):
         qs = self.queryset.filter(company=get_company_user(self.request).company)
@@ -122,6 +143,10 @@ class StockBalanceViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, view
             qs = qs.filter(warehouse_id=warehouse)
         if product := self.request.query_params.get("product"):
             qs = qs.filter(product_id=product)
+        raw_ids = (self.request.query_params.get("product_ids") or "").strip()
+        if raw_ids:
+            ids = [int(part) for part in raw_ids.split(",") if part.strip().isdigit()]
+            qs = qs.filter(product_id__in=ids[:250])
         company = get_company_user(self.request).company
         defs = active_defs(company)
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
@@ -154,6 +179,52 @@ class StockMovementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         if warehouse := self.request.query_params.get("warehouse"):
             qs = qs.filter(warehouse_id=warehouse)
         return qs
+
+    @action(detail=False, methods=["get"], url_path="export")
+    def export_csv(self, request):
+        """BUG-SEC-005: stream movement rows instead of building one in-memory list."""
+
+        def _rows():
+            yield "id,product_id,movement_type,quantity\n"
+            qs = self.get_queryset().order_by("id")
+            for row in qs.iterator(chunk_size=500):
+                yield f"{row.id},{row.product_id},{row.movement_type},{row.quantity}\n"
+
+        return StreamingHttpResponse(_rows(), content_type="text/csv")
+
+
+def zpl_barcode_label(*, name: str, code: str, copies: int = 1) -> str:
+    """Raw ZPL for a warehouse barcode printer (BUG-INV-006)."""
+    safe_name = (name or "")[:40].replace("^", " ").replace("~", " ")
+    safe_code = (code or "ITEM")[:40].replace("^", "")
+    try:
+        copies = int(copies or 1)
+    except (TypeError, ValueError):
+        copies = 1
+    copies = max(1, min(copies, 50))
+    one = (
+        "^XA\n"
+        f"^FO40,30^A0N,28,28^FD{safe_name}^FS\n"
+        f"^FO40,70^BY2^BCN,80,Y,N,N^FD{safe_code}^FS\n"
+        "^XZ\n"
+    )
+    return one * copies
+
+
+class BarcodeLabelZplView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, CanViewInventorySurfaces]
+
+    def get(self, request):
+        company = get_company_user(request).company
+        product_id = request.query_params.get("product")
+        try:
+            pk = int(product_id)
+        except (TypeError, ValueError):
+            raise BusinessRuleError("product is required.")
+        product = get_object_or_404(Product, pk=pk, company=company)
+        code = (product.barcode or product.sku or str(product.pk))
+        body = zpl_barcode_label(name=product.name, code=code, copies=request.query_params.get("copies") or 1)
+        return HttpResponse(body, content_type="text/plain")
 
 
 class AdjustmentView(APIView):
@@ -200,6 +271,39 @@ class AdjustmentView(APIView):
         assert_period_allows_money_amend(company, adj_date)
         warnings = []
         qty = Decimal(str(serializer.validated_data["quantity"]))
+        from planwave.services import consume_stock_approval, stock_adjustment_needs_second
+
+        on_hand = Decimal("0")
+        measured = warehouse or InventoryService.default_warehouse(company)
+        balance = StockBalance.objects.filter(company=company, product=product, warehouse=measured).first()
+        if balance is not None:
+            on_hand = Decimal(str(balance.on_hand or 0))
+        value = abs(qty) * Decimal(str(product.purchase_price or 0))
+        if stock_adjustment_needs_second(company, value=value, quantity=abs(qty), on_hand=on_hand):
+            from planwave.services import decide_approval, owner_is_sole_approver, submit_approval
+
+            approval = consume_stock_approval(
+                company, request.data.get("approval_id"), request.user,
+                product=product.pk, quantity=qty,
+            )
+            if approval is None and owner_is_sole_approver(company, request.user):
+                pending = submit_approval(
+                    company=company,
+                    action="stock_adjustment",
+                    requester=request.user,
+                    payload={"product": product.pk, "quantity": str(qty), "reason": serializer.validated_data["reason"]},
+                )
+                pending.reason = "Owner is the only approver."
+                pending.save(update_fields=["reason"])
+                decide_approval(pending, approver=request.user, accept=True, owner_exception=True)
+            elif approval is None:
+                pending = submit_approval(
+                    company=company,
+                    action="stock_adjustment",
+                    requester=request.user,
+                    payload={"product": product.pk, "quantity": str(qty), "reason": serializer.validated_data["reason"]},
+                )
+                return Response({"status": "PENDING", "approval_id": pending.pk}, status=202)
         if qty < 0:
             # CR-050: surface WARN like unbatched invoice; BLOCK raises inside check.
             warning = InventoryService.check_negative_stock(
@@ -217,6 +321,7 @@ class AdjustmentView(APIView):
             user=request.user,
             warehouse=warehouse,
             batch=batch,
+            movement_date=adj_date,
         )
         AuditService.log(
             company=company, user=request.user, action="CREATE",
@@ -308,6 +413,7 @@ class LowStockAlertsView(APIView):
 class WarehouseViewSet(CompanyScopedViewSet):
     queryset = Warehouse.objects.all()
     serializer_class = WarehouseSerializer
+
     # BB-000388: mutate requires inventory capability (not HasCompany-only).
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
@@ -363,8 +469,9 @@ class StockTransferViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
+        """Dispatch: stock leaves the source and sits in transit."""
         def build():
-            transfer, warnings = StockTransferService.complete(self.get_object(), request.user)
+            transfer, warnings = StockTransferService.dispatch(self.get_object(), request.user)
             data = self.get_serializer(transfer).data
             if warnings:
                 data["warnings"] = warnings
@@ -374,6 +481,25 @@ class StockTransferViewSet(CompanyScopedViewSet):
             request=request,
             company=self.company,
             scope="stock_transfer_complete",
+            build=build,
+        )
+
+    @action(detail=True, methods=["post"])
+    def receive(self, request, pk=None):
+        """Land in-transit stock at the destination godown."""
+        def build():
+            transfer, warnings = StockTransferService.receive(
+                self.get_object(), request.user, receipts=request.data.get("receipts"),
+            )
+            data = self.get_serializer(transfer).data
+            if warnings:
+                data["warnings"] = warnings
+            return Response(data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="stock_transfer_receive",
             build=build,
         )
 
@@ -735,6 +861,20 @@ class StockCountSessionViewSet(CompanyScopedViewSet):
     queryset = StockCountSession.objects.select_related("warehouse").prefetch_related("lines__product", "lines__batch")
     serializer_class = StockCountSessionSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
+
+    @action(detail=True, methods=["get"])
+    def counter(self, request, pk=None):
+        """Count screen. A blind session omits the expected quantity."""
+        session = self.get_object()
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["get"])
+    def review(self, request, pk=None):
+        """Review screen. Variance is visible even when the session is blind."""
+        session = self.get_object()
+        serializer = self.get_serializer(session)
+        serializer.context["reveal_count"] = True
+        return Response(serializer.data)
 
     @action(detail=True, methods=["post"])
     def post(self, request, pk=None):

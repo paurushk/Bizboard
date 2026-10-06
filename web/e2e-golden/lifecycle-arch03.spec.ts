@@ -59,9 +59,9 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   await convertDraftOrderToCompletedInvoiceViaChallan(page, customerName);
 
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
+  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   const payPath = await createPaymentLinkAndReadPublicPath(page, invoiceNumber!);
@@ -113,7 +113,7 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   await page.getByLabel('End', { exact: true }).fill(today);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText(`FY-close ${id}`)).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Close', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Close period', exact: true }).first().click();
   await expect(page.getByText(/CLOSED/i).first()).toBeVisible({ timeout: 20_000 });
 
   await page.goto('/sales/new');

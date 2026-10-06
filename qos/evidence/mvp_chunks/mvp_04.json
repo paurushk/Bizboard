@@ -1,0 +1,292 @@
+[
+ {
+  "Task ID": "P-0178",
+  "Module": "masters",
+  "Task / Business Action": "Configure business settings",
+  "Business Outcome": "Configure company profile, legal name, registered address, logo, currency, and financial year",
+  "Downstream Impact": "Updates Company master model; sets default behaviors for documents and system operations",
+  "Notes": "Supported via /settings/company/ profile management.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0715",
+  "Module": "masters",
+  "Task / Business Action": "Customer changes legal name and registered address: system updates master while preserving historical invoices",
+  "Business Outcome": "Customer moves to new premises and updates GSTIN; new invoices use new address, historical invoices preserve old address",
+  "Downstream Impact": "Updates Customer master; historical completed SalesInvoice headers retain immutable address snapshot",
+  "Notes": "Core data invariant: invoice headers store immutable address snapshot; master updates do not corrupt historical bills.",
+  "Code pointer": "backend/sales/models.py:SalesInvoice",
+  "Test reference": "backend/tests/test_a03_preview.py; backend/tests/test_a06_whatsapp.py; backend/tests/test_a07_dunning.py"
+ },
+ {
+  "Task ID": "P-0002",
+  "Module": "payments",
+  "Task / Business Action": "Record a cash sale",
+  "Business Outcome": "Immediate cash payment accepted and registered in the daily till",
+  "Downstream Impact": "Debit Cash-in-Hand ledger account, credit Sales Revenue account; updates physical till balance",
+  "Notes": "Supported via Payment model (payment_mode='CASH') linked directly to completed SalesInvoice.",
+  "Code pointer": "backend/sales/models.py:SalesInvoice",
+  "Test reference": "backend/tests/test_a03_preview.py; backend/tests/test_a06_whatsapp.py; backend/tests/test_a07_dunning.py"
+ },
+ {
+  "Task ID": "P-0003",
+  "Module": "payments",
+  "Task / Business Action": "Record a UPI/digital payment",
+  "Business Outcome": "Instant settlement via dynamic BharatPe/UPI QR code scanning",
+  "Downstream Impact": "Debit Bank/UPI Settlement clearing account, credit Sales Revenue account; records transaction UTR/ref",
+  "Notes": "Supported via POS screen dynamic UPI QR generator. Stores transaction UTR reference on payment record.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0573",
+  "Module": "payments",
+  "Task / Business Action": "Automated payment gateway webhook signature cryptographic verification worker",
+  "Business Outcome": "Ensure payment gateway callback authenticity and reject fraudulent spoofed payment completion requests",
+  "Downstream Impact": "Verifies HMAC SHA-256 signature using webhook secret; rejects unverified payload with HTTP 400",
+  "Notes": "Core security invariant: HMAC signature verification required before marking invoice PAID.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SaaS-0669",
+  "Module": "payments",
+  "Task / Business Action": "Automated recurring subscription billing and GST tax invoice generation via Razorpay Subscriptions",
+  "Business Outcome": "Automated monthly/annual recurring credit card / UPI auto-debit for software subscription fee",
+  "Downstream Impact": "Charges customer; activates subscription period; automatically emails GST-compliant B2B SaaS tax invoice",
+  "Notes": "Razorpay / Stripe recurring subscription webhook integration with automated invoice delivery.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0530",
+  "Module": "payments",
+  "Task / Business Action": "Handle bounced / dishonoured cheque: reverse invoice settlement, add bank fee, alert owner",
+  "Business Outcome": "Immediate accounting reversal when bank rejects cheque due to insufficient customer funds",
+  "Downstream Impact": "Restores original invoice UNPAID status; debits bank dishonour charges to customer account; alerts owner",
+  "Notes": "Supported via Cheque Dishonour action with automated ledger reversal and notice letter.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0713",
+  "Module": "payments",
+  "Task / Business Action": "Customer cheque dishonoured after 5 days: automated accounting reversal and bank fee debit",
+  "Business Outcome": "₹50,000 cheque bounces; system reverses invoice payment, marks bill UNPAID, debits ₹350 bank bounce fee to customer",
+  "Downstream Impact": "Generates formal legal cheque bounce notice under Section 138 of Negotiable Instruments Act; alerts owner",
+  "Notes": "Automated Cheque Dishonour workflow with Section 138 statutory notice letter generator.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "F-0746",
+  "Module": "payroll",
+  "Task / Business Action": "Complete the pay run and keep one payslip per active employee",
+  "Business Outcome": "The month is closed for pay and can be reopened only through the pay-run actions",
+  "Downstream Impact": "complete_pay_run writes PaySlip rows and can pay from cash. A completed run cannot be completed again",
+  "Notes": "complete_pay_run. There are no bonus, arrear, advance, or one-off deduction lines on a slip.",
+  "Code pointer": "backend/payroll/models.py:PaySlip; backend/payroll/services.py:complete_pay_run",
+  "Test reference": "backend/tests/test_sprint4_erp_rls.py; backend/tests/test_ws24_payroll_math.py; backend/tests/personas/test_pj_payroll_and_advances.py"
+ },
+ {
+  "Task ID": "D-0681",
+  "Module": "purchases",
+  "Task / Business Action": "Deterministic LLM bill extraction: photo of crumpled paper bill → structured draft invoice",
+  "Business Outcome": "Merchant snaps photo of physical vendor bill using mobile camera; AI extracts line items with 99% accuracy",
+  "Downstream Impact": "Parses vendor GSTIN, invoice number, items, HSN, rates, and taxes; pre-fills purchase invoice in 5 seconds",
+  "Notes": "Differentiator vs Tally/Vyapar: Vision LLM + OCR parsing pipeline with deterministic schema validation.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0043",
+  "Module": "purchases",
+  "Task / Business Action": "Record purchases by batch",
+  "Business Outcome": "Inward medicine purchases capturing manufacturer batch number, manufacturing date, expiry date, and MRP",
+  "Downstream Impact": "Creates or updates BatchLot records; increments batch quantity and updates latest purchase rate",
+  "Notes": "Supported via /purchases/invoices/create with batch lot table inputs per line item.",
+  "Code pointer": "backend/inventory/models.py:BatchLot",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_c02_lot_identity.py; backend/tests/test_cft_cross_flow.py"
+ },
+ {
+  "Task ID": "D-0684",
+  "Module": "reporting",
+  "Task / Business Action": "Predictive cash-flow simulation engine modeling actual debtor payment delay probabilities",
+  "Business Outcome": "Simulates 30-day cash balance incorporating probabilistic model of which specific debtors pay late",
+  "Downstream Impact": "Warns owner: 'You will face a ₹2.4 Lakh cash deficit on the 22nd due to GST payment; chase Sharma today'",
+  "Notes": "Differentiator vs standard reports: Monte Carlo cashflow simulation factoring historical debtor delay.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0116",
+  "Module": "reporting",
+  "Task / Business Action": "See today's business performance",
+  "Business Outcome": "Morning and evening executive snapshot of daily sales, cash collections, and pending orders",
+  "Downstream Impact": "Displays high-level KPI cards (Total Sales, Cash In, Unpaid Bills, Net Margin) on mobile or desktop",
+  "Notes": "Supported via Owner Executive Dashboard and automated daily summary WhatsApp/Email digest.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0561",
+  "Module": "reporting",
+  "Task / Business Action": "Automated background trial balance zero-sum verification worker",
+  "Business Outcome": "Continuous verification that sum of all debits equals sum of all credits across the entire company GL",
+  "Downstream Impact": "Triggers high-priority alert if debit-credit discrepancy != 0; quarantines corrupted ledger batches",
+  "Notes": "Trial-balance reporting exists in accounting.reports.trial_balance, and books health exposes trial_balance_balanced. No hourly Celery beat task that quarantines unbalanced batches was found.",
+  "Code pointer": "backend/accounting/reports.py:trial_balance",
+  "Test reference": "backend/tests/test_fmea_mitigations.py; backend/tests/test_holistic_80.py; backend/tests/test_holistic_95.py"
+ },
+ {
+  "Task ID": "I-0651",
+  "Module": "sales",
+  "Task / Business Action": "ESC/POS thermal receipt printer direct driver integration via USB, Bluetooth & Network",
+  "Business Outcome": "Sub-second direct silent printing on 2-inch and 3-inch thermal printers without opening browser print dialog",
+  "Downstream Impact": "Sends raw ESC/POS command bytes directly to printer port; automatically triggers cash drawer kick-out",
+  "Notes": "WebUSB and WebBluetooth ESC/POS driver supporting Epson, TVS, and thermal receipt printers.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "I-0655",
+  "Module": "sales",
+  "Task / Business Action": "Barcode scanner HID USB wedge and 2D QR camera barcode reader",
+  "Business Outcome": "Supports standard handheld 1D laser barcode guns, 2D QR scanners, and mobile device built-in camera",
+  "Downstream Impact": "Captures scanned barcode strings with automatic Enter delimiter; opens product in cart instantly",
+  "Notes": "Universal HID keyboard wedge listener with 50ms keystroke timing heuristic + HTML5 camera scanner.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0001",
+  "Module": "sales",
+  "Task / Business Action": "Create a quick bill for a walk-in customer",
+  "Business Outcome": "Instant checkout within 15 seconds; printed or digital receipt handed over; minimal queue delay",
+  "Downstream Impact": "Stock decremented atomically in inventory ledger; cash drawer balance increased; sales voucher posted to GL",
+  "Notes": "Supported via /pos rapid checkout. Barcode/touch selection, instant cash tender, thermal slip print.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0018",
+  "Module": "sales",
+  "Task / Business Action": "Create a customer invoice",
+  "Business Outcome": "Compliant retail invoice issued with itemized rates, discounts, and payment terms",
+  "Downstream Impact": "Stock decremented, customer ledger updated (if credit), sales revenue posted to GL",
+  "Notes": "Supported via /sales/invoices/create and /pos rapid checkout.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0038",
+  "Module": "sales",
+  "Task / Business Action": "Sell medicines with batch information",
+  "Business Outcome": "Dispense prescription/OTC medicines with mandatory batch number, expiry date, and MRP printed on bill",
+  "Downstream Impact": "Decrements specific BatchLot stock; captures batch and expiry on SalesItem for statutory traceability",
+  "Notes": "Supported via /pos and /sales/invoices/ with batch-selector popup and FEFO pre-selection.",
+  "Code pointer": "backend/inventory/models.py:BatchLot; backend/sales/models.py:SalesItem",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_c02_lot_identity.py; backend/tests/test_cft_cross_flow.py"
+ },
+ {
+  "Task ID": "P-0046",
+  "Module": "sales",
+  "Task / Business Action": "Search medicines while billing",
+  "Business Outcome": "Rapid search by brand name, generic composition / salt name, or barcode during billing",
+  "Downstream Impact": "Queries product catalog and active batch lots; displays composition, manufacturer, and stock",
+  "Notes": "Supported via multi-field indexed search (brand, salt, manufacturer, barcode) on POS.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0052",
+  "Module": "sales",
+  "Task / Business Action": "Create bulk sales invoices",
+  "Business Outcome": "Create high-volume B2B tax invoices with tiered wholesale price lists, discounts, and credit terms",
+  "Downstream Impact": "Decrements warehouse stock, debits customer AR ledger, generates GST B2B tax invoice",
+  "Notes": "Supported via /sales/invoices/ with wholesale price list auto-application and bulk CSV entry.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "R-0636",
+  "Module": "sales",
+  "Task / Business Action": "Sub-200ms POS billing checkout latency under continuous queue load",
+  "Business Outcome": "Cashier can complete sales invoices with < 200ms round-trip API response time during peak festival rush",
+  "Downstream Impact": "Eliminates billing delays; handles 100+ checkouts per minute across store network without lag",
+  "Notes": "Optimized checkout transaction benchmarked via Locust load test to < 200ms P95 latency.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "R-0638",
+  "Module": "sales",
+  "Task / Business Action": "Offline-first POS billing queue with automatic background sync upon internet recovery",
+  "Business Outcome": "Cashier can continue scanning, billing, and printing thermal receipts when store broadband drops",
+  "Downstream Impact": "Queues bills in local IndexedDB outbox; auto-synchronizes and reconciles with server when internet returns",
+  "Notes": "ServiceWorker offline billing engine with background sync and server idempotency key reconciliation.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "R-0639",
+  "Module": "sales",
+  "Task / Business Action": "Idempotent API design guaranteeing zero duplicate orders on network timeout retries",
+  "Business Outcome": "Prevent accidental duplicate billing if user clicks 'Pay' twice or mobile app retries dropped connection",
+  "Downstream Impact": "Uses client-generated X-Idempotency-Key; returns existing transaction if duplicate key is received",
+  "Notes": "Idempotency middleware caching endpoint response in Redis for 120 seconds.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0565",
+  "Module": "sales",
+  "Task / Business Action": "Atomic database sequence locking preventing concurrent invoice numbering gaps",
+  "Business Outcome": "Guarantee zero missing numbers in statutory invoice sequences even under heavy concurrent billing",
+  "Downstream Impact": "Uses PostgreSQL SELECT FOR UPDATE on DocumentSequence row; strictly guarantees sequential numbering",
+  "Notes": "Postgres row-level lock on sequence master; strictly satisfies GST Rule 46 sequentiality mandate.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0202",
+  "Module": "sales",
+  "Task / Business Action": "Customer exceeds credit limit → sale/order is flagged or blocked",
+  "Business Outcome": "Prevent excessive credit exposure by blocking sales to over-limit customers",
+  "Downstream Impact": "Validates current customer balance + cart total against credit_limit; blocks checkout",
+  "Notes": "Core business invariant: hard validation guard; requires Owner override token to bypass.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0701",
+  "Module": "sales",
+  "Task / Business Action": "Concurrent checkout conflict: two cashiers bill last remaining stock unit simultaneously",
+  "Business Outcome": "First cashier's checkout succeeds; second cashier receives immediate graceful notification: 'Item out of stock'",
+  "Downstream Impact": "Prevents negative inventory; prompts second cashier with alternative brand suggestions without crashing cart",
+  "Notes": "Enforced via SELECT FOR UPDATE row-level lock on StockBalance; handles concurrent race condition cleanly.",
+  "Code pointer": "backend/inventory/models.py:StockBalance",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_a4_a5_reporting.py; backend/tests/test_a6_manual_serial_return.py"
+ },
+ {
+  "Task ID": "X-0702",
+  "Module": "sales",
+  "Task / Business Action": "Credit limit breach during bulk invoice: owner sends temporary one-time authorization token",
+  "Business Outcome": "Customer cart exceeds credit limit; clerk sends 1-click WhatsApp approval request to owner; owner taps 'Approve'",
+  "Downstream Impact": "Authorizes specific invoice without permanently raising customer credit limit; checkout unfreezes immediately",
+  "Notes": "Temporary credit limit override token with 15-minute expiration and audit trail stamp.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "UX-0596",
+  "Module": "web (frontend)",
+  "Task / Business Action": "Clear destructive action confirmation dialog with explicit entity name typing",
+  "Business Outcome": "Permanently cancelling an annual return or deleting a company requires typing 'DELETE' to confirm",
+  "Downstream Impact": "Prevents catastrophic accidental clicks on destructive administrative actions",
+  "Notes": "Nielsen Heuristic 5: Error Prevention. Type-to-confirm modal on high-risk operations.",
+  "Code pointer": "",
+  "Test reference": ""
+ }
+]

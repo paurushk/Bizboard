@@ -45,7 +45,7 @@ test.describe('Orders, challans, returns — complete gates', () => {
     await addOrderProduct(page, 'Tea', /Premium Tea 500g/i);
 
     await fillLineQty(page, '0');
-    await expect(page.getByRole('button', { name: /^save$/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await expect(page.getByText(/quantity greater than zero/i).first()).toBeVisible();
   });
 

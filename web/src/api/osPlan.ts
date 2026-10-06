@@ -22,6 +22,7 @@ export type Customer360 = {
   aging: Record<string, string> | null;
   profit: { rows?: unknown[]; totals?: Record<string, string> } | null;
   complaints?: { id: number; number: string; status: string; category: string }[];
+  opportunityTotal?: string;
 };
 
 export type PlanningLine = {

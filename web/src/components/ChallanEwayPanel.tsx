@@ -104,7 +104,7 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
       {challan.ewayError ? <HelpErrorAlert message={challan.ewayError} sx={{ mb: 1 }} /> : null}
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
         <Button variant="outlined" size="small" disabled={prepareMutation.isPending} onClick={() => prepareMutation.mutate()}>
-          Prepare payload
+          {t('einvoice.preparePayload')}
         </Button>
         {isEinvoiceSubmitEnabled() ? (
           <Button
@@ -113,7 +113,7 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
             disabled={submitMutation.isPending || ewayGenerated}
             onClick={() => submitMutation.mutate()}
           >
-            Submit (sandbox)
+            {t('sweep2.submitSandbox')}
           </Button>
         ) : null}
         {ewayGenerated ? (
@@ -124,7 +124,7 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
             disabled={cancelMutation.isPending}
             onClick={() => cancelMutation.mutate()}
           >
-            Cancel
+            {t('sweep2.cancel')}
           </Button>
         ) : null}
         {lastPayload ? (
@@ -136,13 +136,13 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
               triggerBlobDownload(blob, `${base}_eway.json`);
             }}
           >
-            Download JSON
+            {t('sweep2.downloadJson')}
           </Button>
         ) : null}
       </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField
-          label="e-Way bill no"
+          label={t('sweep.ewayBillNo')}
           size="small"
           value={ewayBillNo}
           onChange={(e) => setEwayBillNo(e.target.value)}
@@ -154,7 +154,7 @@ export function ChallanEwayPanel({ challan, onError, onMessage }: Props) {
           disabled={!ewayBillNo.trim() || markMutation.isPending}
           onClick={() => markMutation.mutate()}
         >
-          Save e-Way
+          {t('sweep2.saveEway')}
         </Button>
       </Stack>
       <Box sx={{ mt: 1 }}>

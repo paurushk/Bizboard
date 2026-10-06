@@ -9,6 +9,14 @@ from .models import (
 )
 
 
+def reject_unsafe_party_name(name: str) -> None:
+    text = (name or "").strip()
+    # Letters and digits from any script. A Latin-only check rejected names the
+    # customer form already accepts (accents, other Indic scripts).
+    if "<" in text or ">" in text or not any(ch.isalnum() for ch in text):
+        raise serializers.ValidationError({"name": "Enter a name with a letter or number."})
+
+
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
@@ -81,7 +89,52 @@ class CustomerSerializer(serializers.ModelSerializer):
             )
         if lat is not None and not (-90 <= float(lat) <= 90 and -180 <= float(lon) <= 180):
             raise serializers.ValidationError("Latitude or longitude is out of range.")
+        from planwave.services import PLAIN_TEXT_FIELDS
+        import re
+
+        # Check the name as typed, before any tag stripping: stripping first turns
+        # "<script>x</script>" into the harmless-looking "x" and the check never fires.
+        if "name" in attrs and attrs["name"] != getattr(instance, "name", None):
+            # A legacy row may be re-saved with its stored name; only a changed name is checked.
+            reject_unsafe_party_name(attrs.get("name") or "")
+        for key in PLAIN_TEXT_FIELDS:
+            if key in attrs and isinstance(attrs[key], str):
+                attrs[key] = re.sub(r"</?[A-Za-z][^>]*>|<!--.*?-->", "", attrs[key], flags=re.S)
+        if "pincode" in attrs:
+            from django.core.exceptions import ValidationError as DjangoValidationError
+
+            from core.validators import assign_pincode
+
+            try:
+                assign_pincode(attrs, instance)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
         return attrs
+
+    def validate_party_bank_account(self, value):
+        # A masked echo ("****1234") sent back by a role that only sees the last digits must not
+        # overwrite the real number.
+        if value and value.startswith("*") and self.instance is not None:
+            return self.instance.party_bank_account
+        return value
+
+    def to_representation(self, instance):
+        from planwave.crypto import reveal_bank_account
+
+        data = super().to_representation(instance)
+        number = reveal_bank_account(data.get("party_bank_account") or "")
+        request = self.context.get("request")
+        role = ""
+        if request is not None and getattr(request, "user", None) is not None and request.user.is_authenticated:
+            from core.permissions import get_company_user
+
+            member = get_company_user(request)
+            role = getattr(member, "role", "") or ""
+        # The full number only for the roles that handle bank details; others see the last digits.
+        data["party_bank_account"] = number if (not request or role in ("OWNER", "ACCOUNTANT")) else (
+            ("*" * max(len(number) - 4, 0) + number[-4:]) if number else ""
+        )
+        return data
 
     class Meta:
         model = Customer
@@ -94,9 +147,11 @@ class CustomerSerializer(serializers.ModelSerializer):
             "custom_fields", "pan", "party_bank_name", "party_bank_account", "party_bank_ifsc",
             "shipping_addresses",
             "outstanding",
+            "version",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
+            "version",
         ]
 
     def get_outstanding(self, obj):
@@ -137,10 +192,15 @@ class CustomerSerializer(serializers.ModelSerializer):
 class SupplierSerializer(serializers.ModelSerializer):
     outstanding = serializers.SerializerMethodField()
 
+    def validate(self, attrs):
+        if "name" in attrs and attrs["name"] != getattr(self.instance, "name", None):
+            reject_unsafe_party_name(attrs.get("name") or "")
+        return attrs
+
     class Meta:
         model = Supplier
         fields = [
-            "id", "name", "phone", "email", "gstin", "address", "state",
+            "id", "name", "phone", "email", "gstin", "address", "state", "country",
             "is_active", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "taxpayer_type", "outstanding",
@@ -182,6 +242,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "selling_tax_inclusive", "purchase_tax_inclusive",
             "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",
             "default_discount_percent", "has_movements", "status", "created_at", "updated_at",
+            "salt", "composition", "manufacturer", "drug_schedule", "rack_code",
         ]
 
     def _check_company(self, attrs):
@@ -366,7 +427,14 @@ class ProductSerializer(serializers.ModelSerializer):
 
         data = super().to_representation(instance)
         data["custom_fields"] = surface_values(getattr(instance, "custom_fields", None), self._active_custom_field_defs())
-        return data
+        request = self.context.get("request")
+        if request is None:
+            return data
+        from core.permissions import get_company_user
+        from planwave.services import mask_commercial
+
+        role = getattr(get_company_user(request), "role", "")
+        return mask_commercial(data, role)
 
 
 class PriceListItemSerializer(serializers.ModelSerializer):

@@ -71,6 +71,8 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
+  listCustomersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
+  listSuppliersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
   listSalesInvoicesPage: (...args: unknown[]) => listSalesInvoicesPage(...(args as [])),
   getInvoicePaymentStats: async () => ({
     paid: { count: 1, amount: '250' },
@@ -132,7 +134,7 @@ function wrap(ui: ReactElement) {
 describe('SalesHistoryPage status badges — G-17', () => {
   it('shows Returned, not Paid, for a fully-returned invoice with a zeroed balance', async () => {
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0001')).closest('tr');
+    const row = (await screen.findByText(/INV-(?:0001|1)/)).closest('tr');
     expect(row).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/returned/i)).toBeTruthy();
     expect(within(row as HTMLElement).queryByText(/^paid$/i)).toBeNull();
@@ -140,15 +142,15 @@ describe('SalesHistoryPage status badges — G-17', () => {
 
   it('flags a partial return with an extra chip while the invoice stays Completed/open-balance', async () => {
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0002')).closest('tr');
+    const row = (await screen.findByText(/INV-(?:0002|2)/)).closest('tr');
     expect(row).toBeTruthy();
-    expect(within(row as HTMLElement).getByText(/completed/i)).toBeTruthy();
+    expect(within(row as HTMLElement).getByText(/unpaid/i)).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/partially returned/i)).toBeTruthy();
   });
 
   it('still shows Paid for a normal, non-returned, zero-balance invoice', async () => {
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0003')).closest('tr');
+    const row = (await screen.findByText(/INV-(?:0003|3)/)).closest('tr');
     expect(row).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/^paid$/i)).toBeTruthy();
     expect(within(row as HTMLElement).queryByText(/returned/i)).toBeNull();
@@ -158,7 +160,7 @@ describe('SalesHistoryPage status badges — G-17', () => {
 describe('SalesHistoryPage row actions', () => {
   it('opens the shared share dialog from the row menu', async () => {
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0003')).closest('tr') as HTMLElement;
+    const row = (await screen.findByText(/INV-(?:0003|3)/)).closest('tr') as HTMLElement;
     await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /^share$/i }));
     expect(await screen.findByRole('dialog', { name: /share invoice/i })).toBeTruthy();
@@ -167,7 +169,7 @@ describe('SalesHistoryPage row actions', () => {
   it('routes a completed invoice to sales return create with the invoice id', async () => {
     navigate.mockClear();
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0003')).closest('tr') as HTMLElement;
+    const row = (await screen.findByText(/INV-(?:0003|3)/)).closest('tr') as HTMLElement;
     await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /sales return/i }));
     expect(navigate).toHaveBeenCalledWith('/sales/returns?create=1&invoice=3');
@@ -175,7 +177,7 @@ describe('SalesHistoryPage row actions', () => {
 
   it('opens record payment from a row with an open balance', async () => {
     wrap(<SalesHistoryPage />);
-    const row = (await screen.findByText('INV-0002')).closest('tr') as HTMLElement;
+    const row = (await screen.findByText(/INV-(?:0002|2)/)).closest('tr') as HTMLElement;
     await userEvent.click(within(row).getByRole('button', { name: /actions/i }));
     await userEvent.click(await screen.findByRole('menuitem', { name: /record payment/i }));
     expect(await screen.findByRole('dialog', { name: /record payment/i })).toBeTruthy();

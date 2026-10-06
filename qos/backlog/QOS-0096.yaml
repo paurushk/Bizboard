@@ -1,0 +1,35 @@
+id: QOS-0096
+category: USABILITY
+title: Keyboard, touch-target and heading gaps remain on some screens
+persona:
+- P2
+- P4
+journey: Use the editors and POS by keyboard or on a phone
+problem: Scroll regions, small touch targets and missing page headings make some screens hard to use with
+  a keyboard, a screen reader or a thumb.
+evidence:
+  strength: heuristic
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: Ledger rows UX-N07, UX-N08, UX-N09, UX-026. The theme now sets a 44px minimum below the sm breakpoint,
+    scroll regions are keyboard-focusable and the three headings are added. The remaining work is re-measuring
+    with the crawl and fixing only the pages still failing.
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 4
+  impact_band: High
+business_metric: none
+priority: P1
+priority_rationale: Axe findings are real, but they come from automated scans, so the cap is P1.
+effort: M
+recommendation: Re-run the surface crawl and axe on every route, then fix only the pages that still fail.
+  Do not add per-page overrides for what the theme already covers.
+test_required: Axe has no serious or critical finding on any route in route-smoke.spec.ts, and a 393px
+  check of the editors and POS.
+guard_ref: null
+lifecycle: in_progress
+owner: web
+opened: '2026-10-01'
+closed: null

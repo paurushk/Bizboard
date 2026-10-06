@@ -4,6 +4,8 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { writeDraft } from '@/lib/deviceDraft';
+import { trackShopFloor } from '@/lib/telemetry';
 import { PosPage } from '@/pages/pos/PosPage';
 import type { Company, Customer, Warehouse } from '@/types/domain';
 
@@ -157,7 +159,16 @@ vi.mock('@/api/resources', () => ({
     previous: null,
   })),
   getCustomer: vi.fn(async () => WALKIN_CUSTOMER),
+  getProduct: vi.fn(async (id: number) => ({
+    id,
+    name: 'Widget',
+    sku: 'WID-1',
+    sellingPrice: '100',
+    gstRate: 0,
+    status: 'ACTIVE',
+  })),
   listPriceLists: vi.fn(async () => []),
+  listBatches: vi.fn(async () => []),
   listStock: vi.fn(async () => []),
   listWarehouses: vi.fn(async () => [WAREHOUSE]),
   posCheckout: (...args: unknown[]) => posCheckout(...args),
@@ -189,6 +200,10 @@ async function clickCashPay(user: ReturnType<typeof userEvent.setup>) {
   const cashButton = await screen.findByRole('button', { name: /^cash\s+—/i });
   await waitFor(() => expect(cashButton).not.toBeDisabled());
   await user.click(cashButton);
+  const confirmBtn = screen.queryByRole('button', { name: /complete as walk-in/i });
+  if (confirmBtn) {
+    await user.click(confirmBtn);
+  }
 }
 
 describe('PosPage credit-limit banner', () => {
@@ -274,5 +289,57 @@ describe('PosPage credit-limit banner', () => {
     // same failure (e.g. as a raw "field: value" dump of the same details).
     expect(screen.queryByText(/customer_name:/i)).toBeNull();
     expect(screen.queryByText(/credit_limit:/i)).toBeNull();
+  });
+});
+
+describe('PosPage draft restore', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(trackShopFloor).mockClear();
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+  });
+
+  it('does not record a restore when the saved session has no bill', async () => {
+    writeDraft(COMPANY_ID, USER_ID, 'pos-sessions', {
+      sessions: {},
+      activeSessionId: '',
+      sessionIds: [],
+    });
+    wrap();
+    expect(await screen.findByRole('button', { name: /^cash\s+—/i })).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(trackShopFloor).not.toHaveBeenCalledWith('draft_restored', { feature: 'pos' });
+  });
+
+  it('records a restore when a saved bill is put back', async () => {
+    writeDraft(COMPANY_ID, USER_ID, 'pos-sessions', {
+      sessions: {
+        'bill-1': {
+          id: 'bill-1',
+          cart: [],
+          customerId: '',
+          warehouseId: '',
+          cashTendered: '',
+          idempotencyKey: null,
+          upiPending: null,
+          cashPending: null,
+          walkInName: '',
+          serverTenderTotal: null,
+          cheque: { chequeNumber: '', chequeBankName: '', chequeDate: '' },
+          invoiceDiscount: 0,
+          additionalCharges: 0,
+        },
+      },
+      activeSessionId: 'bill-1',
+      sessionIds: ['bill-1'],
+    });
+    wrap();
+    expect(await screen.findByRole('button', { name: /^cash\s+—/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(trackShopFloor).toHaveBeenCalledWith('draft_restored', { feature: 'pos' });
+    });
   });
 });

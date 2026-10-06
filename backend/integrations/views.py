@@ -194,6 +194,108 @@ class TallyHttpPushView(APIView):
         return Response(result)
 
 
+class ShopifyConnectionView(APIView):
+    """Owner connection for a Shopify store: domain, secret, godown, and customer."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        cu = get_company_user(request)
+        conn = IntegrationConnection.objects.filter(
+            company=cu.company, provider=IntegrationConnection.Provider.SHOPIFY,
+        ).first()
+        if conn is None:
+            return Response({"configured": False, "pending_count": 0})
+        meta = conn.metadata or {}
+        pending = meta.get("shopify_pending") or {}
+        return Response({
+            "configured": bool((conn.encrypted_secrets or "").strip() and conn.shop_domain),
+            "status": conn.status,
+            "shop_domain": conn.shop_domain,
+            "warehouse_id": meta.get("warehouse_id"),
+            "customer_id": meta.get("customer_id"),
+            "pending_count": len(pending) if isinstance(pending, dict) else 0,
+        })
+
+    def put(self, request):
+        from inventory.models import Warehouse
+        from masters.models import Customer
+
+        cu = get_company_user(request)
+        domain = str(request.data.get("shop_domain") or request.data.get("domain") or "").strip().lower()
+        secret = str(request.data.get("webhook_secret") or request.data.get("secret") or "").strip()
+        warehouse_id = request.data.get("warehouse_id") or request.data.get("warehouse")
+        customer_id = request.data.get("customer_id") or request.data.get("customer")
+        if not domain or not secret or not warehouse_id or not customer_id:
+            return Response(
+                {"detail": "shop_domain, webhook_secret, warehouse_id, and customer_id are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        warehouse = Warehouse.objects.filter(company=cu.company, pk=warehouse_id).first()
+        customer = Customer.objects.filter(company=cu.company, pk=customer_id).first()
+        if warehouse is None or customer is None:
+            return Response(
+                {"detail": "Godown and customer must belong to this company."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        encrypted = encrypt_gsp_credentials({"webhook_secret": secret})
+        conn = IntegrationConnection.objects.filter(
+            company=cu.company, provider=IntegrationConnection.Provider.SHOPIFY,
+        ).first()
+        meta = dict(conn.metadata or {}) if conn else {}
+        meta["warehouse_id"] = warehouse.pk
+        meta["customer_id"] = customer.pk
+        meta["shop_domain"] = domain
+        if conn is None:
+            conn = IntegrationConnection.objects.create(
+                company=cu.company,
+                provider=IntegrationConnection.Provider.SHOPIFY,
+                status=IntegrationConnection.Status.ACTIVE,
+                shop_domain=domain,
+                encrypted_secrets=encrypted,
+                metadata=meta,
+                created_by=request.user,
+                updated_by=request.user,
+            )
+        else:
+            conn.shop_domain = domain
+            conn.encrypted_secrets = encrypted
+            conn.metadata = meta
+            conn.status = IntegrationConnection.Status.ACTIVE
+            conn.updated_by = request.user
+            conn.save()
+        AuditService.log(
+            company=cu.company,
+            user=request.user,
+            action="UPSERT",
+            entity_type="ShopifyConnection",
+            entity_id=str(conn.pk),
+        )
+        return Response({
+            "configured": True,
+            "status": conn.status,
+            "shop_domain": conn.shop_domain,
+            "warehouse_id": warehouse.pk,
+            "customer_id": customer.pk,
+            "pending_count": len((conn.metadata or {}).get("shopify_pending") or {}),
+        })
+
+
+class ShopifyPendingApplyView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request, item_key):
+        from .shopify import apply_pending_stock
+
+        cu = get_company_user(request)
+        conn = IntegrationConnection.objects.filter(
+            company=cu.company, provider=IntegrationConnection.Provider.SHOPIFY,
+        ).first()
+        if conn is None:
+            raise BusinessRuleError("Connect Shopify before reviewing stock changes.")
+        return Response(apply_pending_stock(conn, item_key, user=request.user))
+
+
 class WhatsAppConnectionView(APIView):
     """Owner-only WhatsApp Cloud connection upsert/delete (BB-000678)."""
 

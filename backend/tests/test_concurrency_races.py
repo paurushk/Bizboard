@@ -623,11 +623,18 @@ def test_concurrent_apply_pack_leaves_one_snapshot(tenant_a):
     The holder keeps the row lock, the apply waits on that lock, then the
     holder stores SENTINEL_FLAG and commits. apply_pack must read that value
     and keep it. Two identical applies cannot show a lost update.
+
+    How the holder knows the apply is really waiting: it polls pg_stat_activity from a SEPARATE
+    autocommit connection. Two things make the obvious approaches wrong (verified on PostgreSQL
+    17.10): pg_stat_activity is snapshotted once per transaction, so polling from inside the
+    holder's own transaction keeps returning the first, stale snapshot; and a session blocked on a
+    ROW lock does not appear as an ungranted lock on the table in pg_locks (it is an ungranted
+    `transactionid` lock with a NULL relation).
     """
     _require_postgres()
     import time
 
-    from django.db import transaction
+    from django.db import connections, transaction
 
     from accounts.models import Company, CompanyPackState
     from accounts.packs import PACKS, apply_pack
@@ -637,18 +644,23 @@ def test_concurrent_apply_pack_leaves_one_snapshot(tenant_a):
 
     def hold():
         connection.close()
+        poll = None
         try:
+            poll = connections.create_connection("default")
+            poll.set_autocommit(True)
             with transaction.atomic():
                 company = Company.objects.select_for_update().get(pk=tenant_a.company.pk)
                 holding.set()
                 deadline = time.time() + 10
                 while time.time() < deadline:
-                    with connection.cursor() as cursor:
+                    with poll.cursor() as cursor:
                         cursor.execute(
                             """
-                            SELECT COUNT(*) FROM pg_locks
-                            WHERE NOT granted
-                              AND relation = 'accounts_company'::regclass
+                            SELECT COUNT(*) FROM pg_stat_activity
+                            WHERE datname = current_database()
+                              AND pid <> pg_backend_pid()
+                              AND wait_event_type = 'Lock'
+                              AND query ILIKE '%accounts_company%'
                             """
                         )
                         waiting = cursor.fetchone()[0]
@@ -664,6 +676,8 @@ def test_concurrent_apply_pack_leaves_one_snapshot(tenant_a):
         except BaseException as exc:  # noqa: BLE001 — reported by the assertion
             errors.append(exc)
         finally:
+            if poll is not None:
+                poll.close()
             connection.close()
 
     def run():
@@ -691,7 +705,14 @@ def test_concurrent_apply_pack_leaves_one_snapshot(tenant_a):
     assert not errors, errors
     company = Company.objects.get(pk=tenant_a.company.pk)
     state = CompanyPackState.objects.get(company=company)
-    expected = {key: True for key in PACKS["retail"]}
+    # apply_pack grants only what the company's plan entitles it to (and never ENABLE_PAYROLL), so
+    # "every key in the pack" is wrong: the expected set is the entitled subset.
+    from accounts.packs import _entitled
+
+    expected = {
+        key: True for key in PACKS["retail"] if key != "ENABLE_PAYROLL" and _entitled(company, key)
+    }
+    assert expected, "the retail pack should grant at least some flags"
     assert state.applied_pack == "retail"
     assert state.applied_flags == expected
     assert company.feature_flags["SENTINEL_FLAG"] is True

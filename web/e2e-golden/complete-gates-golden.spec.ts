@@ -203,11 +203,11 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.getByLabel(/start/i).fill(start);
     await page.getByLabel(/end/i).first().fill(end);
     await page.getByRole('button', { name: /^Create$/i }).click();
-    await expect(page.getByText(`CG11 ${id}`)).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(`CG11 ${id}`).first()).toBeVisible({ timeout: 15_000 });
     page.once('dialog', async (dialog) => {
       await dialog.accept();
     });
-    await page.getByRole('button', { name: /^Close$/i }).click();
+    await page.getByRole('button', { name: /close period/i }).click();
     await expect(page.getByText(/CLOSED/i).first()).toBeVisible({ timeout: 15_000 });
 
     await page.goto('/sales/new');

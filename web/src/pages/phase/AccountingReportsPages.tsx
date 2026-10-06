@@ -14,7 +14,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
 import { triggerBlobDownload } from '@/utils/blob';
-import { AccountingBackfillBanner } from '@/components/AccountingBackfillBanner';
+import { AccountingBackfillBanner, useBooksState } from '@/components/AccountingBackfillBanner';
 import {
   asRows,
   DataTable,
@@ -28,9 +28,10 @@ export function ChartOfAccountsPage() {
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
     <PageShell title={t('phase.chartOfAccounts')} subtitle={t('phase.chartOfAccountsSubtitle')}>
+      <AccountingBackfillBanner suppressNoChart />
       <DataTable
         rows={asRows(query.data)}
-        empty="No accounts — enable accounting in Settings."
+        empty={t('phase.chartEmpty')}
         columns={[
           { key: 'code', label: 'Code' },
           { key: 'name', label: 'Name' },
@@ -90,6 +91,8 @@ function AccountingReportPage({
       setDownloading(false);
     }
   };
+  const books = useBooksState();
+  const money = (value: unknown) => (books.trusted ? formatMoney(toNumber(value as string | number)) : '—');
   if (q.isLoading) return <LoadingState />;
   if (q.isError && !q.data) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
   const data = q.data as Row;
@@ -118,16 +121,16 @@ function AccountingReportPage({
         <Stack direction="row" spacing={1} alignItems="center">
           {report === 'profit-and-loss' ? (
             <>
-              <TextField type="date" size="small" label="From" InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
+              <TextField type="date" size="small" label={t('sweep.from')} InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
               <TextField
                 select
                 size="small"
-                label="Cost center"
+                label={t('sweep.costCenter')}
                 value={costCenter}
                 onChange={(e) => setCostCenter(e.target.value)}
                 sx={{ minWidth: 140 }}
               >
-                <MenuItem value="">All</MenuItem>
+                <MenuItem value="">{t('sweep2.all')}</MenuItem>
                 {(costCenters.data ?? []).map((cc) => (
                   <MenuItem key={String(cc.id)} value={String(cc.id)}>
                     {String(cc.code ?? cc.name ?? cc.id)}
@@ -138,7 +141,7 @@ function AccountingReportPage({
           ) : null}
           <TextField type="date" size="small" label={report === 'profit-and-loss' ? 'To' : 'As of'} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
           <Button size="small" variant="outlined" disabled={downloading} onClick={() => void handleDownload()}>
-            Download XLSX
+            {t('sweep2.downloadXlsx')}
           </Button>
           {dlError ? <ErrorState message={dlError} error={new Error(dlError)} /> : null}
         </Stack>
@@ -151,17 +154,17 @@ function AccountingReportPage({
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               {ar ? (
                 <Paper sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="subtitle2" gutterBottom>Accounts Receivable</Typography>
-                  <Typography variant="body2">GL {formatMoney(toNumber(ar.gl as string | number))}</Typography>
-                  <Typography variant="body2">Ledger {formatMoney(toNumber(ar.ledger as string | number))}</Typography>
+                  <Typography variant="subtitle2" gutterBottom>{t('sweep2.accountsReceivable')}</Typography>
+                  <Typography variant="body2">GL {money(ar.gl)}</Typography>
+                  <Typography variant="body2">Ledger {money(ar.ledger)}</Typography>
                   <Chip size="small" label={ar.healthy ? 'Healthy' : 'Mismatch'} color={ar.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
                 </Paper>
               ) : null}
               {ap ? (
                 <Paper sx={{ p: 2, flex: 1 }}>
-                  <Typography variant="subtitle2" gutterBottom>Accounts Payable</Typography>
-                  <Typography variant="body2">GL {formatMoney(toNumber(ap.gl as string | number))}</Typography>
-                  <Typography variant="body2">Ledger {formatMoney(toNumber(ap.ledger as string | number))}</Typography>
+                  <Typography variant="subtitle2" gutterBottom>{t('sweep2.accountsPayable')}</Typography>
+                  <Typography variant="body2">GL {money(ap.gl)}</Typography>
+                  <Typography variant="body2">Ledger {money(ap.ledger)}</Typography>
                   <Chip size="small" label={ap.healthy ? 'Healthy' : 'Mismatch'} color={ap.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
                 </Paper>
               ) : null}
@@ -175,26 +178,23 @@ function AccountingReportPage({
                 </Alert>
               ))}
             </Stack>
-          ) : <Alert severity="success">No books-health alerts.</Alert>}
+          ) : <Alert severity="success">{t('sweep2.noBooksHealthAlerts')}</Alert>}
         </Stack>
       ) : null}
       {report === 'trial-balance' ? (
         <Alert severity={(data.balanced as boolean) ? 'success' : 'warning'}>
-          Total debit {formatMoney(toNumber(data.totalDebit as string | number))} · Total credit{' '}
-          {formatMoney(toNumber(data.totalCredit as string | number))}
+          Total debit {money(data.totalDebit)} · Total credit {money(data.totalCredit)}
         </Alert>
       ) : null}
       {report === 'profit-and-loss' ? (
         <Alert severity="info">
-          Income {formatMoney(toNumber(data.income as string | number))} · Expenses{' '}
-          {formatMoney(toNumber(data.expenses as string | number))} · Net{' '}
-          {formatMoney(toNumber((data.netProfit ?? data.net) as string | number))}
+          Income {money(data.income)} · Expenses {money(data.expenses)} · Net {money(data.netProfit ?? data.net)}
         </Alert>
       ) : null}
       {report === 'balance-sheet' ? (
         <Alert severity="info">
-          Inventory GL {formatMoney(toNumber((data.inventoryGl ?? data.inventory_gl) as string | number))} ·
-          Valuation {formatMoney(toNumber((data.inventoryValuation ?? data.inventory_valuation) as string | number))}
+          Inventory GL {money(data.inventoryGl ?? data.inventory_gl)} ·
+          Valuation {money(data.inventoryValuation ?? data.inventory_valuation)}
           {' — '}
           {String(data.inventoryNote ?? data.inventory_note ?? '')}
         </Alert>

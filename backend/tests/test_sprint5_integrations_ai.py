@@ -60,7 +60,7 @@ def test_bb_000678_owner_whatsapp_connection_crud(mock_post, tenant_a):
     assert "tenant-token" not in str(listing.data)
 
     result = send_whatsapp_template(
-        "919876543210", "invoice_ready", ["INV-1"], company=tenant_a.company,
+        "919876543210", "invoice_ready", ["INV-1"], company=tenant_a.company, opt_in=True,
     )
     assert result.mode == "cloud"
     mock_post.assert_called()

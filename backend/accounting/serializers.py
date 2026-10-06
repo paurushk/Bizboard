@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from core.permissions import get_company_user
@@ -5,7 +7,24 @@ from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer, Supplier
 from payments.models import BankAccount
 
-from .models import Account, AccountingPeriod, BankReconSession, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
+from .models import (
+    Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense,
+    FixedAsset, JournalEntry, JournalLine,
+)
+
+
+class CashShiftRegisterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CashShiftRegister
+        fields = [
+            "id", "cashier", "business_date", "opening_float", "denominations",
+            "expected_cash", "counted_cash", "variance", "status", "locked_at",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = [
+            "cashier", "expected_cash", "counted_cash", "variance", "status",
+            "locked_at", "denominations", "created_at", "updated_at",
+        ]
 
 
 class ExpenseSerializer(serializers.ModelSerializer):
@@ -260,19 +279,36 @@ class UnreconciledGlLineSerializer(serializers.ModelSerializer):
     entry_number = serializers.CharField(source="entry.number", read_only=True)
     entry_date = serializers.DateField(source="entry.entry_date", read_only=True)
     narration = serializers.CharField(source="entry.narration", read_only=True)
+    signed_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = JournalLine
         fields = [
             "id", "entry_id", "entry_number", "entry_date", "narration",
-            "debit", "credit",
+            "debit", "credit", "signed_amount",
         ]
+
+    def get_signed_amount(self, obj):
+        return (obj.debit or Decimal("0")) - (obj.credit or Decimal("0"))
 
 
 class BankReconSessionSerializer(serializers.ModelSerializer):
+    # GL recon matches a journal line to a statement line. Receipt matching is separate.
+    match_kind = serializers.SerializerMethodField()
+    other_recon_path = serializers.SerializerMethodField()
+
     class Meta:
         model = BankReconSession
-        fields = ["id", "account", "statement", "status", "gl_balance", "statement_balance"]
+        fields = [
+            "id", "account", "statement", "status", "gl_balance", "statement_balance",
+            "match_kind", "other_recon_path",
+        ]
+
+    def get_match_kind(self, obj):
+        return "gl_statement_line"
+
+    def get_other_recon_path(self, obj):
+        return "/payments/reconciliation"
 
 
 class FixedAssetSerializer(serializers.ModelSerializer):

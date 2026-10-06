@@ -10,10 +10,8 @@ export function LocaleSwitcher() {
 
   useEffect(() => {
     // R-084: stale ta/gu localStorage from older builds → fall back to en.
-    if (getLocale() === 'ta' || getLocale() === 'gu') {
-      setLocale('en');
-      setLocaleState('en');
-    }
+    // setLocale notifies subscribers, so the state follows through the subscription above.
+    if (getLocale() === 'ta' || getLocale() === 'gu') setLocale('en');
   }, []);
 
   const switchTo = (next: 'en' | 'hi') => {

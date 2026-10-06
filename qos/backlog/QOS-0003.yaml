@@ -29,7 +29,17 @@ evidence:
   detail: Large-tenant fixture verified on real Postgres (3/3); k6_smoke.js proven green end-to-end (the
     load-harness CI job's exact script); k6_slo.js run for real numbers on a 50k tenant but on
     non-staging hardware and with a known script limitation on the Complete scenario — soak/scale is
-    exercised and instrumented, not yet SLO-clean on representative infra.
+    exercised and instrumented, not yet SLO-clean on representative infra. Added 2026-10-02 (measured) -
+    the in-suite I2 SLA (create+complete p95 <= 800 ms) was failing on a laptop with Postgres in Docker
+    for two reasons that are not the endpoint being slow. (a) Test settings run Celery eagerly, so the
+    PDF render (~330 ms) sat inside the timed request although the SLO is ex-PDF; the test now measures
+    the SLO's scope. (b) Raw round trip to that Postgres is 3.5 ms median / 16 ms p99 against ~0.1-0.3 ms
+    on a Linux CI host, and Complete+create issue ~94 queries, so ~350 ms of wall time is network
+    latency. The wall-clock SLAs are therefore enforced only when the DB round trip is <= 1.5 ms (CI),
+    and a deterministic query budget runs everywhere. Real finding the budget surfaced - each added
+    invoice line costs ~16.5 more queries (1 line = 94, 5 lines = 160), a per-line fan-out in Complete
+    that is now ratcheted (ceiling 18) and is the concrete optimisation target. Also removed ~12
+    redundant queries per invoice response (outstanding was computed three times).
 scoring:
   reach: 4
   severity: 3

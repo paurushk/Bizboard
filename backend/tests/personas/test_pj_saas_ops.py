@@ -77,7 +77,7 @@ def test_j_saas_p10_support_share_is_owner_only(tenant_a, tenant_b):
         company=tenant_a.company, customer=customer, subject="Help", description="secret GSTIN", number="TKT-PJ",
     )
     missing = tenant_a.client.post(f"/api/v1/support/tickets/{ticket.id}/share/", {}, format="json")
-    assert missing.status_code == 404
+    assert missing.status_code == 400  # BUG-SUP-003: no vendor company configured
     assert VendorTicketShare.objects.count() == 0
     vendor = Company.objects.create(name="Vendor Desk", state="Karnataka")
     vendor.feature_flags = {"ENABLE_SUPPORT_TICKETS": True}

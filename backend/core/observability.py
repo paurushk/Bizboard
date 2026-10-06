@@ -13,6 +13,7 @@ from contextvars import ContextVar
 
 _request_id: ContextVar[str | None] = ContextVar("bizboard_request_id", default=None)
 _company_hash: ContextVar[str | None] = ContextVar("bizboard_company_hash", default=None)
+_client_ip: ContextVar[str | None] = ContextVar("bizboard_client_ip", default=None)
 
 
 def hash_id(value) -> str:
@@ -29,6 +30,14 @@ def current_company_hash() -> str | None:
     return _company_hash.get()
 
 
+def current_client_ip() -> str | None:
+    return _client_ip.get()
+
+
+def bind_client_ip(ip: str | None) -> None:
+    _client_ip.set(ip or None)
+
+
 def bind_request_context(*, request_id: str | None, company_hash: str | None = None) -> None:
     _request_id.set(request_id or None)
     _company_hash.set(company_hash or None)
@@ -37,6 +46,7 @@ def bind_request_context(*, request_id: str | None, company_hash: str | None = N
 def clear_request_context() -> None:
     _request_id.set(None)
     _company_hash.set(None)
+    _client_ip.set(None)
 
 
 def request_id_from_request(request) -> str | None:

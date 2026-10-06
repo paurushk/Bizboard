@@ -13,7 +13,14 @@ import { isOwner } from '@/utils/permissions';
 export function LimitedAccessLanding() {
   const { user } = useAuth();
   const location = useLocation();
-  const [showWelcome, setShowWelcome] = useState(false);
+  // Read the one-time welcome flag once; the effect below only clears it from storage.
+  const [showWelcome] = useState(() => {
+    try {
+      return localStorage.getItem('bb_role_welcome') === '1';
+    } catch {
+      return false;
+    }
+  });
   const firstPath = findFirstNavPath(user);
   const owner = isOwner(user?.role ?? 'VIEWER');
   const path = location.pathname;
@@ -36,11 +43,13 @@ export function LimitedAccessLanding() {
     .filter((link) => isReallyReachable(user, link.path));
 
   useEffect(() => {
-    if (localStorage.getItem('bb_role_welcome') === '1') {
-      setShowWelcome(true);
+    if (!showWelcome) return;
+    try {
       localStorage.removeItem('bb_role_welcome');
+    } catch {
+      // ignore
     }
-  }, []);
+  }, [showWelcome]);
 
   return (
     <Stack spacing={3} sx={{ py: 4, px: 2, alignItems: 'center' }}>
@@ -55,6 +64,7 @@ export function LimitedAccessLanding() {
         </Alert>
       ) : null}
       <EmptyState
+        asPage
         title={owner ? t('landing.ownerModuleTitle') : t('landing.limitedTitle')}
         description={
           owner

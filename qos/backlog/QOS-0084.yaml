@@ -23,7 +23,7 @@ recommendation: One section using the existing reports and the existing owner-on
 test_required: The section shows debit, credit, and whether they match.
 guard_ref:
   test: web/src/pages/phase/BooksCloseSection.test.tsx::renders debit, credit, and whether they match
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

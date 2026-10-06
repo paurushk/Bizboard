@@ -104,10 +104,15 @@ def link_shows_paid(link: PaymentLink) -> bool:
     return GatewayPayment.objects.filter(payment_link=link, status__in=CAPTURED_LIKE).exists()
 
 
-def invoice_payment_state(invoice) -> str:
+def invoice_payment_state(invoice, outstanding=None) -> str:
+    """``outstanding`` may be passed when the caller has just computed
+    ``LedgerService.sales_invoice_outstanding(invoice)`` (it is four aggregate queries),
+    so one response does not compute the same figure three times."""
     from ledgers.services import LedgerService
 
-    outstanding = Decimal(str(LedgerService.sales_invoice_outstanding(invoice) or 0))
+    if outstanding is None:
+        outstanding = LedgerService.sales_invoice_outstanding(invoice)
+    outstanding = Decimal(str(outstanding or 0))
     if outstanding <= 0:
         return PAYMENT_STATE_PAID
     holding = GatewayPayment.objects.filter(

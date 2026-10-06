@@ -23,7 +23,7 @@ recommendation: Include the capped history on job retrieve. Do not widen permiss
 test_required: Second job lists the first. The 21st older job is omitted.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_job_serial_history_is_capped_and_company_scoped
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

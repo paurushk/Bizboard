@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Count
+from django.db.models import Count, F, Q
 from django.utils import timezone
 
 from accounts.models import CompanyUser
@@ -34,6 +34,21 @@ def effective_sla_due_at(ticket, now=None):
     ):
         return ticket.sla_due_at + (now - ticket.waiting_since)
     return ticket.sla_due_at
+
+
+def tickets_past_sla_q(now=None):
+    """Open tickets already past the paused SLA.
+
+    While WAITING, the stored due plus the pause is still in the past only
+    when sla_due_at < waiting_since. That is a database filter.
+    """
+    now = now or timezone.now()
+    waiting = Q(status=Ticket.Status.WAITING, waiting_since__isnull=False)
+    return (waiting & Q(sla_due_at__lt=F("waiting_since"))) | (
+        ~waiting & Q(sla_due_at__lt=now)
+    )
+
+
 _ALLOWED = {
     Ticket.Status.OPEN: {Ticket.Status.IN_PROGRESS},
     Ticket.Status.IN_PROGRESS: {Ticket.Status.WAITING, Ticket.Status.RESOLVED},
@@ -66,11 +81,18 @@ def next_ticket_assignee(company):
         return pick_least_loaded(members, counts)
 
 
-def create_ticket(company, user, *, customer, subject, description="", priority=Ticket.Priority.MEDIUM):
+def create_ticket(
+    company, user, *, customer, subject, description="", priority=Ticket.Priority.MEDIUM,
+    category=Ticket.Category.GENERAL, assigned_to=None,
+):
     if customer is None:
         raise BusinessRuleError("A ticket requires a customer.")
     if priority not in SLA_OFFSETS:
         raise BusinessRuleError("Unknown ticket priority.")
+    if category not in Ticket.Category.values:
+        raise BusinessRuleError("Unknown ticket category.")
+    if assigned_to is not None and assigned_to.company_id != company.id:
+        raise BusinessRuleError("Assignee is not in this company.")
     with transaction.atomic():
         row = Ticket.objects.create(
             company=company,
@@ -78,9 +100,10 @@ def create_ticket(company, user, *, customer, subject, description="", priority=
             subject=subject,
             description=description or "",
             priority=priority,
+            category=category,
             number=next_number(company, "TICKET", prefix="TKT"),
             sla_due_at=timezone.now() + SLA_OFFSETS[priority],
-            assigned_to=next_ticket_assignee(company),
+            assigned_to=assigned_to or next_ticket_assignee(company),
             created_by=user,
             updated_by=user,
         )
@@ -109,6 +132,16 @@ def transition_status(ticket, user, *, new_status):
     ticket.status = new_status
     ticket.updated_by = user
     ticket.save(update_fields=fields)
+    from core.rls import rls_bypass
+
+    from .models import VendorTicketShare
+
+    with rls_bypass():
+        VendorTicketShare.objects.filter(
+            source_company_id=ticket.company_id,
+            source_ticket_id=ticket.pk,
+            revoked_at__isnull=True,
+        ).update(status=ticket.status)
     AuditService.log(
         action="ticket_status",
         company=ticket.company,

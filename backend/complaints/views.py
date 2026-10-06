@@ -88,6 +88,14 @@ class ComplaintViewSet(CompanyScopedViewSet):
             existing = getattr(complaint, attr)
             if existing is not None:
                 return Response({"id": existing.id, "existing": True})
+            if attr == "sales_credit_note" and complaint.sales_return_id:
+                raise BusinessRuleError(
+                    "This complaint already has a sales return. Do not add a separate credit note."
+                )
+            if attr == "sales_return" and complaint.sales_credit_note_id:
+                raise BusinessRuleError(
+                    "This complaint already has a credit note. Do not add a sales return."
+                )
             if attr != "replacement_order" and complaint.source_invoice_id is None:
                 return Response({"detail": "Set a source invoice before creating this document."}, status=400)
             items = request.data.get("items") or []

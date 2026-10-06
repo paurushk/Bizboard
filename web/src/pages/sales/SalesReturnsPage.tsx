@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { returnDialogDirty } from '@/pages/moneyFormDirty';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -125,11 +127,13 @@ export function SalesReturnsPage() {
     setLines(invoiceItemsToSourceLines(full.items, returnedByProduct, byId));
   };
 
+  // An inbound ?create=1 or ?invoice= opens the dialog; the effect below then strips the params.
+  if ((searchParams.get('create') === '1' || searchParams.get('invoice')) && !open) setOpen(true);
+
   useEffect(() => {
     const wantsCreate = searchParams.get('create') === '1';
     const invoiceIdRaw = searchParams.get('invoice');
     if (!wantsCreate && !invoiceIdRaw) return;
-    setOpen(true);
     const next = new URLSearchParams(searchParams);
     next.delete('create');
     next.delete('invoice');
@@ -150,6 +154,15 @@ export function SalesReturnsPage() {
     setDraftId(null);
     setGestureKey(null);
     setError(null);
+  };
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const returnDirty = returnDialogDirty(open, Boolean(invoice), reason);
+  const requestClose = () => {
+    if (returnDirty) setDiscardPrompt(true);
+    else {
+      setOpen(false);
+      resetDialog();
+    }
   };
 
   const createMutation = useMutation({
@@ -228,7 +241,7 @@ export function SalesReturnsPage() {
         />
       ) : null}
       {returns.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -277,12 +290,19 @@ export function SalesReturnsPage() {
         </Stack>
       ) : null}
 
-      <Dialog
-        open={open && canWrite}
-        onClose={() => {
+      <UnsavedChangesGuard
+        when={returnDirty}
+        prompt={discardPrompt}
+        onStay={() => setDiscardPrompt(false)}
+        onLeave={() => {
+          setDiscardPrompt(false);
           setOpen(false);
           resetDialog();
         }}
+      />
+      <Dialog
+        open={open && canWrite}
+        onClose={requestClose}
         fullWidth
         maxWidth="md"
       >
@@ -326,12 +346,7 @@ export function SalesReturnsPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button
-            onClick={() => {
-              setOpen(false);
-              resetDialog();
-            }}
-          >
+          <Button onClick={requestClose}>
             {t('common.cancel')}
           </Button>
           <Tooltip

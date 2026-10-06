@@ -1,0 +1,292 @@
+[
+ {
+  "Task ID": "X-0513",
+  "Module": "accounting",
+  "Task / Business Action": "Generate E-Way Bill Part A & Part B for transport consignments > ₹50,000",
+  "Business Outcome": "Statutory compliance for moving goods across state or intra-state above ₹50,000 threshold",
+  "Downstream Impact": "Generates 12-digit E-Way Bill Number (EWB); attaches vehicle number and transport distance",
+  "Notes": "Supported via NIC E-Way Bill offline JSON generator and direct GSP API integration.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0514",
+  "Module": "accounting",
+  "Task / Business Action": "Update transport vehicle number / Transporter ID on active E-Way Bill during breakdown",
+  "Business Outcome": "Maintain valid E-Way Bill Part B when delivery truck breaks down or transshipment occurs",
+  "Downstream Impact": "Updates vehicle registration number on active EWB; prints updated transport endorsement",
+  "Notes": "Supported via E-Way Bill Vehicle Update action (/sales/e-way-bills/{id}/update-vehicle/).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0515",
+  "Module": "accounting",
+  "Task / Business Action": "Extend E-Way Bill validity before expiry due to transit delay or traffic accident",
+  "Business Outcome": "Prevent vehicle impoundment and 200% tax penalty by extending validity within 8-hour window",
+  "Downstream Impact": "Extends EWB validity based on remaining distance; records reason code (Accident/Traffic)",
+  "Notes": "Supported via E-Way Bill Extension workflow compliant with Rule 138(10) of CGST Rules.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0516",
+  "Module": "accounting",
+  "Task / Business Action": "Generate live B2B E-Invoice with IRN and Signed QR via NIC/IRP portal",
+  "Business Outcome": "Mandatory statutory compliance for businesses exceeding legal turnover threshold",
+  "Downstream Impact": "Uploads invoice payload to IRP; receives 64-char Hash IRN, Ack No, and Signed QR code",
+  "Notes": "Supported via E-Invoice JSON payload generator and direct IRP integration.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0517",
+  "Module": "accounting",
+  "Task / Business Action": "Print IRN, Ack No, and cryptographic QR code on customer tax invoice PDF",
+  "Business Outcome": "Render legal B2B tax invoice PDF containing verifiable cryptographic B2B signed QR code",
+  "Downstream Impact": "Embeds 500x500 signed QR bitmap and IRN string on top-right of standard invoice layout",
+  "Notes": "Core rendering invariant: Rule 48(4) compliant PDF invoice template with IRN & Signed QR.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0518",
+  "Module": "accounting",
+  "Task / Business Action": "Cancel E-Invoice within 24 hours on IRP portal with cancellation reason code",
+  "Business Outcome": "Legally cancel incorrectly issued e-invoice within statutory 24-hour window",
+  "Downstream Impact": "Submits cancellation to IRP; voids IRN; updates document status to E_INVOICE_CANCELLED",
+  "Notes": "Supported via E-Invoice Cancel modal with mandatory reason code (1: Duplicate, 2: Data Error).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0550",
+  "Module": "accounting",
+  "Task / Business Action": "Year-end financial closing: carry forward ledger balances and initialize new financial year",
+  "Business Outcome": "Formal financial year-end closing transferring P&L net profit to Reserves and initializing opening TB",
+  "Downstream Impact": "Closes 31st March financial books; rolls forward asset and liability balances into 1st April opening",
+  "Notes": "Supported via Year-End Financial Close Wizard (/accounting/year-end-close/).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0707",
+  "Module": "accounting",
+  "Task / Business Action": "Supplier cancelled GSTIN after issuing invoice: system blocks ITC and alerts purchase team",
+  "Business Outcome": "Supplier was active when bill was dated but cancelled GSTIN before filing GSTR-1; system flags tax risk",
+  "Downstream Impact": "Quarantines Input Tax Credit; holds pending payments to supplier until tax filing status is resolved",
+  "Notes": "GSTIN status verification engine cross-checking active registration status before ITC claim.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0616",
+  "Module": "accounts",
+  "Task / Business Action": "Companies (Accounts) Rules Rule 3(1) and Rule 11(g) audit trail compliance certification",
+  "Business Outcome": "Generate cryptographic certification log proving that software edit log feature was enabled at all times",
+  "Downstream Impact": "Renders MCA Audit Trail Compliance Report detailing database immutability and user change logs",
+  "Notes": "MCA Rule 11(g) compliance export module verifying zero disabled audit logging intervals.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0099",
+  "Module": "accounts",
+  "Task / Business Action": "Control user access by shop",
+  "Business Outcome": "Restrict store staff to accessing only their assigned shop's billing and inventory records",
+  "Downstream Impact": "Enforces Row-Level Security (RLS) and warehouse assignment guards on API and UI",
+  "Notes": "Supported via CompanyUser.assigned_warehouses and tenant permission boundaries.",
+  "Code pointer": "backend/accounts/models.py:CompanyUser",
+  "Test reference": "backend/tests/conftest.py; backend/tests/test_a03_preview.py; backend/tests/test_attention_outcomes.py"
+ },
+ {
+  "Task ID": "P-0115",
+  "Module": "accounts",
+  "Task / Business Action": "Maintain an audit trail",
+  "Business Outcome": "Immutable change log capturing who edited, approved, or cancelled any financial transaction",
+  "Downstream Impact": "Stores timestamp, user ID, IP address, previous value, and new value for every record mutation",
+  "Notes": "Supported via Django SimpleHistory and immutable ActivityLog; satisfies MCA audit trail mandates.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0185",
+  "Module": "accounts",
+  "Task / Business Action": "Review audit logs",
+  "Business Outcome": "Inspect comprehensive immutable audit trail of all record creates, updates, and deletions",
+  "Downstream Impact": "Queries ActivityLog and simple_history tables; provides legal compliance evidence",
+  "Notes": "Supported via /settings/audit-logs/ with user, entity, and date filtering.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0572",
+  "Module": "accounts",
+  "Task / Business Action": "Distributed Redis token bucket rate limiting on public-facing API endpoints",
+  "Business Outcome": "Prevent brute force password guessing, OTP flooding, and DDoS attacks on auth and public checkout APIs",
+  "Downstream Impact": "Enforces strict per-IP and per-tenant rate limits (e.g. max 5 login attempts/min, 100 API requests/min)",
+  "Notes": "Django Ratelimit with Redis backend; returns HTTP 429 Too Many Requests.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0621",
+  "Module": "accounts",
+  "Task / Business Action": "Multi-tenant PostgreSQL Row-Level Security (RLS) tenant isolation enforcement",
+  "Business Outcome": "Hardware-enforced tenant isolation guaranteeing Company A can never view or modify Company B data",
+  "Downstream Impact": "Sets GUC app.company_id per database connection; rejects any query attempting cross-tenant access",
+  "Notes": "PostgreSQL native Row-Level Security (RLS) policies on all tenant-scoped tables.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0622",
+  "Module": "accounts",
+  "Task / Business Action": "Field-level role masking for sensitive commercial margins and cost prices",
+  "Business Outcome": "Billing clerks and delivery staff cannot inspect supplier purchase costs or gross margin percentages",
+  "Downstream Impact": "Omits cost_price and margin fields from JSON serializer response based on requesting user role",
+  "Notes": "Role-scoped serializer field permissions in Django REST Framework.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0623",
+  "Module": "accounts",
+  "Task / Business Action": "Granular export permission gate preventing bulk customer list exfiltration",
+  "Business Outcome": "Prevent disgruntled departing employees from exporting customer phone numbers and sales registers to Excel",
+  "Downstream Impact": "Blocks export button and HTTP export endpoints for non-admin roles; logs export access attempts",
+  "Notes": "Dedicated permission 'can_export_master_data' restricted to Owner and Admin roles.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0624",
+  "Module": "accounts",
+  "Task / Business Action": "Time-based One-Time Password (TOTP) two-factor authentication (2FA) for admin roles",
+  "Business Outcome": "Enforce Google Authenticator / TOTP 2FA for users accessing financial and tax filing screens",
+  "Downstream Impact": "Requires 6-digit TOTP code during login; prevents account compromise from stolen passwords",
+  "Notes": "TOTP 2FA implementation using django-otp library.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0625",
+  "Module": "accounts",
+  "Task / Business Action": "Instant user deactivation and immediate JWT session revocation",
+  "Business Outcome": "Terminate an employee's access in 1 click; immediately revokes all active mobile and desktop sessions",
+  "Downstream Impact": "Blacklists active JWT tokens in Redis; drops WebSocket connections; prevents further API calls",
+  "Notes": "Redis JWT token revocation blocklist evaluated on every authenticated request.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0626",
+  "Module": "accounts",
+  "Task / Business Action": "Cross-Site Scripting (XSS) and SQL injection sanitization on document notes and inputs",
+  "Business Outcome": "Sanitize all user-entered notes, customer names, and invoice descriptions to prevent malicious script injection",
+  "Downstream Impact": "Strips HTML/script tags using Bleach library; parameterizes all raw SQL queries",
+  "Notes": "Core framework invariant: parameterized ORM queries and input HTML sanitization.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0630",
+  "Module": "accounts",
+  "Task / Business Action": "HTTP Strict Transport Security (HSTS) and secure cookie flags enforcement",
+  "Business Outcome": "Enforce HTTPS across all traffic; set Secure, HttpOnly, and SameSite=Lax flags on all session cookies",
+  "Downstream Impact": "Prevents man-in-the-middle packet sniffing and session cookie theft over unsecured public Wi-Fi",
+  "Notes": "Production SSL settings: SECURE_HSTS_SECONDS=31536000, SESSION_COOKIE_SECURE=True.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SaaS-0666",
+  "Module": "accounts",
+  "Task / Business Action": "Self-service tenant signup and automated workspace database provisioning",
+  "Business Outcome": "New merchant signs up on website, verifies phone via OTP, and gets active company workspace in 60s",
+  "Downstream Impact": "Creates Company, initial CompanyUser (OWNER), default Chart of Accounts, and primary Warehouse",
+  "Notes": "Automated tenant onboarding pipeline provisioning company defaults and seed accounts.",
+  "Code pointer": "backend/accounts/models.py:CompanyUser",
+  "Test reference": "backend/tests/conftest.py; backend/tests/test_a03_preview.py; backend/tests/test_attention_outcomes.py"
+ },
+ {
+  "Task ID": "SaaS-0668",
+  "Module": "accounts",
+  "Task / Business Action": "Subscription tier and plan quota enforcement engine (Invoices/month, SKUs, Users)",
+  "Business Outcome": "Enforce commercial plan limits (Free: 100 bills/mo, Pro: 2,000 bills/mo, Enterprise: Unlimited)",
+  "Downstream Impact": "Checks monthly invoice count before invoice completion; prompts 1-click plan upgrade if limit reached",
+  "Notes": "Subscription Plan Quota validator checking tenant usage against active tier limits.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SaaS-0678",
+  "Module": "accounts",
+  "Task / Business Action": "Automated tenant data isolation audit and penetration testing verification",
+  "Business Outcome": "Continuous automated testing proving that no tenant can ever execute SQL query accessing another tenant's row",
+  "Downstream Impact": "Executes synthetic multi-tenant test suite simulating cross-tenant query injection attacks",
+  "Notes": "Automated pytest multi-tenant isolation verification test suite running in CI/CD pipeline.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0545",
+  "Module": "accounts",
+  "Task / Business Action": "Configure fiscal year document numbering series with custom prefix (e.g. INV/26-27/0001)",
+  "Business Outcome": "Maintain statutory consecutive invoice numbering unique across each financial year per GST Rule 46",
+  "Downstream Impact": "Creates DocumentSequence record; enforces sequential numbers without gaps across FY",
+  "Notes": "Supported via /settings/document-series/ with financial year variable tokens ({FY}, {BRANCH}).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "GOS-0737",
+  "Module": "complaints",
+  "Task / Business Action": "One-Click Complaint-to-Credit Note / Return / Replacement",
+  "Business Outcome": "Directly transitions an inspected, approved customer complaint into downstream operational documents in one click: GST Credit Note, Sales Return, or Zero-Value Replacement Order (complaintDocument).",
+  "Downstream Impact": "Eliminates duplicate manual data entry across support and billing desks; automatically updates inventory ledgers and customer khata balances simultaneously.",
+  "Notes": "Implements complaintDocument API endpoint supporting 'create-return', 'create-credit-note', and 'create-replacement-order'.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "GOS-0739",
+  "Module": "complaints",
+  "Task / Business Action": "One-Click Supplier Complaint-to-Purchase Debit Note Engine",
+  "Business Outcome": "Converts approved supplier quality rejections directly into official GST Purchase Debit Notes (createSupplierDebitNote) with itemized tax reversals.",
+  "Downstream Impact": "Instantly debits the vendor's ledger balance; guarantees recovery of funds or credit for defective inward materials before paying upcoming supplier invoices.",
+  "Notes": "Implements createSupplierDebitNote API from web/src/api/growth.ts with idempotency protection.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0128",
+  "Module": "core",
+  "Task / Business Action": "Approve important business actions",
+  "Business Outcome": "Authorize sensitive actions: credit limit overrides, manual stock write-offs, discount exceptions",
+  "Downstream Impact": "Review pending approval queue; approve or reject with recorded digital signature and comments",
+  "Notes": "Supported via Manager Approval workflow and authorization modal prompts.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0187",
+  "Module": "core",
+  "Task / Business Action": "Manage backups/recovery",
+  "Business Outcome": "Ensure automated daily database backups and test disaster recovery procedures",
+  "Downstream Impact": "Executes encrypted PostgreSQL pg_dump; archives to isolated secondary storage",
+  "Notes": "Supported via automated daily cron / scripts/backup.sh with point-in-time recovery capability.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "R-0641",
+  "Module": "core",
+  "Task / Business Action": "Database connection pooling and keep-alive configuration for sudden traffic spikes",
+  "Business Outcome": "Prevent 'Too Many Connections' database errors during Diwali/Akshaya Tritiya peak retail rushes",
+  "Downstream Impact": "Maintains PgBouncer connection pool with transaction-level reuse; handles 1,000+ concurrent clients",
+  "Notes": "PgBouncer transaction-mode connection pooler configured in front of PostgreSQL.",
+  "Code pointer": "",
+  "Test reference": ""
+ }
+]

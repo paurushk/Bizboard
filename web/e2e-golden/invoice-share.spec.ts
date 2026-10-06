@@ -26,10 +26,10 @@ test('golden path: complete invoice then share from history row menu', async ({ 
   await selectPartyOnDocument(page, customerName);
   await addInvoiceItem(page, productSku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   await invoiceRow.getByRole('button', { name: 'Actions' }).click();
   await page.getByRole('menuitem', { name: 'Share' }).click();
 

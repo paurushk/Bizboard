@@ -21,17 +21,27 @@ import { t } from '@/i18n';
 import { formatOtpHint } from '@/pages/loginOtp';
 
 const registerSchema = z.object({
-  companyName: z.string().trim().min(1, 'Company name is required'),
+  companyName: z.string().trim().superRefine((value, ctx) => {
+    if (!value) ctx.addIssue({ code: 'custom', message: t('auth.companyRequired') });
+  }),
   fullName: z.string().trim().optional(),
-  email: z.string().trim().email('Enter a valid email'),
+  email: z.string().trim().superRefine((value, ctx) => {
+    if (!z.string().email().safeParse(value).success) {
+      ctx.addIssue({ code: 'custom', message: t('cog.validEmail') });
+    }
+  }),
   phone: z.string().trim().optional(),
   // BB-000751: state drives GSTIN structure and place-of-supply on every
   // invoice this company issues — it must not be silently skippable.
-  state: z.string().trim().min(1, 'State is required'),
+  state: z.string().trim().superRefine((value, ctx) => {
+    if (!value) ctx.addIssue({ code: 'custom', message: t('auth.stateRequired') });
+  }),
   gstin: z.string().trim().optional(),
   // Mandatory sign-up email verification — sent via the "Send code" button,
   // checked server-side against the OtpChallenge it created.
-  otpCode: z.string().trim().length(6, 'Enter the 6-digit code we emailed you'),
+  otpCode: z.string().trim().superRefine((value, ctx) => {
+    if (value.length !== 6) ctx.addIssue({ code: 'custom', message: t('auth.emailCode') });
+  }),
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;

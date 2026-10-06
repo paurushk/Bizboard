@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react';
+import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
+import { Link as RouterLink } from 'react-router-dom';
 
 import { HonestyBanner } from '@/components/HonestyBanner';
 import { isCrmEnabled, isManufacturingEnabled, isPayrollEnabled } from '@/config/features';
@@ -48,6 +50,8 @@ export function ModuleGate({
     return (
       <PageShell title={title}>
         <Typography>{t(ENABLE_HINTS[module])}</Typography>
+        <Typography>{t('cog.featureOffSentence')}</Typography>
+        <Button component={RouterLink} to="/settings">{t('cog.openSettings')}</Button>
       </PageShell>
     );
   }

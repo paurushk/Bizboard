@@ -233,4 +233,13 @@ describe('NewPurchasePage price-jump note', () => {
     expect(getSupplierPriceHistory).toHaveBeenCalledTimes(1);
     expect(getSupplierPriceHistory).toHaveBeenCalledWith(3, 7);
   });
+
+  it('keeps purchase terms empty after the default paragraph is cleared', async () => {
+    const user = userEvent.setup();
+    wrap(<NewPurchasePage />);
+    const terms = await screen.findByLabelText('Add Terms and Conditions');
+    expect((terms as HTMLTextAreaElement).value).toContain('Goods received');
+    await user.clear(terms);
+    expect(terms).toHaveValue('');
+  });
 });

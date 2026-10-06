@@ -29,6 +29,12 @@ const goldenApiEnv = {
   // step hangs until its own timeout. Same opt-in-debug-echo posture as
   // PORTAL_DEBUG_ECHO below, hard-rejected outside dev/test.
   OTP_DEBUG_ECHO: '1',
+  // One registration per spec. Production register_otp is 5/min, which 429s
+  // this suite. settings.py honors this only when DEBUG is on.
+  E2E_RELAX_AUTH_THROTTLE: '1',
+  // Development defaults money-role MFA on, which stops register-then-sign-in
+  // on the enrolment screen. Explicit off is allowed outside production.
+  MFA_ENFORCE_FOR_MONEY_ROLES: '0',
   DJANGO_DEBUG: '1',
   DJANGO_ENV: 'development',
   DJANGO_SETTINGS_MODULE: 'config.settings',
@@ -68,6 +74,7 @@ const goldenApiEnv = {
 export default defineConfig({
   testDir: './e2e-golden',
   timeout: 90_000,
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
   forbidOnly: !!process.env.CI,

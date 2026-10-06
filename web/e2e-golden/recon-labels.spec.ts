@@ -12,8 +12,8 @@ test('recon chrome: operational match vs GL match, both UIs kept', async ({ page
   await enableAccounting(page);
 
   await page.goto('/payments/reconciliation');
-  await expect(page.getByText(/Operational match/i).first()).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText(/Not the GL bank recon/i).first()).toBeVisible();
+  await expect(page.getByText(/statement lines match receipts and payments/i).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/books screen is a different job/i).first()).toBeVisible();
 
   await page.goto('/accounting/bank-reconciliation');
   await expect(page.getByText(/GL match/i).first()).toBeVisible({ timeout: 20_000 });

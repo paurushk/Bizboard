@@ -26,7 +26,7 @@ test('golden path: customer ledger four tabs and excel export', async ({ page })
   await selectPartyOnDocument(page, customerName);
   await addInvoiceItem(page, productSku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   await page.goto('/reports/customer-ledger');
   const customerCombo = page.getByRole('combobox', { name: 'Customer', exact: true });

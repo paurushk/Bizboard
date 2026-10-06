@@ -189,3 +189,30 @@ class VendorTenantSnapshot(CompanyScopedModel):
                 name="uniq_vendor_snapshot_source",
             ),
         ]
+
+
+class PlatformGstInvoice(CompanyScopedModel):
+    """Bizboard's GST invoice to a tenant after a Cashfree or PayU capture.
+
+    Razorpay subscription reconciliation is a separate path and does not write here.
+    """
+
+    provider = models.CharField(max_length=32)
+    capture_id = models.CharField(max_length=128)
+    number = models.CharField(max_length=32, blank=True)
+    taxable_amount = models.DecimalField(max_digits=14, decimal_places=2)
+    cgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    sgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    igst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=14, decimal_places=2)
+    place_of_supply = models.CharField(max_length=64, blank=True)
+    platform_gstin = models.CharField(max_length=15, blank=True)
+    emailed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "provider", "capture_id"],
+                name="uniq_platform_gst_capture",
+            ),
+        ]

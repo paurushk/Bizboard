@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { t } from '@/i18n';
 import { ContextHelp } from './ContextHelp';
@@ -129,6 +129,43 @@ describe('ContextHelp drawer', () => {
     expect(screen.getByTestId('context-help-trigger')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('path')).toHaveTextContent('/sales/new');
     expect(complete).toBeEnabled();
+  });
+
+  it('closes the drawer when the user moves to another page', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/sales/new']}>
+        <ContextHelp />
+        <Link to="/sales/history">Go to history</Link>
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByTestId('context-help-trigger'));
+    expect(await screen.findByTestId('context-help-drawer')).toBeInTheDocument();
+    expect(screen.getByTestId('context-help-trigger')).toHaveAttribute('aria-expanded', 'true');
+
+    // The open drawer hides the rest of the page from assistive tech, hence hidden: true.
+    fireEvent.click(screen.getByRole('link', { name: 'Go to history', hidden: true }));
+    expect(screen.getByTestId('path')).toHaveTextContent('/sales/history');
+    expect(screen.getByTestId('context-help-trigger')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps the drawer open when the page re-renders without a route change', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/sales/new']}>
+        <ContextHelp />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByTestId('context-help-trigger'));
+    expect(screen.getByTestId('context-help-trigger')).toHaveAttribute('aria-expanded', 'true');
+    rerender(
+      <MemoryRouter initialEntries={['/sales/new']}>
+        <ContextHelp />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('context-help-trigger')).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('renders nothing when the page has no catalog entry', () => {

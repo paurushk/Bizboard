@@ -104,8 +104,21 @@ class Command(BaseCommand):
             )
         )
 
+    def _note_skip(self, source, doc_id, exc, when=None):
+        period = "undated"
+        if when is not None and hasattr(when, "strftime"):
+            period = f"{when:%Y-%m}"
+        elif when:
+            period = str(when)[:7]
+        self.skipped_by_period.setdefault(period, []).append({
+            "source_type": source,
+            "id": doc_id,
+            "reason": str(exc),
+        })
+
     def _backfill_company(self, company, *, dry_run: bool) -> tuple[int, int, int]:
         posted = skipped = would = 0
+        self.skipped_by_period = {}
 
         si_statuses = (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
         for invoice in SalesInvoice.objects.filter(company=company, status__in=si_statuses):
@@ -130,6 +143,7 @@ class Command(BaseCommand):
                             posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("SALES_INVOICE", invoice.id, exc, getattr(invoice, "invoice_date", None))
                 self.stderr.write(f"SI {invoice.id}: {exc}")
 
         pi_statuses = (PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.RETURNED)
@@ -147,6 +161,7 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("PURCHASE_INVOICE", invoice.id, exc, getattr(invoice, "invoice_date", None))
                 self.stderr.write(f"PI {invoice.id}: {exc}")
 
         for receipt in CustomerReceipt.objects.filter(company=company).exclude(
@@ -159,6 +174,7 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("CUSTOMER_RECEIPT", receipt.id, exc, getattr(receipt, "receipt_date", None))
                 self.stderr.write(f"Receipt {receipt.id}: {exc}")
 
         for payment in SupplierPayment.objects.filter(company=company).exclude(
@@ -171,6 +187,7 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("SUPPLIER_PAYMENT", payment.id, exc, getattr(payment, "payment_date", None))
                 self.stderr.write(f"Payment {payment.id}: {exc}")
 
         for alloc in PaymentAllocation.objects.filter(
@@ -191,6 +208,7 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("PAYMENT_ALLOCATION", alloc.id, exc, None)
                 self.stderr.write(f"Allocation {alloc.id}: {exc}")
 
         note_specs = (
@@ -210,6 +228,7 @@ class Command(BaseCommand):
                             posted += 1
                 except BusinessRuleError as exc:
                     skipped += 1
+                    self._note_skip(source_type, note.id, exc, getattr(note, "note_date", None) or getattr(note, "date", None))
                     self.stderr.write(f"{source_type} {note.id}: {exc}")
 
         for sales_return in SalesReturn.objects.filter(
@@ -248,6 +267,7 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("SALES_RETURN", sales_return.id, exc, getattr(sales_return, "return_date", None))
                 self.stderr.write(f"SalesReturn {sales_return.id}: {exc}")
 
         for movement in StockMovement.objects.filter(
@@ -260,7 +280,72 @@ class Command(BaseCommand):
                         posted += 1
             except BusinessRuleError as exc:
                 skipped += 1
+                self._note_skip("STOCK_MOVEMENT", movement.id, exc, getattr(movement, "movement_date", None))
                 self.stderr.write(f"Opening stock {movement.id}: {exc}")
+
+        posted, skipped, would = self._backfill_module_sources(
+            company, dry_run=dry_run, posted=posted, skipped=skipped, would=would,
+        )
+        return posted, skipped, would
+
+    def _backfill_module_sources(self, company, *, dry_run, posted, skipped, would):
+        """Payroll, work orders, and bills of entry when those documents exist."""
+        from manufacturing.services import _issue_cost_total
+        from payroll.models import PayRun
+        from payroll.services import pay_period_month_end, post_pay_run_gl
+        from purchases.models import BillOfEntry
+
+        from manufacturing.models import WorkOrder
+
+        for run in PayRun.objects.filter(company=company, status=PayRun.Status.COMPLETED):
+            when = None
+            try:
+                when = pay_period_month_end(run.period)
+                if not _has_je(company, "PAY_RUN", run.id, "PAYROLL"):
+                    would += 1
+                    if not dry_run and post_pay_run_gl(run, None):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self._note_skip("PAY_RUN", run.id, exc, when)
+                self.stderr.write(f"PayRun {run.id}: {exc}")
+
+        for wo in WorkOrder.objects.filter(
+            company=company,
+            status__in=(WorkOrder.Status.RELEASED, WorkOrder.Status.COMPLETED),
+        ):
+            when = wo.released_at or wo.completed_at
+            try:
+                amount = _issue_cost_total(wo)
+                if wo.status == WorkOrder.Status.RELEASED:
+                    if amount > 0 and not _has_je(company, "WORK_ORDER", wo.id, "RELEASE"):
+                        would += 1
+                        if not dry_run and PostingService.post_work_order_release(wo, amount):
+                            posted += 1
+                else:
+                    if amount > 0 and not _has_je(company, "WORK_ORDER", wo.id, "RELEASE"):
+                        would += 1
+                        if not dry_run and PostingService.post_work_order_release(wo, amount):
+                            posted += 1
+                    if amount > 0 and not _has_je(company, "WORK_ORDER", wo.id, "COMPLETE"):
+                        would += 1
+                        if not dry_run and PostingService.post_work_order_complete(wo, amount):
+                            posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self._note_skip("WORK_ORDER", wo.id, exc, when)
+                self.stderr.write(f"WorkOrder {wo.id}: {exc}")
+
+        for boe in BillOfEntry.objects.filter(company=company, status=BillOfEntry.Status.COMPLETED):
+            try:
+                if not _has_je(company, "BILL_OF_ENTRY", boe.id, "COMPLETE"):
+                    would += 1
+                    if not dry_run and PostingService.post_bill_of_entry(boe):
+                        posted += 1
+            except BusinessRuleError as exc:
+                skipped += 1
+                self._note_skip("BILL_OF_ENTRY", boe.id, exc, getattr(boe, "boe_date", None))
+                self.stderr.write(f"BillOfEntry {boe.id}: {exc}")
 
         return posted, skipped, would
 

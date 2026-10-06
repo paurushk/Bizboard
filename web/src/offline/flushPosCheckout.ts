@@ -33,6 +33,8 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
     draft.pendingCustomerName || payload.pendingCustomerName || '',
   ).trim();
   if (!customerId && pendingName) {
+    // One customer per draft. Sharing one id between drafts that merely typed the same name would
+    // merge different people into one ledger and credit-limit balance.
     const created = await createCustomer({ name: pendingName, status: 'ACTIVE' });
     customerId = created.id;
     // CR-004: bind the new party onto the draft before invoice create so a
@@ -54,7 +56,17 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
   const taxEnabled = preferredInvoiceType(company.registrationType) !== 'NON_GST';
   const posInvoiceType = taxEnabled ? 'RETAIL' : 'NON_GST';
   const isInclusive = company.priceMode === 'INCLUSIVE';
-  const invoiceDate = todayIso();
+  // The create request is sent under draft.idempotencyKey on every retry, and the server now
+  // refuses a reused key whose body differs (422 idempotency_key_reused). `todayIso()` here would
+  // change after midnight, so a retry of an invoice that was already created would be refused
+  // instead of replayed. Pin the date on the draft at the first attempt; every retry reuses it.
+  let invoiceDate = typeof payload.invoiceDate === 'string' ? payload.invoiceDate : '';
+  if (!invoiceDate) {
+    invoiceDate = todayIso();
+    await updateDraft(draft.companyId, draft.userId, draft.idempotencyKey, {
+      payload: { ...payload, invoiceDate },
+    });
+  }
   const warehouse = Number(payload.warehouse || 0) || undefined;
   const invoice = await createSalesInvoice(
     {

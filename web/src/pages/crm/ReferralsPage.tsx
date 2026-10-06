@@ -6,12 +6,15 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { issueLeadFormToken } from '@/api/crm';
 import { decideReferralReward, issueReferralCode, listReferralRewards, referralLeaderboard } from '@/api/growth';
 import { useAuth } from '@/auth/AuthContext';
+import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { isReferralsEnabled } from '@/config/features';
+import { enumLabel } from '@/utils/enumLabels';
 import { t } from '@/i18n';
 import { CustomerField } from '@/pages/growth/widgets';
 import { ModuleGate } from '@/pages/erp/erpShared';
@@ -77,8 +80,8 @@ function ReferralsInner() {
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
         <CustomerField value={customer} onChange={setCustomer} />
         <TextField select size="small" label={t('growth.rewardType')} value={rewardType} onChange={(e) => setRewardType(e.target.value)} sx={{ minWidth: 140 }}>
-          <MenuItem value="FLAT">FLAT</MenuItem>
-          <MenuItem value="PERCENT">PERCENT</MenuItem>
+          <MenuItem value="FLAT">{enumLabel('rewardType', 'FLAT')}</MenuItem>
+          <MenuItem value="PERCENT">{enumLabel('rewardType', 'PERCENT')}</MenuItem>
         </TextField>
         <TextField size="small" label={t('growth.rewardValue')} value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
         <Button variant="contained" disabled={!customer || issue.isPending} onClick={() => issue.mutate()}>{t('growth.issueCode')}</Button>
@@ -99,6 +102,12 @@ function ReferralsInner() {
         </Stack>
       ) : null}
       {error ? <Typography color="error">{error}</Typography> : null}
+      {board.isLoading || rewards.isLoading ? <LoadingState /> : null}
+      {board.isError ? <ErrorState message={getErrorMessage(board.error)} error={board.error} onRetry={() => void board.refetch()} /> : null}
+      {rewards.isError ? <ErrorState message={getErrorMessage(rewards.error)} error={rewards.error} onRetry={() => void rewards.refetch()} /> : null}
+      {!board.isLoading && !rewards.isLoading && !board.isError && !rewards.isError && (board.data ?? []).length === 0 && (rewards.data?.results ?? []).length === 0 ? (
+        <EmptyState description={t('cog.emptyReferrals')} />
+      ) : null}
       <Typography variant="subtitle2">{t('growth.leaderboard')}</Typography>
       {(board.data ?? []).map((row) => (
         <Typography key={row.code}>{row.code} · {row.referrerType} · {row.approvedTotal}</Typography>
@@ -121,6 +130,8 @@ function ReferralsInner() {
             {canDecide && row.rewardStatus === 'APPROVED' ? (
               <Button size="small" onClick={() => decide.mutate({ id: row.id, decision: 'mark-paid' })}>{t('growth.markPaid')}</Button>
             ) : null}
+            <Typography variant="caption">{t('cog.settleNoJournal')}</Typography>
+            <Button size="small" component={RouterLink} to="/sales/credit-notes/new">{t('cog.draftCreditNote')}</Button>
           </Stack>
         </Paper>
       ))}

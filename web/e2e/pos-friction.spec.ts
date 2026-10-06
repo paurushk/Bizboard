@@ -27,7 +27,7 @@ test.describe('POS friction', () => {
     await page.goto('/pos');
     await page.waitForLoadState('networkidle');
 
-    const cash = page.getByRole('button', { name: /cash|finish payment/i }).first();
+    const cash = page.getByRole('button', { name: /^cash\s*—|finish payment/i }).first();
     const upi = page.getByRole('button', { name: /upi/i }).first();
     await expect(cash).toBeVisible();
     await expect(upi).toBeVisible();

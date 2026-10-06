@@ -13,9 +13,10 @@ evidence:
   - docs/TESTING_STRATEGY.md#7 G-15
   - docs/TESTING_STRATEGY.md#6.10
   detail: Backend observation landed 2026-09-16 (`tests/test_qos0016_dashboard_budget.py`,
-    400 COMPLETED invoices, 5s ReportService budget). Playwright
+    400 COMPLETED invoices, 5s ReportService budget). A 12-month case now seeds 1,500
+    invoices over 365 days and asserts the query count stays flat as rows grow. Playwright
     `e2e-golden/v95-dashboard-budget.spec.ts` times first Dashboard KPI paint
-    under a loose 15s budget. Neither is a signed p95 SLO; 12-month fixture
+    under a loose 15s budget. None of these is a signed p95 SLO; that
     remains Human.
 scoring:
   reach: 5

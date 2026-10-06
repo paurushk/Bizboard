@@ -7,6 +7,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import record_document_event
 from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
 from core.services.billing import apply_rcm_memo_after_tax
@@ -357,6 +358,10 @@ class PurchaseNotesService:
             PostingService.post_note(
                 note, source_type="PURCHASE_CREDIT_NOTE", direction="PURCHASE_CREDIT", user=user
             )
+        record_document_event(document=note, user=user, event="purchase_credit_note.completed")
+        from planwave.services import stamp_document_party
+
+        stamp_document_party(note)
         emit("document.completed", document=note, user=user, event="purchase_credit_note.completed")
         return note, warnings
 
@@ -393,6 +398,7 @@ class PurchaseNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
+        record_document_event(document=note, user=user, event="purchase_credit_note.cancelled")
         return note
 
     @staticmethod
@@ -567,6 +573,10 @@ class PurchaseNotesService:
             PostingService.post_note(
                 note, source_type="PURCHASE_DEBIT_NOTE", direction="PURCHASE_DEBIT", user=user
             )
+        record_document_event(document=note, user=user, event="purchase_debit_note.completed")
+        from planwave.services import stamp_document_party
+
+        stamp_document_party(note)
         emit("document.completed", document=note, user=user, event="purchase_debit_note.completed")
         return note, warnings
 
@@ -593,6 +603,7 @@ class PurchaseNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
+        record_document_event(document=note, user=user, event="purchase_debit_note.cancelled")
         return note
 
     @staticmethod

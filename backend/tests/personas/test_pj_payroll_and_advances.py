@@ -104,7 +104,7 @@ def test_pj_payroll_and_statutory_gl_lifecycle():
         )
 
     # 4. Accountant completes pay run and GL journal is posted
-    completed_run = complete_pay_run(pay_run, user=acct)
+    completed_run = complete_pay_run(pay_run, user=acct, pay_from_cash=True)
     assert completed_run.status == PayRun.Status.COMPLETED
 
     # Verify JournalEntry posted

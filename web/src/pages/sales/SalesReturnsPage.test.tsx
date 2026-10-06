@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesReturnsPage } from '@/pages/sales/SalesReturnsPage';
 import type { SalesInvoice } from '@/types/domain';
 
@@ -80,5 +80,52 @@ describe('SalesReturnsPage inbound invoice query', () => {
     expect(await screen.findByRole('dialog', { name: /new sales return/i })).toBeTruthy();
     await waitFor(() => expect(getSalesInvoice).toHaveBeenCalledWith(7));
     expect(await screen.findByDisplayValue(/INV-0007/)).toBeTruthy();
+  });
+});
+
+function Probe() {
+  const location = useLocation();
+  return <div data-testid="search">{location.search}</div>;
+}
+
+function wrapWithProbe(path: string) {
+  const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={qc}>
+      <MemoryRouter initialEntries={[path]}>
+        <Probe />
+        <Routes>
+          <Route path="/sales/returns" element={<SalesReturnsPage />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
+describe('SalesReturnsPage inbound parameters', () => {
+  beforeEach(() => getSalesInvoice.mockClear());
+
+  it('opens the dialog from ?create=1 alone, without looking up an invoice', async () => {
+    wrapWithProbe('/sales/returns?create=1');
+    expect(await screen.findByRole('dialog', { name: /new sales return/i })).toBeTruthy();
+    expect(getSalesInvoice).not.toHaveBeenCalled();
+  });
+
+  it('removes the create and invoice parameters from the address once it has used them', async () => {
+    wrapWithProbe('/sales/returns?create=1&invoice=7&q=abc');
+    await screen.findByRole('dialog', { name: /new sales return/i });
+    await waitFor(() => expect(screen.getByTestId('search').textContent).toBe('?q=abc'));
+  });
+
+  it('stays closed when the address has no parameters', async () => {
+    wrapWithProbe('/sales/returns');
+    await waitFor(() => expect(screen.queryByRole('progressbar')).toBeNull());
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('ignores an invoice id that is not a number', async () => {
+    wrapWithProbe('/sales/returns?create=1&invoice=abc');
+    await screen.findByRole('dialog', { name: /new sales return/i });
+    expect(getSalesInvoice).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,1157 @@
+MODULE: accounting | Total: 147 | Gaps (Contradicted): 25 | Partial: 48
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0017] (P1) Close the day's business
+      Reason: No POS shift or daily close with variance and lock; only period/FY close and a day-book report.
+      Evidence: none found: searched shift, day close, cash session, end of day in backend
+    * [X-0482] (P1) Cashier closes day's sales
+      Reason: No POS shift or day-close model, view or screen exists in code.
+      Evidence: none found: searched shift close, ShiftClose, z-report, shift in backend and web
+    * [X-0483] (P1) Cashier reconciles cash
+      Reason: No cash denomination counter or shift variance calculation exists.
+      Evidence: none found: searched denomination, cash drawer, shift in backend and web/src
+    * [X-0484] (P1) Digital payments are reconciled
+      Reason: No POS card/UPI settlement reconciliation step on a shift close exists.
+      Evidence: none found: searched shift, settlement reconciliation, EDC in backend and web/sr
+    * [X-0488] (P1) Owner reviews inventory movements
+      Reason: Only a raw stock-movement list exists; no daily received/sold/transferred summary report found.
+      Evidence: backend/inventory/views.py:StockMovementViewSet
+    * [X-0514] (P0) Update transport vehicle number / Transporter ID on active E-Way Bill during breakdown
+      Reason: No Part B vehicle update action exists; only prepare, submit and cancel for e-way bills.
+      Evidence: none found: searched update vehicle, UpdVeh, Part B, transporter update in backe
+    * [X-0515] (P0) Extend E-Way Bill validity before expiry due to transit delay or traffic accident
+      Reason: No e-way bill validity extension action exists.
+      Evidence: none found: searched extend validity, extend_eway, EXTEND in backend/sales and b
+    * [X-0519] (P1) Calculate Section 194Q TDS deduction (0.1%) on supplier purchases exceeding ₹50 Lakhs in FY
+      Reason: TDS on purchases is a manually entered rate/amount; no 194Q threshold engine tracking cumulative ven
+      Evidence: none found: searched 194Q, cumulative purchases, tds_section in purchases, accou
+    * [X-0522] (P1) Apply higher TDS/TCS penalty rates (5%) for non-filers under Section 206AB / Section 206CCA
+      Reason: No Section 206AB/206CCA check, non-filer flag or automatic 5% higher rate exists on the Customer/Sup
+      Evidence: none found: searched 206AB, 206CCA, specified person, non-filer in backend
+    * [X-0559] (P2) Transition from Composition Scheme to Regular GST Scheme (stock credit under Section 18(1)(c))
+      Reason: No composition-to-regular transition assistant or ITC-01 stock-credit computation exists; compositio
+      Evidence: none found: searched ITC-01, section 18(1)(c), composition transition, stock cre
+    * [S-0571] (P3) Temporary file and export archive garbage collection worker
+      Reason: Only HelpEvent, idempotency and sandbox sweeps exist; no export or temp media garbage collection tas
+      Evidence: none found: searched cleanup, purge, media_exports, temp file in tasks.py
+    * [UX-0589] (P1) Interactive spreadsheet-style inline grid editing for bulk transaction review
+      Reason: No spreadsheet-style editable grid for bulk purchase bill review.
+      Evidence: none found: searched DataGrid, ag-grid, spreadsheet, bulk edit in web/src
+    * [UX-0599] (P1) Split-screen side-by-side reconciliation interface with drag-and-drop manual matching
+      Reason: Reconciliation is a single table with a match button and status dropdown; no dual-pane or drag-and-d
+      Evidence: web/src/pages/reports/Gstr2bPage.tsx:matchGstr2b
+    * [C-0606] (P0) Rule 138 CGST Rules mandatory E-Way Bill distance calculation via postal PIN codes
+      Reason: Distance is a user-entered field; no NIC PIN-to-PIN lookup or 200 km validity computation (validity 
+      Evidence: backend/sales/eway_payload.py:transport_distance_km
+    * [C-0607] (P0) Section 50 CGST Act delayed tax payment interest calculator (18% & 24% p.a.)
+      Reason: No Section 50 interest calculator or delayed-filing worksheet exists.
+      Evidence: none found: searched interest, section_50, late fee, delayed GSTR-3B in backend
+    * [C-0609] (P0) Schedule H and Schedule X restricted drug sales register and doctor prescription logging
+      Reason: No Schedule H/X register or doctor/prescription logging; only drug licence numbers and batch on invo
+      Evidence: none found: searched schedule_h, prescription, doctor, prescribing
+    * [C-0611] (P1) Legal Metrology (Packaged Commodities) Rules mandatory unit price declaration
+      Reason: Receipts print unit_price per line only; no unit-price-per-gram/ml declaration or USP calculator fou
+      Evidence: backend/sales/pdf/thermal_receipt.py:format_money
+    * [C-0614] (P1) Section 206AB / 206CCA active compliance verification via Income Tax Department PAN utility
+      Reason: No Section 206AB specified-person check or rate uplift anywhere in code.
+      Evidence: none found: searched 206AB, 206CCA, specified person
+    * [C-0615] (P1) Rule 42 and Rule 43 CGST Rules proportionate reversal of common input tax credit
+      Reason: No proportionate common-credit reversal computation or journal; only an ITC reversed/ineligible flag
+      Evidence: none found: searched rule 42, rule 43, common credit, exempt supplies reversal
+    * [C-0617] (P3) Section 128A CGST Act amnesty scheme conditional waiver tracking and reconciliation
+      Reason: No Section 128A amnesty tracking or reconciliation.
+      Evidence: none found: searched 128A, amnesty
+    * [C-0618] (P0) E-Way Bill Part B vehicle update statutory time-limit and multi-vehicle consignment splitting
+      Reason: No Part B vehicle update or multi-vehicle consignment splitting; e-way is a single bill per document
+      Evidence: none found: searched multi-vehicle, part_b, vehicle update
+    * [C-0619] (P3) Section 171 CGST Act Anti-Profiteering tax rate cut price reduction compliance verification
+      Reason: No anti-profiteering price-reduction audit or price adjustment.
+      Evidence: none found: searched anti-profiteering, section 171, rate cut
+    * [R-0649] (P1) Chunked multipart file upload engine for massive 50MB customer and product master imports
+      Reason: Imports use ordinary single multipart upload; no chunking or resume.
+      Evidence: none found: searched chunked, resumable, tus, multipart chunk in backend and web
+    * [D-0690] (P0) Automated GSTR-2B 'Smart Reconciler' with fuzzy name and fractional rounding matching
+      Reason: Matching uses case-insensitive exact invoice number with tax/date tolerance; no fuzzy or Levenshtein
+      Evidence: backend/reporting/gstr2b.py:match_gstr2b_to_purchases; backend/reporting/ims.py:
+    * [X-0712] (P1) Employee accidentally deletes 20 line items in bulk order: 1-click draft revision rollback
+      Reason: Only a draft_restored telemetry event name exists; no draft version history or one-click rollback of
+      Evidence: none found: searched draft version, revision, rollback, snapshot, restore draft
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0111] (P1) Export accounting data
+      Reason: Tally export download is CSV; Tally XML vouchers are only generated for HTTP push to a Tally server,
+      Evidence: backend/integrations/tally/adapter.py:build_tally_export_csv; backend/integratio
+    * [P-0112] (P1) Reconcile books with GST records
+      Reason: Return worksheets are tied to sales/purchase register taxable totals only; no GL output/input tax le
+      Evidence: backend/reporting/gst_returns.py:_worksheet_register_tie
+    * [P-0124] (P1) Monitor GST liability
+      Reason: 3B payload has tax_payable_summary with net payable hint after claimable ITC; no separate insights l
+      Evidence: backend/reporting/gst_returns.py:build_gstr3b
+    * [X-0294] (P1) IMS invoice → pending action
+      Reason: PENDING is recorded and excluded from claimable ITC, but no explicit roll-forward of eligibility to 
+      Evidence: backend/reporting/ims.py:apply_ims_action
+    * [X-0303] (P1) GST data correction → audit trail maintained
+      Reason: Append-only logs record user, old and new money values and statutory events, but no reason field and
+      Evidence: backend/core/models.py:MoneyFieldAudit; backend/core/models.py:AuditEvent; backe
+    * [X-0304] (P1) GST return preparation → source transactions remain traceable
+      Reason: Worksheet rows carry invoice numbers and document_id, but no dedicated bidirectional drill-down from
+      Evidence: backend/reporting/gst_returns.py:build_gstr1; backend/reporting/gst_returns.py:_
+    * [X-0305] (P1) Accountant reviews GST exception → exception resolved
+      Reason: Exceptions can be dismissed or snoozed, but no RESOLVED status with re-run of validation and return-
+      Evidence: backend/insights/attention.py:dismiss_attention_row; backend/insights/attention.
+    * [X-0306] (P1) GST export → exported data reconciles with system
+      Reason: Worksheet totals are tied to sales/purchase registers and hashed, not cross-checked against GL tax a
+      Evidence: backend/reporting/gst_returns.py:_worksheet_register_tie; backend/reporting/gst_
+    * [X-0424] (P1) Accountant modifies GST data → audit trail is created
+      Reason: User, old and new value are logged append-only for four money fields; no reason captured and the log
+      Evidence: backend/core/models.py:MoneyFieldAudit; backend/core/models.py:log_money_change;
+    * [X-0432] (P0) Critical transaction → immutable audit trail exists
+      Reason: AuditEvent is hash-chained and guarded against update/delete, but coverage of every critical transac
+      Evidence: backend/core/models.py:AuditEvent; backend/core/services/audit_chain.py:seal
+    * [X-0462] (P1) Import customer master
+      Reason: Bulk customer import with GSTIN validation, preview and duplicate skip exists; credit limit is not i
+      Evidence: backend/imports/services.py:ImportService; backend/imports/services.py:_commit_c
+    * [X-0463] (P1) Import supplier master
+      Reason: Supplier import with GSTIN validation and duplicate skip exists; payment terms are not imported.
+      Evidence: backend/imports/services.py:ImportService; backend/imports/services.py:_commit_s
+    * [X-0466] (P1) Import opening customer balances
+      Reason: Opening receivables load only through the Tally migration path as opening invoices; no customer-bala
+      Evidence: backend/integrations/tally/adapter.py:_create_opening_sales; backend/integration
+    * [X-0467] (P1) Import opening supplier balances
+      Reason: Opening payables load only through the Tally migration path; no supplier-balances import kind in the
+      Evidence: backend/integrations/tally/adapter.py:_create_opening_purchase; backend/integrat
+    * [X-0468] (P1) Import historical invoices
+      Reason: SALES_BILL import creates sales invoices through the normal path; no legacy flag or forced CLOSED st
+      Evidence: backend/imports/services.py:_commit_sales; backend/imports/models.py:ImportJob
+    * [X-0469] (P1) Import GST data
+      Reason: GSTR-2B rows can be ingested via upload and offline import; no GSTR-1 JSON import and the schema is 
+      Evidence: backend/reporting/views.py:Gstr2bIngestViewSet; backend/reporting/ims_offline.py
+    * [X-0471] (P1) Identify duplicate imported records
+      Reason: Duplicates are detected and skipped with reporting; no prompt to overwrite or abort.
+      Evidence: backend/imports/services.py:_commit_customers; backend/imports/services.py:_vali
+    * [X-0472] (P1) Reject invalid records without corrupting valid records
+      Reason: Customers, suppliers and opening stock commit valid rows with an error report; products block the wh
+      Evidence: backend/imports/services.py:ImportService; backend/imports/views.py:ImportJobVie
+    * [X-0475] (P1) Export inventory data
+      Reason: inventory-summary export exists; batch lot, expiry and warehouse breakdown are not clearly in the ex
+      Evidence: backend/reporting/views.py:EXPORTS; backend/reporting/services.py:ReportService
+    * [X-0476] (P1) Export GST data
+      Reason: GSTR-1/3B/CMP-08 worksheets export as XLSX and a flag-gated GSTN-shaped JSON, described as not a por
+      Evidence: backend/reporting/views.py:GstReturnView; backend/reporting/gst_returns.py:to_gs
+    * [X-0477] (P1) Export customer ledger
+      Reason: Customer statement with running balance is served as data; no PDF or Excel statement export found.
+      Evidence: backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:CustomerLedg
+    * [X-0478] (P1) Export supplier ledger
+      Reason: Supplier statement is served as data; no PDF or Excel statement export found.
+      Evidence: backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:SupplierLedg
+    * [X-0479] (P1) Export accounting data
+      Reason: Trial balance exports to XLSX; Tally XML covers only open sales invoices and masters, not a full led
+      Evidence: backend/accounting/views.py:AccountingReportView; backend/integrations/tally/ada
+    * [X-0486] (P1) Owner reviews daily gross margin
+      Reason: Realised margin (revenue minus COGS) is stored per invoice and rolled up by date range; the dashboar
+      Evidence: backend/reporting/invoice_profit_service.py; backend/reporting/views.py:InvoiceP
+    * [X-0487] (P1) Owner reviews outstanding collections
+      Reason: Day book shows PAYMENT_IN inflow for a date; no collections summary widget or month-to-date collecti
+      Evidence: backend/reporting/transactions.py:day_book; backend/reporting/services.py:Report
+    * [X-0489] (P1) Owner reviews exceptions
+      Reason: Attention feed with dismiss/snooze exists, but rows cover GST, overdue, expiry and similar items, no
+      Evidence: backend/insights/models.py:AttentionRowState; backend/insights/attention.py:buil
+    * [X-0490] (P1) Accountant reconciles sales
+      Reason: DOCS_GL_AR_MISMATCH compares invoice outstanding to GL AR; no sales revenue, tax and round-off recon
+      Evidence: backend/accounting/services.py:BooksHealthService; backend/accounting/services.p
+    * [X-0491] (P1) Accountant reconciles purchases
+      Reason: DOCS_GL_AP_MISMATCH compares bills to GL AP; no check against inventory asset or expense accounts.
+      Evidence: backend/accounting/services.py:BooksHealthService; backend/accounting/services.p
+    * [X-0492] (P1) Accountant reconciles payments
+      Reason: Bank reconciliation sessions and advance-vs-GL checks exist; no daily payment clearing-account-to-ze
+      Evidence: backend/accounting/views.py:BankReconSessionViewSet; backend/accounting/services
+    * [X-0494] (P1) Period reports remain reproducible
+      Reason: Period locks stop back-dated postings and GST returns get hashed snapshots; no stored snapshot of P&
+      Evidence: backend/reporting/gst_returns.py:persist_snapshot; backend/reporting/gst_periods
+    * [P-0503] (P0) Audit 2A/2B vs Books reconciliation and verify eligible vs blocked ITC
+      Reason: 2B matching and eligible/ineligible flags exist, but no Section 17(5) blocked-credit classification.
+      Evidence: backend/reporting/gstr2b.py:match_gstr2b_to_purchases; backend/purchases/models.
+    * [P-0504] (P1) Verify TDS Section 194Q and TCS Section 206C(1H) statutory deduction compliance
+      Reason: TDS/TCS worksheets list deductions; no 194Q 50-lakh threshold test, PAN status verification or chall
+      Evidence: backend/reporting/tds_worksheets.py:tds_worksheet_rows; backend/reporting/tds_wo
+    * [P-0506] (P1) Validate GSTR-9 annual return computation and reconciliation with audited financials
+      Reason: GSTR-9 builder exists; no GSTR-9C or reconciliation against audited P&L turnover.
+      Evidence: backend/reporting/gst_returns.py:build_gstr9
+    * [P-0507] (P0) Audit MCA mandated immutable audit trail (Rule 11(g) Companies Audit Rules)
+      Reason: Hash-chained audit events with verify exist; not django-simple-history, and no certification report 
+      Evidence: backend/core/services/audit_chain.py:seal; backend/core/services/audit_chain.py:
+    * [P-0508] (P1) Export audited financial vouchers to external CA software (Tally / Computax / Winman)
+      Reason: Voucher XML is built only for HTTP push to Tally; no downloadable full-year Tally XML file with inve
+      Evidence: backend/integrations/tally/adapter.py:_vouchers_xml; backend/integrations/tally/
+    * [X-0520] (P1) Generate Form 26Q quarterly TDS return summary and supplier Form 16A certificates
+      Reason: 26Q is only a CSV worksheet aid by period; no NSDL text file, BSR/challan handling or Form 16A certi
+      Evidence: backend/reporting/tds_worksheets.py:tds_worksheet_rows; backend/reporting/views.
+    * [X-0521] (P1) Calculate Section 206C(1H) TCS collection (0.1%) on receipts exceeding ₹50 Lakhs from customer
+      Reason: TCS is posted to TCS Payable from a per-invoice rate, but no 50 lakh cumulative receipt threshold tr
+      Evidence: backend/sales/services.py:apply_tcs_fold; backend/accounting/services.py:TCS Pay
+    * [X-0556] (P1) Generate self-invoice for RCM inward supplies and calculate reverse tax liability
+      Reason: RCM liability reaches GSTR-3B 3.1(d), but no self-invoice or payment voucher generator exists; the P
+      Evidence: backend/reporting/gst_returns.py:3.1(d); backend/purchases/pdf.py:is_reverse_cha
+    * [X-0557] (P1) Claim Input Tax Credit on RCM tax paid in cash in subsequent GSTR-3B return
+      Reason: RCM books post Input ITC shown as provisional in the 3B builder, but no cash-payment confirmation ag
+      Evidence: backend/reporting/gst_returns.py:rcm_itc_provisional; backend/reporting/gst_retu
+    * [X-0560] (P1) Issue non-GST / Bill of Supply for nil-rated, exempted, or non-taxable goods
+      Reason: NON_GST invoice type renders without tax and nil-rated amounts are bucketed in GSTR-1, but no distin
+      Evidence: backend/sales/models.py:NON_GST; backend/sales/pdf/gst_tax_invoice.py:show_tax
+    * [C-0602] (P0) Section 16(2) CGST Act 4-condition statutory Input Tax Credit entitlement verification
+      Reason: Only a single UNREVIEWED/CLAIMABLE/INELIGIBLE flag exists; no four-condition Section 16(2) checklist
+      Evidence: backend/purchases/models.py:ItcEligibility; backend/accounting/services.py:recla
+    * [C-0603] (P0) Section 16(4) time-barring automated alert and ITC exclusion engine
+      Reason: Deadline and a 30-day expiry alert/digest exist; no 60/7-day tiers and no TIME_BARRED status or excl
+      Evidence: backend/reporting/ims.py:section_16_4_deadline; backend/reporting/ims.py:expirin
+    * [C-0604] (P0) Section 17(5) blocked credit automated identification and accounting reclassification
+      Reason: Ineligible ITC can be reclassified to expense/inventory, but no automatic motor vehicle/food/gift cl
+      Evidence: backend/accounting/services.py:reclass_rejected_itc; backend/purchases/serialize
+    * [C-0612] (P1) Section 194C TDS withholding on commercial transport and contractor payments
+      Reason: TDS is manual section/rate on the bill and credits 2265 TDS Payable; no 194C threshold, PAN-based ra
+      Evidence: backend/core/services/tax_engine/india.py:fold_tds_from_rate; backend/purchases/
+    * [C-0613] (P1) Section 194J TDS withholding on professional and legal service fees
+      Reason: Manual TDS rate/section and worksheet exist; no 194J threshold rule, per-consultant annual tracking 
+      Evidence: backend/core/services/tax_engine/india.py:fold_tds_from_rate; backend/reporting/
+    * [SEC-0628] (P0) Cryptographic AES-256 encryption for stored bank account numbers and tax credentials
+      Reason: GSP credentials use Fernet (AES-128-CBC), not AES-256-GCM; bank_account and IFSC are plain CharField
+      Evidence: backend/core/services/gsp_secrets.py:encrypt_gsp_credentials; backend/accounts/m
+    * [I-0660] (P1) NIC GST Portal GSP (GST Suvidha Provider) secure direct API connectivity
+      Reason: Adapter with GSTR-1/3B upload and 2B fetch exists but live mode is gated on GSP_CERTIFIED; no OTP tu
+      Evidence: backend/core/services/gsp_adapters.py:LiveGstrFilingAdapter; backend/core/servic
+    * [X-0707] (P0) Supplier cancelled GSTIN after issuing invoice: system blocks ITC and alerts purchase team
+      Reason: An alert fires when a GSTIN is cancelled, suspended or invalid, but no ITC quarantine or supplier pa
+      Evidence: backend/reporting/gst_health.py:gstin_format_and_status; backend/reporting/gst_h
+================================================================================
+
+MODULE: accounts | Total: 45 | Gaps (Contradicted): 10 | Partial: 16
+  -- GAPS / CONTRADICTED TASKS --
+    * [X-0428] (P1) User changes location → access follows assigned location
+      Reason: CompanyUser has no warehouse or location assignment, so user access does not follow a location.
+      Evidence: none found: searched assigned_warehouses, allowed_warehouses, warehouse scope on
+    * [X-0438] (P1) Concurrent edits → conflict is handled
+      Reason: No version or updated_at check detects concurrent document edits; only stock-count conflict handling
+      Evidence: none found: searched optimistic lock, expected_updated_at, row_version, If-Match
+    * [S-0577] (P1) Concurrent session limiter and idle token expiration worker
+      Reason: No concurrent session limiter or idle-token expiry worker exists; only logout-all and refresh-token 
+      Evidence: none found: searched concurrent session, idle timeout, single device, session li
+    * [UX-0583] (P1) Universal 10-second 'Undo' toast notification on accidental deletions or cancellations
+      Reason: No Undo snackbar or delayed destructive delete exists in the web app; only bank match unmatch was fo
+      Evidence: none found: searched undo, onUndo in web/src components and pages
+    * [UX-0590] (P1) Deterministic progress bar with estimated time remaining on bulk CSV imports
+      Reason: ImportJob has no progress counter, websocket channel or time-remaining estimate for bulk imports.
+      Evidence: none found: searched progress, rows_done, processed in backend/imports
+    * [SEC-0622] (P0) Field-level role masking for sensitive commercial margins and cost prices
+      Reason: Product serializer exposes purchase_price with no role-based omission; no cost or margin masking by 
+      Evidence: none found: searched cost_price masking, can_view_cost, role-based serializer fi
+    * [SEC-0627] (P1) IP address whitelisting for back-office accounting and admin access
+      Reason: No company-scoped IP whitelist policy or middleware exists; X-Forwarded-For is only used for rate li
+      Evidence: none found: searched ip whitelist, allowed_ips, IP allow middleware
+    * [SEC-0631] (P1) Role-based discount percentage approval cap enforcement
+      Reason: No role-based discount caps or owner override enforced at billing; only an after-the-fact DISCOUNT_O
+      Evidence: none found: searched discount limit, max discount, role discount cap, owner auth
+    * [R-0650] (P3) Automated database index bloat detection and periodic REINDEX maintenance
+      Reason: No index bloat detection or REINDEX CONCURRENTLY maintenance job exists in code, tasks or scripts.
+      Evidence: none found: searched reindex, pg_stat_user_indexes, bloat in backend and scripts
+    * [SaaS-0679] (P1) SuperAdmin 'Impersonate Tenant' support capability with mandatory audit logging
+      Reason: No support impersonation capability, 15-minute support token or Support Mode banner exists in backen
+      Evidence: none found: searched impersonat in backend
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0115] (P0) Maintain an audit trail
+      Reason: Immutable hash-chained AuditEvent log exists, but it has no IP or before/after value columns and no 
+      Evidence: backend/core/models.py:AuditEvent; backend/core/audit_guard.py:_audit_guard; bac
+    * [P-0184] (P1) Review system activity
+      Reason: Operational metrics and telemetry events exist, but no real-time dashboard of active sessions, login
+      Evidence: backend/core/ops_metrics.py:ops_metrics; backend/core/views.py:MetricsView
+    * [X-0422] (P1) Salesperson creates invoice → cannot modify restricted accounting fields
+      Reason: Capability flags gate posting and journals by role, but no field-level lock on ledger account, cost 
+      Evidence: backend/core/permissions.py:CanCreateSales; backend/accounting/views.py:Financia
+    * [X-0425] (P1) Manager approves adjustment → approval identity is recorded
+      Reason: Override identity is stamped for credit and GST-guard overrides, but no generic approved_by and time
+      Evidence: backend/sales/order_gates.py:credit_overridden_by; backend/reporting/gst_guard.p
+    * [X-0426] (P1) User attempts unauthorized transaction → action is blocked
+      Reason: DRF permission classes return 403 for unauthorized users, but no security-violation log entry for bl
+      Evidence: backend/core/permissions.py:CanViewFinancialReports; backend/core/permissions.py
+    * [X-0430] (P1) Sensitive financial information → restricted users cannot access it
+      Reason: Financial reports and dashboards are permission-gated, but no field masking of cost or margin in ser
+      Evidence: backend/core/permissions.py:CanViewFinancialReports; backend/accounts/models.py:
+    * [X-0440] (P1) GST integration failure → exception is visible
+      Reason: Portal error text is stored on the invoice and returned, but there is no dedicated GST error queue o
+      Evidence: backend/sales/einvoice_eway_actions.py:einvoice_error; backend/sales/models.py:l
+    * [X-0549] (P1) Automated Right-to-Erasure & Data Anonymization under Digital Personal Data Protection (DPDP) Act
+      Reason: Tenant-level erasure with tombstone retention exists, but no per-customer anonymization of name, mob
+      Evidence: backend/accounts/erasure.py:erase_company
+    * [S-0572] (P0) Distributed Redis token bucket rate limiting on public-facing API endpoints
+      Reason: DRF scoped throttles limit login, OTP and register per minute and return 429, but they are not djang
+      Evidence: backend/config/settings.py:DEFAULT_THROTTLE_RATES
+    * [C-0616] (P0) Companies (Accounts) Rules Rule 3(1) and Rule 11(g) audit trail compliance certification
+      Reason: A hash-chained, append-guarded audit log exists, but no Rule 11(g) compliance report or export certi
+      Evidence: backend/core/models.py:AuditEvent; backend/core/tasks.py:seal_audit_chain_task
+    * [SEC-0624] (P0) Time-based One-Time Password (TOTP) two-factor authentication (2FA) for admin roles
+      Reason: TOTP login challenge exists but is opt-in per user and is not mandatory for admin roles.
+      Evidence: backend/accounts/mfa_service.py:MFA_TOKEN_MAX_AGE; backend/accounts/mfa_views.py
+    * [SEC-0625] (P0) Instant user deactivation and immediate JWT session revocation
+      Reason: Deactivation blacklists refresh tokens in the database and per-request membership is checked, but th
+      Evidence: backend/accounts/views.py:_revoke_sessions_if_last_active_membership; backend/ac
+    * [SEC-0626] (P0) Cross-Site Scripting (XSS) and SQL injection sanitization on document notes and inputs
+      Reason: Django ORM parameterizes queries, but no Bleach or HTML sanitization of notes and descriptions was f
+      Evidence: backend/core/validators.py
+    * [SEC-0629] (P1) Automated password complexity enforcement and breach dictionary checking
+      Reason: Min length 10, common, numeric and a local breached-password check exist; no upper/lower/digit rules
+      Evidence: backend/config/settings.py:AUTH_PASSWORD_VALIDATORS; backend/accounts/password_v
+    * [SEC-0634] (P1) Multi-factor authorization prompt for high-risk system configuration changes
+      Reason: Password re-entry is required for change-password, delete-account and MFA changes, but no general su
+      Evidence: backend/accounts/views.py:sensitive_action; backend/accounts/mfa_views.py:_Reaut
+    * [SaaS-0673] (P1) Tenant account soft-deletion and 30-day recovery holding period
+      Reason: Tombstone soft-delete and purge job exist, but retention is 8 years for GST and no 30-day reactivati
+      Evidence: backend/accounts/erasure.py:erase_company; backend/accounts/erasure.py:purge_exp
+================================================================================
+
+MODULE: complaints | Total: 4 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: contracts | Total: 4 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: core | Total: 9 | Gaps (Contradicted): 1 | Partial: 3
+  -- GAPS / CONTRADICTED TASKS --
+    * [R-0644] (P3) Graceful degradation to read-only mode during scheduled database maintenance
+      Reason: No read-replica router or read-only maintenance mode middleware exists; only billing past-due write 
+      Evidence: none found: searched read-only mode, maintenance, read replica, DATABASE_ROUTERS
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0128] (P0) Approve important business actions
+      Reason: Owner credit-limit and GST-guard overrides record who and why, but no general pending-approval queue
+      Evidence: backend/sales/order_gates.py:credit_override_reason; backend/reporting/gst_guard
+    * [X-0546] (P1) Multi-branch document numbering isolation (Branch A 'DEL/INV/001' vs Branch B 'MUM/INV/001')
+      Reason: Series are unique per company, doc type, GSTIN and financial year, giving per-GSTIN prefixes; no ser
+      Evidence: backend/core/models.py:DocumentSeries; backend/core/services/document_numbers.py
+    * [S-0570] (P0) Automated continuous WAL archiving and daily encrypted PostgreSQL pg_dump snapshot
+      Reason: Daily GPG or age-encrypted pg_dump with optional offsite copy exists; no WAL archiving or PITR confi
+      Evidence: scripts/backup.sh:pg_dump; scripts/backup.sh:BACKUP_OFFSITE_CMD
+================================================================================
+
+MODULE: crm | Total: 39 | Gaps (Contradicted): 1 | Partial: 11
+  -- GAPS / CONTRADICTED TASKS --
+    * [UX-0593] (P2) High-contrast outdoor glare mode for mobile field order booking
+      Reason: No outdoor or high-contrast theme mode exists; theme only adjusts specific contrast colors.
+      Evidence: none found: searched outdoor, sunlight, glare, highContrast in web/src and web/s
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0130] (P1) Search customer history
+      Reason: Customer 360 shows invoice count, amount, recent products and outstanding; no order timeline or aver
+      Evidence: backend/insights/customer_360.py:customer_360; web/src/pages/sales/Customer360Pa
+    * [P-0132] (P1) Convert quotation into an order
+      Reason: Conversion clones lines into a DRAFT SalesOrder and marks quotation CONVERTED; stock is reserved onl
+      Evidence: backend/sales/services.py:convert_quotation_to_order; backend/sales/services.py:
+    * [P-0134] (P2) Record customer follow-up
+      Reason: LeadActivity logs notes and calls with due_at and an in-app reminder, but attaches to leads, not cus
+      Evidence: backend/crm/models.py:LeadActivity; backend/crm/tasks.py:LeadActivity
+    * [P-0163] (P2) View purchase history
+      Reason: Portal link lists only open receivable invoices with outstanding and pay link; no past orders, reord
+      Evidence: backend/payments/portal_views.py:CustomerPortalView
+    * [X-0355] (P1) Duplicate customer detection
+      Reason: GSTIN duplicates are blocked by a unique constraint (not a warning); no phone duplicate check on Cus
+      Evidence: backend/masters/models.py:uniq_customer_gstin_per_company; backend/crm/models.py
+    * [X-0358] (P1) Lead → quotation created
+      Reason: Quotation is created from a WON Opportunity (with its lines), not directly from a Lead.
+      Evidence: backend/crm/views.py:quotation; backend/crm/models.py:Opportunity
+    * [X-0359] (P1) Quotation → sales order
+      Reason: Lines are cloned and quotation marked CONVERTED, but stock is reserved only when the draft order is 
+      Evidence: backend/sales/services.py:convert_quotation_to_order; backend/sales/notes_servic
+    * [X-0361] (P1) Customer purchase → customer history updated
+      Reason: Spend, order counts and products are computed on demand from invoices and orders; no stored rollup o
+      Evidence: backend/insights/customer_360.py:customer_360; backend/insights/customer_actions
+    * [X-0364] (P1) Support case → responsible employee assigned
+      Reason: Complaint has assigned_to staff field; no assignment notification or SLA deadline.
+      Evidence: backend/complaints/models.py:Complaint; backend/complaints/views.py:assigned_to
+    * [X-0365] (P1) Complaint resolved → customer history updated
+      Reason: Resolution sets RESOLVED, resolved_at and inspection notes; no customer satisfaction capture or cust
+      Evidence: backend/complaints/services.py:transition_status; backend/complaints/models.py:r
+    * [X-0368] (P1) Customer warranty/AMC → service obligation recorded
+      Reason: Contract model covers WARRANTY and AMC types with dates and renewal reminders; no serial-number link
+      Evidence: backend/contracts/models.py:Contract; backend/contracts/models.py:ContractProduc
+================================================================================
+
+MODULE: insights | Total: 1 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: insurance | Total: 9 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: integrations | Total: 28 | Gaps (Contradicted): 6 | Partial: 10
+  -- GAPS / CONTRADICTED TASKS --
+    * [X-0447] (P1) Order confirmation → customer receives confirmation
+      Reason: No notification is sent on sales order confirmation; messaging covers invoices, payment links and re
+      Evidence: none found: searched order_confirm, NotificationService.send callers in backend/
+    * [X-0448] (P1) Delivery update → customer receives update
+      Reason: Delivery challan completion triggers no customer notification with driver or ETA details.
+      Evidence: none found: searched challan dispatch notification, whatsapp, NotificationServic
+    * [X-0450] (P1) Payment receipt → customer receives receipt
+      Reason: Payment receipt creation sends no receipt acknowledgement; only payment-link and reminder sharing ex
+      Evidence: none found: searched receipt share, NotificationService.send in backend/payments
+    * [X-0452] (P1) User resends failed message
+      Reason: No resend or re-queue action exists on the notification log; NotificationViewSet is read-only.
+      Evidence: none found: searched resend, retry in backend core/views.py and web pages
+    * [UX-0600] (P2) Contextual in-app chat and comment threads on specific invoices and orders
+      Reason: No comment thread or @mention model attached to invoices or orders exists; only support TicketCommen
+      Evidence: none found: searched comment, note, mention classes in backend sales, core and w
+    * [D-0700] (P3) AI automated WhatsApp payment negotiation bot with settlement discount authorization
+      Reason: No WhatsApp negotiation agent or time-limited discount offer exists; dunning only sends fixed remind
+      Evidence: none found: searched negotiat, settlement_discount, early_pay, cash_discount in 
+  -- PARTIAL IMPLEMENTATIONS --
+    * [X-0439] (P1) Integration failure → transaction is not silently lost
+      Reason: Failed gateway refunds retry from an outbox with backoff; failed WhatsApp sends are marked FAILED wi
+      Evidence: backend/payments/models.py:GatewayRefundOutbox; backend/payments/tasks.py:next_a
+    * [X-0453] (P1) Communication history remains associated with transaction/customer
+      Reason: Invoice stores only latest WhatsApp send status and time; Notification rows have no invoice link and
+      Evidence: backend/sales/whatsapp_send.py:persist_invoice_whatsapp; backend/core/models.py:
+    * [X-0458] (P1) Accounting data → reconciliation
+      Reason: Compares Tally XML sales totals with books sales totals; it is not a trial balance reconciliation ch
+      Evidence: backend/integrations/views.py:TallyMigrationDiffView; backend/integrations/tally
+    * [X-0459] (P1) Integration failure → retry
+      Reason: Backoff retries exist for email (max 3) and the refund outbox; no general integration retry decorato
+      Evidence: backend/core/tasks.py:send_email_notification; backend/payments/models.py:Gatewa
+    * [X-0460] (P1) Integration retry → idempotent result
+      Reason: Idempotency keys are sent for gateway refunds only; other external calls such as WhatsApp or SMS do 
+      Evidence: backend/payments/gateway.py:_stable_refund_key; backend/payments/models.py:Gatew
+    * [X-0461] (P1) External reference ID → BizBoard transaction traceability
+      Reason: UTR and provider payment id are stored on receipts and gateway payments; no common external_referenc
+      Evidence: backend/payments/models.py:utr; backend/payments/models.py:provider_payment_id
+    * [S-0566] (P1) Transactional Outbox pattern for external webhook and message dispatch
+      Reason: Outbox exists only for gateway refunds; WhatsApp and SMS notifications are sent synchronously with n
+      Evidence: backend/payments/models.py:GatewayRefundOutbox; backend/core/services/notificati
+    * [R-0647] (P1) Exponential backoff retry with dead-letter queue (DLQ) for failed background tasks
+      Reason: Exponential-backoff retry exists for email and refund outbox, and a dead-letter store exists only fo
+      Evidence: backend/core/tasks.py:send_email_notification; backend/billing/models.py:DeadLet
+    * [I-0665] (P1) DLT-approved transactional SMS gateway integration (MSG91 / Fast2SMS)
+      Reason: MSG91 adapter with DLT template id exists for OTP and reminders; no Fast2SMS, invoice-summary SMS, o
+      Evidence: backend/core/services/sms.py:_send_msg91; backend/payments/dunning.py:_send_sms
+    * [SaaS-0680] (P3) In-app customer feedback, feature request, and bug reporting widget
+      Reason: Help feedback form stores feedback for ops triage; no screenshot or console capture, upvoting, or sh
+      Evidence: backend/core/help_views.py:HelpFeedbackView; web/src/pages/help/HelpFeedbackForm
+================================================================================
+
+MODULE: inventory | Total: 108 | Gaps (Contradicted): 11 | Partial: 30
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0050] (P1) Identify expiry-risk stock
+      Reason: Expiry alerts carry no cost value; attention rows set money_impact_paise to 0 and no SUM(quantity*co
+      Evidence: none found: searched capital at risk, value at risk, expiry value in backend and
+    * [X-0244] (P1) Damaged stock → inventory is separated from saleable stock
+      Reason: No quarantine bin; damaged goods are written off by ADJUSTMENT movement, not transferred to a damage
+      Evidence: none found: searched quarantine, damaged bin, SALEABLE/DAMAGED bin in inventory
+    * [X-0258] (P1) Shop requests stock from godown
+      Reason: No transfer request model exists; only direct StockTransfer drafts.
+      Evidence: none found: searched StockTransferRequest, transfer request, requisition
+    * [X-0259] (P1) Godown approves stock request
+      Reason: No request approval status or picking ticket; transfers only go DRAFT to COMPLETED.
+      Evidence: none found: searched StockTransferRequest, APPROVED transfer, picking ticket
+    * [X-0260] (P1) Godown allocates stock
+      Reason: Code comment states DRAFT transfers do not reserve stock; stock moves only at completion.
+      Evidence: backend/inventory/services.py:StockTransferService
+    * [X-0266] (P1) Transfer damage is recorded
+      Reason: Transfer lines carry no damaged quantity and no quarantine or loss-claim handling.
+      Evidence: none found: searched transit damage, transfer damage, transit loss claim
+    * [X-0276] (P1) Location-specific user sees only authorized inventory
+      Reason: Stock queries filter by company only; users have no per-warehouse access restriction.
+      Evidence: none found: searched warehouse assignment on CompanyUser, location-scoped permis
+    * [S-0578] (P1) FIFO cost layer consumption and recalculation worker on back-dated purchase intake
+      Reason: FIFO layers are consumed in posting order, explicitly not by movement date; no retroactive COGS reca
+      Evidence: backend/inventory/services.py:_apply_cost_layers; none found: searched back-date
+    * [UX-0588] (P2) Visual warehouse shelf/rack visual locator badge on stock search
+      Reason: No shelf or rack locator field exists on stock or warehouse models.
+      Evidence: none found: searched location_tag, shelf, rack, aisle, bin_location in backend a
+    * [R-0643] (P1) Deadlock detection and automatic transaction retry on concurrent stock updates
+      Reason: Code avoids deadlocks by ordered locking but has no catch-and-retry decorator with backoff.
+      Evidence: none found: searched deadlock, OperationalError, 40P01, retry decorator; only lo
+    * [X-0706] (P0) Inter-godown transfer vehicle breakdown: goods transshipped to new tempo with E-Way Bill Part B update
+      Reason: E-way bill handling covers sales invoices only; no stock transfer Part B vehicle update workflow.
+      Evidence: none found: searched Part B update, transshipment, vehicle update in inventory a
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0042] (P1) Identify near-expiry inventory
+      Reason: Near-expiry report and write-off action exist; no prepare-return-to-vendor batch action or debit not
+      Evidence: backend/inventory/item_stock.py:expiry_horizon_rows; backend/inventory/views.py:
+    * [P-0061] (P1) Manage large inventory volumes
+      Reason: Paginated stock lists, product search by barcode and stock counts exist; no rack or bin location tag
+      Evidence: backend/inventory/views.py:low_stock; backend/inventory/models.py:StockCountSess
+    * [P-0064] (P1) Track expiry-risk stock
+      Reason: Expiry horizon list by days exists; no aggregate stock value expiring and no supplier claim list.
+      Evidence: backend/inventory/views.py:ExpiryAlertsView; backend/insights/attention.py:_expi
+    * [P-0077] (P2) Track FIFO inventory costing
+      Reason: FIFO cost layers exist but FIFO is optional; company default is weighted average, so FIFO is not str
+      Evidence: backend/inventory/models.py:InventoryCostLayer; backend/accounts/models.py:inven
+    * [P-0081] (P0) Transfer stock between godowns
+      Reason: Transfers exist with DRAFT/COMPLETED/CANCELLED only; no dispatch, in-transit, insurance or separate 
+      Evidence: backend/inventory/models.py:StockTransfer; backend/inventory/services.py:StockTr
+    * [P-0088] (P1) Track inventory movement across locations
+      Reason: Append-only movement ledger filterable by product and warehouse exists; no per-SKU movements route o
+      Evidence: backend/inventory/models.py:StockMovement; backend/inventory/views.py:StockMovem
+    * [P-0089] (P0) View all shops from one dashboard
+      Reason: Dashboard shows company-wide totals over all godowns; no outlet switching or per-outlet breakdown fo
+      Evidence: backend/reporting/services.py:dashboard; backend/reporting/views.py:DashboardVie
+    * [P-0120] (P1) Identify low-stock products
+      Reason: Low-stock alerts for items sold in last 14 days exist; no top-20-by-revenue ranking or Critical Stoc
+      Evidence: backend/inventory/views.py:low_stock_alert_payload; backend/insights/alerts.py:_
+    * [P-0144] (P1) Record damaged/short stock
+      Reason: Damaged condition exists on purchase returns and writes stock off via ADJUSTMENT; no GRN damage line
+      Evidence: backend/purchases/services.py:PurchaseReturnItem; backend/purchases/models.py:Pu
+    * [P-0151] (P1) Transfer stock
+      Reason: Completing a transfer posts TRANSFER_OUT and TRANSFER_IN; no transfer challan generation or distinct
+      Evidence: backend/inventory/services.py:StockTransferService; backend/inventory/models.py:
+    * [P-0152] (P0) Adjust stock with authorization
+      Reason: Adjustment needs a mandatory reason and inventory-manage permission and posts ADJUSTMENT; no dual-ap
+      Evidence: backend/inventory/views.py:AdjustmentView; backend/inventory/serializers.py:Adju
+    * [P-0155] (P1) Perform stock count
+      Reason: Sessions snapshot system quantity and capture counts; no blind counting or scanner support found.
+      Evidence: backend/inventory/models.py:StockCountSession; backend/inventory/models.py:Stock
+    * [P-0157] (P1) Track batch/serial numbers
+      Reason: Serial and batch registers with status exist; no lifecycle history explorer from PO through transfer
+      Evidence: backend/inventory/models.py:SerialNumber; backend/inventory/views.py:SerialNumbe
+    * [P-0160] (P1) Investigate stock discrepancies
+      Reason: Movements API allows replay by product and warehouse; no dedicated SKU timeline explorer in web.
+      Evidence: backend/inventory/views.py:StockMovementViewSet; backend/inventory/models.py:Sto
+    * [P-0161] (P1) Review inventory movement history
+      Reason: Immutable movement table with product, type, warehouse filters exists; no user or date filters and n
+      Evidence: backend/inventory/views.py:StockMovementViewSet; backend/inventory/models.py:Sto
+    * [P-0180] (P0) Configure branches/godowns
+      Reason: Warehouse has name, code, address and default flag; no contact fields or user-to-location mapping.
+      Evidence: backend/inventory/models.py:Warehouse; backend/inventory/views.py:WarehouseViewS
+    * [X-0243] (P1) Stock adjustment → inventory ledger records adjustment
+      Reason: Adjustment posts ADJUSTMENT movement with period-lock check; no GL shrinkage journal posted for it.
+      Evidence: backend/inventory/views.py:AdjustmentView; backend/inventory/services.py:post_mo
+    * [X-0247] (P1) Near-expiry stock → owner receives alert
+      Reason: Daily sweep logs 7/30/60/90 day bands and emails once; no BusinessAlertEvent or dashboard alert card
+      Evidence: backend/inventory/tasks.py:record_expiry_bands_task; backend/inventory/item_stoc
+    * [X-0254] (P1) Inventory adjustment → audit trail records who/why/when
+      Reason: Adjustment writes an audit event with user, reason and timestamp; IP address and write-off value are
+      Evidence: backend/inventory/views.py:AdjustmentView; backend/core/services/audit.py:AuditS
+    * [X-0264] (P1) Destination inventory increases
+      Reason: TRANSFER_IN is posted at the destination, but in the same step as dispatch, not on separate receipt 
+      Evidence: backend/inventory/services.py:StockTransferService; backend/inventory/models.py:
+    * [X-0270] (P1) Owner compares location-wise sales
+      Reason: Sales register can be filtered by warehouse; no comparative location-wise sales report.
+      Evidence: backend/reporting/services.py:sales_register; backend/reporting/views.py:SalesRe
+    * [X-0271] (P1) Owner compares location-wise inventory
+      Reason: Inventory summary and valuation filter by warehouse; no turnover or stock-to-sales comparison across
+      Evidence: backend/reporting/services.py:inventory_summary; backend/inventory/views.py:Stoc
+    * [X-0272] (P1) Owner compares location-wise profitability
+      Reason: P&L can be filtered by cost center only; no warehouse or store P&L with allocated costs.
+      Evidence: backend/accounting/reports.py:profit_and_loss; backend/accounting/reports.py:_ba
+    * [X-0274] (P1) Inter-store transfer is authorized
+      Reason: Complete action executes the transfer under inventory-manage permission; no separate authorization s
+      Evidence: backend/inventory/views.py:StockTransferViewSet; backend/inventory/services.py:S
+    * [X-0444] (P1) System recovery → financial/inventory integrity is preserved
+      Reason: Key money and stock operations use transaction.atomic, but ATOMIC_REQUESTS is not set so not all ope
+      Evidence: backend/sales/services.py:cancel; backend/inventory/services.py:post_movement
+    * [S-0562] (P1) Orphaned inventory allocation release worker on expired cart sessions
+      Reason: Reserve and release functions exist for orders; no cart session or 30-minute expiry release worker.
+      Evidence: backend/inventory/services.py:reserve_stock; backend/inventory/services.py:relea
+    * [S-0568] (P0) Database foreign key cascade deletion defense and soft-delete enforcement
+      Reason: PROTECT is widely used on transaction foreign keys, but line items cascade and no is_deleted soft-de
+      Evidence: backend/sales/models.py:SalesInvoice; backend/inventory/models.py:StockMovement
+    * [I-0656] (P1) ZPL / TSPL thermal barcode label and sticker printer integration
+      Reason: Code 128 barcode labels print through browser window.print; no ZPL or TSPL command generation for Ze
+      Evidence: web/src/pages/inventory/LabelPrintPage.tsx:JsBarcode
+    * [D-0683] (P1) Inventory Autopilot: predictive run-rate stockout forecaster with automated vendor PO dispatch
+      Reason: Run-rate forecast and days-to-stockout drive draft POs per last supplier, but creation is user-trigg
+      Evidence: backend/inventory/forecast.py:demand_forecast; backend/inventory/planning.py:mat
+    * [D-0692] (P3) AI Dead-Stock Liquidation Assistant: identifies stagnant inventory and suggests promotional bundles
+      Reason: Dead-stock alert flags on-hand items with no sales in 60 days with money value; no promotional bundl
+      Evidence: backend/insights/alerts.py:DEAD_STOCK; backend/insights/services.py:DEAD_STOCK
+================================================================================
+
+MODULE: ledgers | Total: 60 | Gaps (Contradicted): 6 | Partial: 13
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0095] (P1) Monitor shop-wise outstanding
+      Reason: Customer ledger and outstanding have no branch or store origin segmentation.
+      Evidence: none found: searched branch, outlet, store, warehouse filter in backend/ledgers 
+    * [X-0322] (P1) Accountant reconciles customer ledger → discrepancies identified
+      Reason: Only bank reconciliation and internal AR-vs-GL invariants exist; no customer ledger reconciliation t
+      Evidence: none found: searched customer ledger reconciliation, counterparty statement matc
+    * [X-0335] (P1) Accountant reconciles supplier ledger
+      Reason: No tool compares AP ledger with a vendor statement; only bank reconciliation exists.
+      Evidence: none found: searched supplier reconciliation, vendor statement compare in backen
+    * [X-0525] (P1) Isolate disputed invoice lines while collecting undisputed remaining balance
+      Reason: No invoice line dispute flag or split of disputed amount from collection target.
+      Evidence: none found: searched dispute, disputed line in backend models.py, sales and paym
+    * [X-0526] (P2) Calculate overdue interest penalty charges on delayed customer payments
+      Reason: No overdue interest calculator or interest debit note generation exists.
+      Evidence: none found: searched overdue interest, penal interest, interest_rate, late fee i
+    * [X-0709] (P1) Customer disputed line item on ₹1,00,000 bill: customer pays ₹90,000; ₹10,000 routed to dispute resolution
+      Reason: No line-item dispute mechanism to isolate disputed amount while allocating undisputed payment.
+      Evidence: none found: searched dispute, disputed line, partial settlement in backend
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0059] (P1) Record customer collections
+      Reason: Receipts allocate across bills and post to bank ledger, but TDS deduction exists only on supplier pa
+      Evidence: backend/payments/services.py:PaymentService; backend/payments/models.py:Customer
+    * [P-0119] (P0) Identify overdue payments
+      Reason: Overdue invoices with days_overdue and collection worklist exist; no interest exposure or bad-debt r
+      Evidence: backend/payments/collections_open.py:open_invoice_rows; backend/insights/views.p
+    * [P-0136] (P1) Record customer payment
+      Reason: Receipt creation for cash/cheque/UPI QR exists in shared web/Capacitor app; no cashier-verification 
+      Evidence: backend/payments/views.py:CustomerReceiptViewSet; backend/payments/views.py:UpiQ
+    * [P-0172] (P2) Track payment status
+      Reason: Supplier payments store UTR and TDS and a supplier statement exists; no payment advice document or T
+      Evidence: backend/payments/models.py:SupplierPayment; backend/ledgers/services.py:LedgerSe
+    * [X-0319] (P1) Refund → customer balance changes
+      Reason: Refunds exist only for gateway payments (receipt refund reversal); no cash/bank refund workflow link
+      Evidence: backend/payments/services.py:PaymentService; backend/accounting/services.py:Post
+    * [X-0324] (P1) Supplier invoice updates payable
+      Reason: Purchase completion posts payable and invoice has due_date; due date is manual or 30-day default, no
+      Evidence: backend/accounting/services.py:PostingService; backend/purchases/models.py:Purch
+    * [X-0333] (P1) Overdue supplier payment is identified
+      Reason: Payables ageing buckets and a bills-due-in-7-days alert exist; no list flagging individual overdue p
+      Evidence: backend/insights/alerts.py:_ap; backend/reporting/services.py:ReportService
+    * [X-0523] (P1) Automated escalating collection cadence (T+3 reminder → T+7 statement → T+15 notice)
+      Reason: Configurable day-bucket reminders (default 3/7/14) via WhatsApp/SMS/email exist; no distinct stateme
+      Evidence: backend/payments/dunning.py:run_dunning_for_company; backend/payments/dunning.py
+    * [X-0524] (P1) Record Promise-to-Pay (PTP) commitment date and follow-up alerts
+      Reason: Promise-to-pay records with due and broken alerts exist; dunning does not suppress reminders while a
+      Evidence: backend/payments/models.py:PaymentPromise; backend/payments/promise_to_pay.py:cr
+    * [X-0527] (P0) Automatic debtor account freeze and delivery block on chronic overdue accounts
+      Reason: Opt-in auto credit hold blocks invoice completion for stop_credit/overdue_severe, but not a 60-day r
+      Evidence: backend/sales/services.py:CREDIT_LIMIT_EXCEEDED; backend/payments/dunning.py:cus
+    * [C-0620] (P1) Digital Personal Data Protection (DPDP) Act 2023 customer consent logging and withdrawal
+      Reason: A boolean WhatsApp opt-in gates cloud sends; no consent ledger with timestamp and IP, and no withdra
+      Evidence: backend/masters/models.py:whatsapp_opt_in; backend/core/services/whatsapp.py:opt
+    * [D-0687] (P1) Collections Autopilot: intelligent behavioral debtor chasing with personalized tone modulation
+      Reason: Dunning escalates by days overdue and predicted lateness; no relationship-based tone or VIP segmenta
+      Evidence: backend/payments/dunning.py:PREDICTIVE_ESCALATION_MIN_LATE_DAYS; backend/masters
+    * [D-0698] (P1) Multi-branch inter-company automated balancing ledger (Mirror Transaction Engine)
+      Reason: Transfers post paired out and in stock movements; no inter-branch mirror vouchers or reconciliation 
+      Evidence: backend/inventory/services.py:StockTransferService; backend/inventory/models.py:
+================================================================================
+
+MODULE: manufacturing | Total: 7 | Gaps (Contradicted): 0 | Partial: 2
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0509] (P1) Define Bill of Materials (BOM) for kit assembly or bulk repackaging
+      Reason: Bom and BomLine with component quantities exist; no multi-level BOM, scrap factor or yield ratio fie
+      Evidence: backend/manufacturing/models.py:Bom; backend/manufacturing/models.py:BomLine
+    * [P-0512] (P1) Calculate finished goods unit cost including labor and packaging overhead
+      Reason: Finished goods unit cost is rolled up from issued component FIFO costs; no labor or packaging overhe
+      Evidence: backend/manufacturing/services.py:complete_work_order; backend/manufacturing/ser
+================================================================================
+
+MODULE: masters | Total: 34 | Gaps (Contradicted): 5 | Partial: 14
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0047] (P1) Maintain MRP and selling price
+      Reason: mrp is a stored field only; no rule enforcing selling price not above MRP.
+      Evidence: none found: searched mrp validation in backend/masters/serializers.py, models.py
+    * [X-0421] (P1) Location assignment → user sees authorized location data
+      Reason: No per-user warehouse assignment or query filter exists; users are scoped to company only.
+      Evidence: none found: searched allowed_warehouses, user warehouse, warehouse scope in acco
+    * [X-0547] (P1) Customer & Vendor Self-Onboarding Portal: send magic link for party to input GSTIN, bank, and KYC
+      Reason: Only customer-portal view tokens and staff user invites exist; no party self-onboarding link or appr
+      Evidence: none found: searched onboarding invite, magic link, party invite, KYC in masters
+    * [R-0648] (P1) Optimistic locking with version check on concurrent customer master updates
+      Reason: Customer model has no version column or version check on save; no concurrent edit conflict detection
+      Evidence: none found: searched optimistic, If-Match, version, lock_version in backend/mast
+    * [SaaS-0674] (P3) White-label branding and custom domain mapping for enterprise distributors
+      Reason: No custom domain mapping, branding or white-label support exists.
+      Evidence: none found: searched custom_domain, white-label, cname, brand theme in backend
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0008] (P2) Add a new item while making a sale
+      Reason: Invoice screen creates a product via dialog and appends line; no quick-create endpoint and no openin
+      Evidence: web/src/pages/sales/NewInvoicePage.tsx:itemMutation; backend/masters/views.py:Pr
+    * [X-0411] (P1) Product unit → inventory quantities use correct unit
+      Reason: Product has unit and alternate-unit conversion to base quantity; no validation that all movements co
+      Evidence: backend/masters/models.py:Unit; backend/inventory/item_stock.py:base_quantity
+    * [X-0412] (P1) Product batch configuration → GRN captures batch
+      Reason: Batch number is required for track_batch products on purchase completion; expiry is not mandatory an
+      Evidence: backend/purchases/services.py:track_batch; backend/inventory/item_stock.py:get_o
+    * [X-0414] (P1) Customer master → sales invoice uses customer details
+      Reason: Customer is a live FK; only GSTIN and place of supply are frozen at completion, name and address are
+      Evidence: backend/sales/models.py:SalesInvoice; backend/sales/services.py:filing_party_gst
+    * [X-0415] (P1) Supplier master → purchase invoice uses supplier details
+      Reason: Purchase invoice links supplier by FK; no header snapshot of supplier name/address found.
+      Evidence: backend/purchases/models.py:PurchaseInvoice; backend/masters/models.py:Supplier
+    * [X-0416] (P1) Customer GSTIN → tax treatment uses GST status
+      Reason: Customer GSTIN and taxpayer type drive place of supply and GST filing classification; no B2B tax inv
+      Evidence: backend/masters/models.py:TaxpayerType; backend/core/services/place_of_supply.py
+    * [X-0548] (P2) Vernacular language switching (Hindi, Gujarati, Tamil, Marathi, etc.) on POS and mobile app
+      Reason: Only English and Hindi string catalogs exist; no Gujarati, Tamil or Marathi.
+      Evidence: web/src/i18n/hi.ts:; web/src/i18n/en.ts:
+    * [S-0563] (P1) Event-driven product catalog cache invalidation across distributed POS nodes
+      Reason: Server list cache is deleted on master writes; no WebSocket or pub/sub broadcast to POS client cache
+      Evidence: backend/masters/views.py:ProductViewSet
+    * [I-0663] (P1) Government GSTIN Verification API auto-fill on customer and supplier creation
+      Reason: GSTIN verify action fetches legal name and status via sandbox provider (null default); no address/tr
+      Evidence: backend/core/services/gstin_verify.py:apply_verification; backend/masters/views.
+    * [SaaS-0671] (P1) Role license seating and per-user add-on billing management
+      Reason: Plan seat limits are tracked and enforced; no per-user add-on fee or prorated billing (code states n
+      Evidence: backend/billing/quotas.py:seat_count; backend/accounts/views.py:_enforce_plan_se
+    * [SaaS-0676] (P1) Feature flag management and progressive rollout engine across tenant cohorts
+      Reason: Per-company and plan-module flag overrides exist; no percentage/cohort rollout or opt-in beta progra
+      Evidence: backend/core/services/feature_flags.py:build_feature_flags; backend/core/service
+    * [D-0693] (P0) One-click complete Tally historical backup migration wizard
+      Reason: Tally masters CSV/XLSX import with opening balances and wizard exists; no Tally XML backup parser or
+      Evidence: backend/integrations/tally/adapter.py:parse_tally_masters_csv; backend/integrati
+    * [D-0694] (P1) Crowdsourced verified HSN code and statutory GST rate auto-suggester
+      Reason: HSN text search over a curated static table returns GST rate; no AI classifier or crowdsourced data 
+      Evidence: backend/masters/hsn_catalog.py:search_hsn; backend/masters/views.py:ProductViewS
+    * [X-0715] (P0) Customer changes legal name and registered address: system updates master while preserving historical invoices
+      Reason: Only GSTIN and place of supply are frozen at completion; customer name and address are read live so 
+      Evidence: backend/sales/models.py:SalesInvoice; backend/sales/services.py:filing_party_gst
+================================================================================
+
+MODULE: payments | Total: 37 | Gaps (Contradicted): 7 | Partial: 9
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0006] (P1) Check cash/UPI collected
+      Reason: No shift-close endpoint or per-mode drawer aggregation exists in backend.
+      Evidence: none found: searched shift close, expected_cash, cash variance, ShiftClose
+    * [P-0094] (P1) Monitor shop-wise cash collections
+      Reason: No cash-desk or store-wise till reconciliation exists.
+      Evidence: none found: searched cash-desks, shift close, till reconciliation, store-wise ca
+    * [X-0347] (P1) Daily cash closing → expected versus actual cash is compared
+      Reason: No daily cash closing or expected versus counted comparison exists.
+      Evidence: none found: searched shift close, expected_cash, opening_cash, cash closing
+    * [X-0348] (P1) Cash discrepancy → variance is recorded
+      Reason: No cash variance recording or shortage/overage posting exists.
+      Evidence: none found: searched cash variance, cash shortage, overage account
+    * [X-0529] (P1) Deposit cheque into bank clearing account and monitor realization
+      Reason: Statuses are only PENDING_CLEARANCE, CLEARED, BOUNCED; no deposit step or clearing account posting.
+      Evidence: none found: searched cheques-in-clearing, DEPOSITED, deposit slip, clearing acco
+    * [I-0658] (P1) BharatPe / Paytm / PhonePe Soundbox instant payment audio alert webhook
+      Reason: No soundbox integration or audio broadcast; only generic gateway webhooks exist.
+      Evidence: none found: searched soundbox, bharatpe, paytm, phonepe in backend and web
+    * [I-0659] (P1) Pine Labs / MSwipe / Mosambee EDC credit card swipe terminal integration
+      Reason: No card swipe terminal integration in code.
+      Evidence: none found: searched pine labs, mswipe, mosambee, plutus, EDC
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0037] (P1) Reconcile cash and digital payments
+      Reason: Bank statement reconciliation and cash book exist; no daily shift or till reconciliation.
+      Evidence: backend/payments/recon.py:suggest_matches; backend/reporting/services.py:cash_bo
+    * [X-0342] (P1) Expense payment → expense ledger updates
+      Reason: Expense voucher with category and numbering exists; no journal posting to expense/bank accounts foun
+      Evidence: backend/accounting/models.py:Expense; backend/accounting/views.py:ExpenseViewSet
+    * [X-0350] (P1) Payment reconciliation → business ledger matches payment records
+      Reason: Match scoring nets gateway fee against bank credits; no dedicated gateway settlement report reconcil
+      Evidence: backend/payments/recon.py:_receipt_fee; backend/payments/models.py:GatewayPaymen
+    * [X-0528] (P1) Record PDC (Post-Dated Cheque) received from customer and track presentation due date
+      Reason: Cheque receipts store cheque_date and PENDING_CLEARANCE status; no PDC_HOLDING, ChequeRecord, maturi
+      Evidence: backend/payments/models.py:ChequeStatus; backend/payments/models.py:CustomerRece
+    * [X-0530] (P0) Handle bounced / dishonoured cheque: reverse invoice settlement, add bank fee, alert owner
+      Reason: Bounce voids receipt, reverses allocations (invoice unpaid); no bank dishonour fee charge, notice le
+      Evidence: backend/payments/services.py:set_cheque_status; backend/payments/services.py:voi
+    * [X-0531] (P1) Apply early settlement cash discount (e.g. 2% in 7 days) and book discount expense
+      Reason: settlement_discount is stored and reduces invoice outstanding, but no Cash Discount Allowed GL journ
+      Evidence: backend/payments/models.py:CustomerReceipt; backend/ledgers/services.py:_settlem
+    * [I-0662] (P1) ICICI Bank / HDFC Bank Open Banking corporate API integration
+      Reason: Read-only Account Aggregator statement fetch exists; no ICICI/HDFC bank API, NEFT/RTGS initiation or
+      Evidence: backend/banking/fiu_adapter.py:fetch_live_transactions_for_consent; backend/bank
+    * [SaaS-0669] (P0) Automated recurring subscription billing and GST tax invoice generation via Razorpay Subscriptions
+      Reason: Razorpay subscriptions are created and status synced; no SaaS GST invoice generation or emailing fou
+      Evidence: backend/billing/services.py:_create_razorpay_subscription; backend/billing/servi
+    * [X-0713] (P0) Customer cheque dishonoured after 5 days: automated accounting reversal and bank fee debit
+      Reason: Bounce reverses payment and invoice becomes unpaid; no bank fee debit to customer or Section 138 not
+      Evidence: backend/payments/services.py:set_cheque_status; backend/payments/services.py:voi
+================================================================================
+
+MODULE: payroll | Total: 7 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: projects | Total: 5 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+
+MODULE: purchases | Total: 46 | Gaps (Contradicted): 10 | Partial: 14
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0140] (P1) Send/order products from supplier
+      Reason: PO status choices are only DRAFT, CONVERTED, CANCELLED; no APPROVED, SENT or CONFIRMED workflow or v
+      Evidence: backend/purchases/models.py:PurchaseOrder
+    * [X-0213] (P1) Supplier confirms order → order status changes
+      Reason: PO statuses are only DRAFT, CONVERTED, CANCELLED; no CONFIRMED status and no price lock.
+      Evidence: backend/purchases/models.py:PurchaseOrder
+    * [X-0214] (P1) Supplier ships goods → expected receipt is recorded
+      Reason: PO has only expected_delivery; no inbound shipment, LR number or ASN record.
+      Evidence: none found: searched shipment, docket, lr_number, asn, expected_arrival in purch
+    * [X-0217] (P1) GRN → batch/serial information is captured
+      Reason: GRN items have no batch or serial fields; stock is posted with batch=None, so BatchLot/SerialNumber 
+      Evidence: backend/purchases/models.py:GoodsReceiptItem; backend/purchases/grn_service.py:G
+    * [X-0219] (P1) GRN → purchase order received quantity is updated
+      Reason: GRN completion does not update PO lines; no received_quantity or PARTIALLY_RECEIVED/RECEIVED status 
+      Evidence: backend/purchases/grn_service.py:GoodsReceiptService; backend/purchases/models.p
+    * [X-0220] (P1) Supplier invoice arrives → invoice is matched against PO/GRN
+      Reason: No PO/GRN/invoice matching exists; GRN converts to a bill but invoices are not compared with PO or G
+      Evidence: none found: searched three_way, 3-way, match_status, mismatch, tolerance in back
+    * [X-0221] (P1) Quantity mismatch → exception is generated
+      Reason: No billed-versus-received quantity check or approval block exists.
+      Evidence: none found: searched quantity_mismatch, variance, mismatch in backend/purchases
+    * [X-0222] (P1) Price mismatch → exception is generated
+      Reason: No bill-rate versus PO-rate check; only a historical PURCHASE_PRICE_JUMP alert exists.
+      Evidence: none found: searched price_variance, tolerance, contracted rate in backend/purch
+    * [X-0537] (P2) Automated Supplier Risk Scorecard based on delivery delays, price spikes, and GST filing failures
+      Reason: Only lead time and fill rate; docstring states no score; no health index, price-spike or GST filing 
+      Evidence: backend/purchases/reliability.py:supply_metrics
+    * [X-0704] (P1) Purchase bill rate higher than PO contracted rate: system flags price variance for manager approval
+      Reason: No PO rate versus bill rate check, tolerance or payment hold exists.
+      Evidence: none found: searched tolerance, price_variance, three_way in backend/purchases
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0060] (P1) Track supplier purchases
+      Reason: POs exist and convert to bills; no fulfilment percentage or received-versus-ordered tracking.
+      Evidence: backend/purchases/models.py:PurchaseOrder; backend/purchases/grn_service.py:conv
+    * [P-0142] (P1) Record GRN
+      Reason: GRN records received/accepted/rejected quantities and posts stock on completion, but has no batch fi
+      Evidence: backend/purchases/models.py:GoodsReceiptItem; backend/purchases/grn_service.py:G
+    * [P-0143] (P1) Compare ordered versus received quantities
+      Reason: Only a per-supplier/product fill-rate and over-receipt figure exists; no line-by-line variance and t
+      Evidence: backend/purchases/reliability.py:supply_metrics
+    * [P-0145] (P1) Update supplier invoice
+      Reason: Purchase invoice with GST and charges exists and GRN converts to a bill, but no PO-to-invoice matchi
+      Evidence: backend/purchases/models.py:PurchaseInvoice; backend/purchases/grn_service.py:Go
+    * [P-0147] (P2) Identify best-priced suppliers
+      Reason: Price history exists per one supplier and product; no cross-vendor comparison matrix or landed-cost 
+      Evidence: backend/purchases/views.py:PurchaseOrderItem; backend/purchases/reliability.py:l
+    * [P-0148] (P2) Review supplier performance
+      Reason: Lead time and fill rate exist; no on-time %, defect %, price stability or vendor score (docstring sa
+      Evidence: backend/purchases/reliability.py:supply_metrics
+    * [P-0175] (P1) Resolve invoice discrepancies
+      Reason: Credit/debit notes and completed-invoice price amendment exist, but no dedicated discrepancy-resolut
+      Evidence: backend/purchases/models.py:PurchaseCreditNote; backend/purchases/models.py:Purc
+    * [X-0218] (P1) GRN → damaged/short quantity is recorded
+      Reason: quantity_rejected and rejection_reason are recorded and rejected stock is excluded, but no quarantin
+      Evidence: backend/purchases/models.py:GoodsReceiptItem
+    * [X-0223] (P1) Tax mismatch → exception is generated
+      Reason: GST health flags non-standard rates, but no comparison against the HSN master rate at purchase entry
+      Evidence: backend/reporting/gst_health.py:build_gst_health
+    * [X-0226] (P1) Purchase → eligible ITC is identified
+      Reason: ITC eligibility enum (claimable/ineligible/reversed) exists; no Section 17(5) blocked-category selec
+      Evidence: backend/purchases/models.py:PurchaseInvoice
+    * [X-0232] (P1) Purchase return → GST impact is adjusted
+      Reason: Purchase credit notes post reversal and flow to GST data, but 3B Table 4(B) reversal is marked manua
+      Evidence: backend/purchases/notes_services.py:PurchaseNotesService; backend/reporting/gst_
+    * [X-0233] (P1) Supplier invoice discrepancy → accountant is alerted
+      Reason: Attention rows exist for price jumps and GST guardrail/2B mismatches, not for PO/GRN invoice discrep
+      Evidence: backend/insights/models.py:AttentionRowState; backend/insights/attention.py
+    * [X-0234] (P1) Supplier invoice correction → original transaction remains traceable
+      Reason: Before/after totals are recorded for edited completed bills, but no full version history of the docu
+      Evidence: backend/core/services/audit.py:record_edited_document_event; backend/purchases/s
+    * [D-0688] (P1) Supplier Intelligence Scorecard: automated rating on delivery punctuality, price inflation & GST defects
+      Reason: Scorecard uses GSTR-2B mismatch and rejection data only; no delivery punctuality, fill rate or price
+      Evidence: backend/reporting/ims.py:supplier_scorecard
+================================================================================
+
+MODULE: reporting | Total: 61 | Gaps (Contradicted): 13 | Partial: 31
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0085] (P2) Compare godown-wise profitability
+      Reason: Profit rollup groups by customer, product, period, cost centre only; no warehouse profit report.
+      Evidence: none found: searched warehouse in invoice_profit_rollup, group_by, reporting url
+    * [P-0090] (P1) Compare shop sales
+      Reason: No multi-store comparison report or store/outlet entity exists.
+      Evidence: none found: searched multi-store, outlet, branch, store comparison in backend ur
+    * [P-0097] (P2) Identify underperforming locations
+      Reason: No store performance matrix or sales-target comparison; only SKU-level alerts exist.
+      Evidence: none found: searched store performance, underperform, target in insights
+    * [P-0138] (P2) Track sales performance
+      Reason: No sales rep quota or rep-wise sales performance report.
+      Evidence: none found: searched sales rep, salesperson, quota, target in sales/crm/accounts
+    * [X-0394] (P1) Salesperson sees personal sales performance
+      Reason: No per-salesperson performance, commission or rep self-service card exists.
+      Evidence: none found: searched salesperson, sales_rep, commission in backend and web
+    * [X-0395] (P1) Manager sees team performance
+      Reason: No sales team leaderboard or per-rep aggregation exists.
+      Evidence: none found: searched leaderboard, salesperson, sales_rep
+    * [X-0397] (P1) Multi-shop owner compares locations
+      Reason: No multi-store comparison report or route exists.
+      Evidence: none found: searched multi-store, outlet, branch in backend/reporting and routes
+    * [X-0400] (P1) Owner identifies high-value customers
+      Reason: No Pareto or 80/20 customer analysis or VIP flagging exists.
+      Evidence: none found: searched pareto, cumulative revenue contribution, VIP in backend
+    * [X-0405] (P1) Owner identifies supplier concentration
+      Reason: No supplier concentration or Herfindahl calculation exists.
+      Evidence: none found: searched herfindahl, supplier concentration, concentration risk
+    * [UX-0586] (P1) Global omnibar quick-search (Ctrl+K / Cmd+K) across commands, customers, and invoices
+      Reason: No command palette or Ctrl+K handler exists.
+      Evidence: none found: searched ctrl+k, command palette, omnibar in web/src
+    * [UX-0591] (P3) One-click 'Privacy Mask' toggle hiding rupee figures from bystander view
+      Reason: No privacy mask toggle exists.
+      Evidence: none found: searched privacy mask, hideAmounts, shift+P in web/src
+    * [SaaS-0675] (P1) SaaS SuperAdmin analytics dashboard (MRR, Churn, DAU, Feature Adoption)
+      Reason: No MRR, churn rate or DAU aggregation for a SuperAdmin dashboard.
+      Evidence: none found: searched mrr, dau, feature adoption in billing, core, insights, acco
+    * [D-0684] (P0) Predictive cash-flow simulation engine modeling actual debtor payment delay probabilities
+      Reason: Forecast uses fixed heuristic collection rates by ageing bucket and fixed +/-15% band; no Monte Carl
+      Evidence: backend/insights/services.py:forecast_cashflow
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0024] (P2) Identify fast-moving items
+      Reason: Product sales report and fast-mover low-stock alert exist; no velocity/turnover report.
+      Evidence: backend/insights/alerts.py:LOW_STOCK_FAST_MOVER; backend/reporting/services.py:p
+    * [P-0025] (P2) Identify slow-moving/dead stock
+      Reason: DEAD_STOCK alert values stock unsold for 60 days; no 30/60/90 ageing report.
+      Evidence: backend/insights/alerts.py:DEAD_STOCK
+    * [P-0051] (P2) View profitability by item/category
+      Reason: Margin rollup by product, customer, period, cost centre only; no category or manufacturer grouping.
+      Evidence: backend/reporting/services.py:invoice_profit_rollup
+    * [P-0066] (P2) Analyze product profitability
+      Reason: Product margin rollup exists; no supplier rebates or freight in contribution margin.
+      Evidence: backend/reporting/services.py:invoice_profit_rollup
+    * [P-0084] (P2) Compare godown-wise sales
+      Reason: Sales register can filter by warehouse but no comparative grouping by warehouse.
+      Evidence: backend/reporting/services.py:sales_register
+    * [P-0091] (P2) Compare shop profitability
+      Reason: P&L filters by cost centre; no store P&L with allocated rent, utilities, payroll.
+      Evidence: backend/accounting/reports.py:profit_and_loss; backend/reporting/services.py:inv
+    * [P-0096] (P1) Consolidate business performance
+      Reason: TB, P&L and balance sheet from GL exist for one company; no multi-entity consolidation.
+      Evidence: backend/accounting/reports.py:trial_balance; backend/accounting/reports.py:profi
+    * [P-0117] (P1) See sales, purchases and profit together
+      Reason: Dashboard gives sales and purchases month totals; no monthly comparative timeline with margin.
+      Evidence: backend/reporting/services.py:dashboard
+    * [P-0121] (P2) Identify profitable products
+      Reason: Product margin rollup is available; no ranked leaderboard by margin percent.
+      Evidence: backend/reporting/services.py:invoice_profit_rollup
+    * [P-0123] (P2) Compare performance across periods
+      Reason: group_by=period gives margin by period; no MoM/YoY comparison or growth percentage.
+      Evidence: backend/reporting/services.py:invoice_profit_rollup
+    * [P-0127] (P1) Drill down from KPI to transactions
+      Reason: Dashboard shows recent invoice links; no general KPI-to-voucher drill-down.
+      Evidence: backend/reporting/services.py:dashboard
+    * [X-0386] (P1) Transaction → purchase dashboard updates
+      Reason: Dashboard computes live month purchases net of notes and payables aging; no top-supplier spend or pe
+      Evidence: backend/reporting/services.py:ReportService; backend/reporting/views.py:Dashboar
+    * [X-0388] (P1) Transaction → GST dashboard updates
+      Reason: GSTR-3B report gives output tax and ITC per period, but no live dashboard cards; GST health only rai
+      Evidence: backend/reporting/views.py:Gstr3bView; backend/reporting/gst_health.py:build_gst
+    * [X-0390] (P1) Transaction → payables dashboard updates
+      Reason: Payables total and aging buckets exist; no upcoming 7-day payment commitment or scheduled-payment vi
+      Evidence: backend/reporting/services.py:ReportService
+    * [X-0392] (P1) Owner drills KPI → underlying transaction
+      Reason: Only some dashboard items link out (recent invoices, low stock); claimed drill-down on every metric 
+      Evidence: web/src/pages/DashboardPage.tsx
+    * [X-0396] (P1) Owner sees consolidated business performance
+      Reason: Single-company insights hub with daily summary and health score exists; no multi-outlet or multi-dep
+      Evidence: web/src/pages/insights/InsightsHubPage.tsx:InsightsHubPage; backend/insights/vie
+    * [X-0398] (P1) Distributor compares customers
+      Reason: Customers ranked by revenue and margin rollup per customer exist; no frequency, payment promptness s
+      Evidence: backend/reporting/services.py:ReportService; backend/reporting/views.py:Customer
+    * [X-0399] (P1) Distributor compares products
+      Reason: Product ranking by quantity and amount and product margin rollup exist; no velocity-versus-margin ma
+      Evidence: backend/reporting/services.py:ReportService; backend/reporting/views.py:ProductS
+    * [X-0401] (P1) Owner identifies low-margin products
+      Reason: Invoice-profit rollup grouped by product shows margin per SKU; no threshold-based low-margin excepti
+      Evidence: backend/reporting/services.py:ReportService
+    * [X-0402] (P1) Owner identifies dead stock
+      Reason: Only a 60-day dead-stock alert with tied-up value exists; no 60/90/180 aging report at /reports/inve
+      Evidence: backend/insights/alerts.py:DEAD_STOCK; backend/reporting/views.py:InventorySumma
+    * [X-0403] (P1) Owner identifies fast-moving products
+      Reason: Product sales ranks SKUs by quantity and amount; no turnover rate or dedicated fast-moving leaderboa
+      Evidence: backend/reporting/services.py:ReportService
+    * [X-0404] (P1) Owner identifies overdue receivables
+      Reason: Collections worklist and aging buckets exist behind a flag; no specific 45-day critical-overdue filt
+      Evidence: backend/insights/views.py:CollectionsWorklistView; backend/payments/predictive_d
+    * [X-0406] (P1) Owner reviews business trends
+      Reason: Daily revenue series exists in sales summary; no multi-month procurement, margin, expense trend or /
+      Evidence: backend/reporting/views.py:SalesSummaryView
+    * [P-0502] (P1) Review Trial Balance, P&L, and Balance Sheet in Schedule III format
+      Reason: TB, P&L, balance sheet exist; Schedule III grouping is only referenced for cash flow, no multi-perio
+      Evidence: backend/accounting/reports.py:trial_balance; backend/accounting/reports.py:profi
+    * [X-0536] (P2) Natural Language Business Query Assistant: answer owner queries via conversational interface
+      Reason: LLM assistant calls fixed read-only tools for aging and outstanding; not general query translation, 
+      Evidence: backend/insights/assistant.py:ToolExecutor; backend/insights/assistant.py:run_as
+    * [S-0561] (P0) Automated background trial balance zero-sum verification worker
+      Reason: Trial balance check and invariants command exist; no scheduled worker or quarantine of unbalanced ba
+      Evidence: backend/accounting/reports.py:trial_balance; backend/core/management/commands/ch
+    * [S-0574] (P1) Threshold-based anomaly detector for unusual cash discounts or abnormal bill amounts
+      Reason: Threshold alerts for below-cost and high discount exist; no Z-score or abnormal bill-amount detectio
+      Evidence: backend/insights/alerts.py:SALE_BELOW_COST; backend/insights/alerts.py:DISCOUNT_
+    * [UX-0585] (P1) Visual empty-state illustrations with actionable onboarding shortcuts
+      Reason: Empty states with add actions exist on some lists; no illustrations and no Create Your First Bill pr
+      Evidence: web/src/components/PageState.tsx:EmptyState
+    * [UX-0595] (P1) Executive Morning Briefing card summarizing '3 Things That Need You Today'
+      Reason: Dashboard shows top 3 business alerts and a ranked attention feed; not a dedicated daily briefing en
+      Evidence: web/src/pages/DashboardPage.tsx:topBiz; backend/insights/attention.py
+    * [D-0685] (P1) Natural language voice and chat conversational assistant ('Ask BizBoard')
+      Reason: Text NL assistant with company-scoped read tools exists; no SQL generation or voice support found.
+      Evidence: backend/insights/assistant.py:ToolExecutor
+    * [D-0699] (P3) Customer Lifetime Value (CLV) and churn prediction scoring
+      Reason: CHURN_RISK rows from order-gap vs median interval exist; no CLV or RFM scoring.
+      Evidence: backend/insights/customer_actions.py:build_customer_action_rows
+================================================================================
+
+MODULE: sales | Total: 113 | Gaps (Contradicted): 20 | Partial: 39
+  -- GAPS / CONTRADICTED TASKS --
+    * [P-0070] (P1) Pick and dispatch customer orders
+      Reason: Challans record vehicle details but no pick list exists and SalesOrder has no DISPATCHED status.
+      Evidence: backend/sales/models.py:DeliveryChallan; backend/sales/models.py:SalesOrder
+    * [P-0167] (P2) Request replacement
+      Reason: No replacement or exchange workflow linking a return to a replacement order.
+      Evidence: none found: searched replacement, exchange in backend/sales and web/src/pages/po
+    * [X-0192] (P1) Sales order → warehouse receives picking request
+      Reason: No pick list document or warehouse picking request exists.
+      Evidence: none found: searched PickList, pick_list, picking in backend/sales, inventory, o
+    * [X-0193] (P1) Warehouse picks stock → order becomes ready for dispatch
+      Reason: No picking confirmation, ready-for-dispatch status or batch lock exists.
+      Evidence: none found: searched READY_FOR_DISPATCH, PICKED, picking; SalesOrder statuses ar
+    * [X-0370] (P1) Salesperson creates return request
+      Reason: No mobile return request form with photo and reason code exists.
+      Evidence: none found: searched mobile return request; mobile/ holds only Capacitor wrapper
+    * [X-0372] (P1) Warehouse receives returned goods
+      Reason: No physical return intake step; stock is restored directly when the return is completed.
+      Evidence: none found: searched return intake, receiving in backend/sales/return_service.py
+    * [X-0382] (P1) Warranty claim → product/serial verified
+      Reason: No serial-to-invoice warranty expiry lookup exists.
+      Evidence: none found: searched warranty, serial warranty lookup; warranty only a contract 
+    * [P-0497] (P1) Hand over goods and verify carton/box count with retailer
+      Reason: No parcel or carton count verification checklist at stop level.
+      Evidence: none found: searched parcel count, carton verification in backend/sales and Deli
+    * [P-0501] (P1) Reconcile daily route collections and return unsold/rejected stock to godown
+      Reason: No driver cash reconciliation or route-close settlement screen exists.
+      Evidence: none found: searched driver settlement, DriverPaymentReceipt, DispatchRun
+    * [X-0539] (P1) Vehicle load optimization: verify total consignment weight/volume against vehicle payload capacity
+      Reason: No vehicle payload or weight/volume validation of a route load.
+      Evidence: none found: searched max_payload, capacity, gross_weight, payload in backend/sal
+    * [S-0576] (P1) Automated PostgreSQL Trigram and GIN full-text search indexing on product catalog
+      Reason: Search uses icontains/iexact filters; no trigram or GIN index is defined in models.
+      Evidence: none found: searched pg_trgm, GinIndex, TrigramExtension, SearchVector in non-mi
+    * [UX-0584] (P1) Contextual inline error guidance with auto-fix suggestions on GST validation failures
+      Reason: No Auto-Fix Tax button or IGST-vs-CGST remediation message; tax split is derived from place of suppl
+      Evidence: none found: searched auto-fix, IGST instead in web/src and backend/sales
+    * [UX-0592] (P3) Sound feedback cues on barcode scan success, duplicate scan, and error
+      Reason: No sound feedback code exists for scan success, duplicate or error.
+      Evidence: none found: searched AudioContext, createOscillator, new Audio, beep in web/src
+    * [UX-0597] (P1) Quick quantity multiplier keypad shortcuts during retail barcode scanning
+      Reason: tryAddByBarcode matches the raw string exactly; no quantity-multiplier syntax is parsed.
+      Evidence: none found: searched N*barcode parser, multiplier in web/src/pages/pos/PosPage.t
+    * [UX-0598] (P1) Live responsive document print preview with paper size switching (A4 vs A5 vs Thermal)
+      Reason: Only buttons that download 80mm or 58mm thermal PDFs exist; no live preview modal or A4/A5/thermal s
+      Evidence: none found: searched print preview, paper size in web/src; web/src/pages/sales/I
+    * [I-0652] (P1) Physical cash drawer automatic kick-out pulse on cash sale completion
+      Reason: No drawer kick bytes are added to the print stream.
+      Evidence: none found: searched cash drawer, kick, 0x1b 0x70 in web/src
+    * [I-0653] (P1) Electronic weighing scale RS-232 serial port live weight reading
+      Reason: No Web Serial or weighing scale integration exists.
+      Evidence: none found: searched navigator.serial, weighing scale, RS-232 in web/src
+    * [I-0654] (P3) Customer-facing Pole Display / Secondary Screen integration
+      Reason: No customer-facing display driver or secondary window exists.
+      Evidence: none found: searched pole display, customer display, secondary screen in web/src
+    * [D-0682] (P3) WhatsApp Conversational Khata Bot: customer sends photo of handwritten order list → creates sales order
+      Reason: No WhatsApp inbound image handling or handwritten order extraction into sales orders; only supplier-
+      Evidence: none found: searched handwritten, whatsapp inbound, media in backend/core/servic
+    * [D-0696] (P3) Proof of Delivery (POD) photo tamper detection and GPS geo-fence verification
+      Reason: POD stores photo, OTP and recipient but no GPS capture, geo-fence comparison or tamper check; havers
+      Evidence: none found: searched geofence, haversine against POD, tamper in backend/sales
+  -- PARTIAL IMPLEMENTATIONS --
+    * [P-0031] (P1) Process purchase returns
+      Reason: Purchase return posts outward stock movements but auto-generates a PurchaseCreditNote, not a Purchas
+      Evidence: backend/purchases/services.py:PurchaseService; backend/purchases/models.py:Purch
+    * [P-0046] (P0) Search medicines while billing
+      Reason: Product search matches name, SKU, barcode, HSN and custom fields; no native salt/composition or manu
+      Evidence: backend/masters/views.py:ProductViewSet
+    * [P-0052] (P0) Create bulk sales invoices
+      Reason: Invoices apply price lists and post stock, AR and GST; bulk CSV entry for invoices not found.
+      Evidence: backend/sales/services.py:SalesService; backend/masters/models.py:PriceListItem
+    * [P-0053] (P1) Process retailer orders
+      Reason: Orders are created with credit-limit gating and stock reservation on confirm; field-salesman capture
+      Evidence: backend/sales/models.py:SalesOrder; backend/sales/order_gates.py:apply_order_gat
+    * [P-0056] (P1) Track pending customer orders
+      Reason: Orders list by status exists; no dispatch-status grouping or aging backlog widget.
+      Evidence: backend/sales/models.py:SalesOrder; web/src/App.tsx:Route
+    * [P-0135] (P1) Track pending orders
+      Reason: Order statuses are DRAFT/CONFIRMED/CONVERTED/CANCELLED; only route stops carry DELIVERED, no PICKED 
+      Evidence: backend/sales/models.py:SalesOrder; backend/sales/models.py:DeliveryRouteStop
+    * [P-0182] (P2) Configure invoice templates
+      Reason: Page edits invoice terms only; no layout, thermal size, logo or QR placement configuration with prev
+      Evidence: web/src/pages/settings/InvoiceTemplatesPage.tsx:InvoiceTemplatesPage
+    * [X-0189] (P1) Customer order → salesperson records order → inventory availability is checked
+      Reason: Draft order is created, but stock availability is enforced only at confirm via reserve_stock, not wh
+      Evidence: backend/sales/models.py:SalesOrder; backend/sales/notes_services.py:confirm_sale
+    * [X-0209] (P1) Refund processed → customer balance is updated
+      Reason: Refund posting exists for receipts and gateway payments; no refund workflow tied directly to a sales
+      Evidence: backend/accounting/services.py:post_receipt_refund; backend/payments/services.py
+    * [X-0371] (P1) Manager approves return
+      Reason: Manager approval exists only as Complaint APPROVED status; SalesReturn has DRAFT/COMPLETED/CANCELLED
+      Evidence: backend/complaints/models.py:Complaint; backend/complaints/services.py:transitio
+    * [X-0373] (P1) Returned goods inspected
+      Reason: SalesReturnItem has condition SELLABLE or DAMAGED set on the return; no separate inspection step and
+      Evidence: backend/sales/models.py:SalesReturnItem
+    * [X-0375] (P1) Damaged return → damaged inventory recorded
+      Reason: Damaged units are written off via an ADJUSTMENT movement reason DAMAGED; no transfer to a damaged wa
+      Evidence: backend/sales/cogs_service.py:restore_return_stock_and_cogs
+    * [X-0380] (P1) Support ticket → owner/manager escalation
+      Reason: Tickets have priority and SLA breach counting, but no escalate action setting CRITICAL or notifying 
+      Evidence: backend/support/tickets.py:tickets_past_sla_q; backend/support/models.py:Ticket
+    * [X-0384] (P1) AMC renewal → customer follow-up generated
+      Reason: Task only updates contract status to expiring based on renewal_reminder_days; no renewal quotation o
+      Evidence: backend/contracts/tasks.py:refresh_contract_statuses
+    * [X-0433] (P1) Invalid invoice → actionable validation is shown
+      Reason: Server rejects missing HSN and bad GSTIN with messages, but field-level highlighting is not establis
+      Evidence: backend/sales/services.py:missing_hsn; backend/core/validators.py:validate_gstin
+    * [P-0495] (P1) Receive daily dispatch manifest and loaded vehicle stock
+      Reason: Route can be started to IN_TRANSIT with ordered stops; no DispatchRun, OUT_FOR_DELIVERY status or dr
+      Evidence: backend/sales/models.py:DeliveryRoute; backend/sales/route_service.py
+    * [P-0496] (P2) Navigate multi-drop route using mobile PWA
+      Reason: Stops have sequence and delivered_at timestamp; no per-stop map or turn-by-turn navigation link.
+      Evidence: backend/sales/models.py:DeliveryRouteStop; web/src/pages/sales/DeliveryRoutesPag
+    * [P-0498] (P1) Capture Proof of Delivery (POD) via customer digital signature or OTP
+      Reason: POD stores received-by name, photo and entered OTP and marks stop DELIVERED; OTP is not validated ag
+      Evidence: backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py
+    * [P-0499] (P1) Record partial delivery rejection on-the-spot (damaged/refused boxes)
+      Reason: Stop can be FAILED or RETURNED and challan returns exist; no partial-rejection note with mandatory p
+      Evidence: backend/sales/route_service.py; backend/sales/models.py:DeliveryChallanReturn
+    * [P-0500] (P1) Collect Cash-on-Delivery (COD) or UPI payment from customer
+      Reason: Stop can link a customer receipt and a UPI URI builder exists; no DriverPaymentReceipt or driver cas
+      Evidence: backend/sales/models.py:DeliveryRouteStop; web/src/utils/upi.ts:buildUpiUri
+    * [X-0538] (P1) Staged fulfillment: group pending customer delivery orders by geographic transport route
+      Reason: DeliveryRoute plus a pincode-based combine suggestion exist; no DispatchRun model or automatic group
+      Evidence: backend/sales/route_combine.py:combine_suggestions; backend/sales/models.py:Deli
+    * [X-0541] (P1) Digital Proof of Delivery (POD) capture with customer signature, timestamp, and geo-location
+      Reason: POD captures received-by name, OTP, photo and timestamp on the route stop; no signature bitmap or GP
+      Evidence: backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py:set_st
+    * [X-0542] (P1) Mobile Cash-on-Delivery (COD) capture by driver with instant payment receipt
+      Reason: A stop can link a CustomerReceipt collected at delivery; no driver-custody tracking, dynamic QR or W
+      Evidence: backend/sales/route_service.py:set_stop_status; backend/sales/models.py:Delivery
+    * [X-0543] (P1) Driver route reconciliation: cashier matches delivered consignments, collected cash, and returns
+      Reason: Routes complete and challan returns restore stock, but no driver cash settlement or till reconciliat
+      Evidence: backend/sales/route_service.py:complete_route; backend/sales/route_views.py:Deli
+    * [S-0564] (P1) Asynchronous PDF document generation queue for high-volume invoice printing
+      Reason: PDF generation is queued to Celery with pdf_status polling; no WebSocket push of download URL.
+      Evidence: backend/sales/tasks.py:generate_invoice_pdf; backend/sales/views.py
+    * [S-0569] (P3) Automated API latency, error rate, and slow-query telemetry logger
+      Reason: Request duration is logged as JSON and counted, but no slow-query logging, P95, SQL count or latency
+      Evidence: backend/core/middleware.py:RequestIdMiddleware; backend/core/ops_metrics.py:reco
+    * [UX-0581] (P1) Full keyboard-only hotkey navigation across POS rapid checkout
+      Reason: F-keys cover search, tender, hold, clear and reprint, but no keyboard path for discount; keyboard-on
+      Evidence: web/src/pages/pos/PosPage.tsx:holdAndCreateSession
+    * [UX-0587] (P1) Dynamic customer credit health pill with color-coded risk indicator during billing
+      Reason: Only a red credit-hold chip shown for stop-credit or severe overdue; no green or yellow near-limit s
+      Evidence: web/src/components/CreditHoldChip.tsx:CreditHoldChip; web/src/pages/sales/NewInv
+    * [UX-0594] (P1) Persistent customer quick-create side drawer without losing current document state
+      Reason: Customer is created in a modal Dialog on the invoice page, auto-selected, cart intact; it is not a s
+      Evidence: web/src/pages/sales/invoice/InvoicePartyPanel.tsx:onCustomerCreated; web/src/pag
+    * [R-0636] (P0) Sub-200ms POS billing checkout latency under continuous queue load
+      Reason: Locust smoke script exists but only exercises health endpoint; no POS checkout latency benchmark or 
+      Evidence: load/locust_smoke.py:HealthUser
+    * [I-0651] (P0) ESC/POS thermal receipt printer direct driver integration via USB, Bluetooth & Network
+      Reason: Only a Capacitor Bluetooth plugin path sending a minimal text stub; no WebUSB or network printing, f
+      Evidence: web/src/lib/native.ts:printEscPos; web/src/pages/pos/printPosThermal.ts:printPos
+    * [I-0655] (P0) Barcode scanner HID USB wedge and 2D QR camera barcode reader
+      Reason: Enter-key barcode lookup works with wedge scanners and native camera scan in the mobile app; no 50ms
+      Evidence: web/src/pages/pos/PosPage.tsx:tryAddByBarcode; web/src/lib/native.ts:scanBarcode
+    * [I-0664] (P3) Google Maps & OpenStreetMap Directions API route optimization
+      Reason: Stop sequencing uses local nearest-neighbour and pincode haversine; no Google Maps or OSM Directions
+      Evidence: backend/sales/route_optimization.py:NearestNeighborTwoOptStrategy; backend/sales
+    * [D-0686] (P1) Route economics and delivery tempo profitability optimization engine
+      Reason: Routes store logistics cost, realized revenue, COGS and profit; no loss-making route flag or minimum
+      Evidence: backend/sales/models.py:DeliveryRoute; backend/sales/route_service.py
+    * [D-0689] (P1) Dynamic customer-specific volume slab pricing and margin protection guard
+      Reason: Quantity-slab price lists exist; margin check only warns on sales orders and does not enforce a floo
+      Evidence: backend/masters/models.py:PriceListItem; backend/sales/order_gates.py:margin_war
+    * [D-0697] (P1) B2B Customer Portal with live customized price lists, ledger statements & re-ordering
+      Reason: Portal shows open invoices, PDF and pay link only; no contracted price lists, ledger statements or r
+      Evidence: backend/payments/portal_views.py:CustomerPortalView
+    * [X-0702] (P0) Credit limit breach during bulk invoice: owner sends temporary one-time authorization token
+      Reason: Owner override with reason is stamped on the order and invoice; no time-limited token, WhatsApp appr
+      Evidence: backend/sales/order_gates.py:apply_order_gates; backend/sales/order_gates.py:cop
+    * [X-0708] (P1) Network disconnects during thermal receipt printing: reprint last completed receipt with 1 key
+      Reason: F11 or Ctrl+Alt+P reprints the last completed sale without recreating it; no DUPLICATE COPY header o
+      Evidence: web/src/pages/pos/PosPage.tsx:lastCompletedSaleRef
+    * [X-0714] (P1) Doorstep customer cash refusal: driver captures reason and routes goods back to godown receiving
+      Reason: Stop can be set FAILED, which leaves stock reserved; no reason code or driver custody transfer back 
+      Evidence: backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py:set_st
+================================================================================
+
+MODULE: web (frontend) | Total: 1 | Gaps (Contradicted): 1 | Partial: 0
+  -- GAPS / CONTRADICTED TASKS --
+    * [UX-0596] (P0) Clear destructive action confirmation dialog with explicit entity name typing
+      Reason: ConfirmDialog has no typed-confirmation input; no type-DELETE flow found.
+      Evidence: none found: searched type-to-confirm, confirmPhrase, DELETE typing in web/src/co
+================================================================================
+
+MODULE: workshop | Total: 5 | Gaps (Contradicted): 0 | Partial: 0
+================================================================================
+

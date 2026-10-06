@@ -689,8 +689,8 @@ const MORE_FAQ: FaqItem[] = [
     'Where is goods received (GRN)?',
     ['grn', 'goods receipt', 'inward', 'purchase complete stock'],
     [
-      'There is no separate GRN. **t:common.complete** on a purchase bill posts stock and the supplier payable together.',
-      'If goods arrive later than the bill, keep the bill as draft until you can complete both, or use opening stock / a stock adjustment for timing differences.',
+      'Goods receipts are at **t:nav.goodsReceipts**. Complete on a receipt posts accepted stock. Rejected quantity drafts a supplier debit note. The purchase bill posts what you owe the supplier.',
+      'For batch or serial goods, enter the lot on the receipt before Complete, then convert the receipt into a draft purchase bill.',
     ],
   ),
   faq(

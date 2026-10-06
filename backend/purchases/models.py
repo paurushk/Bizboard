@@ -274,6 +274,13 @@ class PurchaseDebitNote(DocumentTotalsModel):
         CANCELLED = "CANCELLED"
 
     supplier = models.ForeignKey("masters.Supplier", on_delete=models.PROTECT, related_name="purchase_debit_notes")
+    goods_receipt = models.ForeignKey(
+        "GoodsReceipt",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="rejection_debit_notes",
+    )
     purchase_invoice = models.ForeignKey(
         PurchaseInvoice, null=True, blank=True, on_delete=models.PROTECT, related_name="debit_notes"
     )
@@ -516,6 +523,13 @@ class GoodsReceiptItem(CompanyScopedModel):
     quantity_rejected = models.DecimalField(max_digits=14, decimal_places=3, default=Decimal("0.000"))
     unit_price = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0.00"))
     rejection_reason = models.CharField(max_length=255, blank=True)
+    batch = models.ForeignKey(
+        "inventory.BatchLot", null=True, blank=True, on_delete=models.PROTECT, related_name="goods_receipt_items",
+    )
+    batch_no = models.CharField(max_length=64, blank=True)
+    mfg_date = models.DateField(null=True, blank=True)
+    exp_date = models.DateField(null=True, blank=True)
+    serial_numbers = models.JSONField(default=list, blank=True)
 
     class Meta:
         constraints = [
@@ -529,4 +543,26 @@ class GoodsReceiptItem(CompanyScopedModel):
 
     def __str__(self):
         return f"{self.product.name} ({self.quantity_accepted} accepted)"
+
+
+class PurchaseInvoiceRevision(CompanyScopedModel):
+    """Immutable snapshot of a purchase bill before a completed-document mutation."""
+
+    invoice = models.ForeignKey(
+        PurchaseInvoice, on_delete=models.CASCADE, related_name="revisions"
+    )
+    revision = models.PositiveIntegerField()
+    snapshot = models.JSONField()
+
+    class Meta:
+        ordering = ["invoice_id", "revision"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "revision"],
+                name="uniq_purchase_invoice_revision",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.invoice_id} rev {self.revision}"
 

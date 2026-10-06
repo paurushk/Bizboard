@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { dialogAmountDirty } from '@/pages/moneyFormDirty';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -10,6 +12,7 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import Drawer from '@mui/material/Drawer';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -21,6 +24,7 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
@@ -38,14 +42,17 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useAuth } from '@/auth/AuthContext';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
+import { trackShopFloor } from '@/lib/telemetry';
 import { todayIso } from '@/components/billing';
-import type { Customer, PaymentMode, SalesInvoice } from '@/types/domain';
+import type { Customer, CustomerReceipt, PaymentMode, SalesInvoice } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
+import { planOldestFirstAllocation } from '@/pages/sales/receiptAllocation';
 import { canCreatePayments } from '@/utils/permissions';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 
 export function ReceiptsPage() {
+  useLocale();
   const { user } = useAuth();
   const { writesBlocked } = useSubscriptionGate();
   const canWrite = canCreatePayments(user) && !writesBlocked;
@@ -71,7 +78,44 @@ export function ReceiptsPage() {
   const [error, setError] = useState<string | null>(null);
   const [errorSource, setErrorSource] = useState<unknown>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [discardPrompt, setDiscardPrompt] = useState(false);
+  const receiptDirty = dialogAmountDirty(open, Boolean(customer), amount);
+  const requestClose = () => {
+    if (receiptDirty) setDiscardPrompt(true);
+    else setOpen(false);
+  };
+  const [advance, setAdvance] = useState<CustomerReceipt | null>(null);
+  const advanceInvoices = useQuery({
+    queryKey: ['receipt-allocate-invoices', advance?.customer],
+    queryFn: () =>
+      listSalesInvoicesPage({ status: 'COMPLETED', customer: advance!.customer, pageSize: 20 }),
+    enabled: Boolean(advance?.customer),
+  });
+  const allocateMutation = useMutation({
+    mutationFn: async (invoiceId: number) => {
+      if (!advance) throw new Error('Receipt required');
+      const bill = (advanceInvoices.data?.results ?? []).find((row) => row.id === invoiceId);
+      const amount = Math.min(toNumber(advance.unallocated), toNumber(bill?.balance));
+      if (!(amount > 0)) throw new Error('Nothing to allocate');
+      await createAllocation(
+        { receipt: advance.id, salesInvoice: invoiceId, amount },
+        { idempotencyKey: userGestureIdempotencyKey() },
+      );
+    },
+    onSuccess: () => {
+      setAdvance(null);
+      void qc.invalidateQueries({ queryKey: ['receipts'] });
+      void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
+      void qc.invalidateQueries({ queryKey: ['receipt-allocate-invoices'] });
+    },
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      setErrorSource(err);
+    },
+  });
 
+  const narrowVoid = useMediaQuery('(max-width:899.95px)');
+  const [voidId, setVoidId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
 
   const query = useQuery({
@@ -79,9 +123,14 @@ export function ReceiptsPage() {
     queryFn: () => listReceiptsPage({ page, pageSize: 50 }),
   });
   const customers = useQuery({
-    queryKey: ['customers-search', debouncedCustomerQuery],
-    queryFn: () => listCustomersPage({ q: debouncedCustomerQuery, pageSize: 50 }),
-    enabled: debouncedCustomerQuery.trim().length >= 2,
+    queryKey: ['customers-receipt-lookup', debouncedCustomerQuery],
+    queryFn: () =>
+      listCustomersPage({
+        q: debouncedCustomerQuery.trim() || undefined,
+        status: 'ACTIVE',
+        pageSize: 50,
+      }),
+    enabled: open && canWrite,
   });
   // BB-000348: searchable invoices — do not silently truncate to first page only.
   const invoices = useQuery({
@@ -171,7 +220,8 @@ export function ReceiptsPage() {
   const voidMutation = useMutation({
     mutationFn: (id: number) => voidReceipt(id),
     onSuccess: () => {
-      setMessage('Receipt voided');
+      trackShopFloor('document_voided', { feature: 'form' });
+      setMessage(t('billing.receiptVoided'));
       void qc.invalidateQueries({ queryKey: ['receipts'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
     },
@@ -198,6 +248,8 @@ export function ReceiptsPage() {
   });
 
   const receipts = query.data?.results ?? [];
+  const showSource = receipts.some((row) => Boolean(row.source && row.source !== 'MANUAL'));
+  const showBank = receipts.some((row) => Boolean(row.utr || row.bankAccountName || row.chequeNumber || row.utrWarning));
   // BUG-529: only offer invoices that still have an outstanding balance —
   // previously any COMPLETED invoice was offered regardless of balance,
   // including already fully-paid ones.
@@ -206,6 +258,26 @@ export function ReceiptsPage() {
       (!customer || inv.customer === customer.id) &&
       toNumber(inv.balance) > 0,
   );
+  const oldestPlan =
+    oldestFirst && customer && Number(amount) > 0
+      ? planOldestFirstAllocation(openInvoices, Number(amount))
+      : [];
+  const oldestPreview = !oldestFirst || !customer
+    ? ''
+    : !(Number(amount) > 0)
+      ? t('receipts.oldestPreviewNeedAmount')
+      : oldestPlan.length === 0
+        ? t('receipts.oldestPreviewAdvance')
+        : t('receipts.oldestPreview', {
+            list: oldestPlan
+              .map((slice) =>
+                t(slice.partial ? 'receipts.oldestSlicePartial' : 'receipts.oldestSliceFull', {
+                  number: slice.number,
+                  amount: formatMoney(slice.amount),
+                }),
+              )
+              .join(', '),
+          });
 
   return (
     <Stack spacing={2}>
@@ -232,7 +304,7 @@ export function ReceiptsPage() {
       ) : null}
       {query.data && receipts.length === 0 ? (
         <EmptyState
-          description="Record payments received from customers."
+          description={t('receipts.empty')}
           action={
             canWrite ? (
               <Button
@@ -250,7 +322,7 @@ export function ReceiptsPage() {
         />
       ) : null}
       {receipts.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -258,8 +330,8 @@ export function ReceiptsPage() {
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t('billing.customer')}</TableCell>
                 <TableCell>{t('receipts.mode')}</TableCell>
-                <TableCell>{t('receipts.source')}</TableCell>
-                <TableCell>UTR / Bank</TableCell>
+                {showSource ? <TableCell>{t('receipts.source')}</TableCell> : null}
+                {showBank ? <TableCell>{t('receipts.utrBank')}</TableCell> : null}
                 <TableCell align="right">{t('common.amount')}</TableCell>
                 <TableCell align="right">{t('receipts.allocated')}</TableCell>
                 <TableCell />
@@ -274,17 +346,25 @@ export function ReceiptsPage() {
                     <TableCell>{r.receiptDate}</TableCell>
                     <TableCell>{r.customerName}</TableCell>
                     <TableCell>{r.mode}</TableCell>
-                    <TableCell>
-                      <Chip size="small" variant="outlined" label={r.source || 'MANUAL'} />
-                    </TableCell>
-                    <TableCell>
-                      {r.mode === 'CHEQUE'
-                        ? [r.chequeNumber, r.chequeBankName, r.chequeStatus].filter(Boolean).join(' · ') || '—'
-                        : r.utr ?? r.bankAccountName ?? '—'}
-                      {r.utrWarning ? (
-                        <Chip size="small" color="warning" sx={{ ml: 1 }} label="UTR warn" title={r.utrWarning} />
-                      ) : null}
-                    </TableCell>
+                    {showSource ? (
+                      <TableCell>
+                        {r.source && r.source !== 'MANUAL' ? (
+                          <Chip size="small" variant="outlined" label={r.source} />
+                        ) : (
+                          '—'
+                        )}
+                      </TableCell>
+                    ) : null}
+                    {showBank ? (
+                      <TableCell>
+                        {r.mode === 'CHEQUE'
+                          ? [r.chequeNumber, r.chequeBankName, r.chequeStatus].filter(Boolean).join(' · ') || '—'
+                          : r.utr ?? r.bankAccountName ?? '—'}
+                        {r.utrWarning ? (
+                          <Chip size="small" color="warning" sx={{ ml: 1 }} label={t('receipts.utrWarn')} title={r.utrWarning} />
+                        ) : null}
+                      </TableCell>
+                    ) : null}
                     <TableCell align="right">{formatMoney(r.amount)}</TableCell>
                     <TableCell align="right">
                       {formatMoney(r.allocated)}
@@ -293,7 +373,7 @@ export function ReceiptsPage() {
                           size="small"
                           color="info"
                           sx={{ ml: 1 }}
-                          label={`Advance ${formatMoney(unallocated)}`}
+                          label={t('receipts.advance', { amount: formatMoney(unallocated) })}
                         />
                       ) : null}
                     </TableCell>
@@ -333,15 +413,16 @@ export function ReceiptsPage() {
                               size="small"
                               color="warning"
                               disabled={voidMutation.isPending}
-                              onClick={() => {
-                                if (window.confirm(t('billing.confirmVoidReceipt'))) {
-                                  voidMutation.mutate(r.id);
-                                }
-                              }}
+                              onClick={() => setVoidId(r.id)}
                             >
                               {t('billing.voidAction')}
                             </Button>
                           )}
+                          {unallocated > 0 ? (
+                            <Button size="small" variant="outlined" onClick={() => setAdvance(r)}>
+                              {t('receipts.allocate')}
+                            </Button>
+                          ) : null}
                         </Stack>
                       ) : null}
                     </TableCell>
@@ -352,7 +433,11 @@ export function ReceiptsPage() {
           </Table>
           <Box display="flex" justifyContent="space-between" alignItems="center" p={2}>
             <Typography variant="body2" color="text.secondary">
-              {t('common.page')} {page}
+              {t('common.pageOf', {
+                page,
+                pages: Math.max(1, Math.ceil((query.data?.count ?? receipts.length) / 50)),
+                total: query.data?.count ?? receipts.length,
+              })}
             </Typography>
             <Box display="flex" gap={1}>
               <Button
@@ -374,8 +459,19 @@ export function ReceiptsPage() {
         </Paper>
       ) : null}
 
-      <Dialog open={open && canWrite} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Record Customer Payment (Payment In)</DialogTitle>
+      <UnsavedChangesGuard
+        when={receiptDirty}
+        prompt={discardPrompt}
+        onStay={() => setDiscardPrompt(false)}
+        onLeave={() => {
+          setDiscardPrompt(false);
+          setOpen(false);
+          setAmount('');
+          setCustomer(null);
+        }}
+      />
+      <Dialog open={open && canWrite} onClose={requestClose} fullWidth maxWidth="sm">
+        <DialogTitle>{t('sweep2.recordCustomerPayment')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {/* UXW2B-011: the Save error was only ever rendered on the page behind this
@@ -395,11 +491,27 @@ export function ReceiptsPage() {
                 setCustomerQuery(v?.name ?? '');
               }}
               loading={customers.isFetching}
+              renderOption={(props, option) => (
+                <li {...props} key={option.id}>
+                  <Box display="flex" justifyContent="space-between" width="100%" alignItems="center">
+                    <Typography variant="body2">{option.name}{option.phone ? ` (${option.phone})` : ''}</Typography>
+                    {toNumber(option.outstanding) > 0 ? (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        label={t('receipts.dueChip', { amount: formatMoney(option.outstanding) })}
+                        sx={{ ml: 1 }}
+                      />
+                    ) : null}
+                  </Box>
+                </li>
+              )}
               renderInput={(params) => (
                 <TextField
                   {...params}
                   label={t('billing.customer')}
-                  placeholder="Search customer by name or phone…"
+                  placeholder={t('receipts.searchCustomerPlaceholder')}
                 />
               )}
             />
@@ -410,10 +522,38 @@ export function ReceiptsPage() {
               onChange={(e) => setAmount(e.target.value)}
             />
             <FormControlLabel
-              control={<Checkbox checked={oldestFirst} onChange={(e) => setOldestFirst(e.target.checked)} />}
+              control={
+                <Checkbox
+                  checked={oldestFirst}
+                  onChange={(e) => {
+                    setOldestFirst(e.target.checked);
+                    if (e.target.checked) {
+                      setInvoice(null);
+                      setAllocAmount('');
+                    }
+                  }}
+                />
+              }
               label={t('receipts.oldestFirst')}
             />
-            <TextField select label="Payment Mode" value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
+            {!oldestFirst && customer && Number(amount) > 0 && openInvoices.length > 0 ? (
+              <Alert
+                severity="info"
+                action={
+                  <Button color="inherit" size="small" onClick={() => setOldestFirst(true)}>
+                    {t('receipts.suggestOldestAction')}
+                  </Button>
+                }
+              >
+                {t('receipts.suggestOldest')}
+              </Alert>
+            ) : null}
+            {oldestPreview ? (
+              <Typography variant="body2" color="text.secondary">
+                {oldestPreview}
+              </Typography>
+            ) : null}
+            <TextField select label={t('sweep.paymentMode')} value={mode} onChange={(e) => setMode(e.target.value as PaymentMode)}>
               {(['CASH', 'UPI', 'BANK', 'CARD', 'CREDIT', 'CHEQUE'] as const).map((m) => (
                 <MenuItem key={m} value={m}>
                   {m}
@@ -421,48 +561,52 @@ export function ReceiptsPage() {
               ))}
             </TextField>
             {mode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
-            {(mode === 'BANK' || mode === 'UPI') ? <TextField label="UTR / Reference Number" value={utr} onChange={(e) => setUtr(e.target.value)} helperText="Duplicate UTRs in 90 days show a warning" /> : null}
-            {(mode === 'BANK' || mode === 'UPI') ? <TextField select label="Deposit to Bank Account" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)}>
-              <MenuItem value="">Not specified / Cash Box</MenuItem>
+            {(mode === 'BANK' || mode === 'UPI') ? <TextField label={t('sweep.utrReference')} value={utr} onChange={(e) => setUtr(e.target.value)} helperText={t('sweep.utrDuplicateHelp')} /> : null}
+            {(mode === 'BANK' || mode === 'UPI') ? <TextField select label={t('sweep.depositToBank')} value={bankAccount} onChange={(e) => setBankAccount(e.target.value)}>
+              <MenuItem value="">{t('sweep2.notSpecifiedCashBox')}</MenuItem>
               {(bankAccounts.data ?? []).map((account) => <MenuItem key={account.id} value={account.id}>{account.name}</MenuItem>)}
             </TextField> : null}
-            <Autocomplete
-              options={openInvoices}
-              getOptionLabel={(o) =>
-                `Invoice ${o.number ?? o.id} · Due: ${formatMoney(o.balance)}`
-              }
-              value={invoice}
-              onInputChange={(_, v, reason) => {
-                if (reason === 'input' || reason === 'clear' || reason === 'reset') setInvoiceQuery(v);
-              }}
-              onChange={(_, v) => {
-                setInvoice(v);
-                if (v) {
-                  setAllocAmount(
-                    String(Math.min(toNumber(amount), toNumber(v.balance))),
-                  );
-                }
-              }}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Apply to specific invoice (optional)"
-                  helperText="Leave blank if this is a general advance payment on account"
+            {oldestFirst ? null : (
+              <>
+                <Autocomplete
+                  options={openInvoices}
+                  getOptionLabel={(o) =>
+                    `Invoice ${o.number ?? o.id} · Due: ${formatMoney(o.balance)}`
+                  }
+                  value={invoice}
+                  onInputChange={(_, v, reason) => {
+                    if (reason === 'input' || reason === 'clear' || reason === 'reset') setInvoiceQuery(v);
+                  }}
+                  onChange={(_, v) => {
+                    setInvoice(v);
+                    if (v) {
+                      setAllocAmount(
+                        String(Math.min(toNumber(amount), toNumber(v.balance))),
+                      );
+                    }
+                  }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={t('sweep.applyToInvoice')}
+                      helperText={t('sweep.advanceHelp')}
+                    />
+                  )}
                 />
-              )}
-            />
-            {invoice ? (
-              <TextField
-                type="number"
-                label="Amount applied to this bill (₹)"
-                value={allocAmount}
-                onChange={(e) => setAllocAmount(e.target.value)}
-              />
-            ) : null}
+                {invoice ? (
+                  <TextField
+                    type="number"
+                    label={t('sweep.amountApplied')}
+                    value={allocAmount}
+                    onChange={(e) => setAllocAmount(e.target.value)}
+                  />
+                ) : null}
+              </>
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={requestClose}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
             disabled={createMutation.isPending}
@@ -470,6 +614,68 @@ export function ReceiptsPage() {
           >
             {t('common.save')}
           </Button>
+        </DialogActions>
+      </Dialog>
+      {narrowVoid ? (
+        <Drawer anchor="bottom" open={voidId != null} onClose={() => setVoidId(null)}>
+          <Box sx={{ p: 2 }}>
+            <Typography>{t('billing.confirmVoidReceipt')}</Typography>
+            <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+              <Button onClick={() => setVoidId(null)}>{t('common.cancel')}</Button>
+              <Button
+                color="warning"
+                variant="contained"
+                onClick={() => {
+                  if (voidId != null) voidMutation.mutate(voidId);
+                  setVoidId(null);
+                }}
+              >
+                {t('billing.voidAction')}
+              </Button>
+            </Stack>
+          </Box>
+        </Drawer>
+      ) : (
+        <Dialog open={voidId != null} onClose={() => setVoidId(null)}>
+          <DialogTitle>{t('billing.voidAction')}</DialogTitle>
+          <DialogContent>
+            <Typography>{t('billing.confirmVoidReceipt')}</Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setVoidId(null)}>{t('common.cancel')}</Button>
+            <Button
+              color="warning"
+              variant="contained"
+              onClick={() => {
+                if (voidId != null) voidMutation.mutate(voidId);
+                setVoidId(null);
+              }}
+            >
+              {t('billing.voidAction')}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+      <Dialog open={Boolean(advance)} onClose={() => setAdvance(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('receipts.allocate')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            {(advanceInvoices.data?.results ?? [])
+              .filter((row) => toNumber(row.balance) > 0)
+              .map((row) => (
+                <Button
+                  key={row.id}
+                  variant="outlined"
+                  disabled={allocateMutation.isPending}
+                  onClick={() => allocateMutation.mutate(row.id)}
+                >
+                  {row.number} · {formatMoney(row.balance)}
+                </Button>
+              ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAdvance(null)}>{t('common.cancel')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>

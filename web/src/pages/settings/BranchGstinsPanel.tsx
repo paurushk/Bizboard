@@ -17,6 +17,7 @@ import {
   type CompanyGstinRow,
 } from '@/api/resources';
 import { StateSelect } from '@/components/StateSelect';
+import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { isValidGstin } from '@/utils/gst';
@@ -59,6 +60,10 @@ export function BranchGstinsPanel() {
       <Stack spacing={2}>
         <Typography variant="h6">{t('gst.branchTitle')}</Typography>
         {branchError ? <HelpErrorAlert message={branchError} /> : null}
+        {gstinsQuery.isLoading ? <LoadingState /> : null}
+        {gstinsQuery.isError ? (
+          <ErrorState message={getErrorMessage(gstinsQuery.error)} error={gstinsQuery.error} onRetry={() => void gstinsQuery.refetch()} />
+        ) : null}
         {(gstinsQuery.data ?? []).map((row) => {
           const primary = flag(row, 'isPrimary');
           const active = flag(row, 'isActive');

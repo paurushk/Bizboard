@@ -137,7 +137,7 @@ test.describe('Sales editor — complete gates', () => {
     await page.getByRole('option', { name: /Rahul Stores/i }).click();
     await addItem(page, 'Ampoule', /Serial Ampoule/i);
 
-    await assertDraftEnabledCompleteDisabled(page, /needs serial numbers matching/i);
+    await assertDraftEnabledCompleteDisabled(page, /enter the serial for/i);
 
     await page.getByPlaceholder('SN-001, SN-002').fill('SN-1');
     await assertCompleteEnabled(page);

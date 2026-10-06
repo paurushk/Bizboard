@@ -29,7 +29,7 @@ recommendation: Add a Playwright journey that completes a 5-line POS checkout wi
   the invoice form, one report, one settings screen.
 test_required: keyboard-only POS spec + expanded a11y spec, both in the e2e CI job
 guard_ref:
-  test: web/e2e/a11y.spec.ts::POS scan field is keyboard-operable without a mouse
+  test: web/e2e/a11y.spec.ts::J-A11Y-P2-KEYBOARD POS scan field is keyboard-operable without a mouse
 lifecycle: fixed
 owner: web
 opened: '2026-09-10'

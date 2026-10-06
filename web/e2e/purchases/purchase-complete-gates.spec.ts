@@ -67,7 +67,7 @@ test.describe('Purchase editor — complete gates', () => {
     await page.getByRole('option', { name: /Western Distributors/i }).click();
     await addPurchaseItem(page, 'Ampoule', /Serial Ampoule/i);
 
-    await assertDraftEnabledCompleteDisabled(page, /needs serial numbers matching/i);
+    await assertDraftEnabledCompleteDisabled(page, /enter the serial for/i);
 
     await page.getByPlaceholder(/SN-001/).fill('SN-1');
     await assertCompleteEnabled(page);

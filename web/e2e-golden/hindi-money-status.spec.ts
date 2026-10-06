@@ -10,7 +10,7 @@ import {
   unique,
 } from './helpers/documents';
 
-test('Hindi money-status pass: completed invoice chip is पूर्ण', async ({ page }) => {
+test('Hindi money-status pass: open invoice chip is बकाया', async ({ page }) => {
   test.setTimeout(180_000);
   const id = unique();
   await registerTenant(page, {
@@ -25,16 +25,16 @@ test('Hindi money-status pass: completed invoice chip is पूर्ण', async
   await selectPartyOnDocument(page, `HI Customer ${id}`);
   await addInvoiceItem(page, `HI-${id}`);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const invoiceRow = page.getByRole('row', { name: new RegExp(`HI Customer ${id}`) });
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c));
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toBeTruthy();
 
   await page.getByRole('button', { name: 'हिंदी' }).click();
   await page.goto('/sales/history');
-  await expect(page.getByText('पूर्ण').first()).toBeVisible();
+  await expect(page.getByRole('row', { name: new RegExp(`HI Customer ${id}`) })).toContainText('बकाया');
   await page.goto('/');
   await expect(page.getByText('ग्राहक बकाया').first()).toBeVisible();
 

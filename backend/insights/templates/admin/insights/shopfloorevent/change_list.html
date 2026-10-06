@@ -1,0 +1,20 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+  {% if growth_metrics %}
+    <div class="module" style="margin-bottom: 16px; padding: 12px;">
+      <h2>Growth counts for {{ growth_company }}</h2>
+      <ul>
+        <li>Leads: {{ growth_metrics.leads }}</li>
+        <li>Leads with a customer: {{ growth_metrics.leads_with_customer }}</li>
+        <li>Open tickets: {{ growth_metrics.open_tickets }}</li>
+        <li>Open tickets past SLA: {{ growth_metrics.tickets_past_sla }}</li>
+        <li>Contracts still open: {{ growth_metrics.contracts_still_open }}</li>
+        <li>Referral codes: {{ growth_metrics.referral_codes }}</li>
+        <li>Approved or paid referral rewards: {{ growth_metrics.referral_rewards_approved }}</li>
+      </ul>
+    </div>
+  {% else %}
+    <p style="margin-bottom: 16px;">Filter by company to see lead, ticket, contract, and referral counts.</p>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

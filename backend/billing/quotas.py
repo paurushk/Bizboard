@@ -102,6 +102,12 @@ def assert_storage_allowed(company, additional_bytes: int = 0) -> None:
     limit = int(getattr(plan, "storage_bytes_limit", 0) or 0)
     if limit <= 0:
         return
+    from django.db import transaction
+
+    from accounts.models import Company
+
+    if transaction.get_connection().in_atomic_block:
+        Company.objects.select_for_update().get(pk=company.pk)
     used = storage_bytes_used(company) + max(0, int(additional_bytes or 0))
     if used > limit:
         raise BusinessRuleError(

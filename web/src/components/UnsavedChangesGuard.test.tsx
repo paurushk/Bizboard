@@ -1,9 +1,16 @@
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { ThemeProvider } from '@mui/material/styles';
+import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { trackShopFloor } from '@/lib/telemetry';
 import { theme } from '@/theme';
+
+vi.mock('@/lib/telemetry', () => ({
+  trackShopFloor: vi.fn(),
+}));
 
 /**
  * UX-001 regression (QOS-0024): the guard used to call `useBlocker` unconditionally,
@@ -45,5 +52,34 @@ describe('UnsavedChangesGuard', () => {
     const add = vi.spyOn(window, 'addEventListener');
     renderGuard(<UnsavedChangesGuard when={false} />);
     expect(add).not.toHaveBeenCalledWith('beforeunload', expect.any(Function));
+  });
+
+  it('records form abandonment when the user leaves', async () => {
+    vi.mocked(trackShopFloor).mockClear();
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: (
+            <>
+              <Link to="/next">Go next</Link>
+              <UnsavedChangesGuard when />
+            </>
+          ),
+        },
+        { path: '/next', element: <div>Next page</div> },
+      ],
+      { initialEntries: ['/'] },
+    );
+    render(
+      <ThemeProvider theme={theme}>
+        <RouterProvider router={router} />
+      </ThemeProvider>,
+    );
+    await userEvent.click(screen.getByRole('link', { name: 'Go next' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
+    expect(dialog).toBeTruthy();
+    expect(trackShopFloor).toHaveBeenCalledWith('form_abandoned', { feature: 'form' });
   });
 });

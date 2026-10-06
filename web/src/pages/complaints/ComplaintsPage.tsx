@@ -6,6 +6,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   complaintDocument,
@@ -20,8 +21,12 @@ import {
   uploadComplaintAttachment,
 } from '@/api/growth';
 import { listSalesInvoicesPage, getSalesInvoice } from '@/api/resources';
+import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { isComplaintsEnabled } from '@/config/features';
+import { formatDuration } from '@/utils/duration';
+import { CreateDialog } from '@/components/CreateDialog';
+import { enumLabel } from '@/utils/enumLabels';
 import { t } from '@/i18n';
 import { AttachmentEditor, CustomerField, ProductField } from '@/pages/growth/widgets';
 import { PageShell } from '@/pages/phase/phaseShared';
@@ -49,6 +54,7 @@ function ComplaintsInner() {
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [category, setCategory] = useState('OTHER');
   const [description, setDescription] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -67,6 +73,7 @@ function ComplaintsInner() {
     onSuccess: () => {
       setDescription('');
       setError('');
+      setCreateOpen(false);
       void qc.invalidateQueries({ queryKey: ['complaints'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -74,30 +81,44 @@ function ComplaintsInner() {
 
   return (
     <Stack spacing={2}>
-      <PageTitle>{t('nav.complaints')}</PageTitle>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-        <CustomerField value={customer} onChange={setCustomer} />
-        <TextField select size="small" label={t('growth.category')} value={category} onChange={(e) => setCategory(e.target.value)} sx={{ minWidth: 160 }}>
-          {CATEGORIES.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
-        </TextField>
-        <TextField size="small" label={t('growth.description')} value={description} onChange={(e) => setDescription(e.target.value)} />
-        <Button variant="contained" disabled={!customer || !description.trim() || create.isPending} onClick={() => create.mutate()}>{t('growth.create')}</Button>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+        <PageTitle>{t('nav.complaints')}</PageTitle>
+        <Button variant="contained" onClick={() => setCreateOpen(true)}>{t('growth.newComplaint')}</Button>
       </Stack>
+      <CreateDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        title={t('growth.newComplaint')}
+        submitLabel={t('growth.logComplaint')}
+        submitDisabled={!customer || !description.trim() || create.isPending}
+        onSubmit={() => create.mutate()}
+      >
+        <CustomerField value={customer} onChange={setCustomer} />
+        <TextField select size="small" label={t('growth.category')} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {CATEGORIES.map((value) => <MenuItem key={value} value={value}>{enumLabel('complaintCategory', value)}</MenuItem>)}
+        </TextField>
+        <TextField size="small" multiline minRows={2} label={t('growth.description')} value={description} onChange={(e) => setDescription(e.target.value)} />
+      </CreateDialog>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
         <TextField select size="small" label={t('growth.status')} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} sx={{ minWidth: 160 }}>
           <MenuItem value="">{t('growth.all')}</MenuItem>
-          {Object.keys(NEXT).map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+          {Object.keys(NEXT).map((value) => <MenuItem key={value} value={value}>{enumLabel('complaintStatus', value)}</MenuItem>)}
         </TextField>
         <TextField select size="small" label={t('growth.category')} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} sx={{ minWidth: 160 }}>
           <MenuItem value="">{t('growth.all')}</MenuItem>
-          {CATEGORIES.map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+          {CATEGORIES.map((value) => <MenuItem key={value} value={value}>{enumLabel('complaintCategory', value)}</MenuItem>)}
         </TextField>
       </Stack>
+      {list.isLoading ? <LoadingState /> : null}
+      {list.isError ? <ErrorState message={getErrorMessage(list.error)} error={list.error} onRetry={() => void list.refetch()} /> : null}
+      {!list.isLoading && !list.isError && (list.data?.results ?? []).length === 0 ? (
+        <EmptyState description={t('cog.emptyComplaints')} action={<Button onClick={() => setCreateOpen(true)}>{t('cog.logComplaint')}</Button>} />
+      ) : null}
       {error ? <Typography color="error">{error}</Typography> : null}
       {(list.data?.results ?? []).map((row) => (
         <Paper key={row.id} variant="outlined" sx={{ p: 1.5 }}>
           <Stack direction="row" justifyContent="space-between">
-            <Typography>{row.number} · {row.category} · {row.status}</Typography>
+            <Typography>{row.number} · {enumLabel('complaintCategory', row.category)} · {enumLabel('complaintStatus', row.status)}</Typography>
             <Button size="small" onClick={() => setSelectedId(row.id)}>{t('growth.detail')}</Button>
           </Stack>
         </Paper>
@@ -108,9 +129,9 @@ function ComplaintsInner() {
         <Typography variant="body2">
           {t('growth.resolved')}: {report.data?.resolved ?? 0} · {t('growth.withDocument')}: {report.data?.resolvedWithDocument ?? 0} · {t('growth.withoutDocument')}: {report.data?.resolvedWithoutDocument ?? 0}
         </Typography>
-        <Typography variant="body2">{t('growth.average')}: {report.data?.averageResolutionSeconds ?? '—'}</Typography>
+        <Typography variant="body2">{t('growth.average')}: {formatDuration(report.data?.averageResolutionSeconds)}</Typography>
         {(report.data?.byCategory ?? []).map((row) => (
-          <Typography key={row.category} variant="caption" display="block">{row.category}: {row.count}</Typography>
+          <Typography key={row.category} variant="caption" display="block">{enumLabel('complaintCategory', row.category)}: {row.count}</Typography>
         ))}
       </Paper>
     </Stack>
@@ -119,6 +140,7 @@ function ComplaintsInner() {
 
 function ComplaintDetail({ id, onError }: { id: number; onError: (message: string) => void }) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [notes, setNotes] = useState<string | null>(null);
   const [invoiceId, setInvoiceId] = useState('');
   const [product, setProduct] = useState<Product | null>(null);
@@ -164,13 +186,13 @@ function ComplaintDetail({ id, onError }: { id: number; onError: (message: strin
   const noteValue = notes ?? row.inspectionNotes ?? '';
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
-      <Typography variant="subtitle2">{row.number} · {row.status}</Typography>
+      <Typography variant="subtitle2">{row.number} · {enumLabel('complaintStatus', row.status)}</Typography>
       <Typography variant="body2">{row.description}</Typography>
       <TextField size="small" fullWidth multiline minRows={2} sx={{ mt: 1 }} label={t('growth.inspectionNotes')} value={noteValue} onChange={(e) => setNotes(e.target.value)} />
       <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
         {(NEXT[row.status] ?? []).map((status) => (
           <Button key={status} size="small" variant="outlined" onClick={() => run.mutate(() => transitionComplaint(id, { status, inspection_notes: noteValue }))}>
-            {t('growth.moveTo')} {status}
+            {t('growth.moveTo')} {enumLabel('complaintStatus', status)}
           </Button>
         ))}
       </Stack>
@@ -204,9 +226,21 @@ function ComplaintDetail({ id, onError }: { id: number; onError: (message: strin
         <TextField size="small" label={t('growth.unitPrice')} value={price} onChange={(e) => setPrice(e.target.value)} />
       </Stack>
       <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
-        <Button size="small" disabled={!canDoc || !row.sourceInvoice || !line || !quantityValid} onClick={() => run.mutate(() => complaintDocument(id, 'create-return', returnItems))}>{t('growth.createReturn')}</Button>
-        <Button size="small" disabled={!canDoc || !row.sourceInvoice || !line || !quantityValid} onClick={() => run.mutate(() => complaintDocument(id, 'create-credit-note', creditItems))}>{t('growth.createCreditNote')}</Button>
-        <Button size="small" disabled={!canDoc || !product || !quantityValid} onClick={() => run.mutate(() => complaintDocument(id, 'create-replacement-order', orderItems))}>{t('growth.createReplacement')}</Button>
+        <Button size="small" disabled={!canDoc || !row.sourceInvoice || !line || !quantityValid} onClick={() => run.mutate(async () => {
+          const created = await complaintDocument(id, 'create-return', returnItems);
+          if (created.id) navigate('/sales/returns');
+        })}>{t('growth.createReturn')}</Button>
+        <Button size="small" disabled={!canDoc || !row.sourceInvoice || !line || !quantityValid} onClick={() => run.mutate(async () => {
+          const created = await complaintDocument(id, 'create-credit-note', creditItems);
+          if (created.id) navigate(`/sales/credit-notes/${created.id}`);
+        })}>{t('growth.createCreditNote')}</Button>
+        {row.sourceInvoice ? (
+          <Button size="small" component={RouterLink} to={`/sales/credit-notes/new?fromInvoice=${row.sourceInvoice}`}>{t('cog.issueCreditNote')}</Button>
+        ) : null}
+        <Button size="small" disabled={!canDoc || !product || !quantityValid} onClick={() => run.mutate(async () => {
+          const created = await complaintDocument(id, 'create-replacement-order', orderItems);
+          if (created.id) navigate(`/sales/orders/${created.id}`);
+        })}>{t('growth.createReplacement')}</Button>
       </Stack>
       <Typography variant="caption" display="block" sx={{ mt: 1 }}>
         {t('growth.documents')}: {row.salesReturn ?? '—'} / {row.salesCreditNote ?? '—'} / {row.replacementOrder ?? '—'}

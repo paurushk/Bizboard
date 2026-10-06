@@ -1,6 +1,6 @@
 import io
 
-from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
+from django.db.models import DecimalField, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
 from rest_framework.decorators import action
@@ -110,7 +110,12 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                 except ValueError:
                     raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
         if params.get("q"):
-            qs = qs.filter(number__icontains=params["q"])
+            term = params["q"]
+            qs = qs.filter(
+                Q(number__icontains=term)
+                | Q(supplier__name__icontains=term)
+                | Q(supplier__phone__icontains=term)
+            )
         return qs
 
     def get_serializer(self, *args, **kwargs):
@@ -221,6 +226,9 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             confirm_gstin_total = str(request.data.get("confirm_gstin_total_change") or "").lower() in (
                 "true", "1", "yes",
             )
+            confirm_three_way = str(request.data.get("confirm_three_way_override") or "").lower() in (
+                "true", "1", "yes",
+            )
             invoice, warnings = PurchaseService.complete(
                 self.get_object(),
                 request.user,
@@ -228,6 +236,11 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                 confirm_duplicate_bill=confirm_duplicate_bill,
                 confirm_blank_pos=confirm_blank_pos,
                 confirm_gstin_total_change=confirm_gstin_total,
+                confirm_three_way_override=confirm_three_way,
+                gstin_cancel_override=str(request.data.get("gstin_cancel_override") or "").lower() in (
+                    "true", "1", "yes",
+                ),
+                gstin_cancel_reason=str(request.data.get("gstin_cancel_reason") or ""),
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings

@@ -84,33 +84,34 @@ def test_aa_ingest_rejects_expired_consent(tenant_a):
 
 @override_settings(ENABLE_ACCOUNT_AGGREGATOR=True, FIU_BASE_URL="https://fiu.example", FIU_API_KEY="k")
 def test_aa_ingest_fetch_failure_does_not_roll_back_consent_upsert(tenant_a):
-    """B4-009: the FIU HTTP fetch must run outside any DB transaction — the
-    consent upsert (and any status-gate decision made from it) is committed
-    in its own short transaction *before* the fetch runs, so a slow/failing
-    FIU no longer holds a write transaction open across the network call,
-    and a fetch failure can't roll back work that already legitimately
-    committed."""
+    """B4-009 / BUG-PAY-009: a failing live fetch leaves the stored consent untouched, and a
+    live fetch never creates a consent of its own (only a manual ingest may)."""
     from unittest.mock import patch
 
     from banking.models import AaConsent
     from core.exceptions import BusinessRuleError
 
+    body = {
+        "consent_id": "consent-live-fail-001", "fi_type": "DEPOSIT",
+        "status": "ACTIVE", "use_live_fiu": True,
+    }
+    # no consent yet: refused, and nothing is created
+    refused = tenant_a.client.post("/api/v1/banking/aa/ingest/", body, format="json")
+    assert refused.status_code == 400, refused.data
+    assert not AaConsent.objects.filter(company=tenant_a.company, consent_id="consent-live-fail-001").exists()
+
+    AaConsent.objects.create(
+        company=tenant_a.company, consent_id="consent-live-fail-001", fi_type="DEPOSIT",
+        status=AaConsent.Status.ACTIVE,
+    )
     with patch(
+        "banking.fiu_adapter.company_fiu_api_key", return_value="company-token",
+    ), patch(
         "banking.views.fetch_live_transactions_for_consent",
         side_effect=BusinessRuleError("Live AA FIU fetch failed closed."),
     ):
-        resp = tenant_a.client.post(
-            "/api/v1/banking/aa/ingest/",
-            {
-                "consent_id": "consent-live-fail-001", "fi_type": "DEPOSIT",
-                "status": "ACTIVE", "use_live_fiu": True,
-            },
-            format="json",
-        )
+        resp = tenant_a.client.post("/api/v1/banking/aa/ingest/", body, format="json")
     assert resp.status_code == 400, resp.data
-    # The consent row itself was upserted and committed before the fetch ran
-    # -- under the old whole-view @transaction.atomic it would have been
-    # rolled back along with everything else when the fetch raised.
     assert AaConsent.objects.filter(
         company=tenant_a.company, consent_id="consent-live-fail-001", status=AaConsent.Status.ACTIVE,
     ).exists()

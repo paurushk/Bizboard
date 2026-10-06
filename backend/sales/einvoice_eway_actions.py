@@ -20,7 +20,12 @@ from .einvoice_payload import (
     build_einvoice_payload,
     build_einvoice_payload_from_note,
 )
-from .eway_payload import EwayValidationError, build_eway_payload_from_challan, build_eway_payload_from_invoice
+from .eway_payload import (
+    EwayValidationError,
+    build_eway_payload_from_challan,
+    build_eway_payload_from_invoice,
+    validate_eway_transport,
+)
 from .models import DeliveryChallan, SalesInvoice
 
 
@@ -215,6 +220,105 @@ def _assert_sandbox_gsp_allowed(company):
             "Sandbox GSP cannot be used for live GSTIN. "
             "Configure a production GSP provider before submitting."
         )
+
+
+def _is_live_adapter(adapter) -> bool:
+    from core.services.gsp_adapters import LiveEwayAdapter
+
+    return isinstance(adapter, LiveEwayAdapter) or bool(getattr(settings, "GSP_LIVE_ENABLED", False))
+
+
+def update_eway_vehicle(invoice, vehicle_no: str, reason_code: str, *, user=None):
+    """Part B vehicle update after the e-Way bill is already generated."""
+    if not getattr(invoice, "eway_bill_no", ""):
+        raise BusinessRuleError("No e-Way Bill to update.")
+    vehicle = (vehicle_no or "").replace(" ", "").upper()
+    reason = (reason_code or "").strip()
+    if not reason:
+        raise BusinessRuleError("reason_code is required to update Part B.")
+    errors = validate_eway_transport(
+        vehicle_number=vehicle,
+        distance_km=getattr(invoice, "transport_distance_km", None) or 1,
+        transporter_id="",
+    )
+    vehicle_errors = [err for err in errors if err.startswith("vehicleNo")]
+    if not vehicle or vehicle_errors:
+        raise BusinessRuleError(vehicle_errors[0] if vehicle_errors else "vehicle_no is required.")
+    adapter = get_eway_adapter(invoice.company)
+    payload = {
+        "eway_bill_no": invoice.eway_bill_no,
+        "vehicleNo": vehicle,
+        "reasonCode": reason,
+    }
+    if hasattr(adapter, "update_vehicle"):
+        result = adapter.update_vehicle(payload)
+    elif _is_live_adapter(adapter):
+        # Never record a Part B update as done when nothing was sent to the portal.
+        raise BusinessRuleError(
+            "Part B updates are not available through the live provider yet. Update it on the e-Way portal.",
+        )
+    else:
+        result = {"provider": "local", **payload}
+    invoice.vehicle_number = vehicle
+    invoice.save(update_fields=["vehicle_number", "updated_at"])
+    log_statutory_event(
+        company=invoice.company,
+        entity_type="salesinvoice",
+        entity_id=invoice.pk,
+        event_type=StatutoryDocumentEvent.EventType.EWAY,
+        payload={"action": "part_b_updated", **payload},
+        user=user,
+    )
+    return result
+
+
+def extend_eway_validity(invoice, reason_code: str, remaining_distance, *, user=None):
+    """Extend an e-Way bill that is still inside its validity window."""
+    if not getattr(invoice, "eway_bill_no", ""):
+        raise BusinessRuleError("No e-Way Bill to extend.")
+    reason = (reason_code or "").strip()
+    if not reason:
+        raise BusinessRuleError("reason_code is required to extend e-Way validity.")
+    try:
+        distance = int(remaining_distance)
+    except (TypeError, ValueError):
+        raise BusinessRuleError("remaining_distance must be a whole number of kilometres.")
+    if distance < 1 or distance > 4000:
+        raise BusinessRuleError("remaining_distance must be between 1 and 4000 km.")
+    adapter = get_eway_adapter(invoice.company)
+    payload = {
+        "eway_bill_no": invoice.eway_bill_no,
+        "reasonCode": reason,
+        "remainingDistance": distance,
+    }
+    if str(getattr(invoice, "eway_status", "")) == "CANCELLED":
+        raise BusinessRuleError("A cancelled e-Way Bill cannot be extended.")
+    if hasattr(adapter, "extend_validity"):
+        result = adapter.extend_validity(payload)
+    elif _is_live_adapter(adapter):
+        raise BusinessRuleError(
+            "Validity extension is not available through the live provider yet. Extend it on the e-Way portal.",
+        )
+    else:
+        result = {"provider": "local", **payload}
+    base = invoice.eway_valid_upto or timezone.now()
+    if timezone.is_naive(base):
+        base = timezone.make_aware(base, timezone.get_current_timezone())
+    from planwave.services import eway_validity_days
+
+    # Validity follows the remaining distance, not a flat day.
+    invoice.eway_valid_upto = base + timedelta(days=eway_validity_days(distance))
+    invoice.transport_distance_km = distance
+    invoice.save(update_fields=["eway_valid_upto", "transport_distance_km", "updated_at"])
+    log_statutory_event(
+        company=invoice.company,
+        entity_type="salesinvoice",
+        entity_id=invoice.pk,
+        event_type=StatutoryDocumentEvent.EventType.EWAY,
+        payload={"action": "validity_extended", "valid_upto": invoice.eway_valid_upto.isoformat(), **payload},
+        user=user,
+    )
+    return result
 
 
 class InvoiceEinvoiceEwayActionsMixin:
@@ -530,6 +634,32 @@ class InvoiceEinvoiceEwayActionsMixin:
                 "cnl_rsn": cnl_rsn,
                 "cnl_rem": cnl_rem,
             },
+            user=request.user,
+        )
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=["post"], url_path="update-eway-vehicle")
+    def update_eway_vehicle_action(self, request, pk=None):
+        _require_owner(request)
+        invoice = self.get_object()
+        _require_eway_enabled(invoice.company)
+        update_eway_vehicle(
+            invoice,
+            request.data.get("vehicle_no") or request.data.get("vehicle_number") or "",
+            request.data.get("reason_code") or "",
+            user=request.user,
+        )
+        return Response(self.get_serializer(invoice).data)
+
+    @action(detail=True, methods=["post"], url_path="extend-eway-validity")
+    def extend_eway_validity_action(self, request, pk=None):
+        _require_owner(request)
+        invoice = self.get_object()
+        _require_eway_enabled(invoice.company)
+        extend_eway_validity(
+            invoice,
+            request.data.get("reason_code") or "",
+            request.data.get("remaining_distance"),
             user=request.user,
         )
         return Response(self.get_serializer(invoice).data)

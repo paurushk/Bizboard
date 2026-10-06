@@ -1,0 +1,29 @@
+id: "QOS-0104"
+category: "SECURITY_PRIVACY"
+title: "Tenant isolation was proven by source-text heuristics, not behaviour"
+persona:
+- "P1"
+journey: "Any user calls any API route with another company's object id"
+problem: "tests/tenancy/test_endpoint_isolation.py judged scoping by searching class source for the word company and exempted any route whose name contains plan, help, public, auth, otp or token. Only customers, suppliers, products and four modules had a live cross-tenant probe."
+evidence:
+  strength: "measured"
+  source:
+  - "backend/tests/tenancy/test_route_isolation_matrix.py"
+  detail: "2026-10-02: 255 detail routes probed as tenant A with tenant B's real object ids across all methods, 90 live-controlled by a tenant-B 200, 112 list routes checked, 0 leaks, 0 crashes. Self-test: with the tenant filter removed from CompanyScopedViewSet the same matrix reports 230 leaks."
+scoring:
+  reach: 5
+  severity: 5
+  frequency: 1
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P0"
+priority_rationale: "Severity 5 if it fails (cross-tenant data exposure). Measured: it currently holds."
+effort: "M"
+recommendation: "Keep the matrix as a CI gate with its two ratchets (MIN_PROBED_ROUTES, and tests/tenancy/_route_matrix_unprobed.txt which may only shrink). Public token routes are outside the matrix by design and listed with reasons. RLS stays off (QOS-0070); this is app-layer proof only."
+test_required: "backend/tests/tenancy/test_route_isolation_matrix.py"
+guard_ref:
+  test: "backend/tests/tenancy/test_route_isolation_matrix.py"
+lifecycle: "verified"
+owner: "backend"
+opened: "2026-10-02"
+closed: "2026-10-02"

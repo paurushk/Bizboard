@@ -1,0 +1,292 @@
+[
+ {
+  "Task ID": "R-0646",
+  "Module": "core",
+  "Task / Business Action": "Automated health-check probes for Kubernetes / Docker container self-healing",
+  "Business Outcome": "Automatically restart crashed worker processes or web servers within 10 seconds of failure",
+  "Downstream Impact": "Exposes /health/liveness/ and /health/readiness/ endpoints validating database and Redis connectivity",
+  "Notes": "Standard health probe endpoints integrated with Docker Compose / Kubernetes restart policies.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0570",
+  "Module": "core",
+  "Task / Business Action": "Automated continuous WAL archiving and daily encrypted PostgreSQL pg_dump snapshot",
+  "Business Outcome": "Zero-data-loss point-in-time recovery (PITR) capability in case of physical cloud hardware catastrophe",
+  "Downstream Impact": "Uploads encrypted pg_dump and Write-Ahead Logs (WAL) to air-gapped S3 bucket with 30-day retention",
+  "Notes": "Automated backup script with AES-256 encryption and automated test-restore health check.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "GOS-0721",
+  "Module": "crm",
+  "Task / Business Action": "Inbound Lead Exact-Match Deduplication & Conflict Prevention",
+  "Business Outcome": "Enforces strict deduplication on incoming leads using normalized E.164 phone numbers and lowercase email addresses against existing CRM leads and active Customer masters.",
+  "Downstream Impact": "Prevents multi-rep outreach collisions; appends new inquiry details and campaign tags to existing lead activity timeline rather than creating duplicate customer profiles.",
+  "Notes": "Enforces database uniqueness constraints and deduplication matching rules across backend/crm/ models.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0022",
+  "Module": "inventory",
+  "Task / Business Action": "Track stock quantity",
+  "Business Outcome": "Real-time accurate stock counts to prevent over-selling and identify inventory leakage",
+  "Downstream Impact": "Maintains append-only StockMovement ledger; dynamically derives StockBalance per warehouse",
+  "Notes": "Core system invariant: negative stock strictly blocked unless explicitly permitted by tenant policy.",
+  "Code pointer": "backend/inventory/models.py:StockMovement; backend/inventory/models.py:StockBalance",
+  "Test reference": "backend/tests/test_a10_period_centralization.py; backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_a6_manual_serial_return.py"
+ },
+ {
+  "Task ID": "P-0039",
+  "Module": "inventory",
+  "Task / Business Action": "Track batch-wise inventory",
+  "Business Outcome": "Maintain complete stock balances segregated by individual manufacturer batch lots",
+  "Downstream Impact": "Maintains BatchLot records linked to Product; tracks quantity, inward date, and cost per batch",
+  "Notes": "Supported via BatchLot and StockBalance models with batch-level audit history.",
+  "Code pointer": "backend/inventory/models.py:BatchLot; backend/inventory/models.py:StockBalance",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_c02_lot_identity.py; backend/tests/test_cft_cross_flow.py"
+ },
+ {
+  "Task ID": "P-0040",
+  "Module": "inventory",
+  "Task / Business Action": "Track expiry dates",
+  "Business Outcome": "Active monitoring of shelf-life across all pharmaceutical batches",
+  "Downstream Impact": "Categorizes stock into Expiry Bands (>180 days, 90-180 days, <90 days, Expired)",
+  "Notes": "Supported via /inventory/expiry-alerts/ with color-coded expiry countdowns.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0041",
+  "Module": "inventory",
+  "Task / Business Action": "Flag/prevent expired-stock sales",
+  "Business Outcome": "Strict system block preventing billing of medicines past their statutory expiration date",
+  "Downstream Impact": "Validates item expiry against transaction date; hard-blocks invoice completion if expired",
+  "Notes": "Core system invariant: billing expired BatchLot raises ValidationError and disables checkout.",
+  "Code pointer": "backend/inventory/models.py:BatchLot",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_c02_lot_identity.py; backend/tests/test_cft_cross_flow.py"
+ },
+ {
+  "Task ID": "P-0079",
+  "Module": "inventory",
+  "Task / Business Action": "View consolidated inventory",
+  "Business Outcome": "Single unified dashboard showing total stock holding across all godowns and regional hubs",
+  "Downstream Impact": "Aggregates StockBalance across all Warehouse entities for the tenant company",
+  "Notes": "Supported via /inventory/ with 'All Godowns' view and location filter dropdown.",
+  "Code pointer": "backend/inventory/models.py:StockBalance",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_a4_a5_reporting.py; backend/tests/test_a6_manual_serial_return.py"
+ },
+ {
+  "Task ID": "P-0081",
+  "Module": "inventory",
+  "Task / Business Action": "Transfer stock between godowns",
+  "Business Outcome": "Execute formalized transfer of goods from central replenishment hub to regional depot",
+  "Downstream Impact": "Creates StockTransfer record; records dispatch, transit insurance, and receipt confirmation",
+  "Notes": "Supported via /inventory/transfers/ with full multi-stage state machine.",
+  "Code pointer": "backend/inventory/models.py:StockTransfer",
+  "Test reference": "backend/tests/test_a10_period_centralization.py; backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_phase4_inventory.py"
+ },
+ {
+  "Task ID": "P-0089",
+  "Module": "inventory",
+  "Task / Business Action": "View all shops from one dashboard",
+  "Business Outcome": "Executive real-time visibility into consolidated revenue, cash collections, and stock across all outlets",
+  "Downstream Impact": "Consolidates live data across all retail branch locations on a single unified screen",
+  "Notes": "Supported via Multi-Store Executive Dashboard with outlet switching and consolidated totals.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0133",
+  "Module": "inventory",
+  "Task / Business Action": "Check product availability",
+  "Business Outcome": "Check real-time warehouse available-to-promise (ATP) stock before confirming delivery dates",
+  "Downstream Impact": "Queries central stock balance deducting currently reserved customer orders",
+  "Notes": "Supported on mobile sales screen with instant SKU stock check.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0149",
+  "Module": "inventory",
+  "Task / Business Action": "View current inventory",
+  "Business Outcome": "Comprehensive view of current on-hand, committed, and available stock across all product lines",
+  "Downstream Impact": "Displays real-time stock balances, warehouse distribution, reorder levels, and valuation",
+  "Notes": "Supported via /inventory/ with multi-warehouse filters and instant SKU search.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0152",
+  "Module": "inventory",
+  "Task / Business Action": "Adjust stock with authorization",
+  "Business Outcome": "Make formal manual stock adjustments for shrinkage, breakage, or opening stock corrections",
+  "Downstream Impact": "Requires manager authorization; writes StockMovement (COUNT_ADJUSTMENT) with mandatory reason",
+  "Notes": "Supported via /inventory/adjustments/ with dual-approval requirement.",
+  "Code pointer": "backend/inventory/models.py:StockMovement",
+  "Test reference": "backend/tests/test_a10_period_centralization.py; backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_a6_manual_serial_return.py"
+ },
+ {
+  "Task ID": "P-0158",
+  "Module": "inventory",
+  "Task / Business Action": "Track expiry",
+  "Business Outcome": "Enforce First-Expiry-First-Out (FEFO) rules and track impending shelf-life expirations",
+  "Downstream Impact": "Sorts available batches by expiry date; restricts allocation of expiring lots",
+  "Notes": "Core system invariant: FEFO auto-selection in warehouse picking and billing.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0180",
+  "Module": "inventory",
+  "Task / Business Action": "Configure branches/godowns",
+  "Business Outcome": "Register company warehouse locations, storage godowns, and retail branch stores",
+  "Downstream Impact": "Creates Warehouse records; assigns default dispatch godowns and user location mappings",
+  "Notes": "Supported via /settings/warehouses/ with location address and contact details.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0568",
+  "Module": "inventory",
+  "Task / Business Action": "Database foreign key cascade deletion defense and soft-delete enforcement",
+  "Business Outcome": "Prevent accidental cascading deletion of critical historical invoices when master entity is removed",
+  "Downstream Impact": "Enforces on_delete=models.PROTECT on all transaction foreign keys; routes deletions to is_deleted=True",
+  "Notes": "Core architectural invariant: models.PROTECT enforced across all financial and inventory FKs.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0575",
+  "Module": "inventory",
+  "Task / Business Action": "Pessimistic database locking on concurrent warehouse stock deduction",
+  "Business Outcome": "Prevent negative inventory race condition when two cashiers bill the last remaining unit simultaneously",
+  "Downstream Impact": "Executes SELECT FOR UPDATE on StockBalance row; serializes deduction; rejects second bill cleanly",
+  "Notes": "Core concurrency invariant: atomic row-level lock on StockBalance during checkout.",
+  "Code pointer": "backend/inventory/models.py:StockBalance",
+  "Test reference": "backend/tests/test_a11_a12_stock_cost.py; backend/tests/test_a4_a5_reporting.py; backend/tests/test_a6_manual_serial_return.py"
+ },
+ {
+  "Task ID": "X-0246",
+  "Module": "inventory",
+  "Task / Business Action": "Expired stock → sale is prevented/flagged",
+  "Business Outcome": "System hard-blocks checkout if any item in cart is past its statutory expiry date",
+  "Downstream Impact": "Validates batch_lot.expiry_date against current date; raises blocking validation error",
+  "Notes": "Core system invariant: billing expired stock is strictly blocked at API and UI layers.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0706",
+  "Module": "inventory",
+  "Task / Business Action": "Inter-godown transfer vehicle breakdown: goods transshipped to new tempo with E-Way Bill Part B update",
+  "Business Outcome": "Delivery tempo carrying ₹10L goods breaks down on highway; goods moved to backup tempo; Part B updated",
+  "Downstream Impact": "Updates active E-Way Bill vehicle number; preserves transit insurance coverage; prevents police impoundment",
+  "Notes": "E-Way Bill Part B vehicle update workflow recording transshipment reason and new vehicle RC.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0710",
+  "Module": "inventory",
+  "Task / Business Action": "Batch stock expired overnight: system automatically removes expired batch from active billing terminals",
+  "Business Outcome": "Batch reaches 1st of month expiration; morning billing terminals instantly hide batch from checkout selection",
+  "Downstream Impact": "Prevents cashier accidentally selling expired medicine/food; creates quarantine movement to Expired Bin",
+  "Notes": "Midnight cron worker scanning batch_lot.expiry_date < today; sets is_active=False on expired lots.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0057",
+  "Module": "ledgers",
+  "Task / Business Action": "Track customer outstanding",
+  "Business Outcome": "Monitor wholesale receivables with aging analysis (0-30, 31-60, 61-90, 90+ days)",
+  "Downstream Impact": "Computes real-time AR aging per dealer; flags overdue accounts for payment collection",
+  "Notes": "Supported via /sales/reports/receivables-aging/ with drill-down to unpaid invoices.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0058",
+  "Module": "ledgers",
+  "Task / Business Action": "Manage credit limits",
+  "Business Outcome": "Enforce maximum allowed credit exposure and payment grace periods per retailer",
+  "Downstream Impact": "Validates total unpaid balance + new order value against customer.credit_limit; blocks if breached",
+  "Notes": "Hard validation check in SalesService.create; blocks invoice completion without Owner override.",
+  "Code pointer": "backend/sales/services.py:SalesService",
+  "Test reference": "backend/tests/test_a10_period_centralization.py; backend/tests/test_a13_a14_reporting_sales.py; backend/tests/test_chaos_resilience.py"
+ },
+ {
+  "Task ID": "P-0118",
+  "Module": "ledgers",
+  "Task / Business Action": "Identify outstanding receivables",
+  "Business Outcome": "Identify top debtors and total market credit outstanding to drive debt collection",
+  "Downstream Impact": "Ranks customers by total outstanding balance and oldest overdue days; enables instant chasing",
+  "Notes": "Supported via Debtor Summary card with one-click WhatsApp payment reminder dispatch.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0119",
+  "Module": "ledgers",
+  "Task / Business Action": "Identify overdue payments",
+  "Business Outcome": "Pinpoint critically overdue bills crossing credit grace periods (30+ days)",
+  "Downstream Impact": "Filters receivables aging > 30 days; calculates interest exposure and bad debt risk",
+  "Notes": "Supported via Overdue Invoices screen with priority chasing flags.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0315",
+  "Module": "ledgers",
+  "Task / Business Action": "Customer crosses credit limit → alert generated",
+  "Business Outcome": "Immediate warning generated when customer outstanding balance breaches approved credit limit",
+  "Downstream Impact": "Generates high-priority credit limit warning; flags new orders for owner approval",
+  "Notes": "Core business invariant: credit limit breach blocks checkout unless overridden by Owner.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0527",
+  "Module": "ledgers",
+  "Task / Business Action": "Automatic debtor account freeze and delivery block on chronic overdue accounts",
+  "Business Outcome": "Hard system block preventing sales or dispatches to customers with invoices overdue > 60 days",
+  "Downstream Impact": "Locks customer account; disables billing button; requires Business Owner unlock PIN",
+  "Notes": "Core credit invariant: chronic overdue lock strictly blocks invoice and dispatch completion.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "D-0693",
+  "Module": "masters",
+  "Task / Business Action": "One-click complete Tally historical backup migration wizard",
+  "Business Outcome": "Upload Tally XML backup; system automatically migrates all ledger masters, opening balances, and 3-year history",
+  "Downstream Impact": "Eliminates manual re-entry barrier; customer can switch from Tally to BizBoard in under 15 minutes",
+  "Notes": "Differentiator vs new software: automated Tally XML parser importing 100% of historical chart of accounts.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0176",
+  "Module": "masters",
+  "Task / Business Action": "Create and manage business users",
+  "Business Outcome": "Onboard employees, assign login credentials, and manage active/deactivated user status",
+  "Downstream Impact": "Creates User and CompanyUser records; controls login authentication and session access",
+  "Notes": "Supported via /settings/users/ with role assignment and invitation management.",
+  "Code pointer": "backend/accounts/models.py:CompanyUser",
+  "Test reference": "backend/tests/conftest.py; backend/tests/test_a03_preview.py; backend/tests/test_attention_outcomes.py"
+ },
+ {
+  "Task ID": "P-0177",
+  "Module": "masters",
+  "Task / Business Action": "Configure roles and permissions",
+  "Business Outcome": "Define granular access control rules (RBAC) across sales, purchases, inventory, and accounting",
+  "Downstream Impact": "Enforces permission checks across UI routes and REST API endpoints",
+  "Notes": "Supported via Role Permission Matrix (Owner, Manager, Sales Staff, Inventory Staff, Accountant).",
+  "Code pointer": "",
+  "Test reference": ""
+ }
+]

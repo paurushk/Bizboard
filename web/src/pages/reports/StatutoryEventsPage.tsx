@@ -92,7 +92,7 @@ export function StatutoryEventsPage() {
       ) : null}
       {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={48}>
             {({ rows: virtualRows, totalSize, measureElement }) => (
               <Table size="small">

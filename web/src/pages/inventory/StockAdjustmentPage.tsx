@@ -379,7 +379,7 @@ export function StockAdjustmentPage() {
               control={control}
               rules={{ required: true }}
               render={({ field }) => (
-                <TextField required label="Specify Custom Reason" {...field} />
+                <TextField required label={t('sweep.customReason')} {...field} />
               )}
             />
           ) : null}

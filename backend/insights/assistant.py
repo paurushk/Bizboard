@@ -468,14 +468,42 @@ def _pick_tools(message: str) -> list[str]:
     return picked[:4]
 
 
+_CUSTOMER_NAME_STOP = re.compile(
+    r"\s+(?:for|on|regarding|invoice|amount|about)\b",
+    re.I,
+)
+
+
+def _extract_customer_name(company, content: str) -> str | None:
+    """Stop a customer name at the next preposition, then keep it only if that party exists.
+
+    BUG-UI-009: "for Rahul for invoice 101" must not become the whole tail, and
+    "for March" must not be treated as a customer unless a customer is named March.
+    """
+    match = re.search(
+        r"(?:to|for)\s+([A-Za-z][A-Za-z0-9 .&'-]{0,60})",
+        content or "",
+        re.I,
+    )
+    if not match:
+        return None
+    candidate = _CUSTOMER_NAME_STOP.split(match.group(1), maxsplit=1)[0].strip(" .")
+    if not candidate:
+        return None
+    from masters.models import Customer
+
+    if Customer.objects.filter(company=company, name__iexact=candidate).exists():
+        return candidate
+    return None
+
+
 def _run_rules_fallback(company, content: str) -> tuple[str, list, dict | None, str]:
     executor = ToolExecutor(company)
     tools = _pick_tools(content)
     chunks = []
     citations = []
     proposed = None
-    name_match = re.search(r"(?:to|for)\s+([A-Za-z][A-Za-z0-9 .&'-]{1,60})", content or "", re.I)
-    customer_name = name_match.group(1).strip() if name_match else None
+    customer_name = _extract_customer_name(company, content)
     for tool in tools:
         args: dict[str, Any] = {}
         if tool in ("get_customer_outstanding", "draft_payment_reminder") and customer_name:
@@ -789,6 +817,7 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
     from core.models import Notification
     from core.services.notifications import NotificationService
     from masters.models import Customer
+    from sales.whatsapp_send import cloud_allowed_for_recipient
 
     customer_id = proposed_action.get("customer_id")
     cust = None
@@ -825,7 +854,7 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
             subject="payment_reminder",
             body=text,
             user=user,
-            allow_cloud=bool(cust and cust.whatsapp_opt_in),
+            allow_cloud=cloud_allowed_for_recipient(cust, phone),
         )
         msg.proposed_action = None
         msg.save(update_fields=["proposed_action"])

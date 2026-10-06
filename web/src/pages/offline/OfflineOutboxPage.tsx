@@ -72,7 +72,14 @@ export function OfflineOutboxPage() {
   }, [companyId, userId]);
 
   useEffect(() => {
-    void reload().catch(() => setDrafts([]));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      void reload().catch(() => setDrafts([]));
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [reload]);
 
   const syncNow = async () => {
@@ -172,7 +179,7 @@ export function OfflineOutboxPage() {
       {drafts.length === 0 ? (
         <EmptyState description={t('offlineOutbox.empty')} />
       ) : (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>

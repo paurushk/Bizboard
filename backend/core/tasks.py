@@ -136,15 +136,50 @@ def prune_idempotency_records_task(days=30):
             .exclude(status_code=IN_FLIGHT_STATUS)
             .delete()
         )
-        inflight_deleted, _ = IdempotencyRecord.objects.filter(
-            status_code=IN_FLIGHT_STATUS, created_at__lt=stale_inflight_cutoff
-        ).delete()
+        from core.idempotency import _is_money_idempotency_scope
+
+        stale = IdempotencyRecord.objects.filter(status_code=IN_FLIGHT_STATUS, created_at__lt=stale_inflight_cutoff)
+        # A money key left in flight may belong to a request whose money already posted (the worker
+        # died before the answer was stored). Deleting it would let a late retry post that money a
+        # second time, so it is reported for a person to look at instead.
+        money_ids = [r.pk for r in stale.only("pk", "scope") if _is_money_idempotency_scope(r.scope)]
+        if money_ids:
+            logger.error(
+                "prune_idempotency_records_task: %s stale in-flight MONEY key(s) kept for review: %s",
+                len(money_ids), money_ids[:20],
+            )
+        inflight_deleted, _ = stale.exclude(pk__in=money_ids).delete()
     logger.info(
         "prune_idempotency_records_task: %s completed + %s stale in-flight rows removed",
         done_deleted,
         inflight_deleted,
     )
     return done_deleted + inflight_deleted
+
+
+def _notify_invariant_failure(company, keys) -> None:
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    owners = CompanyUser.objects.filter(
+        company=company,
+        is_active=True,
+        role__in=(CompanyUser.Role.OWNER, CompanyUser.Role.ACCOUNTANT),
+    ).select_related("user")
+    body = "Books check failed: " + ", ".join(keys)
+    for membership in owners:
+        try:
+            NotificationService.send(
+                company=company,
+                channel=Notification.Channel.IN_APP,
+                recipient=membership.user.email or str(membership.user_id),
+                subject="Books check failed",
+                body=body,
+                user=membership.user,
+            )
+        except Exception:
+            logger.exception("invariant notify failed company=%s", company.pk)
 
 
 @shared_task
@@ -172,4 +207,110 @@ def nightly_invariants_task():
                 pk,
                 sorted(failures.keys()),
             )
-    return {"checked": checked, "failed": failed}
+            from planwave.services import open_quarantine
+
+            # One company's write failure must not stop the sweep, and the insert needs the
+            # RLS bypass (the policy would otherwise reject it with no tenant set).
+            try:
+                with rls_bypass():
+                    open_quarantine(company, failures)
+                    _notify_invariant_failure(company, sorted(failures.keys()))
+            except Exception:  # noqa: BLE001 - keep checking the other companies
+                logger.exception("nightly_invariants could not quarantine company=%s", pk)
+            ops = getattr(settings, "OPS_ALERT_EMAIL", "") or ""
+            if ops:
+                logger.error("books quarantine ops_mailbox=%s company=%s", ops, pk)
+    from integrations.shopify import notify_shopify_gaps
+
+    with rls_bypass():
+        notify_shopify_gaps()
+    from django.db import connection
+
+    rls_on = bool(getattr(settings, "POSTGRES_RLS_ENABLED", False))
+    if connection.vendor == "postgresql" and not rls_on and getattr(settings, "DJANGO_ENV", "") == "production":
+        logger.error(
+            "Postgres RLS is off in production. Tenant isolation is application company_id only."
+        )
+    return {"checked": checked, "failed": failed, "rls_enabled": rls_on}
+
+
+SEAL_HEARTBEAT_KEY = "audit_seal_last_ok"
+# A night is missed when the previous success is older than this.
+SEAL_GAP = 26 * 60 * 60
+
+
+def seal_gap_seconds(last_ok, now) -> float | None:
+    """Seconds since the last successful seal, or None when there is no prior run."""
+    if last_ok is None:
+        return None
+    return (now - last_ok).total_seconds()
+
+
+def alert_missed_seal(*, company, hours_late: float) -> None:
+    """Log and notify the Owner. Same in-app channel as a failed books check."""
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    logger.error("audit seal missed company=%s hours_late=%.1f", getattr(company, "pk", None), hours_late)
+    owners = CompanyUser.objects.filter(
+        company=company, is_active=True, role=CompanyUser.Role.OWNER,
+    ).select_related("user")
+    body = "The nightly audit seal did not run."
+    for membership in owners:
+        try:
+            NotificationService.send(
+                company=company,
+                channel=Notification.Channel.IN_APP,
+                recipient=membership.user.email or str(membership.user_id),
+                subject="Audit seal missed",
+                body=body,
+                user=membership.user,
+            )
+        except Exception:
+            logger.exception("seal miss notify failed company=%s", getattr(company, "pk", None))
+
+
+@shared_task
+def seal_audit_chain_task():
+    """F-SEC-03 — seal new audit events into the hash chain, then verify it.
+
+    A verify failure is logged at ERROR (Sentry picks it up) and returned; it is not
+    retried, because tampering does not heal on retry. A gap longer than 26 hours
+    since the previous success alerts each company owner.
+    """
+    from django.core.cache import cache
+    from django.utils import timezone
+
+    from accounts.models import Company
+
+    now = timezone.now()
+    last_ok = cache.get(SEAL_HEARTBEAT_KEY)
+    gap = seal_gap_seconds(last_ok, now)
+    if gap is not None and gap > SEAL_GAP:
+        hours = gap / 3600
+        from core.rls import rls_bypass as _bypass
+
+        # Notification rows are row-level secured: with no tenant set the insert is refused and
+        # the alert would be swallowed by the per-owner except below.
+        with _bypass():
+            for company in Company.objects.all().iterator():
+                alert_missed_seal(company=company, hours_late=hours)
+    from core.models import AuditEvent
+    from core.rls import rls_bypass
+    from core.services import audit_chain
+
+    sealed = 0
+    with rls_bypass():
+        ids = set(
+            AuditEvent.objects.filter(sealed_at__isnull=True).values_list("company_id", flat=True).distinct()
+        )
+        for cid in sorted(ids, key=lambda x: (x is None, x or 0)):
+            sealed += audit_chain.seal(cid)
+        result = audit_chain.verify(all_companies=True)
+    if not result.ok:
+        logger.error("audit_chain_verify FAILED problems=%s sample=%s", len(result.problems), result.problems[:5])
+    else:
+        cache.set(SEAL_HEARTBEAT_KEY, now, timeout=14 * 24 * 60 * 60)
+    return {"sealed": sealed, "checked": result.checked, "problems": len(result.problems)}
+

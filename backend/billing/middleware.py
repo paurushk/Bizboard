@@ -26,9 +26,11 @@ class SubscriptionWriteGateMiddleware:
         if request.method in SAFE_METHODS:
             return self.get_response(request)
         path = getattr(request, "path", "") or ""
-        if any(path.startswith(prefix) for prefix in ALLOW_PREFIXES):
+        # BUG-SEC-009: CommonMiddleware has not appended the slash yet.
+        normalized = path if path.endswith("/") else f"{path}/"
+        if any(path.startswith(prefix) or normalized.startswith(prefix) for prefix in ALLOW_PREFIXES):
             return self.get_response(request)
-        if path.startswith("/api/v1/") and path.endswith(ALLOW_SUFFIXES):
+        if normalized.startswith("/api/v1/") and normalized.endswith(ALLOW_SUFFIXES):
             return self.get_response(request)
         user = getattr(request, "user", None)
         if user is None or not getattr(user, "is_authenticated", False):

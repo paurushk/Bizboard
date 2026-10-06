@@ -28,6 +28,7 @@ _VIEWER_FORBIDDEN_CAPS = (
     "can_create_purchases",
     "can_create_payments",
     "can_post_journals",
+    "can_view_financial_reports",
 )
 
 # ACCOUNTANT may hold purchases/payments/export/reports; not sales/inventory/etc.
@@ -149,6 +150,7 @@ class RegisterSerializer(serializers.Serializer):
 
 class CompanySerializer(serializers.ModelSerializer):
     is_gst_registered = serializers.BooleanField(read_only=True)
+    series_gstin = serializers.SerializerMethodField()
     gsp_credentials_configured = serializers.SerializerMethodField()
     onboarding = serializers.SerializerMethodField()
     dismiss_onboarding = serializers.BooleanField(write_only=True, required=False, default=False)
@@ -158,7 +160,7 @@ class CompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
-            "id", "name", "legal_name", "gstin", "registration_type", "state",
+            "id", "name", "legal_name", "gstin", "series_gstin", "registration_type", "state",
             "address", "city", "pincode", "phone", "email", "upi_id",
             "bank_name", "bank_account", "bank_ifsc", "logo", "signature",
             "fy_start_month", "negative_stock_policy", "invoice_terms",
@@ -211,6 +213,11 @@ class CompanySerializer(serializers.ModelSerializer):
             "onboarding",
         ]
 
+    def get_series_gstin(self, obj) -> str:
+        from core.services.document_numbers import resolve_series_gstin
+
+        return resolve_series_gstin(obj) or ""
+
     def get_gsp_credentials_configured(self, obj) -> bool:
         from core.services.gsp_secrets import gsp_credentials_configured
 
@@ -226,6 +233,10 @@ class CompanySerializer(serializers.ModelSerializer):
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
         data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
         data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))
+        if data.get("bank_account"):
+            from planwave.crypto import reveal_bank_account
+
+            data["bank_account"] = reveal_bank_account(data["bank_account"])
         return data
 
     def _check_file_asset_company(self, asset):
@@ -344,6 +355,14 @@ class CompanySerializer(serializers.ModelSerializer):
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"gstin": list(exc.messages)}) from exc
 
+        if "pincode" in attrs:
+            from core.validators import assign_pincode
+
+            try:
+                assign_pincode(attrs, instance)
+            except DjangoValidationError as exc:
+                raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
+
         return attrs
 
     def validate_inventory_valuation_method(self, value):
@@ -404,11 +423,12 @@ class CompanySerializerStaff(serializers.ModelSerializer):
     """Non-owner read view of Company — omits bank/UPI details (BUG-111)."""
 
     is_gst_registered = serializers.BooleanField(read_only=True)
+    series_gstin = serializers.SerializerMethodField()
 
     class Meta:
         model = Company
         fields = [
-            "id", "name", "legal_name", "gstin", "registration_type", "state",
+            "id", "name", "legal_name", "gstin", "series_gstin", "registration_type", "state",
             "address", "city", "pincode", "phone", "email", "logo", "signature",
             "fy_start_month", "negative_stock_policy", "invoice_terms",
             "assume_local_state_for_blank_party", "is_gst_registered",
@@ -425,11 +445,33 @@ class CompanySerializerStaff(serializers.ModelSerializer):
             "item_custom_field_defs",
         ]
 
+    def get_series_gstin(self, obj) -> str:
+        from core.services.document_numbers import resolve_series_gstin
+
+        return resolve_series_gstin(obj) or ""
+
+    def validate(self, attrs):
+        if "pincode" not in attrs:
+            return attrs
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import assign_pincode
+
+        try:
+            assign_pincode(attrs, self.instance)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
+        return attrs
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
         data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
         data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))
+        if data.get("bank_account"):
+            from planwave.crypto import reveal_bank_account
+
+            data["bank_account"] = reveal_bank_account(data["bank_account"])
         return data
 
 
@@ -605,6 +647,19 @@ class CompanyGstinSerializer(serializers.ModelSerializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(list(exc.messages)) from exc
         return gstin
+
+    def validate(self, attrs):
+        if "pincode" not in attrs:
+            return attrs
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import assign_pincode
+
+        try:
+            assign_pincode(attrs, self.instance)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
+        return attrs
 
     def create(self, validated_data):
         from django.db import transaction

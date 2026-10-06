@@ -27,7 +27,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { StateSelect } from '@/components/StateSelect';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import type { NegativeStockPolicy, RegistrationType } from '@/types/domain';
 import { isValidGstin } from '@/utils/gst';
 import { canManageGst } from '@/utils/permissions';
@@ -54,6 +54,7 @@ interface GstForm {
 }
 
 export function GstSettingsPage() {
+  useLocale();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   // F3-014: no refetch-and-reset on window focus — it wipes unsaved edits.
@@ -159,6 +160,8 @@ export function GstSettingsPage() {
   // F3-073: dismissable "saved" banner; reappears on the next save because
   // mutation.submittedAt advances with every mutate() call.
   const [savedAck, setSavedAck] = useState(0);
+  const [gstConfirmed, setGstConfirmed] = useState(false);
+  const [needsGstConfirm, setNeedsGstConfirm] = useState(false);
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
@@ -221,6 +224,15 @@ export function GstSettingsPage() {
             return;
           }
         }
+        const typed = (values.gstin ?? '').trim().toUpperCase();
+        const saved = (prev?.gstin ?? '').trim().toUpperCase();
+        // Only a new or changed GSTIN needs the confirmation. An unregistered business, or any
+        // other setting, saves without it. A blocked save says why instead of doing nothing.
+        if (typed && typed !== saved && !gstConfirmed) {
+          setNeedsGstConfirm(true);
+          return;
+        }
+        setNeedsGstConfirm(false);
         mutation.mutate(values);
       })}
     >
@@ -228,14 +240,16 @@ export function GstSettingsPage() {
       <PageTitle>{t('nav.gst')}</PageTitle>
       {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
         <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
-          GST settings saved
+          {t('gst.settingsSaved')}
         </Alert>
       ) : null}
       {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
       {verifyMutation.isSuccess ? (
         <Alert severity="info">
-          GSTIN status: {verifyMutation.data?.status ?? 'Verified'} (
-          {verifyMutation.data?.tradeName || 'Active'})
+          {t('gst.verifyStatus', {
+            status: verifyMutation.data?.status ?? t('gst.verified'),
+            name: verifyMutation.data?.tradeName || t('gst.active'),
+          })}
         </Alert>
       ) : null}
       {verifyMutation.isError ? (
@@ -252,7 +266,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <HelpHint intent="add-gstin" slot="gstin">
                 <TextField
-                  label="Primary GSTIN (15 characters)"
+                  label={t('gstSettings.primaryGstin')}
                   placeholder="07AAAAA0000A1Z5"
                   error={Boolean(formState.errors.gstin)}
                   helperText={
@@ -276,14 +290,14 @@ export function GstSettingsPage() {
             disabled={verifyMutation.isPending || !watch('gstin')}
             onClick={() => verifyMutation.mutate()}
           >
-            Verify GSTIN with Portal
+            {t('sweep2.verifyGstin')}
           </Button>
           <Controller
             name="pan"
             control={control}
             render={({ field }) => (
               <TextField
-                label="PAN"
+                label={t('gstSettings.pan')}
                 placeholder="ABCDE1234F"
                 helperText={String(company?.panVerificationStatus ?? 'Optional — format check only until a live PAN provider is certified')}
                 {...field}
@@ -296,7 +310,7 @@ export function GstSettingsPage() {
             disabled={panVerifyMutation.isPending || !watch('pan')}
             onClick={() => panVerifyMutation.mutate()}
           >
-            Verify PAN
+            {t('sweep2.verifyPan')}
           </Button>
           {panVerifyMutation.isError ? (
             <HelpErrorAlert error={panVerifyMutation.error} />
@@ -306,7 +320,7 @@ export function GstSettingsPage() {
             control={control}
             render={({ field }) => (
               <TextField
-                label="UDYAM"
+                label={t('gstSettings.udyam')}
                 placeholder="UDYAM-KR-00-0000000"
                 helperText={String(company?.udyamVerificationStatus ?? 'Optional — format check only until a live UDYAM provider is certified')}
                 {...field}
@@ -319,7 +333,7 @@ export function GstSettingsPage() {
             disabled={udyamVerifyMutation.isPending || !watch('udyam')}
             onClick={() => udyamVerifyMutation.mutate()}
           >
-            Verify UDYAM
+            {t('sweep2.verifyUdyam')}
           </Button>
           {udyamVerifyMutation.isError ? (
             <HelpErrorAlert error={udyamVerifyMutation.error} />
@@ -334,10 +348,10 @@ export function GstSettingsPage() {
             control={control}
             render={({ field }) => (
               <HelpHint intent="registration-type" slot="registration-type-settings">
-                <TextField select label="GST Registration Type" {...field} value={field.value ?? 'REGULAR'}>
-                  <MenuItem value="REGULAR">Regular Taxpayer (Issues Tax Invoices with CGST/SGST/IGST)</MenuItem>
-                  <MenuItem value="COMPOSITION">Composition Scheme (Issues Bill of Supply without Tax)</MenuItem>
-                  <MenuItem value="UNREGISTERED">Unregistered / Exempt Business</MenuItem>
+                <TextField select label={t('gstSettings.registrationType')} {...field} value={field.value ?? 'REGULAR'}>
+                  <MenuItem value="REGULAR">{t('gstSettings.regular')}</MenuItem>
+                  <MenuItem value="COMPOSITION">{t('gstSettings.composition')}</MenuItem>
+                  <MenuItem value="UNREGISTERED">{t('gstSettings.unregistered')}</MenuItem>
                 </TextField>
               </HelpHint>
             )}
@@ -348,12 +362,12 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <TextField
                 select
-                label="Out-of-Stock Billing Policy"
-                helperText="Choose whether to block billing or allow billing with a warning when stock is zero"
+                label={t('gstSettings.stockPolicy')}
+                helperText={t('gstSettings.stockPolicyHint')}
                 {...field}
               >
-                <MenuItem value="BLOCK">Block Billing (Strict: Prevent selling items with 0 stock)</MenuItem>
-                <MenuItem value="WARN">Allow & Warn (Flexible: Allow counter staff to bill anyway)</MenuItem>
+                <MenuItem value="BLOCK">{t('gstSettings.blockBilling')}</MenuItem>
+                <MenuItem value="WARN">{t('gstSettings.allowWarn')}</MenuItem>
               </TextField>
             )}
           />
@@ -389,7 +403,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <FormControlLabel
                 control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label="Default walk-in retail customers to local state (Intra-state CGST+SGST)"
+                label={t('gst.assumeLocalState')}
               />
             )}
           />
@@ -409,9 +423,9 @@ export function GstSettingsPage() {
             control={control}
             render={({ field }) => (
               <TextField
-                label="Annual Business Turnover (₹)"
-                placeholder="e.g. 50000000"
-                helperText="Statutory threshold indicator. Leave blank if annual turnover is below ₹5 Crores."
+                label={t('gstSettings.turnover')}
+                placeholder={t('sweep.turnoverExample')}
+                helperText={t('sweep.turnoverHelp')}
                 {...field}
               />
             )}
@@ -422,7 +436,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <FormControlLabel
                 control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label="e-Invoice enabled (Mandatory for B2B turnover > ₹5 Crores)"
+                label={t('gstSettings.einvoice')}
               />
             )}
           />
@@ -432,7 +446,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <FormControlLabel
                 control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label="e-Way Bill generation enabled"
+                label={t('gstSettings.eway')}
               />
             )}
           />
@@ -441,30 +455,28 @@ export function GstSettingsPage() {
             control={control}
             render={({ field }) => (
               <TextField
-                label="e-Way Threshold Amount (₹)"
-                helperText="Consignment value above which e-Way bill is required (Default: ₹50,000)"
+                label={t('gstSettings.ewayThreshold')}
+                helperText={t('gstSettings.ewayThresholdHint')}
                 {...field}
               />
             )}
           />
           <Typography variant="subtitle1" fontWeight={600} sx={{ pt: 1 }}>
-            GSP Portal Credentials (Direct Govt Filing)
+            {t('gstSettings.gspTitle')}
           </Typography>
           <Alert severity="info">
-            Credentials are write-only and encrypted.
-            {company?.gspCredentialsConfigured
-              ? ' GSP credentials are currently active.'
-              : ' No GSP credentials configured yet.'}
+            {t('gstSettings.gspWriteOnly')}{' '}
+            {company?.gspCredentialsConfigured ? t('gstSettings.gspActive') : t('gstSettings.gspNone')}
           </Alert>
           <Controller
             name="gspProvider"
             control={control}
             render={({ field }) => (
-              <TextField select label="GSP Provider" {...field}>
-                <MenuItem value="">None / Manual Filing</MenuItem>
-                <MenuItem value="sandbox">Sandbox / Test Demo Portal</MenuItem>
-                <MenuItem value="cleartax">ClearTax GSP</MenuItem>
-                <MenuItem value="mastergst">MasterGST GSP</MenuItem>
+              <TextField select label={t('gstSettings.gspProvider')} {...field}>
+                <MenuItem value="">{t('gstSettings.gspManual')}</MenuItem>
+                <MenuItem value="sandbox">{t('gstSettings.gspSandbox')}</MenuItem>
+                <MenuItem value="cleartax">{t('gstSettings.gspCleartax')}</MenuItem>
+                <MenuItem value="mastergst">{t('gstSettings.gspMaster')}</MenuItem>
               </TextField>
             )}
           />
@@ -474,7 +486,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <TextField
                 {...field}
-                label="Client ID"
+                label={t('gstSettings.clientId')}
                 autoComplete="off"
                 name="gsp_client_id"
                 inputProps={{ autoComplete: 'off' }}
@@ -487,7 +499,7 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <TextField
                   {...field}
-                  label="Client Secret"
+                  label={t('gstSettings.clientSecret')}
                   type="password"
                   autoComplete="new-password"
                   name="gsp_client_secret"
@@ -501,13 +513,20 @@ export function GstSettingsPage() {
             render={({ field }) => (
               <TextField
                 {...field}
-                label="Portal Username"
+                label={t('gstSettings.portalUsername')}
                 autoComplete="off"
                 name="gsp_portal_username"
                 inputProps={{ autoComplete: 'off' }}
               />
             )}
           />
+          <FormControlLabel
+            control={<Checkbox checked={gstConfirmed} onChange={(_, checked) => setGstConfirmed(checked)} />}
+            label={t('cog.gstConfirm')}
+          />
+          {needsGstConfirm && !gstConfirmed ? (
+            <Alert severity="warning">{t('cog.gstConfirm')}</Alert>
+          ) : null}
           <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
             {t('common.save')}
           </Button>

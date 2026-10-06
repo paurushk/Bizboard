@@ -606,6 +606,68 @@ export async function getSupplierPriceHistory(supplierId: number, productId: num
   };
 }
 
+export interface GoodsReceiptLine {
+  id?: number;
+  product: number;
+  productName?: string;
+  quantityReceived: string | number;
+  quantityAccepted: string | number;
+  quantityRejected: string | number;
+  unitPrice: string | number;
+  rejectionReason?: string;
+  batchNo?: string;
+  serialNumbers?: string[];
+}
+
+export interface GoodsReceipt {
+  id: number;
+  number?: string;
+  status: string;
+  supplier: number;
+  supplierName?: string;
+  receiptDate: string;
+  supplierChallanNumber?: string;
+  notes?: string;
+  items?: GoodsReceiptLine[];
+  convertedPurchase?: number | null;
+}
+
+export async function listGoodsReceiptsPage(params?: PageParams): Promise<PageResult<GoodsReceipt>> {
+  return withMocks(async () => fetchPage<GoodsReceipt>('/purchases/grns/', params), {
+    results: [],
+    count: 0,
+    next: null,
+    previous: null,
+  });
+}
+
+export async function createGoodsReceipt(payload: {
+  supplier: number;
+  receiptDate?: string;
+  supplierChallanNumber?: string;
+  notes?: string;
+  warehouse?: number | null;
+  items: GoodsReceiptLine[];
+}): Promise<GoodsReceipt> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/purchases/grns/', payload);
+    return unwrapData<GoodsReceipt>(data);
+  }, {
+    id: Date.now(),
+    status: 'DRAFT',
+    supplier: payload.supplier,
+    receiptDate: payload.receiptDate ?? new Date().toISOString().slice(0, 10),
+    items: payload.items,
+  });
+}
+
+export async function completeGoodsReceipt(id: number): Promise<GoodsReceipt> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/purchases/grns/${id}/complete/`);
+    return unwrapData<GoodsReceipt>(data);
+  }, { id, status: 'COMPLETED', supplier: 0, receiptDate: new Date().toISOString().slice(0, 10) });
+}
+
 export async function cancelBillOfEntry(id: number): Promise<BillOfEntry> {
   const { data } = await apiClient.post(`/purchases/bills-of-entry/${id}/cancel/`);
   return unwrapData<BillOfEntry>(data);

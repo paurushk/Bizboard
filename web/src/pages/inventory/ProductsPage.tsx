@@ -23,6 +23,7 @@ import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { csvCell } from '@/utils/csv';
 import { deleteProduct, listProducts, listProductsPage, listStock } from '@/api/resources';
+import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { ColumnPicker } from '@/components/ColumnPicker';
@@ -33,7 +34,7 @@ import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { useCfFilters } from '@/hooks/useCfFilters';
 import { useColumnPrefs, type ColumnSpec } from '@/hooks/useColumnPrefs';
 import { PageTitle } from '@/contextHelp';
-import { t } from '@/i18n';
+import { t, useLocale } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
@@ -45,32 +46,40 @@ import { customFieldCell } from '@/pages/inventory/itemCustomFieldDefaults';
 
 const PAGE_SIZE = 50;
 
-const STANDARD_COLUMNS: ColumnSpec[] = [
-  { id: 'name', label: 'Name', group: 'standard', removable: false },
-  { id: 'sku', label: 'SKU', group: 'standard' },
-  { id: 'unit', label: 'Unit', group: 'standard' },
-  { id: 'price', label: 'Selling price', group: 'standard' },
-  { id: 'gst', label: 'GST %', group: 'standard' },
-  { id: 'stock', label: 'Stock', group: 'standard' },
-  { id: 'tracking', label: 'Tracking', group: 'standard' },
-  { id: 'status', label: 'Status', group: 'standard' },
-];
+function standardColumns(): ColumnSpec[] {
+  return [
+    { id: 'name', label: t('common.name'), group: 'standard', removable: false },
+    { id: 'sku', label: t('common.sku'), group: 'standard' },
+    { id: 'unit', label: t('products.unit'), group: 'standard' },
+    { id: 'price', label: t('products.sellingPrice'), group: 'standard' },
+    { id: 'gst', label: t('products.gstPercent'), group: 'standard' },
+    { id: 'stock', label: t('products.stock'), group: 'standard' },
+    { id: 'tracking', label: t('products.tracking'), group: 'standard' },
+    { id: 'status', label: t('products.status'), group: 'standard' },
+  ];
+}
 
 export function ProductsPage() {
+  const locale = useLocale();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [showDense, setShowDense] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [stockFilter, setStockFilter] = useState('');
+  const [taxFilter, setTaxFilter] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
   const customDefs = useVisibleCustomFieldDefs();
   const { value: cfFilters, onChange: setCfFilters } = useCfFilters();
   const columns = useMemo<ColumnSpec[]>(
     () => [
-      ...STANDARD_COLUMNS,
+      ...standardColumns(),
       ...customDefs.map((def) => ({ id: `cf:${def.key}`, label: def.label, group: 'custom' as const })),
     ],
-    [customDefs],
+    [customDefs, locale],
   );
   const prefs = useColumnPrefs('items', columns, user?.companyId, user?.id);
   const query = useQuery({
@@ -83,7 +92,23 @@ export function ProductsPage() {
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
       }),
   });
-  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock() });
+  // The filters below work on whole products and stock, but the list is paged. While a filter is
+  // chosen (or its menu was opened, to list every category, brand and slab) the whole catalogue is
+  // loaded and filtered, so a filter means "every item that matches", not "matches on this page".
+  const [filtersTouched, setFiltersTouched] = useState(false);
+  const filtersActive = Boolean(categoryFilter || brandFilter || stockFilter || taxFilter);
+  const allQuery = useQuery({
+    queryKey: ['products-all', debouncedSearch, cfFilters],
+    queryFn: () => listProducts({ q: debouncedSearch || undefined, cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined }),
+    enabled: filtersActive || filtersTouched,
+  });
+  const sourceRows = filtersActive && allQuery.data ? allQuery.data : (query.data?.results ?? []);
+  const pageIds = sourceRows.map((row) => row.id);
+  const stockQuery = useQuery({
+    queryKey: ['stock', pageIds],
+    queryFn: () => listStock({ productIds: pageIds }),
+    enabled: pageIds.length > 0,
+  });
 
   const stockMap = useMemo(() => {
     const map = new Map<number, number>();
@@ -114,7 +139,24 @@ export function ProductsPage() {
     },
     onError: (err) => setNotice({ severity: 'error', message: getErrorMessage(err) }),
   });
-  const rows = query.data?.results ?? [];
+  const pageRows = sourceRows;
+  const optionRows = allQuery.data ?? pageRows;
+  const rows = pageRows.filter((p) => {
+    if (categoryFilter && (p.categoryName || '') !== categoryFilter) return false;
+    if (brandFilter && (p.brandName || '') !== brandFilter) return false;
+    if (taxFilter && String(toNumber(p.gstRate)) !== taxFilter) return false;
+    const qty = stockMap.get(p.id);
+    if (stockFilter === 'in' && !(qty != null && qty > toNumber(p.reorderLevel))) return false;
+    if (stockFilter === 'low' && !(qty != null && qty > 0 && qty <= toNumber(p.reorderLevel))) return false;
+    // An item with no stock rows has nothing on hand: it is out of stock, not "unknown".
+    if (stockFilter === 'out' && !(qty == null || qty <= 0)) return false;
+    return true;
+  });
+  const categories = [...new Set(optionRows.map((p) => p.categoryName).filter(Boolean))] as string[];
+  const brands = [...new Set(optionRows.map((p) => p.brandName).filter(Boolean))] as string[];
+  const taxSlabs = [...new Set(optionRows.map((p) => String(toNumber(p.gstRate))))];
+  const showCol = (id: string) =>
+    prefs.isVisible(id) && (showDense || id === 'name' || id === 'price' || id === 'stock');
   const canMutate = canAdjustInventory(user);
   const canContinueSetup =
     isSetupWizardEnabled() &&
@@ -131,7 +173,7 @@ export function ProductsPage() {
     setExporting(true);
     try {
       const cols = [
-        ...STANDARD_COLUMNS.filter((col) => prefs.isVisible(col.id)),
+        ...standardColumns().filter((col) => prefs.isVisible(col.id)),
         ...visibleCustom.map((def) => ({ id: `cf:${def.key}`, label: def.label })),
       ];
       const header = cols.map((col) => csvCell(col.label)).join(',');
@@ -139,6 +181,13 @@ export function ProductsPage() {
         q: search || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
       });
+      // The on-screen stock map only covers the current page; the export covers every product.
+      const exportStock = new Map<number, number>();
+      if (cols.some((col) => col.id === 'stock') && exported.length > 0) {
+        for (const row of await listStock({ productIds: exported.map((p) => p.id) })) {
+          exportStock.set(row.product, (exportStock.get(row.product) ?? 0) + toNumber(row.available));
+        }
+      }
       const lines = exported.map((p) =>
         cols
           .map((col) => {
@@ -147,9 +196,9 @@ export function ProductsPage() {
             if (col.id === 'unit') return p.unitName || 'PCS';
             if (col.id === 'price') return String(p.sellingPrice ?? '');
             if (col.id === 'gst') return String(p.gstRate ?? '');
-            if (col.id === 'stock') return String(stockMap.get(p.id) ?? '');
+            if (col.id === 'stock') return String(exportStock.get(p.id) ?? '');
             if (col.id === 'tracking') {
-              return [p.trackBatch ? 'Batch' : '', p.trackSerial ? 'Serial' : ''].filter(Boolean).join(' ');
+              return [p.trackBatch ? t('items.batch') : '', p.trackSerial ? t('items.serial') : ''].filter(Boolean).join(' ');
             }
             if (col.id === 'status') return p.status;
             if (col.id.startsWith('cf:')) return customFieldCell(p.customFields, col.id.slice(3));
@@ -188,6 +237,27 @@ export function ProductsPage() {
           }}
           sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
         />
+        <TextField select size="small" label={t('cog.filterCategory')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} sx={{ minWidth: 140 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {categories.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+        </TextField>
+        <TextField select size="small" label={t('cog.filterBrand')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} sx={{ minWidth: 140 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {brands.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+        </TextField>
+        <TextField select size="small" label={t('cog.filterStock')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} sx={{ minWidth: 140 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          <MenuItem value="in">{t('cog.inStock')}</MenuItem>
+          <MenuItem value="low">{t('cog.lowStock')}</MenuItem>
+          <MenuItem value="out">{t('cog.outOfStock')}</MenuItem>
+        </TextField>
+        <TextField select size="small" label={t('cog.filterTax')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={taxFilter} onChange={(e) => setTaxFilter(e.target.value)} sx={{ minWidth: 120 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {taxSlabs.map((rate) => <MenuItem key={rate} value={rate}>{rate}%</MenuItem>)}
+        </TextField>
+        <Button size="small" variant="outlined" onClick={() => setShowDense((v) => !v)}>
+          {t('cog.moreColumns')}
+        </Button>
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {isItemCustomFieldsV2Enabled() ? (
             <ColumnPicker columns={columns} isVisible={prefs.isVisible} toggle={prefs.toggle} reset={prefs.reset} />
@@ -289,35 +359,50 @@ export function ProductsPage() {
         />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
+          <VirtualizedTable rowCount={rows.length} rowHeight={52}>
+            {({ rows: virtualRows, totalSize }) => (
           <Table size="small">
             <TableHead>
               <TableRow>
-                {prefs.isVisible('name') ? <TableCell>{t('common.name')}</TableCell> : null}
-                {prefs.isVisible('sku') ? <TableCell>{t('common.sku')}</TableCell> : null}
-                {prefs.isVisible('unit') ? <TableCell>{t('products.unit')}</TableCell> : null}
-                {prefs.isVisible('price') ? <TableCell align="right">{t('products.sellingPrice')}</TableCell> : null}
-                {prefs.isVisible('gst') ? <TableCell align="right">GST %</TableCell> : null}
-                {prefs.isVisible('stock') ? <TableCell align="right">{t('billing.stockAvailable')}</TableCell> : null}
-                {prefs.isVisible('tracking') ? <TableCell>Tracking</TableCell> : null}
+                {showCol('name') ? <TableCell>{t('common.name')}</TableCell> : null}
+                {showCol('sku') ? <TableCell>{t('common.sku')}</TableCell> : null}
+                {showCol('unit') ? <TableCell>{t('products.unit')}</TableCell> : null}
+                {showCol('price') ? <TableCell align="right">{t('products.sellingPrice')}</TableCell> : null}
+                {showCol('gst') ? <TableCell align="right">{t('products.gstPercent')}</TableCell> : null}
+                {showCol('stock') ? <TableCell align="right">{t('billing.stockAvailable')}</TableCell> : null}
+                {showCol('tracking') ? <TableCell>{t('products.tracking')}</TableCell> : null}
                 {visibleCustom.map((def) => (
                   <TableCell key={def.key}>{def.label}</TableCell>
                 ))}
-                {prefs.isVisible('status') ? <TableCell>{t('common.status')}</TableCell> : null}
+                {showCol('status') ? <TableCell>{t('common.status')}</TableCell> : null}
                 <TableCell />
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((p) => {
+              {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
+                <TableRow style={{ height: virtualRows[0].start }} aria-hidden>
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={12} />
+                </TableRow>
+              ) : null}
+              {virtualRows.map((vRow) => {
+                const p = rows[vRow.index];
                 const stockQty = stockMap.get(p.id);
                 return (
-                  <TableRow key={p.id}>
-                    {prefs.isVisible('name') ? <TableCell>{p.name}</TableCell> : null}
-                    {prefs.isVisible('sku') ? <TableCell>{p.sku}</TableCell> : null}
-                    {prefs.isVisible('unit') ? <TableCell>{p.unitName || 'PCS'}</TableCell> : null}
-                    {prefs.isVisible('price') ? <TableCell align="right">{formatMoney(p.sellingPrice)}</TableCell> : null}
-                    {prefs.isVisible('gst') ? <TableCell align="right">{toNumber(p.gstRate)}%</TableCell> : null}
-                    {prefs.isVisible('stock') ? (
+                  <TableRow key={p.id} data-index={vRow.index}>
+                    {showCol('name') ? (
+                      <TableCell>
+                        {p.name}
+                        {p.rackCode ? (
+                          <Chip size="small" label={`${t('products.rack')} ${p.rackCode}`} sx={{ ml: 1 }} />
+                        ) : null}
+                      </TableCell>
+                    ) : null}
+                    {showCol('sku') ? <TableCell>{p.sku}</TableCell> : null}
+                    {showCol('unit') ? <TableCell>{p.unitName || 'PCS'}</TableCell> : null}
+                    {showCol('price') ? <TableCell align="right">{formatMoney(p.sellingPrice)}</TableCell> : null}
+                    {showCol('gst') ? <TableCell align="right">{toNumber(p.gstRate)}%</TableCell> : null}
+                    {showCol('stock') ? (
                       <TableCell align="right">
                         {stockQty == null ? (
                           '—'
@@ -332,17 +417,17 @@ export function ProductsPage() {
                         )}
                       </TableCell>
                     ) : null}
-                    {prefs.isVisible('tracking') ? (
+                    {showCol('tracking') ? (
                       <TableCell>
-                        {p.trackBatch ? <Chip size="small" label="Batch" sx={{ mr: 0.5 }} /> : null}
-                        {p.trackSerial ? <Chip size="small" label="Serial" /> : null}
+                        {p.trackBatch ? <Chip size="small" label={t('items.batch')} sx={{ mr: 0.5 }} /> : null}
+                        {p.trackSerial ? <Chip size="small" label={t('items.serial')} /> : null}
                         {!p.trackBatch && !p.trackSerial ? '—' : null}
                       </TableCell>
                     ) : null}
                     {visibleCustom.map((def) => (
                       <TableCell key={def.key}>{customFieldCell(p.customFields, def.key)}</TableCell>
                     ))}
-                    {prefs.isVisible('status') ? (
+                    {showCol('status') ? (
                       <TableCell>
                         <StatusChip tone={productStatusTone(p.status)} labelKey={statusLabelKey(p.status)} />
                       </TableCell>
@@ -377,11 +462,22 @@ export function ProductsPage() {
                   </TableRow>
                 );
               })}
+              {virtualRows.length > 0 &&
+              Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end) > 0 ? (
+                <TableRow
+                  style={{ height: Math.max(0, totalSize - virtualRows[virtualRows.length - 1].end) }}
+                  aria-hidden
+                >
+                  <TableCell style={{ padding: 0, border: 0 }} colSpan={12} />
+                </TableRow>
+              ) : null}
             </TableBody>
           </Table>
+            )}
+          </VirtualizedTable>
         </Paper>
       ) : null}
-      {query.data && (query.data.next || page > 1) ? (
+      {query.data && !filtersActive && (query.data.next || page > 1) ? (
         <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
           <Typography variant="body2" color="text.secondary">
             {t('common.page')} {page}

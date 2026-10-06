@@ -11,6 +11,7 @@ from django.conf import settings
 
 from core.observability import (
     apply_sentry_tags,
+    bind_client_ip,
     bind_request_context,
     clear_request_context,
     hash_id,
@@ -108,6 +109,12 @@ class RequestIdMiddleware:
         started = time.monotonic()
         bind_request_context(request_id=rid)
         try:
+            from accounts.views import _client_ip
+
+            bind_client_ip(_client_ip(request))
+        except Exception:  # noqa: BLE001 — audit IP must not break the request
+            bind_client_ip(None)
+        try:
             bump_request_count()
         except Exception:  # noqa: BLE001 — metrics must not break requests
             pass
@@ -115,7 +122,23 @@ class RequestIdMiddleware:
             apply_sentry_tags(request_id=rid)
         except Exception:  # noqa: BLE001
             pass
-        response = self.get_response(request)
+        query_count = 0
+
+        def _count_query(execute, sql, params, many, context):
+            nonlocal query_count
+            query_count += 1
+            return execute(sql, params, many, context)
+
+        from django.db import connection
+
+        try:
+            with connection.execute_wrapper(_count_query):
+                response = self.get_response(request)
+        except BaseException:
+            # An exception escaping the inner chain must not leave this request's id and client IP
+            # on the thread for the next request.
+            clear_request_context()
+            raise
         response["X-Request-ID"] = rid
         # 12.5 — JSON APIs must not be CDN-cached (static-only CDN in front of SPA).
         if (request.path or "").startswith("/api/"):
@@ -144,6 +167,22 @@ class RequestIdMiddleware:
             record_http_result(status=response.status_code, duration_ms=duration_ms)
         except Exception:  # noqa: BLE001
             pass
+        # BUG-SEC-008: warn before a slow or chatty request becomes an outage.
+        if duration_ms > 800 or query_count > 30:
+            logger.warning(
+                json.dumps(
+                    {
+                        "event": "slow_request",
+                        "request_id": rid,
+                        "method": request.method,
+                        "path": _redact_path(request.path),
+                        "status": response.status_code,
+                        "duration_ms": duration_ms,
+                        "query_count": query_count,
+                    },
+                    separators=(",", ":"),
+                )
+            )
         if getattr(settings, "JSON_REQUEST_LOGS", True):
             logger.info(
                 json.dumps(

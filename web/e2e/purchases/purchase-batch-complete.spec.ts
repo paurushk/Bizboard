@@ -53,7 +53,7 @@ test.describe('Purchase editor — batch complete gate', () => {
     await expect(page.getByPlaceholder('FEFO batch')).toHaveCount(0);
     await expect(page.getByPlaceholder('New batch no (optional)')).toHaveCount(0);
     await expect(
-      page.getByText('Batch Syrup 50ml needs a batch number before Complete'),
+      page.getByText('Batch Syrup 50ml needs a batch number before Complete').first(),
     ).toBeVisible();
     await expect(page.getByPlaceholder('Batch number', { exact: true })).toBeVisible();
     await expect(page.getByPlaceholder('New batch number', { exact: true })).toBeVisible();

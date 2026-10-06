@@ -97,6 +97,41 @@ class UniversalSearchView(APIView):
                     for i in purchase_invoices
                 ]
 
+            quotations = []
+            if can_view_sales:
+                from sales.models import Quotation
+
+                quotations = [
+                    {"id": row.id, "kind": "quotation", "number": row.number, "status": row.status}
+                    for row in Quotation.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                ]
+            can_view_growth = cu.role != "VIEWER"
+            tickets = complaints = contracts = opportunities = []
+            if can_view_growth:
+                from complaints.models import Complaint
+                from contracts.models import Contract
+                from crm.models import Opportunity
+                from support.models import Ticket
+
+                tickets = [
+                    {"id": row.id, "kind": "ticket", "number": row.number, "subject": row.subject}
+                    for row in Ticket.objects.filter(company=company).filter(
+                        Q(number__icontains=q) | Q(subject__icontains=q)
+                    )[:LIMIT]
+                ]
+                complaints = [
+                    {"id": row.id, "kind": "complaint", "number": row.number}
+                    for row in Complaint.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                ]
+                contracts = [
+                    {"id": row.id, "kind": "contract", "number": row.number}
+                    for row in Contract.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                ]
+                opportunities = [
+                    {"id": row.id, "kind": "opportunity", "title": row.title}
+                    for row in Opportunity.objects.filter(company=company, title__icontains=q)[:LIMIT]
+                ]
+
         return Response({
             "customers": [
                 {"id": c.id, "name": c.name, "phone": c.phone, "status": c.status}
@@ -114,4 +149,9 @@ class UniversalSearchView(APIView):
                 for p in products
             ],
             "invoices": invoices,
+            "quotations": quotations,
+            "tickets": tickets,
+            "complaints": complaints,
+            "contracts": contracts,
+            "opportunities": opportunities,
         })

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -41,6 +43,7 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useSupplierSearch } from '@/hooks/usePartySearch';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { PurchaseInvoice } from '@/types/domain';
@@ -61,6 +64,8 @@ export function PurchaseHistoryPage() {
   const location = useLocation();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
+  const [supplierId, setSupplierId] = useState<number | ''>('');
+  const supplierSearch = useSupplierSearch();
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const debouncedQ = useDebouncedValue(filters.q, 300);
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
@@ -75,7 +80,7 @@ export function PurchaseHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['purchases', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryKey: ['purchases', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo, supplierId],
     queryFn: () =>
       listPurchasesPage({
         page,
@@ -84,6 +89,7 @@ export function PurchaseHistoryPage() {
         q: debouncedQ || undefined,
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
+        supplier: supplierId || undefined,
       }),
     staleTime: 0,
     refetchOnMount: 'always',
@@ -159,6 +165,19 @@ export function PurchaseHistoryPage() {
       ) : null}
       {!query.isError ? (
         <HistoryFilterBar
+          party={
+            <Autocomplete
+              options={supplierSearch.options}
+              getOptionLabel={(option) => option.name}
+              onInputChange={(_, value) => supplierSearch.setQuery(value)}
+              onChange={(_, option) => {
+                setSupplierId(option?.id ?? '');
+                setPage(1);
+              }}
+              renderInput={(params) => <TextField {...params} size="small" label={t('cog.supplierFilter')} />}
+              sx={{ maxWidth: 320 }}
+            />
+          }
           value={filters}
           onChange={(next) => {
             setFilters(next);
@@ -194,7 +213,7 @@ export function PurchaseHistoryPage() {
         />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={52}>
             {({ rows: virtualRows, totalSize, measureElement }) => (
           <Table size="small">

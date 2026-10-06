@@ -10,7 +10,10 @@ import {
   advisorBook, chooseOption, createOptionSet, createPolicyProduct, createProspect, issuePolicy, listPolicyProducts,
 } from '@/api/roadmap';
 import { isInsuranceEnabled } from '@/config/features';
+import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
+import { enumLabel } from '@/utils/enumLabels';
+import { formatMoney } from '@/utils/money';
 import { t } from '@/i18n';
 import { CustomerField, localDateInput } from '@/pages/growth/widgets';
 import { PageShell } from '@/pages/phase/phaseShared';
@@ -106,16 +109,21 @@ function InsuranceInner() {
       <Typography variant="body2" color="text.secondary">{t('growth.insuranceDesk')}</Typography>
       {error ? <Typography color="error" role="alert">{error}</Typography> : null}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-        <TextField size="small" label="Product" value={name} onChange={(e) => setName(e.target.value)} />
-        <TextField size="small" label="Insurer" value={insurer} onChange={(e) => setInsurer(e.target.value)} />
-        <TextField select size="small" label="Line" value={line} onChange={(e) => setLine(e.target.value)}>
-          {['MOTOR', 'HEALTH', 'LIFE', 'OTHER'].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
+        <TextField size="small" label={t('growth.product')} value={name} onChange={(e) => setName(e.target.value)} />
+        <TextField size="small" label={t('growth.insurer')} value={insurer} onChange={(e) => setInsurer(e.target.value)} />
+        <TextField select size="small" label={t('growth.line')} value={line} onChange={(e) => setLine(e.target.value)}>
+          {['MOTOR', 'HEALTH', 'LIFE', 'OTHER'].map((value) => <MenuItem key={value} value={value}>{enumLabel('insuranceLine', value)}</MenuItem>)}
         </TextField>
-        <TextField size="small" label="Premium" value={premium} onChange={(e) => setPremium(e.target.value)} />
-        <TextField size="small" label="Sum insured" value={sumInsured} onChange={(e) => setSumInsured(e.target.value)} />
-        <TextField size="small" label="Tenure (months)" value={tenureMonths} onChange={(e) => setTenureMonths(e.target.value)} />
+        <TextField size="small" label={t('growth.premium')} value={premium} onChange={(e) => setPremium(e.target.value)} />
+        <TextField size="small" label={t('growth.sumInsured')} value={sumInsured} onChange={(e) => setSumInsured(e.target.value)} />
+        <TextField size="small" label={t('growth.tenureMonths')} value={tenureMonths} onChange={(e) => setTenureMonths(e.target.value)} />
         <Button variant="contained" disabled={!name.trim() || !insurer.trim() || !premium.trim() || !sumInsured.trim() || !/^\d+$/.test(tenureMonths) || create.isPending} onClick={() => create.mutate()}>{t('growth.create')}</Button>
       </Stack>
+      {products.isLoading ? <LoadingState /> : null}
+      {products.isError ? <ErrorState message={getErrorMessage(products.error)} error={products.error} onRetry={() => void products.refetch()} /> : null}
+      {!products.isLoading && !products.isError && productRows.length === 0 ? (
+        <EmptyState description={t('cog.emptyInsurance')} />
+      ) : null}
       {productRows.map((row) => (
         <Stack key={String(row.id)} direction="row" spacing={1} alignItems="center">
           <input
@@ -127,32 +135,36 @@ function InsuranceInner() {
               setPicked((current) => (e.target.checked ? [...current, id] : current.filter((item) => item !== id)));
             }}
           />
-          <Typography>{String(row.insurerName)} · {String(row.name)} · {String(row.premium)}</Typography>
+          <Typography>{String(row.insurerName)} · {String(row.name)} · {formatMoney(row.premium as string | number)}</Typography>
         </Stack>
       ))}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
-        <TextField size="small" label="Prospect" value={prospectName} onChange={(e) => setProspectName(e.target.value)} />
-        <Button variant="outlined" disabled={!prospectName.trim() || saveProspect.isPending} onClick={() => saveProspect.mutate()}>Save prospect</Button>
-        <Button variant="outlined" disabled={prospectId == null || picked.length < 2 || offer.isPending} onClick={() => offer.mutate()}>Offer options</Button>
+        <TextField size="small" label={t('growth.prospect')} value={prospectName} onChange={(e) => setProspectName(e.target.value)} />
+        <Button variant="outlined" disabled={!prospectName.trim() || saveProspect.isPending} onClick={() => saveProspect.mutate()}>{t('growth.saveProspect')}</Button>
+        <Button variant="outlined" disabled={prospectId == null || picked.length < 2 || offer.isPending} onClick={() => offer.mutate()}>{t('growth.offerOptions')}</Button>
       </Stack>
       {options.map((option) => (
         <Button key={option.id} size="small" variant={chosen === option.id ? 'contained' : 'text'} onClick={() => choose.mutate(option.id)}>
-          {chosen === option.id ? 'Chosen' : 'Choose'} {productName(option.product)}
+          {chosen === option.id ? t('growth.chosen') : t('growth.choose')} {productName(option.product)}
         </Button>
       ))}
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1}>
         <CustomerField value={customer} onChange={setCustomer} />
-        <TextField size="small" label="Nominee" value={nominee} onChange={(e) => setNominee(e.target.value)} />
-        <TextField size="small" type="date" label="Start" InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        <Button variant="contained" disabled={chosen == null || !customer || issue.isPending} onClick={() => issue.mutate()}>Issue policy</Button>
+        <TextField size="small" label={t('growth.nominee')} value={nominee} onChange={(e) => setNominee(e.target.value)} />
+        <TextField size="small" type="date" label={t('growth.start')} InputLabelProps={{ shrink: true }} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        <Button variant="contained" disabled={chosen == null || !customer || issue.isPending} onClick={() => issue.mutate()}>{t('growth.issuePolicy')}</Button>
       </Stack>
-      <Typography variant="subtitle2">In force</Typography>
+      {book.isError ? <ErrorState message={getErrorMessage(book.error)} error={book.error} onRetry={() => void book.refetch()} /> : null}
+      <Typography variant="subtitle2">{t('growth.inForce')}</Typography>
+      {!book.isLoading && !book.isError && (book.data?.policies ?? []).length === 0 ? (
+        <EmptyState description={t('cog.emptyInsurance')} />
+      ) : null}
       {(book.data?.policies ?? []).map((row) => {
         const policy = row as Record<string, unknown>;
         return (
           <Typography key={String(policy.id)}>
             {String(policy.number)} · {String(policy.status)}
-            {policy.endDate ? ` · ends ${String(policy.endDate)}` : ''}
+            {policy.endDate ? ` · ${t('growth.endsOn', { date: String(policy.endDate) })}` : ''}
           </Typography>
         );
       })}

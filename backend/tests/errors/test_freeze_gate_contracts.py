@@ -187,6 +187,7 @@ def test_production_resend_smtp_relay_wires_up():
     vendor-specific code path. Confirms EMAIL_HOST=smtp.resend.com actually
     produces Django's SMTP backend with Resend's documented host/user/port/TLS,
     not just "any truthy EMAIL_HOST" as test_production_requires_email_host checks."""
+    import base64
     import json
     import os
 
@@ -205,6 +206,11 @@ def test_production_resend_smtp_relay_wires_up():
         EMAIL_HOST_PASSWORD="re_test_key_not_real",
         OTP_PEPPER="test-otp-pepper-not-real",
         GSP_FERNET_KEY=Fernet.generate_key().decode(),
+        # Both are required to boot in production or staging (BUG-SEC-014, planwave data key).
+        MFA_ENCRYPTION_KEY=Fernet.generate_key().decode(),
+        PLANWAVE_DATA_KEY=base64.urlsafe_b64encode(os.urandom(32)).decode(),
+        MFA_ENFORCE_FOR_MONEY_ROLES="1",  # the test process may run with it off
+        POSTGRES_RLS_ENABLED="1",  # production on PostgreSQL refuses to start without it (BUG-SEC-019)
     )
     script = (
         "import django; django.setup();"
@@ -375,7 +381,7 @@ def test_complete_cancel_allocate_amend_write_audit_events(tenant_a):
         format="json",
     )
     assert amend.status_code == 200, amend.data
-    assert _si_events(iid).filter(description="Completed document edited").exists()
+    assert _si_events(iid).filter(description="sales_invoice.amended").exists()
 
     receipt = tenant_a.client.post(
         "/api/v1/payments/receipts/",

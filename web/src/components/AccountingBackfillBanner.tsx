@@ -7,8 +7,10 @@ import { getErrorMessage } from '@/api/client';
 import {
   getAccountingBackfillStatus,
   getAccountingSettings,
+  listAccounts,
   postAccountingBackfill,
 } from '@/api/resources';
+import { booksBannerState, booksTotalsTrusted, type BooksBannerState } from '@/components/booksState';
 import { t } from '@/i18n';
 
 type BackfillPayload = Record<string, unknown>;
@@ -24,18 +26,36 @@ function describe(payload: BackfillPayload): string {
   return t('phase.accountingBackfillPreviewResult', { count, balanced, variance });
 }
 
-export function AccountingBackfillBanner() {
-  const qc = useQueryClient();
-  const [preview, setPreview] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [running, setRunning] = useState(false);
-  const query = useQuery({
+export function useBooksState(): { state: BooksBannerState; trusted: boolean } {
+  const settings = useQuery({
     queryKey: ['accounting-settings'],
     queryFn: getAccountingSettings,
     staleTime: 30_000,
   });
-  const data = (query.data ?? {}) as Record<string, unknown>;
-  const needed = Boolean(data.accountingBackfillNeeded ?? data.accounting_backfill_needed);
+  const data = (settings.data ?? {}) as Record<string, unknown>;
+  const accountingEnabled = Boolean(data.accountingEnabled ?? data.accounting_enabled);
+  const accounts = useQuery({
+    queryKey: ['accounts'],
+    queryFn: listAccounts,
+    enabled: settings.isSuccess && accountingEnabled,
+    staleTime: 30_000,
+  });
+  const state = booksBannerState({
+    loaded: settings.isSuccess && (!accountingEnabled || accounts.isSuccess),
+    accountingEnabled,
+    backfillNeeded: Boolean(data.accountingBackfillNeeded ?? data.accounting_backfill_needed),
+    accountCount: accounts.data?.length ?? null,
+  });
+  return { state, trusted: booksTotalsTrusted(state) };
+}
+
+export function AccountingBackfillBanner({ suppressNoChart = false }: { suppressNoChart?: boolean }) {
+  const qc = useQueryClient();
+  const [preview, setPreview] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const { state } = useBooksState();
+  const needed = state === 'backfill';
 
   // A confirmed back-fill runs as a background job. Poll its status until it
   // finishes, then refresh the settings so the banner reflects the real state.
@@ -48,15 +68,22 @@ export function AccountingBackfillBanner() {
   const jobStatus = String((status.data as BackfillPayload | undefined)?.status ?? '');
   useEffect(() => {
     if (!running) return;
-    if (jobStatus === 'done') {
-      setRunning(false);
-      setError(null);
-      setPreview(describe(status.data as BackfillPayload));
-      void qc.invalidateQueries({ queryKey: ['accounting-settings'] });
-    } else if (jobStatus === 'failed') {
-      setRunning(false);
-      setError(String((status.data as BackfillPayload).error ?? t('phase.accountingBackfillFailed')));
-    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      if (jobStatus === 'done') {
+        setRunning(false);
+        setError(null);
+        setPreview(describe(status.data as BackfillPayload));
+        void qc.invalidateQueries({ queryKey: ['accounting-settings'] });
+      } else if (jobStatus === 'failed') {
+        setRunning(false);
+        setError(String((status.data as BackfillPayload).error ?? t('phase.accountingBackfillFailed')));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [running, jobStatus, status.data, qc]);
 
   const run = useMutation({
@@ -77,6 +104,9 @@ export function AccountingBackfillBanner() {
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
+  if (state === 'no-chart' && !suppressNoChart && !preview && !running && !error) {
+    return <Alert severity="info" sx={{ mb: 2 }}>{t('phase.chartEmpty')}</Alert>;
+  }
   if (!needed && !preview && !running && !error) return null;
   const busy = run.isPending || running;
   return (

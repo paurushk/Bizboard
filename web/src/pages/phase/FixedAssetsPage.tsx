@@ -11,7 +11,8 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { todayIso } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
-import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { asRows, DataTable, PageShell, type Row } from '@/pages/phase/phaseShared';
+import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -86,12 +87,23 @@ export function FixedAssetsPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   const dispose = useMutation({
-    mutationFn: (id: number) => api.disposeFixedAsset(id),
+    mutationFn: (row: Row) => {
+      const num = (value: unknown) => toNumber(value as string | number | null | undefined);
+      const nbv = formatMoney(Math.max(0, num(row.acquisitionCost) - num(row.depreciatedAmount)));
+      const proceeds = formatMoney(num(row.disposalProceeds));
+      if (!window.confirm(t('phase.confirmDisposeAsset', { nbv, proceeds }))) {
+        throw new Error('Cancelled');
+      }
+      return api.disposeFixedAsset(Number(row.id), { confirm: true, proceeds: num(row.disposalProceeds) || undefined });
+    },
     onSuccess: () => {
       setError('');
       void qc.invalidateQueries({ queryKey: ['fixed-assets'] });
     },
-    onError: (e) => setError(getErrorMessage(e)),
+    onError: (e) => {
+      if (getErrorMessage(e) === 'Cancelled') return;
+      setError(getErrorMessage(e));
+    },
   });
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
@@ -121,7 +133,12 @@ export function FixedAssetsPage() {
               <Button size="small" disabled={writesBlocked} onClick={() => openEdit(row)}>{t('common.edit')}</Button>
             ) : null}
             {row.status === 'ACTIVE' ? (
-              <Button size="small" color="error" disabled={writesBlocked} onClick={() => dispose.mutate(Number(row.id))}>{t('phase.assetDispose')}</Button>
+              <Button size="small" color="error" disabled={writesBlocked} onClick={() => {
+                const name = String(row.name ?? '');
+                const typed = window.prompt(t('cog.typeName', { name }), '');
+                if (typed?.trim() !== name) return;
+                dispose.mutate(row);
+              }}>{t('phase.assetDispose')}</Button>
             ) : null}
           </Stack>
         )}

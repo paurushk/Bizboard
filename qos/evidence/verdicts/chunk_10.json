@@ -1,0 +1,332 @@
+[
+ {
+  "task_id": "S-0565",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/document_numbers.py:DocumentNumberService",
+  "reason": "DocumentNumberService locks the DocumentSeries row with select_for_update when issuing numbers; model is DocumentSeries, not DocumentSequence."
+ },
+ {
+  "task_id": "S-0569",
+  "verdict": "Partial",
+  "evidence": "backend/core/middleware.py:RequestIdMiddleware; backend/core/ops_metrics.py:record_http_result",
+  "reason": "Request duration is logged as JSON and counted, but no slow-query logging, P95, SQL count or latency alerting exists."
+ },
+ {
+  "task_id": "S-0576",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched pg_trgm, GinIndex, TrigramExtension, SearchVector in non-migration code; backend/search/views.py:UniversalSearchView",
+  "reason": "Search uses icontains/iexact filters; no trigram or GIN index is defined in models."
+ },
+ {
+  "task_id": "UX-0581",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/pos/PosPage.tsx:holdAndCreateSession",
+  "reason": "F-keys cover search, tender, hold, clear and reprint, but no keyboard path for discount; keyboard-only completion is not fully shown."
+ },
+ {
+  "task_id": "UX-0582",
+  "verdict": "Confirmed",
+  "evidence": "web/src/pages/pos/PosPage.tsx:holdAndCreateSession",
+  "reason": "F8 holds the cart and opens a new session; F9 and Ctrl+1-9 switch sessions. Cap of five not checked."
+ },
+ {
+  "task_id": "UX-0584",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched auto-fix, IGST instead in web/src and backend/sales",
+  "reason": "No Auto-Fix Tax button or IGST-vs-CGST remediation message; tax split is derived from place of supply instead."
+ },
+ {
+  "task_id": "UX-0587",
+  "verdict": "Partial",
+  "evidence": "web/src/components/CreditHoldChip.tsx:CreditHoldChip; web/src/pages/sales/NewInvoicePage.tsx:CreditHoldChip",
+  "reason": "Only a red credit-hold chip shown for stop-credit or severe overdue; no green or yellow near-limit states."
+ },
+ {
+  "task_id": "UX-0592",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched AudioContext, createOscillator, new Audio, beep in web/src",
+  "reason": "No sound feedback code exists for scan success, duplicate or error."
+ },
+ {
+  "task_id": "UX-0594",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/sales/invoice/InvoicePartyPanel.tsx:onCustomerCreated; web/src/pages/sales/NewInvoicePage.tsx:onCustomerCreated",
+  "reason": "Customer is created in a modal Dialog on the invoice page, auto-selected, cart intact; it is not a slide-out drawer."
+ },
+ {
+  "task_id": "UX-0597",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched N*barcode parser, multiplier in web/src/pages/pos/PosPage.tsx:tryAddByBarcode",
+  "reason": "tryAddByBarcode matches the raw string exactly; no quantity-multiplier syntax is parsed."
+ },
+ {
+  "task_id": "UX-0598",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched print preview, paper size in web/src; web/src/pages/sales/InvoiceDetailPage.tsx:handleThermalPrint",
+  "reason": "Only buttons that download 80mm or 58mm thermal PDFs exist; no live preview modal or A4/A5/thermal switching."
+ },
+ {
+  "task_id": "X-0189",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesOrder; backend/sales/notes_services.py:confirm_sales_order",
+  "reason": "Draft order is created, but stock availability is enforced only at confirm via reserve_stock, not when the draft is booked."
+ },
+ {
+  "task_id": "X-0190",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:convert_quotation_to_order; backend/sales/models.py:SalesOrder",
+  "reason": "convert_quotation_to_order creates a draft SalesOrder copying lines and marks the quotation CONVERTED (no ACCEPTED status)."
+ },
+ {
+  "task_id": "X-0191",
+  "verdict": "Confirmed",
+  "evidence": "backend/inventory/services.py:reserve_stock; backend/inventory/models.py:StockBalance; backend/sales/notes_services.py:confirm_sales_order",
+  "reason": "Confirming an order reserves each line, raising StockBalance.reserved; available is the derived property on_hand minus reserved."
+ },
+ {
+  "task_id": "X-0192",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched PickList, pick_list, picking in backend/sales, inventory, ops",
+  "reason": "No pick list document or warehouse picking request exists."
+ },
+ {
+  "task_id": "X-0193",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched READY_FOR_DISPATCH, PICKED, picking; SalesOrder statuses are DRAFT/CONFIRMED/CONVERTED/CANCELLED",
+  "reason": "No picking confirmation, ready-for-dispatch status or batch lock exists."
+ },
+ {
+  "task_id": "X-0194",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:DeliveryChallan; backend/sales/notes_services.py:convert_sales_order_to_challan",
+  "reason": "DeliveryChallan records vehicle, transporter and completed_at timestamp; driver contact is not stored."
+ },
+ {
+  "task_id": "X-0195",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/notes_services.py:convert_delivery_challan; backend/sales/models.py:SalesInvoice",
+  "reason": "convert_delivery_challan builds a sales invoice from the challan; completing it posts GL and tax."
+ },
+ {
+  "task_id": "X-0196",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/cogs_service.py:CogsService; backend/inventory/models.py:StockMovement",
+  "reason": "Invoice completion posts append-only StockMovement rows of type SALE (named SALE, not OUTWARD_SALE)."
+ },
+ {
+  "task_id": "X-0199",
+  "verdict": "Confirmed",
+  "evidence": "backend/payments/services.py:create_receipt; backend/payments/models.py:CustomerReceipt",
+  "reason": "create_receipt writes a CustomerReceipt with mode, reference and date, and posts to the ledger."
+ },
+ {
+  "task_id": "X-0200",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:post_receipt; backend/accounting/services.py:post_receipt_allocation",
+  "reason": "Receipt posts to the bank/cash ledger and allocation moves advances to AR, reducing customer outstanding."
+ },
+ {
+  "task_id": "X-0202",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/services.py:customer_exposure_for_credit_limit; backend/sales/order_gates.py:apply_order_gates",
+  "reason": "Credit limit is checked against ledger exposure at invoice and order confirm; blocks unless an owner supplies override reason."
+ },
+ {
+  "task_id": "X-0203",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:ReportService; backend/ledgers/services.py:LedgerService",
+  "reason": "receivables_aging buckets open invoices by due_date on demand; there is no scheduled recalculation, but ageing updates correctly."
+ },
+ {
+  "task_id": "X-0204",
+  "verdict": "Confirmed",
+  "evidence": "backend/insights/alerts.py:build_business_alerts; backend/insights/models.py:BusinessAlertEvent",
+  "reason": "AR_OVERDUE_CRITICAL alert is upserted as BusinessAlertEvent; it is portfolio level, not per customer threshold."
+ },
+ {
+  "task_id": "X-0205",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:SalesReturn; backend/sales/return_service.py:ReturnService",
+  "reason": "SalesReturn is created DRAFT against an invoice with reason and item lines."
+ },
+ {
+  "task_id": "X-0208",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/return_service.py:ReturnService; backend/reporting/gst_returns.py:build_gstr1",
+  "reason": "Completing a return auto-creates a credit note; GSTR-1 builder includes credit notes as CDNR and reduces tax."
+ },
+ {
+  "task_id": "X-0209",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/services.py:post_receipt_refund; backend/payments/services.py:refund_gateway_payment",
+  "reason": "Refund posting exists for receipts and gateway payments; no refund workflow tied directly to a sales credit note found."
+ },
+ {
+  "task_id": "X-0210",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/audit.py:record_edited_document_event; backend/sales/services.py:record_document_event",
+  "reason": "Edits and amendments to completed documents write audit events with old and new totals."
+ },
+ {
+  "task_id": "X-0369",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/models.py:SalesReturn; backend/sales/return_service.py:ReturnService",
+  "reason": "SalesReturn is created DRAFT linked to the original invoice with a reason field."
+ },
+ {
+  "task_id": "X-0370",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched mobile return request; mobile/ holds only Capacitor wrapper, no src",
+  "reason": "No mobile return request form with photo and reason code exists."
+ },
+ {
+  "task_id": "X-0371",
+  "verdict": "Partial",
+  "evidence": "backend/complaints/models.py:Complaint; backend/complaints/services.py:transition_status",
+  "reason": "Manager approval exists only as Complaint APPROVED status; SalesReturn has DRAFT/COMPLETED/CANCELLED with no APPROVED state."
+ },
+ {
+  "task_id": "X-0372",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched return intake, receiving in backend/sales/return_service.py",
+  "reason": "No physical return intake step; stock is restored directly when the return is completed."
+ },
+ {
+  "task_id": "X-0373",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:SalesReturnItem",
+  "reason": "SalesReturnItem has condition SELLABLE or DAMAGED set on the return; no separate inspection step and no EXPIRED grade."
+ },
+ {
+  "task_id": "X-0374",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/cogs_service.py:restore_return_stock_and_cogs; backend/inventory/models.py:StockMovement",
+  "reason": "Completing a return posts SALES_RETURN stock movements that increase StockBalance for sellable items."
+ },
+ {
+  "task_id": "X-0375",
+  "verdict": "Partial",
+  "evidence": "backend/sales/cogs_service.py:restore_return_stock_and_cogs",
+  "reason": "Damaged units are written off via an ADJUSTMENT movement reason DAMAGED; no transfer to a damaged warehouse bin."
+ },
+ {
+  "task_id": "X-0378",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/return_service.py:ReturnService; backend/reporting/gst_returns.py:build_gstr1",
+  "reason": "Return completion creates a credit note feeding GSTR-1 CDNR and reversing tax in GL."
+ },
+ {
+  "task_id": "X-0379",
+  "verdict": "Confirmed",
+  "evidence": "backend/complaints/services.py:create_complaint; backend/support/tickets.py:create_ticket",
+  "reason": "Complaint and support Ticket creation exist with unique numbers, narrative and priority (models named Ticket/Complaint, not SupportTicket)."
+ },
+ {
+  "task_id": "X-0380",
+  "verdict": "Partial",
+  "evidence": "backend/support/tickets.py:tickets_past_sla_q; backend/support/models.py:Ticket",
+  "reason": "Tickets have priority and SLA breach counting, but no escalate action setting CRITICAL or notifying the owner."
+ },
+ {
+  "task_id": "X-0382",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched warranty, serial warranty lookup; warranty only a contract type in backend/contracts/models.py",
+  "reason": "No serial-to-invoice warranty expiry lookup exists."
+ },
+ {
+  "task_id": "X-0383",
+  "verdict": "Confirmed",
+  "evidence": "backend/workshop/models.py:JobCard; backend/workshop/services.py:convert_to_invoice",
+  "reason": "JobCard with PART and LABOUR lines; spare parts reduce stock when the job converts to a sales invoice."
+ },
+ {
+  "task_id": "X-0384",
+  "verdict": "Partial",
+  "evidence": "backend/contracts/tasks.py:refresh_contract_statuses",
+  "reason": "Task only updates contract status to expiring based on renewal_reminder_days; no renewal quotation or CRM follow-up is created."
+ },
+ {
+  "task_id": "X-0433",
+  "verdict": "Partial",
+  "evidence": "backend/sales/services.py:missing_hsn; backend/core/validators.py:validate_gstin",
+  "reason": "Server rejects missing HSN and bad GSTIN with messages, but field-level highlighting is not established."
+ },
+ {
+  "task_id": "X-0435",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/validators.py:validate_gstin; backend/core/validators.py:_gstin_checksum_ok",
+  "reason": "validate_gstin checks structure and checksum on the server; web also validates GSTIN."
+ },
+ {
+  "task_id": "X-0437",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/idempotency.py:IdempotencyRecord; backend/sales/views.py:SalesInvoiceViewSet",
+  "reason": "Sales and payment endpoints honour the Idempotency-Key header with durable records returning the first result."
+ },
+ {
+  "task_id": "X-0538",
+  "verdict": "Partial",
+  "evidence": "backend/sales/route_combine.py:combine_suggestions; backend/sales/models.py:DeliveryRoute",
+  "reason": "DeliveryRoute plus a pincode-based combine suggestion exist; no DispatchRun model or automatic grouping into runs."
+ },
+ {
+  "task_id": "X-0539",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched max_payload, capacity, gross_weight, payload in backend/sales, masters",
+  "reason": "No vehicle payload or weight/volume validation of a route load."
+ },
+ {
+  "task_id": "X-0540",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/route_service.py:RouteService; backend/sales/route_service.py:suggest_stop_sequence",
+  "reason": "suggest_stop_sequence and apply_stop_sequence order stops on a DeliveryRoute; arrival windows not verified."
+ },
+ {
+  "task_id": "X-0541",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py:set_stop_status",
+  "reason": "POD captures received-by name, OTP, photo and timestamp on the route stop; no signature bitmap or GPS and not stored on DeliveryChallan."
+ },
+ {
+  "task_id": "X-0542",
+  "verdict": "Partial",
+  "evidence": "backend/sales/route_service.py:set_stop_status; backend/sales/models.py:DeliveryRouteStop",
+  "reason": "A stop can link a CustomerReceipt collected at delivery; no driver-custody tracking, dynamic QR or WhatsApp confirmation tied to it found."
+ },
+ {
+  "task_id": "X-0543",
+  "verdict": "Partial",
+  "evidence": "backend/sales/route_service.py:complete_route; backend/sales/route_views.py:DeliveryChallanReturnViewSet",
+  "reason": "Routes complete and challan returns restore stock, but no driver cash settlement or till reconciliation exists."
+ },
+ {
+  "task_id": "X-0544",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/route_profit_service.py:compute_route_financials; backend/sales/route_service.py:complete_route",
+  "reason": "Route profit equals realized revenue minus COGS minus actual logistics cost; fuel and depreciation are not separate inputs."
+ },
+ {
+  "task_id": "X-0702",
+  "verdict": "Partial",
+  "evidence": "backend/sales/order_gates.py:apply_order_gates; backend/sales/order_gates.py:copy_credit_override",
+  "reason": "Owner override with reason is stamped on the order and invoice; no time-limited token, WhatsApp approval request or 15-minute expiry."
+ },
+ {
+  "task_id": "X-0708",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/pos/PosPage.tsx:lastCompletedSaleRef",
+  "reason": "F11 or Ctrl+Alt+P reprints the last completed sale without recreating it; no DUPLICATE COPY header on the thermal receipt."
+ },
+ {
+  "task_id": "X-0714",
+  "verdict": "Partial",
+  "evidence": "backend/sales/models.py:DeliveryRouteStop; backend/sales/route_service.py:set_stop_status",
+  "reason": "Stop can be set FAILED, which leaves stock reserved; no reason code or driver custody transfer back to godown."
+ },
+ {
+  "task_id": "UX-0596",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched type-to-confirm, confirmPhrase, DELETE typing in web/src/components/ConfirmDialog.tsx",
+  "reason": "ConfirmDialog has no typed-confirmation input; no type-DELETE flow found."
+ }
+]

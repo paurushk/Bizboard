@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "X-0285",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr1; backend/reporting/views.py:Gstr1View",
+  "reason": "build_gstr1 compiles B2B, B2CL, B2CS, CDNR and HSN tables from completed invoices in the period."
+ },
+ {
+  "task_id": "X-0287",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr1; backend/reporting/gst_returns.py:build_gstr3b",
+  "reason": "Completed sales credit notes go into the cdnr section of GSTR-1 and net down output tax in GSTR-3B."
+ },
+ {
+  "task_id": "X-0288",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr3b; backend/reporting/gst_returns.py:_gst_purchase_credit_notes",
+  "reason": "Purchase credit/debit notes adjust inward taxable value and ITC in build_gstr3b; the 4(B) section itself is left as manual review."
+ },
+ {
+  "task_id": "X-0291",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:classify_and_match; backend/reporting/gstr2b.py:match_gstr2b_to_purchases",
+  "reason": "Books purchases are matched to GSTR-2B/IMS rows by GSTIN, number, date and tax, with match classes such as exact and value_mismatch."
+ },
+ {
+  "task_id": "X-0292",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:apply_ims_action; backend/reporting/gstr2b.py:claimable_itc_from_2b",
+  "reason": "ACCEPT is stored on the row and only ACCEPT-ed matched rows enter the claimable ITC pool."
+ },
+ {
+  "task_id": "X-0293",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:apply_ims_action; backend/reporting/ims.py:supplier_defect_message",
+  "reason": "REJECT requires a remark, marks the row and invoice INELIGIBLE and reclasses ITC; supplier message is generated for sending, not sent automatically."
+ },
+ {
+  "task_id": "X-0294",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/ims.py:apply_ims_action",
+  "reason": "PENDING is recorded and excluded from claimable ITC, but no explicit roll-forward of eligibility to the next period exists."
+ },
+ {
+  "task_id": "X-0295",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gstr2b.py:claimable_itc_from_2b; backend/reporting/gst_returns.py:build_gstr3b",
+  "reason": "build_gstr3b takes claimable ITC from matched, accepted GSTR-2B rows."
+ },
+ {
+  "task_id": "X-0296",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/gstr2b.py:claimable_itc_from_2b; backend/reporting/ims.py:apply_ims_action",
+  "reason": "Rejected rows are INELIGIBLE and excluded by the claimable_itc_from_2b filters."
+ },
+ {
+  "task_id": "X-0297",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:classify_and_match; backend/reporting/chase.py:list_missing_documents",
+  "reason": "classify_and_match counts and lists books invoices missing in IMS; chase module handles rows missing in books."
+ },
+ {
+  "task_id": "X-0298",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:classify_and_match; backend/reporting/gstr2b.py:match_gstr2b_to_purchases",
+  "reason": "VALUE_MISMATCH class is assigned when taxable or tax amounts differ between books and 2B."
+ },
+ {
+  "task_id": "X-0300",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:supplier_scorecard; backend/reporting/ims.py:supplier_po_nudge",
+  "reason": "Scorecard counts mismatches and rejections per supplier GSTIN and feeds a PO-picker nudge."
+ },
+ {
+  "task_id": "X-0301",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:expiring_itc_rows; backend/reporting/ims.py:send_itc_expiry_digests; backend/insights/attention.py:_itc_and_gst_rows",
+  "reason": "Section 16(4) deadline stored per row; expiring ITC drives an email digest and an attention row."
+ },
+ {
+  "task_id": "X-0302",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/ims.py:credit_at_risk; backend/reporting/views.py:Gstr2bIngestViewSet; backend/insights/attention.py:_itc_and_gst_rows",
+  "reason": "credit_at_risk aggregates unresolved and expiring ITC, served by ims-summary and surfaced in attention rows."
+ },
+ {
+  "task_id": "X-0303",
+  "verdict": "Partial",
+  "evidence": "backend/core/models.py:MoneyFieldAudit; backend/core/models.py:AuditEvent; backend/core/models.py:StatutoryDocumentEvent",
+  "reason": "Append-only logs record user, old and new money values and statutory events, but no reason field and not all GST data edits are covered."
+ },
+ {
+  "task_id": "X-0304",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:build_gstr1; backend/reporting/gst_returns.py:_worksheet_register_tie",
+  "reason": "Worksheet rows carry invoice numbers and document_id, but no dedicated bidirectional drill-down from return totals to ledgers."
+ },
+ {
+  "task_id": "X-0305",
+  "verdict": "Partial",
+  "evidence": "backend/insights/attention.py:dismiss_attention_row; backend/insights/attention.py:snooze_attention_row; backend/insights/models.py:AttentionRowState",
+  "reason": "Exceptions can be dismissed or snoozed, but no RESOLVED status with re-run of validation and return-pool inclusion."
+ },
+ {
+  "task_id": "X-0306",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:_worksheet_register_tie; backend/reporting/gst_returns.py:content_hash",
+  "reason": "Worksheet totals are tied to sales/purchase registers and hashed, not cross-checked against GL tax accounts."
+ },
+ {
+  "task_id": "X-0424",
+  "verdict": "Partial",
+  "evidence": "backend/core/models.py:MoneyFieldAudit; backend/core/models.py:log_money_change; backend/core/models.py:AuditEvent",
+  "reason": "User, old and new value are logged append-only for four money fields; no reason captured and the log is AuditEvent/MoneyFieldAudit, not ActivityLog."
+ },
+ {
+  "task_id": "X-0432",
+  "verdict": "Partial",
+  "evidence": "backend/core/models.py:AuditEvent; backend/core/services/audit_chain.py:seal",
+  "reason": "AuditEvent is hash-chained and guarded against update/delete, but coverage of every critical transaction is not shown and SimpleHistory is not used."
+ },
+ {
+  "task_id": "X-0462",
+  "verdict": "Partial",
+  "evidence": "backend/imports/services.py:ImportService; backend/imports/services.py:_commit_customers",
+  "reason": "Bulk customer import with GSTIN validation, preview and duplicate skip exists; credit limit is not imported."
+ },
+ {
+  "task_id": "X-0463",
+  "verdict": "Partial",
+  "evidence": "backend/imports/services.py:ImportService; backend/imports/services.py:_commit_suppliers",
+  "reason": "Supplier import with GSTIN validation and duplicate skip exists; payment terms are not imported."
+ },
+ {
+  "task_id": "X-0464",
+  "verdict": "Confirmed",
+  "evidence": "backend/imports/services.py:_commit_products; backend/imports/services.py:_validate_row",
+  "reason": "Product import validates SKU, barcode and HSN and commits all-or-nothing; opening stock handled in same flow."
+ },
+ {
+  "task_id": "X-0465",
+  "verdict": "Confirmed",
+  "evidence": "backend/imports/services.py:_commit_opening_stock; backend/imports/services.py:_post_opening_items; backend/inventory/services.py:InventoryService",
+  "reason": "Opening stock rows create opening movements and balances via InventoryService and post to GL with PostingService.post_opening_stock."
+ },
+ {
+  "task_id": "X-0466",
+  "verdict": "Partial",
+  "evidence": "backend/integrations/tally/adapter.py:_create_opening_sales; backend/integrations/tally/adapter.py:parse_tally_masters_rows",
+  "reason": "Opening receivables load only through the Tally migration path as opening invoices; no customer-balances import kind in the imports module."
+ },
+ {
+  "task_id": "X-0467",
+  "verdict": "Partial",
+  "evidence": "backend/integrations/tally/adapter.py:_create_opening_purchase; backend/integrations/tally/adapter.py:parse_tally_masters_rows",
+  "reason": "Opening payables load only through the Tally migration path; no supplier-balances import kind in the imports module."
+ },
+ {
+  "task_id": "X-0468",
+  "verdict": "Partial",
+  "evidence": "backend/imports/services.py:_commit_sales; backend/imports/models.py:ImportJob",
+  "reason": "SALES_BILL import creates sales invoices through the normal path; no legacy flag or forced CLOSED status for historical invoices."
+ },
+ {
+  "task_id": "X-0469",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/views.py:Gstr2bIngestViewSet; backend/reporting/ims_offline.py:import_offline",
+  "reason": "GSTR-2B rows can be ingested via upload and offline import; no GSTR-1 JSON import and the schema is not clearly the portal format."
+ },
+ {
+  "task_id": "X-0470",
+  "verdict": "Confirmed",
+  "evidence": "backend/imports/services.py:ImportService; backend/imports/services.py:_validate_row",
+  "reason": "Upload runs validate to PREVIEWED with per-row errors before commit is allowed."
+ },
+ {
+  "task_id": "X-0471",
+  "verdict": "Partial",
+  "evidence": "backend/imports/services.py:_commit_customers; backend/imports/services.py:_validate_row",
+  "reason": "Duplicates are detected and skipped with reporting; no prompt to overwrite or abort."
+ },
+ {
+  "task_id": "X-0472",
+  "verdict": "Partial",
+  "evidence": "backend/imports/services.py:ImportService; backend/imports/views.py:ImportJobViewSet",
+  "reason": "Customers, suppliers and opening stock commit valid rows with an error report; products block the whole job on any error."
+ },
+ {
+  "task_id": "X-0473",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/views.py:ExportView; backend/reporting/views.py:EXPORTS",
+  "reason": "sales-register export (CSV/XLSX) uses ReportService.sales_register with date, customer and status filters."
+ },
+ {
+  "task_id": "X-0474",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/views.py:ExportView; backend/reporting/views.py:EXPORTS",
+  "reason": "purchase-register export (CSV/XLSX) uses ReportService.purchase_register with date, supplier and status filters."
+ },
+ {
+  "task_id": "X-0475",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/views.py:EXPORTS; backend/reporting/services.py:ReportService",
+  "reason": "inventory-summary export exists; batch lot, expiry and warehouse breakdown are not clearly in the export columns."
+ },
+ {
+  "task_id": "X-0476",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/views.py:GstReturnView; backend/reporting/gst_returns.py:to_gstn_json; backend/reporting/gst_returns.py:gstr_return_to_xlsx",
+  "reason": "GSTR-1/3B/CMP-08 worksheets export as XLSX and a flag-gated GSTN-shaped JSON, described as not a portal upload file."
+ },
+ {
+  "task_id": "X-0477",
+  "verdict": "Partial",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:CustomerLedgerDetailView",
+  "reason": "Customer statement with running balance is served as data; no PDF or Excel statement export found."
+ },
+ {
+  "task_id": "X-0478",
+  "verdict": "Partial",
+  "evidence": "backend/ledgers/services.py:LedgerService; backend/ledgers/views.py:SupplierLedgerDetailView",
+  "reason": "Supplier statement is served as data; no PDF or Excel statement export found."
+ },
+ {
+  "task_id": "X-0479",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/views.py:AccountingReportView; backend/integrations/tally/adapter.py:_vouchers_xml",
+  "reason": "Trial balance exports to XLSX; Tally XML covers only open sales invoices and masters, not a full ledger voucher export."
+ },
+ {
+  "task_id": "X-0480",
+  "verdict": "Confirmed",
+  "evidence": "backend/imports/services.py:_commit_customers; backend/imports/services.py:_commit_products",
+  "reason": "Imports write directly to Customer, Product and opening-stock tables, so entities are queryable by all modules; no cache refresh needed."
+ },
+ {
+  "task_id": "X-0481",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/views.py:ExportView; backend/reporting/services.py:ReportService",
+  "reason": "Exports call the same ReportService.sales_register/purchase_register methods that the register screens use."
+ },
+ {
+  "task_id": "X-0482",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shift close, ShiftClose, z-report, shift in backend and web/src/pages/pos",
+  "reason": "No POS shift or day-close model, view or screen exists in code."
+ },
+ {
+  "task_id": "X-0483",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched denomination, cash drawer, shift in backend and web/src",
+  "reason": "No cash denomination counter or shift variance calculation exists."
+ },
+ {
+  "task_id": "X-0484",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shift, settlement reconciliation, EDC in backend and web/src/pages/pos",
+  "reason": "No POS card/UPI settlement reconciliation step on a shift close exists."
+ },
+ {
+  "task_id": "X-0486",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/invoice_profit_service.py; backend/reporting/views.py:InvoiceProfitRollupView; backend/reporting/services.py:ReportService",
+  "reason": "Realised margin (revenue minus COGS) is stored per invoice and rolled up by date range; the dashboard has no daily margin snapshot."
+ },
+ {
+  "task_id": "X-0487",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/transactions.py:day_book; backend/reporting/services.py:ReportService",
+  "reason": "Day book shows PAYMENT_IN inflow for a date; no collections summary widget or month-to-date collection target."
+ },
+ {
+  "task_id": "X-0488",
+  "verdict": "Contradicted",
+  "evidence": "backend/inventory/views.py:StockMovementViewSet",
+  "reason": "Only a raw stock-movement list exists; no daily received/sold/transferred summary report found."
+ },
+ {
+  "task_id": "X-0489",
+  "verdict": "Partial",
+  "evidence": "backend/insights/models.py:AttentionRowState; backend/insights/attention.py:build_attention_rows",
+  "reason": "Attention feed with dismiss/snooze exists, but rows cover GST, overdue, expiry and similar items, not cancellations, discounts or shortages."
+ },
+ {
+  "task_id": "X-0490",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/services.py:BooksHealthService; backend/accounting/services.py:control_balances",
+  "reason": "DOCS_GL_AR_MISMATCH compares invoice outstanding to GL AR; no sales revenue, tax and round-off reconciliation report."
+ },
+ {
+  "task_id": "X-0491",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/services.py:BooksHealthService; backend/accounting/services.py:control_balances",
+  "reason": "DOCS_GL_AP_MISMATCH compares bills to GL AP; no check against inventory asset or expense accounts."
+ },
+ {
+  "task_id": "X-0492",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/views.py:BankReconSessionViewSet; backend/accounting/services.py:BooksHealthService",
+  "reason": "Bank reconciliation sessions and advance-vs-GL checks exist; no daily payment clearing-account-to-zero reconciliation."
+ },
+ {
+  "task_id": "X-0493",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/models.py:AccountingPeriod; backend/reporting/gst_periods.py:assert_period_allows_money_amend; backend/accounting/views.py:PeriodViewSet",
+  "reason": "Period status CLOSED/SOFT_CLOSED (not an is_closed field) blocks posting and money amends via the shared guard."
+ },
+ {
+  "task_id": "X-0494",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_returns.py:persist_snapshot; backend/reporting/gst_periods.py:assert_period_allows_money_amend",
+  "reason": "Period locks stop back-dated postings and GST returns get hashed snapshots; no stored snapshot of P&L or balance sheet."
+ },
+ {
+  "task_id": "X-0513",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/einvoice_eway_actions.py:InvoiceEinvoiceEwayActionsMixin; backend/sales/eway_payload.py:build_eway_payload_from_invoice; backend/core/services/gsp_adapters.py:LiveEwayAdapter",
+  "reason": "prepare-eway and submit-eway build the payload and call a GSP adapter; 50,000 threshold warns at invoice completion."
+ },
+ {
+  "task_id": "X-0514",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched update vehicle, UpdVeh, Part B, transporter update in backend/sales and backend/core",
+  "reason": "No Part B vehicle update action exists; only prepare, submit and cancel for e-way bills."
+ },
+ {
+  "task_id": "X-0515",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched extend validity, extend_eway, EXTEND in backend/sales and backend/core",
+  "reason": "No e-way bill validity extension action exists."
+ },
+ {
+  "task_id": "X-0516",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/einvoice_eway_actions.py:InvoiceEinvoiceEwayActionsMixin; backend/sales/einvoice_payload.py; backend/core/services/gsp_adapters.py:LiveIrpAdapter",
+  "reason": "submit-einvoice builds the IRN payload, calls the IRP adapter and stores IRN, ack and signed QR."
+ },
+ {
+  "task_id": "X-0517",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/pdf/gst_tax_invoice.py",
+  "reason": "Invoice PDF renders the stored signed e-invoice QR and IRN text when status is GENERATED."
+ },
+ {
+  "task_id": "X-0518",
+  "verdict": "Confirmed",
+  "evidence": "backend/sales/einvoice_eway_actions.py:_cancel_irn_via_gsp; backend/sales/einvoice_eway_actions.py:InvoiceEinvoiceEwayActionsMixin",
+  "reason": "cancel-einvoice requires a reason, enforces the 24-hour window and sets einvoice_status CANCELLED."
+ },
+ {
+  "task_id": "X-0519",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched 194Q, cumulative purchases, tds_section in purchases, accounting, masters",
+  "reason": "TDS on purchases is a manually entered rate/amount; no 194Q threshold engine tracking cumulative vendor purchases."
+ },
+ {
+  "task_id": "X-0520",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/tds_worksheets.py:tds_worksheet_rows; backend/reporting/views.py",
+  "reason": "26Q is only a CSV worksheet aid by period; no NSDL text file, BSR/challan handling or Form 16A certificates."
+ }
+]

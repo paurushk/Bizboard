@@ -39,6 +39,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "write_blocked",
             "churn_reason",
             "suspended_at",
+            "last_dunning_step",
         )
 
     def get_write_blocked(self, obj) -> bool:

@@ -5,7 +5,7 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from core.models import CompanyScopedModel
+from core.models import AliveManager, CompanyScopedModel, SoftDeleteFields
 
 
 class MovementType(models.TextChoices):
@@ -37,19 +37,28 @@ MOVEMENT_SIGN = {
 }
 
 
-class Warehouse(CompanyScopedModel):
+class Warehouse(SoftDeleteFields, CompanyScopedModel):
     """A company stock location. Every company owns one default location."""
 
     name = models.CharField(max_length=100)
     code = models.CharField(max_length=32)
     address = models.TextField(blank=True)
+    contact_name = models.CharField(max_length=100, blank=True)
+    contact_phone = models.CharField(max_length=20, blank=True)
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
 
+    objects = AliveManager()
+    all_objects = models.Manager()
+
     class Meta:
+        base_manager_name = "all_objects"
         ordering = ["name"]
         constraints = [
-            models.UniqueConstraint(fields=["company", "code"], name="uniq_warehouse_code_per_company"),
+            models.UniqueConstraint(
+                fields=["company", "code"], condition=models.Q(is_deleted=False),
+                name="uniq_warehouse_code_per_company",
+            ),
             models.UniqueConstraint(
                 fields=["company"], condition=models.Q(is_default=True),
                 name="one_default_warehouse_per_company",
@@ -58,6 +67,9 @@ class Warehouse(CompanyScopedModel):
 
     def __str__(self):
         return self.name
+
+    def is_referenced(self):
+        return self.stock_movements.exists() or self.sales_invoices.exists()
 
 
 class BatchLot(CompanyScopedModel):
@@ -185,7 +197,7 @@ class StockBalance(models.Model):
 
     company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="stock_balances")
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_balances")
-    product = models.ForeignKey("masters.Product", on_delete=models.CASCADE, related_name="stock_balances")
+    product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="stock_balances")
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_balances")
     on_hand = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
     reserved = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
@@ -210,9 +222,27 @@ class StockBalance(models.Model):
         return self.on_hand - self.reserved
 
 
+class StockReservation(CompanyScopedModel):
+    """Timed hold created by reserve_stock. A beat task releases rows past expires_at."""
+
+    warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_reservations")
+    product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="stock_reservations")
+    batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_reservations")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    expires_at = models.DateTimeField(db_index=True)
+    released_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["company", "released_at", "expires_at"], name="inv_reserve_expiry_idx"),
+        ]
+
+
 class StockTransfer(CompanyScopedModel):
     class Status(models.TextChoices):
         DRAFT = "DRAFT"
+        DISPATCHED = "DISPATCHED"
         COMPLETED = "COMPLETED"
         CANCELLED = "CANCELLED"
 
@@ -220,6 +250,7 @@ class StockTransfer(CompanyScopedModel):
     from_warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="outgoing_transfers")
     to_warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="incoming_transfers")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    transfer_date = models.DateField(default=timezone.localdate)
     notes = models.TextField(blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
@@ -247,6 +278,8 @@ class StockTransferLine(models.Model):
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
     serial_numbers = models.JSONField(default=list, blank=True)
+    shortage_qty = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    shortage_reason = models.CharField(max_length=255, blank=True)
 
     def save(self, *args, **kwargs):
         if self.transfer_id and not self.company_id:
@@ -324,6 +357,10 @@ class StockCountSession(CompanyScopedModel):
 
     warehouse = models.ForeignKey(Warehouse, on_delete=models.PROTECT, related_name="stock_counts")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
+    blind = models.BooleanField(
+        default=False,
+        help_text="When set, counter responses omit the expected quantity until review.",
+    )
     counted_on = models.DateField(null=True, blank=True)
     notes = models.TextField(blank=True)
     posted_at = models.DateTimeField(null=True, blank=True)

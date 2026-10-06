@@ -29,6 +29,12 @@ export type DateRangePresetId =
   | 'last15'
   | 'thisMonth'
   | 'last365'
+  | 'currentFY'
+  | 'previousFY'
+  | 'q1'
+  | 'q2'
+  | 'q3'
+  | 'q4'
   | 'custom';
 
 export const DATE_RANGE_PRESET_IDS: DateRangePresetId[] = [
@@ -36,6 +42,12 @@ export const DATE_RANGE_PRESET_IDS: DateRangePresetId[] = [
   'thisWeek',
   'last15',
   'thisMonth',
+  'currentFY',
+  'previousFY',
+  'q1',
+  'q2',
+  'q3',
+  'q4',
   'last365',
   'custom',
 ];
@@ -68,6 +80,24 @@ export function dateRangeForPreset(id: DateRangePresetId, now = new Date()): { d
     from.setDate(from.getDate() - offset);
     return { dateFrom: isoDate(from), dateTo: to };
   }
+  const fyStartYear = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  if (id === 'currentFY') {
+    return { dateFrom: isoDate(new Date(fyStartYear, 3, 1)), dateTo: isoDate(new Date(fyStartYear + 1, 2, 31)) };
+  }
+  if (id === 'previousFY') {
+    return { dateFrom: isoDate(new Date(fyStartYear - 1, 3, 1)), dateTo: isoDate(new Date(fyStartYear, 2, 31)) };
+  }
+  const quarterStart: Record<'q1' | 'q2' | 'q3' | 'q4', [number, number]> = {
+    q1: [fyStartYear, 3],
+    q2: [fyStartYear, 6],
+    q3: [fyStartYear, 9],
+    q4: [fyStartYear + 1, 0],
+  };
+  if (id === 'q1' || id === 'q2' || id === 'q3' || id === 'q4') {
+    const [year, month] = quarterStart[id];
+    const end = new Date(year, month + 3, 0);
+    return { dateFrom: isoDate(new Date(year, month, 1)), dateTo: isoDate(end) };
+  }
   // thisMonth
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   return { dateFrom: isoDate(from), dateTo: to };
@@ -83,6 +113,7 @@ type Props = {
   bulkSelectedCount?: number;
   bulkActions?: ReactNode;
   onClearBulk?: () => void;
+  party?: ReactNode;
 };
 
 export function HistoryFilterBar({
@@ -95,6 +126,7 @@ export function HistoryFilterBar({
   bulkSelectedCount = 0,
   bulkActions,
   onClearBulk,
+  party,
 }: Props) {
   const set = (patch: Partial<HistoryFilters>) => onChange({ ...value, ...patch });
 
@@ -139,6 +171,7 @@ export function HistoryFilterBar({
           ))}
         </Stack>
       ) : null}
+      {party}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
         <TextField
           size="small"

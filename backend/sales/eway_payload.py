@@ -98,6 +98,15 @@ def _from_pincode(company, stamp=None) -> int:
     raise BusinessRuleError("Company pincode is required (6 digits) for e-Way Bill.")
 
 
+def _is_export_eway(document) -> bool:
+    """Export / SEZ outward supplies use NIC's overseas PIN, not the buyer PIN."""
+    if str(getattr(document, "sub_supply_type", "") or "") == "3":
+        return True
+    from core.services.place_of_supply import is_export_or_sez_supply
+
+    return is_export_or_sez_supply(getattr(document, "supply_type", ""))
+
+
 def _buyer_pincode(customer) -> int:
     """Require a real 6-digit buyer PIN (never invent 0)."""
     raw = (
@@ -143,7 +152,11 @@ def _validate_company_party(company, errors: list[str], *, seller_gstin: str = "
     return _state_code(gstin, state, "Company", errors)
 
 
-def _validate_customer_party(customer, errors: list[str]) -> str | None:
+def _validate_customer_party(customer, errors: list[str], *, export_supply: bool = False) -> str | None:
+    if export_supply:
+        if not (customer.billing_address or customer.shipping_address or "").strip():
+            errors.append("Customer address is required.")
+        return "99"
     # BB-000430: B2C/URP allowed without GSTIN; GSTIN required only when present path is B2B.
     if customer.gstin:
         return _state_code(customer.gstin, customer.state, "Customer", errors)
@@ -206,7 +219,7 @@ def validate_eway_from_invoice(invoice: SalesInvoice) -> list[str]:
         invoice.company.gstin or ""
     )
     _validate_company_party(invoice.company, errors, seller_gstin=seller_gstin, stamp=stamp)
-    _validate_customer_party(invoice.customer, errors)
+    _validate_customer_party(invoice.customer, errors, export_supply=_is_export_eway(invoice))
     items = list(invoice.items.select_related("product").all())
     if not items:
         errors.append("Invoice must have at least one line item.")
@@ -287,7 +300,10 @@ def build_eway_payload_from_invoice(
     if distance is None:
         raise EwayValidationError(["transport_distance_km is required for e-Way Bill."])
     trans_distance = str(int(distance))
-    to_pin = _buyer_pincode(customer)
+    export_supply = _is_export_eway(invoice)
+    to_pin = 999999 if export_supply else _buyer_pincode(customer)
+    if export_supply:
+        to_stcd = "99"
     from_pin = _from_pincode(company, stamp)
     sub_supply = str(invoice.sub_supply_type or "1")
     trans_mode = str(invoice.trans_mode or "1")
@@ -308,7 +324,7 @@ def build_eway_payload_from_invoice(
         "fromPlace": company.city or company.state or "",
         "fromPincode": from_pin,
         "fromStateCode": int(from_stcd) if from_stcd.isdigit() else 0,
-        "toGstin": (customer.gstin or "").strip() or "URP",
+        "toGstin": "URP" if export_supply else ((customer.gstin or "").strip() or "URP"),
         "toTrdName": customer.name,
         "toAddr1": (customer.shipping_address or customer.billing_address or "").strip(),
         "toPlace": customer.state or "",

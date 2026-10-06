@@ -203,12 +203,12 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
           <TextField
             select
             size="small"
-            label="Company GSTIN"
+            label={t('sweep.companyGstin')}
             value={companyGstin}
             onChange={(e) => setCompanyGstin(e.target.value)}
             sx={{ minWidth: 180 }}
           >
-            <MenuItem value="">All / primary</MenuItem>
+            <MenuItem value="">{t('sweep2.allPrimary')}</MenuItem>
             {(gstins.data ?? []).map((row) => (
               <MenuItem key={row.id} value={String(row.id)}>
                 {row.gstin}
@@ -420,6 +420,7 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
         <Typography variant="body2">{t('gstHonesty.stubBody')}</Typography>
       </Alert>
+      <Button component={RouterLink} to="/reports/gstr1" variant="contained">{t('gstHonesty.openGstr1')}</Button>
     </Stack>
   );
 }
@@ -519,7 +520,7 @@ function Gstr4WorksheetPage() {
           label={t('reports.fy')}
           value={fy}
           onChange={(e) => setFy(e.target.value)}
-          helperText="e.g. 2025-26"
+          helperText={t('sweep.fyExample')}
           disabled={!isComposition}
         />
       </Stack>

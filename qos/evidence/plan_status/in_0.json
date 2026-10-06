@@ -1,0 +1,232 @@
+[
+ {
+  "WI ID": "WI-068",
+  "Register task": null,
+  "Work item": "Extend register_sync.py to score Vitest and Playwright results",
+  "Wave": 1,
+  "Scope (quality-first)": "Parse Vitest and Playwright JUnit, map web test file paths to register rows, unit-test the parser against real output.",
+  "Planned test file": "qos/tools/tests/test_register_sync_web.py",
+  "Kind": "tooling",
+  "Plan key": "REG-WEB"
+ },
+ {
+  "WI ID": "WI-001",
+  "Register task": "P-0115",
+  "Work item": "Maintain an audit trail",
+  "Wave": 1,
+  "Scope (quality-first)": "Audit event with actor, IP and before/after values on: sales invoice complete, cancel, amend; sales return; credit and debit notes; purchase invoice complete (books on and off); purchase return; customer receipt; supplier payment; journal post and reverse; stock adjustment, transfer, goods receipt; payroll finalise; period lock and reopen. One test per action; remove the xfails.",
+  "Planned test file": "backend/tests/test_register_audit_coverage.py",
+  "Kind": "feature",
+  "Plan key": "P-0115"
+ },
+ {
+  "WI ID": "WI-004",
+  "Register task": "C-0616",
+  "Work item": "Companies (Accounts) Rules Rule 3(1) and Rule 11(g) audit trail compliance certification",
+  "Wave": 1,
+  "Scope (quality-first)": "Delivered with P-0507: report certifying logging was never disabled.",
+  "Planned test file": "backend/tests/test_plan_c_0616.py",
+  "Kind": "feature",
+  "Plan key": "C-0616"
+ },
+ {
+  "WI ID": "WI-007",
+  "Register task": "S-0570",
+  "Work item": "Automated continuous WAL archiving and daily encrypted PostgreSQL pg_dump snapshot",
+  "Wave": 1,
+  "Scope (quality-first)": "Provider-specific design after DEC-HOST: WAL archiving and point-in-time recovery plus the daily encrypted dump, RPO 5 min and RTO 1 h by default, keys held in the provider key service. Restore drill into a non-production copy, timed.",
+  "Planned test file": "drill log in qos/evidence/ (restore or alert drill)",
+  "Kind": "infra drill",
+  "Plan key": "S-0570"
+ },
+ {
+  "WI ID": "WI-010",
+  "Register task": "SEC-0624",
+  "Work item": "Time-based One-Time Password (TOTP) two-factor authentication (2FA) for admin roles",
+  "Wave": 1,
+  "Scope (quality-first)": "Gap-fill, not a rebuild. Enforcement already defaults on in production and staging for OWNER and ACCOUNTANT, with first-login enrolment and recovery codes. There is no separate Admin role (OWNER is Owner/Admin) and no can_manage_users flag. Extend the same enforcement to any membership with can_post_journals (MANAGER by default). Leave SALES_STAFF, inventory staff, auditor and viewer out.",
+  "Planned test file": "backend/tests/test_mfa.py; backend/tests/test_mfa_mandatory.py; backend/tests/test_register_integrity_gaps.py (xfail test)",
+  "Kind": "feature",
+  "Plan key": "SEC-0624"
+ },
+ {
+  "WI ID": "WI-013",
+  "Register task": "SEC-0628",
+  "Work item": "Cryptographic AES-256 encryption for stored bank account numbers and tax credentials",
+  "Wave": 1,
+  "Scope (quality-first)": "AES-256-GCM with a key id for bank account numbers and tax-portal secrets; move existing gateway credentials off Fernet. IFSC stays plain. Batch migration of plaintext rows (reversible), last four digits kept for display. Keys from the host secret store.",
+  "Planned test file": "backend/tests/test_plan_sec_0628.py",
+  "Kind": "feature",
+  "Plan key": "SEC-0628"
+ },
+ {
+  "WI ID": "WI-016",
+  "Register task": "C-0602",
+  "Work item": "Section 16(2) CGST Act 4-condition statutory Input Tax Credit entitlement verification",
+  "Wave": 1,
+  "Scope (quality-first)": "Per-bill checklist: invoice held and goods received and 180-day payment are system-proven; supplier-paid-tax and return-filed are user-attested (GSTR-2B is outside the freeze). Unconfirmed bills warn and drop out of the claimable ITC summary; posting is not blocked. CA reviews wording.",
+  "Planned test file": "backend/tests/test_plan_c_0602.py",
+  "Kind": "feature",
+  "Plan key": "C-0602"
+ },
+ {
+  "WI ID": "WI-019",
+  "Register task": "P-0503",
+  "Work item": "Audit 2A/2B vs Books reconciliation and verify eligible vs blocked ITC",
+  "Wave": 1,
+  "Scope (quality-first)": "Add the blocked-credit classification to the existing 2A/2B reconciliation using uploaded 2B files. No new reconciliation, no GSTN call.",
+  "Planned test file": "backend/tests/test_plan_p_0503.py",
+  "Kind": "feature",
+  "Plan key": "P-0503"
+ },
+ {
+  "WI ID": "WI-022",
+  "Register task": "X-0530",
+  "Work item": "Handle bounced / dishonoured cheque: reverse invoice settlement, add bank fee, alert owner",
+  "Wave": 1,
+  "Scope (quality-first)": "Bounce voids the receipt, reverses allocations, debits the bank fee (amount from the bank memo, suggested Rs 500) to the customer and alerts the owner. GST on the recovery is a configurable flag, default off.",
+  "Planned test file": "backend/tests/test_plan_x_0530.py",
+  "Kind": "feature",
+  "Plan key": "X-0530"
+ },
+ {
+  "WI ID": "WI-025",
+  "Register task": "P-0128",
+  "Work item": "Approve important business actions",
+  "Wave": 1,
+  "Scope (quality-first)": "Queue for: credit-limit override, stock adjustment above threshold, invoice cancel or amend after completion, discount above threshold, return or credit note above threshold, backdated posting or period reopen, supplier payment above threshold, write-off, bulk import commit. Default approver Owner, configurable per action; no self-approval except a flagged Owner exception; 72 h expiry counts as rejected.",
+  "Planned test file": "backend/tests/test_plan_p_0128.py",
+  "Kind": "feature",
+  "Plan key": "P-0128"
+ },
+ {
+  "WI ID": "WI-028",
+  "Register task": "R-0636",
+  "Work item": "Sub-200ms POS billing checkout latency under continuous queue load",
+  "Wave": 1,
+  "Scope (quality-first)": "Benchmark harness and recorded baseline for POS checkout complete (tax, stock and ledger included): 2 vCPU 4 GB container, local Postgres, 20,000 SKUs, 3-line cart, p95. Runs on its own nightly job, never in the pull-request run.",
+  "Planned test file": "backend/perf/test_r_0636_benchmark.py (nightly job)",
+  "Kind": "perf",
+  "Plan key": "R-0636"
+ },
+ {
+  "WI ID": "WI-031",
+  "Register task": "C-0618",
+  "Work item": "E-Way Bill Part B vehicle update statutory time-limit and multi-vehicle consignment splitting",
+  "Wave": 1,
+  "Scope (quality-first)": "Part B time-limit alert and multi-vehicle split stored on the bill (stub action, GSP flag off).",
+  "Planned test file": "backend/tests/test_plan_c_0618.py",
+  "Kind": "feature",
+  "Plan key": "C-0618"
+ },
+ {
+  "WI ID": "WI-033",
+  "Register task": null,
+  "Work item": "Concurrent customer edits: field merge plus version check",
+  "Wave": 1,
+  "Scope (quality-first)": "PATCH merges changed fields under a row lock so concurrent edits of different fields both persist; PUT requires a version and a stale write returns 409 with the current value. Create the register row when starting. Remove the strict xfail in test_register_race_gaps.py.",
+  "Planned test file": "backend/tests/test_register_race_gaps.py; backend/tests/test_plan_cust_lock.py",
+  "Kind": "feature",
+  "Plan key": "CUST-LOCK"
+ },
+ {
+  "WI ID": "WI-035",
+  "Register task": null,
+  "Work item": "Wave 1 verification: full suite on Postgres, register sync, drift check, MVP gate review",
+  "Wave": 1,
+  "Scope (quality-first)": "Run the full backend suite on Postgres, register_sync.py and register_drift.py, recalculate the workbook and review every wave item against its pass condition.",
+  "Planned test file": null,
+  "Kind": "gate",
+  "Plan key": "VER-1"
+ },
+ {
+  "WI ID": "WI-038",
+  "Register task": "P-0081",
+  "Work item": "Transfer stock between godowns",
+  "Wave": 2,
+  "Scope (quality-first)": "In-transit location per transfer: dispatch moves source to in-transit, receipt moves it to destination; partial receipt with shortage or damage reason; no ledger entry for same-company, same-GSTIN transfers.",
+  "Planned test file": "backend/tests/test_plan_p_0081.py",
+  "Kind": "feature",
+  "Plan key": "P-0081"
+ },
+ {
+  "WI ID": "WI-041",
+  "Register task": "P-0180",
+  "Work item": "Configure branches/godowns",
+  "Wave": 2,
+  "Scope (quality-first)": "Users map to many warehouses with one default; contact person and phone required, email optional.",
+  "Planned test file": "backend/tests/test_plan_p_0180.py",
+  "Kind": "feature",
+  "Plan key": "P-0180"
+ },
+ {
+  "WI ID": "WI-044",
+  "Register task": "I-0651",
+  "Work item": "ESC/POS thermal receipt printer direct driver integration via USB, Bluetooth & Network",
+  "Wave": 2,
+  "Scope (quality-first)": "Network ESC/POS printer through a print bridge, with PDF fallback. Bluetooth deferred. Verified on a real network ESC/POS printer (for example Epson TM-T82) that you provide.",
+  "Planned test file": "web/src/__tests__/i_0651.test.tsx",
+  "Kind": "web",
+  "Plan key": "I-0651"
+ },
+ {
+  "WI ID": "WI-047",
+  "Register task": "GOS-0721",
+  "Work item": "End-to-end test: inbound lead de-duplication",
+  "Wave": 2,
+  "Scope (quality-first)": "End-to-end test through the API; fixing a failing flow is in scope up to one day.",
+  "Planned test file": "backend/tests/test_plan_gos_0721.py",
+  "Kind": "feature",
+  "Plan key": "GOS-0721"
+ },
+ {
+  "WI ID": "WI-050",
+  "Register task": "SaaS-0666",
+  "Work item": "End-to-end and load test of tenant signup and provisioning",
+  "Wave": 2,
+  "Scope (quality-first)": "Signup to workspace end to end; load test of 20 concurrent out of 50 signups, p95 provisioning at most 10 s, no duplicate tenants; nightly or manual, not in the pull-request run.",
+  "Planned test file": "backend/tests/test_plan_saas_0666.py",
+  "Kind": "feature",
+  "Plan key": "SaaS-0666"
+ },
+ {
+  "WI ID": "WI-053",
+  "Register task": "UX-0582",
+  "Work item": "Multi-cart hold and recall at POS",
+  "Wave": 2,
+  "Scope (quality-first)": "Hold and recall several carts without losing stock reservations. Reservations use the expiry job from S-0562.",
+  "Planned test file": "web/src/__tests__/ux_0582.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0582"
+ },
+ {
+  "WI ID": "WI-056",
+  "Register task": "UX-0590",
+  "Work item": "Bulk import progress bar with time remaining",
+  "Wave": 2,
+  "Scope (quality-first)": "Progress and ETA for long imports.",
+  "Planned test file": "web/src/__tests__/ux_0590.test.tsx",
+  "Kind": "web",
+  "Plan key": "UX-0590"
+ },
+ {
+  "WI ID": "WI-059",
+  "Register task": "D-0684",
+  "Work item": "Predictive cash-flow simulation engine modeling actual debtor payment delay probabilities",
+  "Wave": 3,
+  "Scope (quality-first)": "Per-debtor bootstrap of days-late from the last 12 settled invoices, shrunk to the segment average, 1,000 runs, show p10/p50/p90; under 5 settled invoices fall back to the ageing heuristic with a low-confidence badge.",
+  "Planned test file": "backend/tests/test_plan_d_0684.py",
+  "Kind": "feature",
+  "Plan key": "D-0684"
+ },
+ {
+  "WI ID": "WI-064",
+  "Register task": "S-0574",
+  "Work item": "Anomaly detector for unusual discounts and bill amounts",
+  "Wave": 3,
+  "Scope (quality-first)": "Review queue only, never blocks a bill. Unusual: discount above 3 times the item's median discount, or a bill above both a rupee floor and 3 times the customer's median bill; thresholds per company.",
+  "Planned test file": "backend/tests/test_plan_s_0574.py",
+  "Kind": "feature",
+  "Plan key": "S-0574"
+ }
+]

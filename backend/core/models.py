@@ -31,6 +31,13 @@ class AuditFieldsModel(TimeStampedModel):
         abstract = True
 
 
+class AliveManager(models.Manager):
+    """Lists, search and reports hide soft-deleted masters. Relations use all_objects."""
+
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 class CompanyScopedModel(AuditFieldsModel):
     """Tenancy mixin — every business table carries company_id (E0.7)."""
 
@@ -40,6 +47,27 @@ class CompanyScopedModel(AuditFieldsModel):
 
     class Meta:
         abstract = True
+
+
+class SoftDeleteFields(models.Model):
+    """Masters are hidden, not erased. Transactions are cancelled, never soft-deleted."""
+
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def delete(self, *args, **kwargs):
+        from django.db.models.deletion import ProtectedError
+
+        referenced = getattr(self, "is_referenced", None)
+        if callable(referenced) and referenced():
+            raise ProtectedError(
+                "This master has transactions and cannot be hard-deleted.",
+                {self},
+            )
+        return super().delete(*args, **kwargs)
 
 
 class DocumentTotalsModel(CompanyScopedModel):
@@ -143,6 +171,28 @@ class DocumentSeries(models.Model):
         return f"{self.company_id}:{self.doc_type}{extra}"
 
 
+def _audit_guard(operation: str) -> None:
+    from core.audit_guard import guard
+
+    guard(operation)
+
+
+class AuditEventQuerySet(models.QuerySet):
+    """Append-only: bulk mutation needs ``audit_maintenance()`` (F-SEC-03)."""
+
+    def update(self, **kwargs):
+        _audit_guard("QuerySet.update()")
+        return super().update(**kwargs)
+
+    def delete(self):
+        _audit_guard("QuerySet.delete()")
+        return super().delete()
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        _audit_guard("QuerySet.bulk_update()")
+        return super().bulk_update(objs, fields, batch_size)
+
+
 class AuditEvent(models.Model):
     """Activity audit log — Create/Update/Delete/Login/Logout/Import (E0.11)."""
 
@@ -173,10 +223,34 @@ class AuditEvent(models.Model):
     description = models.CharField(max_length=255, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    # F-SEC-03 hash chain, filled by core.services.audit_chain.seal (never at insert).
+    # chain_seq orders sealing, not insertion: a row can commit after a higher id.
+    chain_seq = models.PositiveBigIntegerField(null=True, blank=True)
+    chain_prev = models.CharField(max_length=64, blank=True, default="")
+    chain_hash = models.CharField(max_length=64, blank=True, default="")
+    sealed_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    objects = AuditEventQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
         indexes = [models.Index(fields=["company", "action", "created_at"])]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "chain_seq"],
+                condition=models.Q(chain_seq__isnull=False),
+                name="uniq_audit_chain_seq_per_company",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            _audit_guard("save() on an existing row")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        _audit_guard("delete()")
+        return super().delete(*args, **kwargs)
 
 
 def file_upload_path(instance, filename):
@@ -360,6 +434,10 @@ class IdempotencyRecord(CompanyScopedModel):
     status_code = models.PositiveSmallIntegerField(default=200)
     body = models.JSONField(default=dict, blank=True)
     resource_id = models.CharField(max_length=64, blank=True)
+    # sha256 of method + path + body of the request that claimed the key. A later request
+    # with the same key but a different hash is rejected (422), not silently replayed.
+    # Blank on rows created before this column existed (never rejected).
+    request_hash = models.CharField(max_length=64, blank=True, default="")
 
     class Meta:
         constraints = [

@@ -112,7 +112,10 @@ class Command(BaseCommand):
                 wipe_logical_tenant_rows(company)
                 MoneyFieldAudit.objects.filter(company=company).delete()
                 StatutoryDocumentEvent.objects.filter(company=company).delete()
-                AuditEvent.objects.filter(company=company).delete()
+                from core.audit_guard import audit_maintenance
+
+                with audit_maintenance("H-05 demo reset wipes the demo company's audit trail"):
+                    AuditEvent.objects.filter(company=company).delete()
                 for rel in ("gst_return_periods", "gst_return_snapshots"):
                     mgr = getattr(company, rel, None)
                     if mgr is not None:

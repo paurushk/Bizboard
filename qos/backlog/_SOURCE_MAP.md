@@ -116,6 +116,23 @@ for anything after Phase 1 — but keep adding rows here when new sources are mi
 | G-21 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — period gate GRN complete |
 | G-22 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — period gate challan cancel |
 | G-23 | QOS-0081 | CROSS_FLOW_IMPACT_MAP — dunning residual after return |
+| G-24 | - | strategy section 7 register: journey and preset rows without a citing test; closed by docs/TEST_CENSUS_LEDGER.md |
+| G-25 | - | strategy section 7 register: WF-54 certificate generation pinned as a known limitation (D7); see QOS-0075 |
+| G-26 | - | strategy section 7 register: RLS coverage test now unions every RLS_TABLES list; see QOS-0070 |
+| G-27 | - | strategy section 7 register: P7-P14 persona days added; closed by persona tests and the golden specs |
+| G-28 | - | strategy section 7 register: golden click-through specs for the shipped desks; closed |
+| G-29 | - | strategy section 7 register: component tests for the shipped pages; closed |
+| G-30 | - | strategy section 7 register: browser roles POLICY_DESK/manager/auditor added to role-boundaries.spec.ts; closed |
+| G-31 | - | strategy section 7 register: stale ledger rows corrected 2026-09-27; closed |
+| G-32 | - | strategy section 7 register: 5,000-SKU catalog import fixture added; closed |
+| G-33 | - | strategy section 7 register: P95 protocol added in test_phase0_api_slas.py; closed |
+| G-34 | - | strategy section 7 register: flat query-count assertions added in test_roadmap_items.py; closed |
+| UX ledger: UX-N12, UX-N23, UX-N14, CW-05 | QOS-0095 | editors show too many controls |
+| UX ledger: UX-N07, UX-N08, UX-N09, UX-026 | QOS-0096 | keyboard, touch target and heading gaps |
+| UX ledger: CLAIM-1/2/3, UX-N17, UX-N19, UX-N20, UX-011, UX-019, UX-M14 | QOS-0097 | real-backend verification |
+| UX ledger: UX-N10, UX-N11, UX-M07 | QOS-0098 | page states, inline create forms, strings |
+| UX ledger: UX-N21 | QOS-0099 | ESLint red |
+| UX ledger: UX-06, CW-R1, CW-R2, CW-R5, UX-014 | QOS-0100 | deferred, founder decision |
 | B8 | QOS-0082 | Two bank-recon UIs; match_status identity until consolidation |
 
 ## MASTER_ISSUE_REGISTER reconciliation (runbook P1-T4)

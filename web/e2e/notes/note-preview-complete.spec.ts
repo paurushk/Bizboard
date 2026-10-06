@@ -35,7 +35,9 @@ test.describe('Note editor — complete gates', () => {
 
     await page.getByLabel(/source invoice/i).click();
     await page.getByRole('option', { name: /INV-2026-0001/i }).click();
-    await page.getByRole('button', { name: /Premium Tea 500g/i }).click();
+    // Picking the invoice prefills its lines at qty 0 (no separate add button).
+    await expect(page.getByRole('cell', { name: /Premium Tea 500g/i })).toBeVisible();
+    await fillLineQty(page, '1');
 
     await expect(page.getByRole('button', { name: /save & complete/i })).toBeEnabled({ timeout: 15_000 });
   });
@@ -46,7 +48,7 @@ test.describe('Note editor — complete gates', () => {
     await page.goto('/sales/credit-notes/new', { waitUntil: 'domcontentloaded' });
     await page.getByLabel(/source invoice/i).click();
     await page.getByRole('option', { name: /INV-2026-0001/i }).click();
-    await page.getByRole('button', { name: /Premium Tea 500g/i }).click();
+    await expect(page.getByRole('cell', { name: /Premium Tea 500g/i })).toBeVisible();
 
     await fillLineQty(page, '0');
     await expect(page.getByRole('button', { name: /save & complete/i })).toBeDisabled();
@@ -59,7 +61,7 @@ test.describe('Note editor — complete gates', () => {
     await page.goto('/sales/credit-notes/new', { waitUntil: 'domcontentloaded' });
     await page.getByLabel(/source invoice/i).click();
     await page.getByRole('option', { name: /INV-2026-0001/i }).click();
-    await page.getByRole('button', { name: /Premium Tea 500g/i }).click();
+    await expect(page.getByRole('cell', { name: /Premium Tea 500g/i })).toBeVisible();
 
     await fillLineQty(page, '11');
     await expect(page.getByRole('button', { name: /save & complete/i })).toBeDisabled();

@@ -1,0 +1,35 @@
+id: QOS-0095
+category: USABILITY
+title: The invoice and purchase editors show too many controls at first sight
+persona:
+- P1
+- P2
+journey: Create an invoice or purchase bill
+problem: The editors expose 100 to 120 controls, with 10+ header fields and a 10-column line table. The
+  first task is hard to see.
+evidence:
+  strength: heuristic
+  source:
+  - docs/UX_ACTION_ITEMS.md
+  - docs/ux/L2_finding_ledger.csv
+  detail: Ledger rows UX-N12, UX-N23, UX-N14, CW-05. Control counts come from a static scan and a manual
+    walk in mock mode. The sticky action bar, the missing-field button and the shortened prefix label
+    are done. Header disclosure (A2-5, A2-6) and the mobile line layout still wait for a user session.
+scoring:
+  reach: 5
+  severity: 3
+  frequency: 5
+  impact_band: High
+business_metric: time_to_first_invoice
+priority: P1
+priority_rationale: High impact, but the evidence is a static scan and one walk, so the cap is P1.
+effort: L
+recommendation: Show Customer, Date and Type in the header and move Godown, Cost centre, SEZ/RCM and e-commerce
+  under More. Keep Save & Complete, Complete and start another, and Save draft visible (GD-32).
+test_required: A Playwright step that creates an invoice using only the header fields, plus an axe pass
+  at 393px.
+guard_ref: null
+lifecycle: open
+owner: web
+opened: '2026-10-01'
+closed: null

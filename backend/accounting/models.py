@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -159,6 +160,7 @@ class JournalLine(models.Model):
         indexes = [
             models.Index(fields=["account", "entry"]),
             models.Index(fields=["company", "account"], name="jl_company_account_idx"),
+            models.Index(fields=["company", "account", "entry"], name="jl_company_acct_entry_idx"),
             models.Index(fields=["company", "customer", "account"], name="jl_company_customer_acct_idx"),
             models.Index(fields=["company", "supplier", "account"], name="jl_company_supplier_acct_idx"),
         ]
@@ -215,6 +217,9 @@ class FixedAsset(CompanyScopedModel):
     salvage_value = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
     wdv_annual_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     block_key = models.CharField(max_length=64, blank=True, default="")
+    # Months older than the automatic catch-up window that still need a charge.
+    # Comma-separated YYYY-MM. Cleared as an explicit backfill posts them.
+    depreciation_catchup_months = models.CharField(max_length=800, blank=True, default="")
 
     @property
     def depreciable_base(self) -> Decimal:
@@ -245,6 +250,35 @@ class FixedAsset(CompanyScopedModel):
         return (self.depreciable_base / self.useful_life_months).quantize(Decimal("0.01"))
 
 
+class CashShiftRegister(CompanyScopedModel):
+    """One cashier's till for one business day. Locked rows cannot be edited."""
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN"
+        CLOSED = "CLOSED"
+
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="cash_shifts",
+    )
+    business_date = models.DateField()
+    opening_float = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    denominations = models.JSONField(default=dict, blank=True)
+    expected_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    counted_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    variance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
+    locked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-business_date", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "cashier", "business_date"],
+                name="uniq_cash_shift_per_cashier_day",
+            ),
+        ]
+
+
 class Expense(CompanyScopedModel):
     """Cash/bank expense voucher — not a GST purchase invoice."""
 
@@ -273,3 +307,34 @@ class Expense(CompanyScopedModel):
 
     def __str__(self):
         return self.number or f"Expense #{self.pk}"
+
+
+class AccountMonthlyBalance(models.Model):
+    """Closed-month debit/credit rollup so reports do not rescan history (BUG-PERF-004)."""
+
+    company = models.ForeignKey(
+        "accounts.Company", on_delete=models.CASCADE, related_name="account_monthly_balances",
+    )
+    account = models.ForeignKey(Account, on_delete=models.CASCADE, related_name="monthly_balances")
+    period = models.DateField(help_text="First day of the month.")
+    debit = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    credit = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "account", "period"],
+                name="uniq_account_month_balance",
+            ),
+        ]
+        indexes = [models.Index(fields=["company", "period"], name="acct_month_bal_co_period_idx")]
+
+
+class AccountBalanceRollup(models.Model):
+    """Checkpoint: rollup rows match JournalLine through max_line_id."""
+
+    company = models.OneToOneField(
+        "accounts.Company", on_delete=models.CASCADE, related_name="account_balance_rollup",
+    )
+    max_line_id = models.PositiveBigIntegerField(default=0)
+    refreshed_at = models.DateTimeField(auto_now=True)

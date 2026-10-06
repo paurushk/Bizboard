@@ -38,6 +38,7 @@ export const CONTEXT_HELP_ROUTES: Array<{ test: RegExp; id: string; example: str
   { test: /^\/purchases\/debit-notes\/(?:new|[^/]+)$/, id: 'purchase-debit-note-editor', example: '/purchases/debit-notes/new' },
   { test: /^\/purchases\/debit-notes$/, id: 'purchase-debit-notes', example: '/purchases/debit-notes' },
   { test: /^\/purchases\/bills-of-entry$/, id: 'bills-of-entry', example: '/purchases/bills-of-entry' },
+  { test: /^\/purchases\/grns$/, id: 'goods-receipts', example: '/purchases/grns' },
   { test: /^\/purchases\/bill-upload$/, id: 'purchase-bill-upload', example: '/purchases/bill-upload' },
 
   { test: /^\/inventory\/products$/, id: 'products', example: '/inventory/products' },

@@ -1,0 +1,27 @@
+id: "QOS-0108"
+category: "RELIABILITY_TRUST"
+title: "A reused Idempotency-Key with a different request was answered with the first request's success"
+persona: ["P1", "P2"]
+journey: "Retry or correct a payment, receipt or invoice after a timeout"
+problem: "core.idempotency keyed only on (company, scope, key). A client that reused a key for a different body, for example correcting a receipt from 500 to 5000 after a timeout, got the first response replayed as a success: the UI showed it saved, nothing of the second request was recorded, and no error was raised. A persona test pinned this behaviour as 'current' with a note that changing it must be a deliberate decision. The web client mints a fresh key per click so it is rarely hit there, but the offline outbox, the mobile shell and API integrations can reuse keys."
+evidence:
+  strength: "measured"
+  source: ["backend/core/idempotency.py", "backend/tests/test_double_submit_money_paths.py", "backend/tests/personas/test_pj_resilience_and_tenant_isolation.py"]
+  detail: "Reproduced 2026-10-02 by the pre-existing persona test (second payload, same key, got the first invoice back with a 201). After the change the same request returns 422 idempotency_key_reused, the first record is untouched, an exact retry still replays, legacy rows without a hash keep replaying, and IDEMPOTENCY_STRICT_FINGERPRINT=0 restores the old behaviour for a quick rollback. Also verified: double-click Complete with and without a key posts stock once and the same journal entries as a single click (sales and purchase)."
+scoring:
+  reach: 3
+  severity: 5
+  frequency: 2
+  impact_band: "High"
+business_metric: "support_ticket_rate"
+priority: "P0"
+priority_rationale: "Severity 5 (money wrong while the UI says success). Measured. Lower frequency because the web client does not reuse keys."
+effort: "M"
+recommendation: "Done: request_hash on IdempotencyRecord (migration core 0045), request_fingerprint(request) passed at every begin_record call site and in wrap_idempotent, 422 on mismatch. This is an API contract change: any client that deliberately reuses a key for a changed body now gets 422 and must send a new key. Check the offline outbox and mobile shell retry path against it before the pilot."
+test_required: "backend/tests/test_double_submit_money_paths.py (14 tests) and the updated persona test."
+guard_ref:
+  test: "backend/tests/test_double_submit_money_paths.py"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-02"
+closed: "2026-10-02"

@@ -44,8 +44,155 @@ def fetch_transactions_for_consent(*, consent_id: str, fi_type: str) -> list[Moc
     ]
 
 
-def fetch_live_transactions_for_consent(*, consent_id: str, fi_type: str) -> list[MockFiTransaction]:
-    """HTTP FIU fetch. Raises BusinessRuleError when unset or the FIU fails."""
+def company_fiu_api_key(company) -> str:
+    """Per-company FIU token. The process FIU_API_KEY is not a tenant credential."""
+    from core.services.gsp_secrets import decrypt_gsp_credentials
+    from integrations.models import IntegrationConnection
+
+    conn = IntegrationConnection.objects.filter(
+        company=company, provider="FIU", status=IntegrationConnection.Status.ACTIVE,
+    ).first()
+    if conn is None or not conn.encrypted_secrets:
+        return ""
+    creds = decrypt_gsp_credentials(conn.encrypted_secrets) or {}
+    return str(creds.get("fiu_api_key") or "").strip()
+
+
+_FIU_SCHEMA_ERROR = "FIU response failed schema validation."
+_CONSENT_CLOSED_MSG = (
+    "Account Aggregator consent has expired. Fetch and match are refused "
+    "until the consent is renewed."
+)
+
+
+def _fiu_amount(value):
+    """Decimal amount from the amount field only. Non-finite values are skipped.
+
+    A dict, list, bool, or non-decimal string rejects the whole body so an
+    arbitrary key cannot be trusted into a money field.
+    """
+    from core.exceptions import BusinessRuleError
+
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
+        raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} amount must be a decimal.")
+    text = str(value).replace(",", "").strip()
+    if not text:
+        raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} amount must be a decimal.")
+    try:
+        amount = Decimal(text)
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} amount must be a decimal.") from exc
+    if not amount.is_finite():
+        return None
+    return amount
+
+
+def _fiu_transaction_rows(payload) -> list:
+    from core.exceptions import BusinessRuleError
+
+    if not isinstance(payload, dict):
+        raise BusinessRuleError(_FIU_SCHEMA_ERROR)
+    if "transactions" in payload:
+        rows = payload.get("transactions")
+    elif "data" in payload:
+        rows = payload.get("data")
+    else:
+        raise BusinessRuleError(_FIU_SCHEMA_ERROR)
+    if not isinstance(rows, list):
+        raise BusinessRuleError(_FIU_SCHEMA_ERROR)
+    return rows
+
+
+def _payload_closed_status(payload) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    status = str(payload.get("status") or payload.get("consentStatus") or "").upper()
+    error = str(payload.get("error") or payload.get("code") or "")
+    blob = f"{status} {error}".lower()
+    if "revok" in blob:
+        return "REVOKED"
+    if status in {"EXPIRED", "REVOKED"} or "expir" in blob:
+        return "EXPIRED"
+    return ""
+
+
+def _http_closed_status(code: int, body: str) -> str:
+    blob = f"{code} {body}".lower()
+    if "revok" in blob:
+        return "REVOKED"
+    if code == 410 or "expir" in blob:
+        return "EXPIRED"
+    return ""
+
+
+def _mark_consent_closed(*, consent_id: str, company, new_status: str) -> None:
+    """Move the consent to EXPIRED or REVOKED and notify once on the transition."""
+    from accounts.models import CompanyUser
+    from banking.models import AaConsent
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    status = (
+        AaConsent.Status.REVOKED if new_status == "REVOKED" else AaConsent.Status.EXPIRED
+    )
+    qs = AaConsent.objects.filter(consent_id=consent_id)
+    if company is not None:
+        qs = qs.filter(company=company)
+    for consent in qs:
+        if consent.status == status:
+            continue
+        consent.status = status
+        consent.save(update_fields=["status", "updated_at"])
+        owner = (
+            CompanyUser.objects.filter(company=consent.company, role=CompanyUser.Role.OWNER)
+            .select_related("user")
+            .first()
+        )
+        recipient = ""
+        if owner is not None and getattr(owner, "user", None) is not None:
+            recipient = owner.user.email or ""
+        if not recipient:
+            recipient = getattr(consent.company, "email", "") or "accountant"
+        NotificationService.send(
+            company=consent.company,
+            channel=Notification.Channel.IN_APP,
+            recipient=recipient,
+            subject="Account Aggregator consent expired",
+            body=(
+                f"Consent {consent.consent_id} is {consent.status}. "
+                "Statement fetch and matching are refused until the consent is renewed."
+            ),
+        )
+
+
+def _refuse_if_consent_closed(*, consent_id: str, company) -> None:
+    from banking.models import AaConsent
+    from core.exceptions import BusinessRuleError
+
+    if company is None:
+        return
+    qs = AaConsent.objects.filter(
+        consent_id=consent_id, status__in=(AaConsent.Status.EXPIRED, AaConsent.Status.REVOKED),
+    )
+    if company is not None:
+        qs = qs.filter(company=company)
+    row = qs.first()
+    if row is not None:
+        raise BusinessRuleError(
+            f"Account Aggregator consent {consent_id} is {row.status}. "
+            "Fetch and match are refused until the consent is renewed."
+        )
+
+
+def fetch_live_transactions_for_consent(
+    *, consent_id: str, fi_type: str, api_key: str = "", company=None,
+) -> list[MockFiTransaction]:
+    """HTTP FIU fetch using this company's credential. The process key is ignored.
+
+    Bearer auth runs first. The JSON body is then schema-checked. An expired or
+    revoked consent is stored on the consent row, the accountant is notified,
+    and the fetch is refused.
+    """
     import json
     import urllib.error
     import urllib.request
@@ -54,53 +201,84 @@ def fetch_live_transactions_for_consent(*, consent_id: str, fi_type: str) -> lis
 
     from core.exceptions import BusinessRuleError
 
+    _refuse_if_consent_closed(consent_id=consent_id, company=company)
     base = (getattr(settings, "FIU_BASE_URL", "") or "").rstrip("/")
-    api_key = (getattr(settings, "FIU_API_KEY", "") or "").strip()
+    token = (api_key or "").strip()
+    if not token:
+        raise BusinessRuleError(
+            "Live AA ingest is off until this company has its own FIU credential."
+        )
     if not base:
         raise BusinessRuleError("Live AA ingest is fail-closed: FIU_BASE_URL is not configured.")
-    if not api_key:
-        raise BusinessRuleError("Live AA ingest is fail-closed: FIU_API_KEY is not configured.")
     try:
         req = urllib.request.Request(
             f"{base}/consents/{consent_id}/transactions?fi_type={fi_type}",
             method="GET",
-            headers={"Authorization": f"Bearer {api_key}"},
+            headers={"Authorization": f"Bearer {token}"},
         )
         with urllib.request.urlopen(req, timeout=12) as resp:
             payload = json.loads(resp.read().decode("utf-8") or "{}")
+    except urllib.error.HTTPError as exc:
+        body = ""
+        try:
+            body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            body = ""
+        closed = _http_closed_status(exc.code, body)
+        if closed:
+            _mark_consent_closed(consent_id=consent_id, company=company, new_status=closed)
+            raise BusinessRuleError(_CONSENT_CLOSED_MSG) from exc
+        raise BusinessRuleError("Live AA FIU fetch failed closed.") from exc
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         raise BusinessRuleError("Live AA FIU fetch failed closed.") from exc
 
-    rows = payload.get("transactions") or payload.get("data") or []
+    closed = _payload_closed_status(payload)
+    if closed:
+        _mark_consent_closed(consent_id=consent_id, company=company, new_status=closed)
+        raise BusinessRuleError(_CONSENT_CLOSED_MSG)
+
+    rows = _fiu_transaction_rows(payload)
     out: list[MockFiTransaction] = []
     for row in rows:
         if not isinstance(row, dict):
-            continue
-        txn_id = str(row.get("txn_id") or row.get("id") or "").strip()
+            raise BusinessRuleError(_FIU_SCHEMA_ERROR)
+        if "txn_id" not in row and "id" not in row:
+            raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} txn_id is required.")
+        if "amount" not in row:
+            raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} amount is required.")
+        txn_raw = row.get("txn_id", row.get("id"))
+        if isinstance(txn_raw, bool) or not isinstance(txn_raw, (str, int)):
+            raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} txn_id must be a string.")
+        txn_id = str(txn_raw).strip()
         if not txn_id:
+            raise BusinessRuleError(f"{_FIU_SCHEMA_ERROR} txn_id is required.")
+        amount = _fiu_amount(row.get("amount"))
+        if amount is None:
             continue
         txn_date = timezone.localdate()
-        raw_date = str(row.get("txn_date") or row.get("date") or "")
-        if raw_date:
+        raw_date = row.get("txn_date") if "txn_date" in row else row.get("date")
+        if isinstance(raw_date, str) and raw_date:
             try:
                 txn_date = date.fromisoformat(raw_date[:10])
             except ValueError:
                 pass
-        try:  # B4-019: skip a row with a garbage amount, don't crash the pull
-            amount = Decimal(str(row.get("amount") or "0").replace(",", ""))
-            if not amount.is_finite():
-                continue
-        except (InvalidOperation, ValueError, TypeError):
-            continue
-        out.append(
-            MockFiTransaction(
-                txn_id=txn_id,
-                amount=amount,
-                txn_date=txn_date,
-                narration=str(row.get("narration") or ""),
-                raw={"fi_type": fi_type, "consent_id": consent_id, **row},
-            )
-        )
+        narration = row.get("narration") if isinstance(row.get("narration"), str) else ""
+        raw = {
+            "fi_type": fi_type,
+            "consent_id": consent_id,
+            "ingest_source": "fiu",
+            "txn_id": txn_id,
+            "amount": format(amount, "f"),
+            "narration": narration,
+        }
+        for key in ("utr", "rrn", "reference", "mode", "date", "txn_date"):
+            val = row.get(key)
+            if isinstance(val, str):
+                raw[key] = val
+        out.append(MockFiTransaction(
+            txn_id=txn_id, amount=amount, txn_date=txn_date,
+            narration=narration, raw=raw,
+        ))
     return out
 
 

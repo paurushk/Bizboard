@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -84,7 +85,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const [loaded, setLoaded] = useState(false);
   // F2-041: suppress UnsavedChangesGuard for the programmatic navigate() after
   // a deliberate save/cancel — those aren't "discarding" anything.
-  const skipLeaveGuard = useRef(false);
+  const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseInvoiceId, setPurchaseInvoiceId] = useState<number | ''>('');
@@ -132,13 +133,16 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     selectedSupplier?.gstin || selectedSupplier?.state,
   );
 
-  useEffect(() => {
+  const [seenEditId, setSeenEditId] = useState(editId);
+  if (seenEditId !== editId) {
+    setSeenEditId(editId);
     setLoaded(false);
     clearFeedback();
-  }, [editId, clearFeedback]);
+  }
 
-  useEffect(() => {
-    if (!existing.data || loaded) return;
+  // Hydrate the form from the saved note once. Not re-run on intraState (see the re-tax block below),
+  // which would clobber in-progress edits.
+  if (existing.data && !loaded) {
     const doc = existing.data;
     setEditingStatus(doc.status);
     setSupplierId(doc.supplier);
@@ -184,17 +188,19 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       }),
     );
     setLoaded(true);
-    // F2-040: intentionally NOT keyed on intraState — see the effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [existing.data, loaded]);
+  }
 
   // F2-040: the selected supplier (and so intraState) may not have resolved yet at
   // hydration time, leaving every line at zero tax; also covers switching the
   // supplier after lines already exist, which otherwise leaves them stale.
-  useEffect(() => {
-    if (!loaded) return;
-    setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
-  }, [intraState, loaded]);
+  const retaxKey = loaded ? String(intraState) : null;
+  const [seenRetaxKey, setSeenRetaxKey] = useState<string | null>(null);
+  if (seenRetaxKey !== retaxKey) {
+    setSeenRetaxKey(retaxKey);
+    if (retaxKey !== null) {
+      setLines((prev) => prev.map((line) => ({ ...recomputeLine(line, intraState), discountAmount: 0 })));
+    }
+  }
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
     setPurchaseInvoiceId(pur?.id ?? '');
@@ -346,7 +352,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       setMessage(t('phase1.saved'));
       void qc.invalidateQueries({ queryKey: [queryKey] });
       if (!isEdit) {
-        skipLeaveGuard.current = true;
+        flushSync(() => setSkipLeaveGuard(true));
         void navigate(`${listPath}/${doc.id}`, { replace: true });
       } else {
         setEditingStatus(doc.status);
@@ -358,7 +364,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
   const cancelMutation = useMutation({
     mutationFn: () => (isCredit ? cancelPurchaseCreditNote(editId as number) : cancelPurchaseDebitNote(editId as number)),
     onSuccess: () => {
-      skipLeaveGuard.current = true;
+      flushSync(() => setSkipLeaveGuard(true));
       void navigate(listPath);
     },
     onError: (err) => flashError(getErrorMessage(err)),
@@ -419,7 +425,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         ) : null
       }
     >
-      <UnsavedChangesGuard when={!skipLeaveGuard.current && (effectiveLines.length > 0 || Boolean(supplierId))} />
+      <UnsavedChangesGuard when={!skipLeaveGuard && (effectiveLines.length > 0 || Boolean(supplierId))} />
       <Stack spacing={2}>
         <Autocomplete
           options={supplierSearch.options}
@@ -460,7 +466,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         <TextField label={t('billing.addNotes')} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={readOnly} multiline minRows={2} fullWidth />
 
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -518,7 +524,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
                   </TableCell>
                   {!readOnly ? (
                     <TableCell align="right">
-                      <IconButton size="small" onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
+                      <IconButton size="small" aria-label={t('common.delete')} onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </TableCell>

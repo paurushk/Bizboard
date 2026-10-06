@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -132,12 +132,17 @@ export function InvoiceQuickSettingsDialog({
   const [showEmptySignatureBox, setShowEmptySignatureBox] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!company.data || !open) return;
-    setInvoiceDefs(normalizeCustomFieldDefs(company.data.invoiceCustomFieldDefs ?? []));
-    setPartyDefs(normalizeCustomFieldDefs(company.data.partyCustomFieldDefs ?? []));
-    setShowEmptySignatureBox(Boolean(company.data.showEmptySignatureBox));
-  }, [company.data, open]);
+  // Load the saved settings when the dialog opens and whenever the company record refreshes.
+  const syncSource = open && company.data ? company.data : null;
+  const [seenSyncSource, setSeenSyncSource] = useState<typeof syncSource>(null);
+  if (seenSyncSource !== syncSource) {
+    setSeenSyncSource(syncSource);
+    if (syncSource) {
+      setInvoiceDefs(normalizeCustomFieldDefs(syncSource.invoiceCustomFieldDefs ?? []));
+      setPartyDefs(normalizeCustomFieldDefs(syncSource.partyCustomFieldDefs ?? []));
+      setShowEmptySignatureBox(Boolean(syncSource.showEmptySignatureBox));
+    }
+  }
 
   const save = useMutation({
     mutationFn: () =>

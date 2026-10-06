@@ -10,14 +10,18 @@ REPO = Path(__file__).resolve().parents[2]
 
 def test_bb_000737_758_navigate_fallback_is_offline_html():
     vite = (REPO / "web" / "vite.config.ts").read_text(encoding="utf-8")
-    assert "navigateFallback" in vite
-    assert "offline.html" in vite
-    # Must not fall back to the SPA shell for offline navigations.
-    assert "navigateFallback: '/offline.html'" in vite or 'navigateFallback: "/offline.html"' in vite
+    # Offline document is handlerDidError, not a NavigationRoute fallback.
+    assert "navigateFallback: null" in vite
+    assert "navigateFallback: '/offline.html'" not in vite
+    assert 'navigateFallback: "/offline.html"' not in vite
     assert "navigateFallback: '/index.html'" not in vite
     assert 'navigateFallback: "/index.html"' not in vite
-    offline = REPO / "web" / "public" / "offline.html"
-    assert offline.is_file()
+    assert "handlerDidError" in vite
+    assert "offline.html" in vite
+    assert "networkTimeoutSeconds: 10" in vite
+    offline = (REPO / "web" / "public" / "offline.html").read_text(encoding="utf-8")
+    assert "unregisterAndReload" in offline
+    assert 'id="offline-title"' in offline
 
 
 def test_bb_000738_api_not_network_first_cached():

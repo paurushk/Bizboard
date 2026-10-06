@@ -11,7 +11,7 @@ Do **not** commit SQL dumps or generated invoices.
 
 1. Snapshot an empty-ish staging company (masters + openings only).
 2. Disable PDF queue (`CELERY` no-op or `pdf_status` left NONE) so Complete is the measured path.
-3. Loop `POST /api/v1/sales/invoices/` + `POST .../complete/` **or** a management command that calls `SalesService.complete` in-process. Idempotency keys per invoice.
+3. `python manage.py seed_load_tenant --invoices 50000 --password "$SEED_LOAD_PASSWORD"` (staging or test only). It calls `SalesService.complete`, suppresses PDF enqueue, and skips invoices already tagged `SEED_LOAD:{index}`. `seed_synthetic_bulk` is not this fixture.
 4. Confirm `SalesInvoice.objects.filter(status="COMPLETED").count() >= 50000`.
 5. Capture `EXPLAIN ANALYZE` on invoice list and Complete before/after the soak.
 

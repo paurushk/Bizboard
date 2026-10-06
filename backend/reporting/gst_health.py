@@ -183,19 +183,25 @@ def build_gst_health(company, period: str | None = None) -> dict:
 
     alerts: list[dict] = []
 
-    # Company GSTIN
+    # Company GSTIN. Same resolver as document series (stamp, primary, any active, head office).
     if company.registration_type != Company.RegistrationType.UNREGISTERED:
-        if not (company.gstin or "").strip():
+        from core.services.document_numbers import resolve_series_gstin
+
+        resolved = (resolve_series_gstin(company) or "").strip().upper()
+        head_office = (company.gstin or "").strip().upper()
+        if not resolved:
             alerts.append(_alert(
                 "GSTIN_MISSING_COMPANY", "critical",
                 "Registered company has no GSTIN.",
             ))
-        elif not GSTIN_RE.match(company.gstin):
+        elif not GSTIN_RE.match(resolved):
             alerts.append(_alert(
                 "GSTIN_INVALID_FORMAT", "critical",
-                f"Company GSTIN '{company.gstin}' fails format validation.",
+                f"Company GSTIN '{resolved}' fails format validation.",
             ))
-        else:
+        elif resolved == head_office:
+            # 90-day check only when the series GSTIN is the head-office column.
+            # CompanyGstin has no verification timestamp.
             status = (company.gstin_verification_status or "UNVERIFIED").upper()
             verified_at = company.gstin_verified_at
             stale = (

@@ -1,0 +1,51 @@
+# FULL-DEMO overlay: every module ceiling on, for DEV only.
+#
+#   $env:BB_FULL_DEMO = "1"; .\scripts\compose-env.ps1 dev up -d --build
+#
+# compose-env.ps1 refuses this overlay on staging. Production never uses this file.
+#
+# then, once per demo company (refuses DJANGO_ENV=production):
+#   .\scripts\compose-env.ps1 dev exec -e E2E_GOLDEN_GRANT=0 api python manage.py enable_full_demo --email demo@bizboard.local
+#
+# NEVER add this file to a production command. Production keeps the frozen profile
+# (docs/FREEZE_SCOPE.md). See docs/ux/FULL_DEMO_PROFILE.md.
+#
+# Integrations (WhatsApp Cloud, Telegram, Cashfree, PayU, Account Aggregator) are
+# switched on so their screens are visible. Without credentials they fail closed:
+# WhatsApp falls back to a wa.me chat link, and nothing is sent or charged.
+x-full-demo-flags: &full-demo-flags
+  ENABLE_CRM: "1"
+  ENABLE_MANUFACTURING: "1"
+  ENABLE_PAYROLL: "1"
+  ENABLE_TDS: "1"
+  ENABLE_GSTR: "1"
+  ENABLE_GSTR_EXTENDED: "1"
+  ENABLE_TALLY: "1"
+  ENABLE_FIXED_ASSETS: "1"
+  ENABLE_BOE: "1"
+  ENABLE_COMPLAINTS: "1"
+  ENABLE_SUPPORT_TICKETS: "1"
+  ENABLE_CONTRACTS: "1"
+  ENABLE_REFERRALS: "1"
+  ENABLE_WORKSHOP: "1"
+  ENABLE_PROJECTS: "1"
+  ENABLE_INSURANCE: "1"
+  ENABLE_ARCH05_STATUTORY_FORMS: "1"
+  ENABLE_ACTION_ASSIGNMENT: "1"
+  ENABLE_PREDICTIVE_DUNNING: "1"
+  ENABLE_PURCHASE_PLANNING: "1"
+  ENABLE_ORDER_GATES: "1"
+  ENABLE_CUSTOMER_ACTIONS: "1"
+  ENABLE_CROSS_SELL: "1"
+  ENABLE_ROUTE_OPTIMIZATION: "1"
+  ENABLE_TELEGRAM: "1"
+  ENABLE_WHATSAPP_CLOUD: "1"
+  ENABLE_CASHFREE: "1"
+  ENABLE_PAYU: "1"
+  ENABLE_ACCOUNT_AGGREGATOR: "1"
+
+services:
+  api:
+    environment: *full-demo-flags
+  worker:
+    environment: *full-demo-flags

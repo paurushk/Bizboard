@@ -170,6 +170,8 @@ export interface Company {
   name: string;
   legalName?: string;
   gstin?: string;
+  /** GSTIN used for the document series. Empty string means none. Omitted on older payloads. */
+  seriesGstin?: string;
   registrationType: RegistrationType;
   state: string;
   address?: string;
@@ -337,6 +339,7 @@ export interface Product {
   defaultDiscountPercent?: string | number;
   hasMovements?: boolean;
   status: ProductStatus;
+  rackCode?: string;
 }
 
 export interface LineItem {
@@ -648,7 +651,7 @@ export interface PurchaseInvoice extends DocumentTotals {
   cancelledAt?: string | null;
   priceMode?: PriceMode;
   isReverseCharge?: boolean;
-  itcEligibility?: 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED';
+  itcEligibility?: 'UNREVIEWED' | 'CLAIMABLE' | 'INELIGIBLE' | 'REVERSED';
   rcmTaxable?: string | number;
   rcmCgst?: string | number;
   rcmSgst?: string | number;
@@ -822,6 +825,7 @@ export interface StockBalance {
   warehouse?: number;
   productName: string;
   sku: string;
+  rackCode?: string;
   onHand: string | number;
   reserved: string | number;
   available: string | number;

@@ -40,7 +40,69 @@ PROTECT_MODELS_HANDLED = {
     "core.MoneyFieldAudit",
     "core.StatutoryDocumentEvent",
     "support.VendorTicketShare",
+    # Vertical rows PROTECT customers, products, invoices, or each other.
+    # Deleted by hand before the retained masters and before company.delete().
+    "projects.ProjectMilestone",
+    "projects.Project",
+    "insurance.PolicyKyc",
+    "insurance.PolicyClaim",
+    "insurance.PolicyEndorsement",
+    "insurance.CommissionReceivable",
+    "insurance.PolicyRenewalLead",
+    "insurance.Policy",
+    "insurance.PolicyOption",
+    "insurance.PolicyOptionSet",
+    "insurance.PolicyProduct",
+    "workshop.JobCardLine",
+    "workshop.JobCard",
+    "manufacturing.WorkOrderLine",
+    "manufacturing.WorkOrder",
+    "manufacturing.BomLine",
+    "manufacturing.Bom",
+    "contracts.ContractDocument",
+    "contracts.ContractServiceEvent",
+    "contracts.ContractProduct",
+    "contracts.Contract",
+    "payroll.PaySlip",
+    "payroll.PayRun",
+    "payroll.Employee",
+    "complaints.ComplaintAttachment",
+    "complaints.Complaint",
+    "complaints.SupplierComplaintAttachment",
+    "complaints.SupplierComplaint",
 }
+
+# Children before the rows they PROTECT. A retry loop covers anything left.
+_VERTICAL_DELETE_ORDER = (
+    "projects.ProjectMilestone",
+    "projects.Project",
+    "insurance.PolicyKyc",
+    "insurance.PolicyClaim",
+    "insurance.PolicyEndorsement",
+    "insurance.CommissionReceivable",
+    "insurance.PolicyRenewalLead",
+    "insurance.Policy",
+    "insurance.PolicyOption",
+    "insurance.PolicyOptionSet",
+    "insurance.PolicyProduct",
+    "workshop.JobCardLine",
+    "workshop.JobCard",
+    "manufacturing.WorkOrderLine",
+    "manufacturing.WorkOrder",
+    "manufacturing.BomLine",
+    "manufacturing.Bom",
+    "contracts.ContractDocument",
+    "contracts.ContractServiceEvent",
+    "contracts.ContractProduct",
+    "contracts.Contract",
+    "payroll.PaySlip",
+    "payroll.PayRun",
+    "payroll.Employee",
+    "complaints.ComplaintAttachment",
+    "complaints.Complaint",
+    "complaints.SupplierComplaintAttachment",
+    "complaints.SupplierComplaint",
+)
 _SAFE_ON_DELETE = {"CASCADE", "SET_NULL", "SET_DEFAULT", "DO_NOTHING"}
 
 # Statutory tax documents (+ the masters they PROTECT-reference) kept in
@@ -128,12 +190,40 @@ def _rls_bypass():
         return nullcontext()
 
 
+def _delete_labeled_rows(company, labels) -> None:
+    """Delete company-scoped rows, retrying when a PROTECT FK blocks one pass."""
+    pending = []
+    for label in labels:
+        try:
+            pending.append(apps.get_model(label))
+        except LookupError:
+            continue
+    for _ in range(8):
+        stuck = []
+        for model in pending:
+            try:
+                model.objects.filter(**{_company_field(model): company}).delete()
+            except ProtectedError:
+                stuck.append(model)
+        pending = stuck
+        if not pending:
+            return
+    if pending:
+        raise AssertionError(
+            "erasure delete stuck on: " + ", ".join(m.__name__ for m in pending)
+        )
+
+
 def _delete_protect_rows(company) -> None:
     from core.models import AuditEvent, MoneyFieldAudit, StatutoryDocumentEvent
     from django.db.models import Q
     from support.models import VendorTicketShare
 
-    AuditEvent.objects.filter(company=company).delete()
+    from core.audit_guard import audit_maintenance
+
+    _delete_labeled_rows(company, _VERTICAL_DELETE_ORDER)
+    with audit_maintenance("tenant erasure removes the tenant's audit trail"):
+        AuditEvent.objects.filter(company=company).delete()
     MoneyFieldAudit.objects.filter(company=company).delete()
     StatutoryDocumentEvent.objects.filter(company=company).delete()
     VendorTicketShare.objects.filter(Q(source_company=company) | Q(vendor_company=company)).delete()
@@ -271,8 +361,8 @@ def erase_company(
     retained: dict[str, int] = {}
     with _rls_bypass():
         if mode == "hard":
-            wipe_logical_tenant_rows(company)
             _delete_protect_rows(company)
+            wipe_logical_tenant_rows(company)
             User.objects.filter(active_company=company).update(active_company=None)
             CompanyUser.objects.filter(company=company).delete()
             try:
@@ -280,8 +370,8 @@ def erase_company(
             except ProtectedError as exc:
                 raise AssertionError(f"hard erase blocked by an unhandled PROTECT FK: {exc}") from exc
         else:  # tombstone
-            _delete_non_retained(company, TOMBSTONE_RETAINED)
             _delete_protect_rows(company)
+            _delete_non_retained(company, TOMBSTONE_RETAINED)
             _scrub_parties(company)
             _scrub_invoice_pii(company)
             User.objects.filter(active_company=company).update(active_company=None)

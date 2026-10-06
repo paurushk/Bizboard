@@ -453,6 +453,12 @@ class SandboxEwayAdapter:
     def cancel(self, eway_bill_no: str) -> dict:
         return {"provider": "sandbox", "cancelled": True, "eway_bill_no": eway_bill_no}
 
+    def update_vehicle(self, payload: dict) -> dict:
+        return {"provider": "sandbox", "updated": True, **payload}
+
+    def extend_validity(self, payload: dict) -> dict:
+        return {"provider": "sandbox", "extended": True, **payload}
+
 
 def _json_object(raw) -> dict:
     """Live GSTR `|` merge requires a mapping; GSP bodies are not always objects."""

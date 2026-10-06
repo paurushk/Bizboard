@@ -7,6 +7,7 @@ import { ThemeProvider } from '@mui/material/styles';
 import {
   HistoryFilterBar,
   EMPTY_HISTORY_FILTERS,
+  dateRangeForPreset,
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { theme } from '@/theme';
@@ -93,5 +94,15 @@ describe('HistoryFilterBar', () => {
     );
     expect(screen.getByText(/3 selected/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument();
+  });
+
+  it('BUG-UI-028 uses the Indian financial year and quarters', () => {
+    const now = new Date(2026, 9, 4);
+    expect(dateRangeForPreset('currentFY', now)).toEqual({ dateFrom: '2026-04-01', dateTo: '2027-03-31' });
+    expect(dateRangeForPreset('previousFY', now)).toEqual({ dateFrom: '2025-04-01', dateTo: '2026-03-31' });
+    expect(dateRangeForPreset('q1', now)).toEqual({ dateFrom: '2026-04-01', dateTo: '2026-06-30' });
+    expect(dateRangeForPreset('q4', now)).toEqual({ dateFrom: '2027-01-01', dateTo: '2027-03-31' });
+    const january = new Date(2026, 0, 15);
+    expect(dateRangeForPreset('currentFY', january).dateFrom).toBe('2025-04-01');
   });
 });

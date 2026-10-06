@@ -68,7 +68,7 @@ test.describe('Item custom fields v1', () => {
 
     await page.getByRole('combobox', { name: /bill to/i }).fill('Ra');
     await page.getByRole('option', { name: /Rahul Stores/i }).click();
-    await page.getByRole('button', { name: /save draft/i }).click();
+    await page.getByRole('button', { name: 'Save draft', exact: true }).click();
     await expect(page.getByText(/draft .*saved|saved/i).first()).toBeVisible({ timeout: 15_000 });
   });
 

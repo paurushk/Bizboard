@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 
@@ -36,3 +37,11 @@ class CookieJWTAuthentication(JWTAuthentication):
         # BB-000417: cookie-borne JWT must satisfy CSRF on unsafe methods.
         SessionAuthentication().enforce_csrf(request)
         return user, validated
+
+    def get_user(self, validated_token):
+        user = super().get_user(validated_token)
+        token_sv = int(validated_token.get("sv", 0) or 0)
+        current = int(getattr(user, "session_version", 0) or 0)
+        if token_sv != current:
+            raise AuthenticationFailed("This session has been revoked.")
+        return user

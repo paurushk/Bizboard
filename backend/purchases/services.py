@@ -1,13 +1,14 @@
 """Purchase Service — invoices, returns, status transitions (E3)."""
 
 from collections import defaultdict
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import record_document_event, record_edited_document_event
 from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
 from core.services.billing import (
@@ -31,10 +32,23 @@ from .models import (
     PurchaseCreditNote,
     PurchaseDebitNote,
     PurchaseInvoice,
+    PurchaseInvoiceRevision,
     PurchaseItem,
     PurchaseReturn,
     PurchaseReturnItem,
 )
+
+# Line match: a rate may drift by half a percent of the reference rate (never less than
+# one paisa, so inclusive-price rounding does not block a bill). Quantity may not drift.
+_THREE_WAY_RATE_TOLERANCE_PCT = Decimal("0.005")
+_THREE_WAY_RATE_TOLERANCE_FLOOR = Decimal("0.01")
+_THREE_WAY_QTY_TOLERANCE = Decimal("0.000")
+
+
+def _three_way_rate_tolerance(reference_rate) -> Decimal:
+    reference = abs(Decimal(str(reference_rate or 0)))
+    return max(_THREE_WAY_RATE_TOLERANCE_FLOOR, (reference * _THREE_WAY_RATE_TOLERANCE_PCT).quantize(Decimal("0.01")))
+STATUTORY_TDS_SECTIONS = frozenset({"194C", "194I", "194J", "194Q"})
 
 
 def assert_invoice_tds_exclusive(invoice):
@@ -57,26 +71,13 @@ def assert_invoice_tds_exclusive(invoice):
         )
 
 
-def assert_claimable_itc_allowed(invoice):
-    """CLAIMABLE requires a MATCHED 2B row when the period has 2B ingest."""
+def assert_claimable_itc_allowed(invoice, *, goods_will_be_received: bool = False):
+    """CLAIMABLE requires the Section 16(2) checklist (2B match when the period has 2B)."""
     if getattr(invoice, "itc_eligibility", None) != PurchaseInvoice.ItcEligibility.CLAIMABLE:
         return
-    from reporting.models import Gstr2bIngest
+    from reporting.ims import assert_section_16_2_for_claim
 
-    period = invoice.invoice_date.strftime("%Y-%m") if invoice.invoice_date else ""
-    if not period:
-        return
-    if not Gstr2bIngest.objects.filter(company=invoice.company, period=period).exists():
-        return
-    matched = Gstr2bIngest.objects.filter(
-        company=invoice.company,
-        purchase_invoice=invoice,
-        match_status=Gstr2bIngest.MatchStatus.MATCHED,
-    ).exists()
-    if not matched:
-        raise BusinessRuleError(
-            "Cannot mark ITC CLAIMABLE until this bill is MATCHED on GSTR-2B for the period."
-        )
+    assert_section_16_2_for_claim(invoice, goods_will_be_received=goods_will_be_received)
 
 
 _PURCHASE_ITEM_UPDATE_FIELDS = [
@@ -298,6 +299,7 @@ class PurchaseService:
             "tax_total": str(invoice.cgst_total + invoice.sgst_total + invoice.igst_total),
         } if adjust_stock else None
         if adjust_stock:
+            PurchaseService.snapshot_completed_purchase(invoice, user)
             for item in invoice.items.select_related("product", "product__alternate_unit"):
                 old_qty[item.product_id] += _line_stock_qty(
                     item.product, item.quantity, getattr(item, "unit_name", None)
@@ -391,6 +393,7 @@ class PurchaseService:
             # discount / charge amends reach this point. Refresh the GL for those
             # and re-price the remaining FIFO layers via the caller
             # (restamp_fifo_layers_for_price_amend).
+            record_edited_document_event(invoice=invoice, user=user, old_totals=old_totals)
             emit("purchase_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
             if invoice.company.accounting_enabled:
                 from accounting.services import PostingService
@@ -401,12 +404,71 @@ class PurchaseService:
         return invoice
 
     @staticmethod
+    def snapshot_completed_purchase(invoice, user):
+        """Store the full bill (header + lines) before a completed-document mutation."""
+        if invoice.status != PurchaseInvoice.Status.COMPLETED:
+            return None
+        if getattr(invoice, "_pur_revision_taken", False):
+            return None
+        invoice._pur_revision_taken = True
+        last = (
+            PurchaseInvoiceRevision.objects.filter(invoice=invoice)
+            .order_by("-revision")
+            .values_list("revision", flat=True)
+            .first()
+        ) or 0
+        lines = []
+        for item in invoice.items.all():
+            lines.append({
+                "id": item.pk,
+                "product_id": item.product_id,
+                "quantity": str(item.quantity),
+                "unit_price": str(item.unit_price),
+                "discount_percent": str(item.discount_percent),
+                "gst_rate": str(item.gst_rate),
+                "taxable_amount": str(item.taxable_amount),
+                "line_total": str(item.line_total),
+                "hsn_code": item.hsn_code or "",
+            })
+        snapshot = {
+            "number": invoice.number,
+            "status": invoice.status,
+            "supplier_id": invoice.supplier_id,
+            "invoice_date": invoice.invoice_date.isoformat() if invoice.invoice_date else None,
+            "supplier_bill_number": invoice.supplier_bill_number or "",
+            "purchase_type": invoice.purchase_type,
+            "subtotal": str(invoice.subtotal),
+            "taxable_total": str(invoice.taxable_total),
+            "cgst_total": str(invoice.cgst_total),
+            "sgst_total": str(invoice.sgst_total),
+            "igst_total": str(invoice.igst_total),
+            "grand_total": str(invoice.grand_total),
+            "additional_charges": str(invoice.additional_charges),
+            "invoice_discount": str(invoice.invoice_discount),
+            "tds_section": invoice.tds_section or "",
+            "tds_rate": str(invoice.tds_rate),
+            "tds_amount": str(invoice.tds_amount),
+            "items": lines,
+        }
+        actor = user if getattr(user, "pk", None) else None
+        return PurchaseInvoiceRevision.objects.create(
+            company=invoice.company,
+            invoice=invoice,
+            revision=int(last) + 1,
+            snapshot=snapshot,
+            created_by=actor,
+            updated_by=actor,
+        )
+
+    @staticmethod
     def restamp_fifo_layers_for_price_amend(invoice):
-        """H9 price-only: update remaining FIFO layers; refuse if any qty peeled."""
+        """H9 price-only: update remaining FIFO layers; refuse if any qty peeled.
+
+        WAVG companies revalue the remaining weighted-average pool and, when
+        part of the receipt was already issued, post a balanced COGS variance.
+        """
         from inventory.models import InventoryCostLayer, StockMovement
 
-        if getattr(invoice.company, "inventory_valuation_method", "WAVG") != "FIFO":
-            return
         # CR-027: Map cost per base unit accounting for line discounts and alternate units
         cost_by_product_batch = {}
         for item in invoice.items.all():
@@ -419,6 +481,11 @@ class PurchaseService:
                 cost = _line_stock_cost(item.product, item.unit_price, getattr(item, "unit_name", None))
             key = (item.product_id, getattr(item, "batch_id", None))
             cost_by_product_batch[key] = cost
+
+        method = getattr(invoice.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            PurchaseService._restamp_wavg_price_amend(invoice, cost_by_product_batch)
+            return
 
         moves = StockMovement.objects.filter(
             company=invoice.company,
@@ -453,15 +520,207 @@ class PurchaseService:
             StockMovement.stamp_cost(move.pk, unit_cost=new_cost)
 
     @staticmethod
+    def _movement_cost(move, cost_by_product_batch):
+        key = (move.product_id, move.batch_id)
+        new_cost = cost_by_product_batch.get(key)
+        if new_cost is None:
+            for (p_id, _b_id), c in cost_by_product_batch.items():
+                if p_id == move.product_id:
+                    return c
+        return new_cost
+
+    @staticmethod
+    def _restamp_wavg_price_amend(invoice, cost_by_product_batch):
+        """Revalue remaining WAVG stock and journal the consumed cost delta."""
+        from inventory.models import InventoryRunningCost, StockMovement
+
+        moves = StockMovement.objects.filter(
+            company=invoice.company,
+            movement_type=MovementType.PURCHASE,
+            reference_type="purchase_invoice",
+            reference_id=str(invoice.pk),
+        )
+        variance = Decimal("0")
+        for move in moves:
+            new_cost = PurchaseService._movement_cost(move, cost_by_product_batch)
+            if new_cost is None:
+                continue
+            new_cost = Decimal(str(new_cost)).quantize(Decimal("0.0001"))
+            old_cost = Decimal(str(move.unit_cost or 0)).quantize(Decimal("0.0001"))
+            delta = new_cost - old_cost
+            if delta == 0:
+                continue
+            original_qty = abs(Decimal(str(move.quantity or 0)))
+            if original_qty <= 0:
+                continue
+            row = (
+                InventoryRunningCost.objects.select_for_update()
+                .filter(
+                    company=invoice.company,
+                    warehouse_id=move.warehouse_id,
+                    product_id=move.product_id,
+                    batch_id=move.batch_id,
+                )
+                .first()
+            )
+            if row is None:
+                continue
+            pool_qty = Decimal(str(row.qty or 0))
+            revalue_qty = min(original_qty, pool_qty) if pool_qty > 0 else Decimal("0")
+            consumed_qty = original_qty - revalue_qty
+            row.value = (Decimal(str(row.value or 0)) + (revalue_qty * delta)).quantize(Decimal("0.0001"))
+            row.save(update_fields=["value", "updated_at"])
+            StockMovement.stamp_cost(move.pk, unit_cost=new_cost)
+            variance += consumed_qty * delta
+
+        variance = variance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if variance == 0 or not getattr(invoice.company, "accounting_enabled", False):
+            return
+        from accounting.services import PostingService
+
+        amount = abs(variance)
+        cogs = PostingService._account(invoice.company, "5400")
+        inventory = PostingService._account(invoice.company, "1400")
+        if variance > 0:
+            lines = [
+                {"account": cogs, "debit": amount, "cost_center": invoice.cost_center},
+                {"account": inventory, "credit": amount, "cost_center": invoice.cost_center},
+            ]
+        else:
+            lines = [
+                {"account": inventory, "debit": amount, "cost_center": invoice.cost_center},
+                {"account": cogs, "credit": amount, "cost_center": invoice.cost_center},
+            ]
+        PostingService.post(
+            company=invoice.company,
+            source_type="PURCHASE_INVOICE",
+            source_id=invoice.id,
+            # The posting key is (source, purpose), so a second price amend would be answered with
+            # the first journal and the GL would stop following the stock revaluation. One purpose
+            # per amend (the revision count) keeps each journal.
+            purpose=f"WAVG_PRICE_VARIANCE_{invoice.revisions.count()}",
+            entry_date=invoice.invoice_date,
+            user=None,
+            narration=f"WAVG price variance: {invoice.number or invoice.pk}",
+            lines=lines,
+        )
+
+    @staticmethod
     def _is_foreign_import_supplier(supplier) -> bool:
         from core.services.billing import extract_state_code
 
+        country = (getattr(supplier, "country", None) or "").strip().upper()
+        if country in {"IN", "IND", "INDIA"}:
+            return False
+        if country:
+            return True
+        # Country not captured yet: keep the GSTIN/state inference so suppliers
+        # saved before this field still cannot skip a Bill of Entry.
         state = (supplier.state or "").strip()
         gstin = (supplier.gstin or "").strip()
         tt = (getattr(supplier, "taxpayer_type", None) or "").strip().upper()
         foreign_tt = tt in ("EXPWP", "EXPWOP", "DEXP", "SEZWP", "SEZWOP")
         has_india_state = bool(extract_state_code(gstin) or extract_state_code(state))
         return bool(foreign_tt or (state and not has_india_state and not gstin))
+
+    @staticmethod
+    def _match_manager(company, user) -> bool:
+        from accounts.models import CompanyUser
+
+        if user is None or not getattr(user, "pk", None):
+            return False
+        role = (
+            CompanyUser.objects.filter(company=company, user=user)
+            .values_list("role", flat=True)
+            .first()
+        )
+        return role in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER)
+
+    @staticmethod
+    def match_bill_to_po(invoice, *, user=None, confirm_override=False):
+        """Line-level 3-way match of the bill against its PO and GRN.
+
+        Aggregate totals can hide a rate increase on one line offset by a cut
+        on another. Quantity is checked against GRN accepted qty when a receipt
+        is linked, and rate against the PO (else the GRN). An owner or manager
+        may pass confirm_override to accept the breaches.
+        """
+        orders = list(invoice.source_orders.prefetch_related("items"))
+        grns = list(
+            invoice.source_grns.filter(status=GoodsReceipt.Status.COMPLETED)
+            .select_related("purchase_order")
+            .prefetch_related("items", "purchase_order__items")
+        )
+        seen_order_ids = {order.pk for order in orders}
+        for grn in grns:
+            po = grn.purchase_order
+            if po is not None and po.pk not in seen_order_ids:
+                orders.append(po)
+                seen_order_ids.add(po.pk)
+        if not orders and not grns:
+            return []
+
+        # Several PO lines (different rates) or GRN lines (different batches) can carry one product,
+        # and so can the bill. Compare per product: summed quantities, and any of the agreed rates.
+        po_qty = defaultdict(Decimal)
+        po_rates = defaultdict(list)
+        for order in orders:
+            for line in order.items.all():
+                po_qty[line.product_id] += Decimal(str(line.quantity or 0))
+                po_rates[line.product_id].append(Decimal(str(line.unit_price or 0)).quantize(Decimal("0.01")))
+        grn_qty = defaultdict(Decimal)
+        grn_rates = defaultdict(list)
+        for grn in grns:
+            for line in grn.items.all():
+                grn_qty[line.product_id] += Decimal(str(line.quantity_accepted or 0))
+                price = Decimal(str(line.unit_price or 0)).quantize(Decimal("0.01"))
+                if price > 0:
+                    grn_rates[line.product_id].append(price)
+
+        def _outside(rate, agreed):
+            return all(abs(rate - a) > _three_way_rate_tolerance(a) for a in agreed)
+
+        bill_qty = defaultdict(Decimal)
+        names = {}
+        lines = list(invoice.items.select_related("product"))
+        for item in lines:
+            bill_qty[item.product_id] += Decimal(str(item.quantity or 0))
+            names[item.product_id] = item.product.name
+
+        breaches = []
+        for item in lines:
+            pid = item.product_id
+            name = item.product.name
+            rate = Decimal(str(item.unit_price or 0)).quantize(Decimal("0.01"))
+            if pid in po_rates and _outside(rate, po_rates[pid]):
+                breaches.append(f"{name}: bill rate {rate} differs from PO rate {po_rates[pid][-1]}")
+            elif pid not in po_rates and pid in grn_rates and _outside(rate, grn_rates[pid]):
+                breaches.append(f"{name}: bill rate {rate} differs from GRN rate {grn_rates[pid][-1]}")
+            if orders and pid not in po_rates:
+                breaches.append(f"{name}: billed but not on the purchase order")
+        for pid, qty in bill_qty.items():
+            name = names[pid]
+            if grns:
+                accepted = grn_qty.get(pid, Decimal("0"))
+                if abs(qty - accepted) > _THREE_WAY_QTY_TOLERANCE:
+                    breaches.append(f"{name}: bill qty {qty} differs from GRN accepted {accepted}")
+            elif orders and qty - po_qty.get(pid, Decimal("0")) > _THREE_WAY_QTY_TOLERANCE:
+                breaches.append(
+                    f"{name}: bill qty {qty} exceeds PO qty {po_qty.get(pid, Decimal('0'))}"
+                )
+        if grns:
+            for pid, accepted in grn_qty.items():
+                if accepted > 0 and pid not in bill_qty:
+                    breaches.append(f"product {pid}: GRN accepted {accepted} is missing on the bill")
+
+        if not breaches:
+            return []
+        if confirm_override and PurchaseService._match_manager(invoice.company, user):
+            return breaches
+        raise BusinessRuleError(
+            "3-way match failed: " + "; ".join(breaches)
+            + ". An owner or manager may pass confirm_three_way_override=true."
+        )
 
     @staticmethod
     def _assert_import_bill_of_entry(invoice: PurchaseInvoice) -> None:
@@ -579,9 +838,31 @@ class PurchaseService:
     @staticmethod
     @transaction.atomic
     def complete(invoice: PurchaseInvoice, user, *, confirm_no_rcm=False, confirm_duplicate_bill=False, confirm_blank_pos=False,
-                 confirm_gstin_total_change=False):
+                 confirm_gstin_total_change=False, confirm_three_way_override=False, gstin_cancel_override=False,
+                 gstin_cancel_reason=""):
         """Atomic Complete: number + PURCHASE movements + event (E3.3)."""
         invoice = PurchaseInvoice.objects.select_for_update().get(pk=invoice.pk)
+        cancelled_on = getattr(invoice.supplier, "gstin_cancelled_on", None)
+        if (
+            cancelled_on
+            and invoice.invoice_date
+            and invoice.invoice_date >= cancelled_on
+            and not gstin_cancel_override
+        ):
+            from planwave.services import alert_purchase_team
+
+            alert_purchase_team(
+                invoice.company,
+                "Supplier GSTIN cancelled",
+                f"{invoice.supplier.name} is cancelled from {cancelled_on}. New ITC is blocked.",
+            )
+            raise BusinessRuleError(
+                "Supplier GSTIN is cancelled on or before this bill. ITC is blocked until an authorised override is recorded.",
+            )
+        if gstin_cancel_override and cancelled_on:
+            from planwave.services import assert_gstin_override
+
+            assert_gstin_override(invoice.company, user, gstin_cancel_reason)
         from billing.quotas import assert_complete_allowed
 
         assert_complete_allowed(invoice.company)
@@ -595,6 +876,9 @@ class PurchaseService:
 
         tax_enabled = invoice.purchase_type == PurchaseInvoice.PurchaseType.GST
         PurchaseService._assert_import_bill_of_entry(invoice)
+        PurchaseService.match_bill_to_po(
+            invoice, user=user, confirm_override=confirm_three_way_override,
+        )
         from core.services.registration_gates import assert_may_issue_gst_tax_invoice
 
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
@@ -686,7 +970,7 @@ class PurchaseService:
                 " ".join(msg for _code, msg in pending_confirms),
             )
         assert_invoice_tds_exclusive(invoice)
-        assert_claimable_itc_allowed(invoice)
+        assert_claimable_itc_allowed(invoice, goods_will_be_received=True)
 
         if (invoice.notes or "").strip() == "TALLY_OPENING" and not getattr(
             invoice, "is_opening_balance", False
@@ -810,10 +1094,32 @@ class PurchaseService:
                 )
                 item.save(update_fields=["batch"])
             if item.product.track_serial:
-                SerialNumberService.receive(
-                    company=invoice.company, product=item.product, warehouse=invoice.warehouse,
-                    numbers=item.serial_numbers, quantity=item.quantity, user=user,
+                from inventory.models import SerialNumber
+
+                numbers = list(item.serial_numbers or [])
+                found = dict(
+                    SerialNumber.objects.filter(
+                        company=invoice.company,
+                        product=item.product,
+                        serial_number__in=numbers,
+                    ).values_list("serial_number", "status")
                 )
+                # A serial already on hand is expected when this bill follows a goods receipt that
+                # registered it. One that is sold (or otherwise not available) cannot be received
+                # again: posting +1 stock for it with no serial row would corrupt both.
+                unavailable = sorted(n for n, st in found.items() if st != SerialNumber.Status.AVAILABLE)
+                if unavailable:
+                    raise BusinessRuleError(
+                        f"Serial number(s) {', '.join(unavailable[:5])} on {item.product.name} are already "
+                        "in use and cannot be received again."
+                    )
+                existing = set(found)
+                missing = [n for n in numbers if n not in existing]
+                if missing:
+                    SerialNumberService.receive(
+                        company=invoice.company, product=item.product, warehouse=invoice.warehouse,
+                        numbers=missing, quantity=len(missing), user=user,
+                    )
             if not is_tally_opening:
                 qty = _line_stock_qty(item.product, item.quantity, getattr(item, "unit_name", None))
                 # CR-032 / CR-033: layers stay at taxable/commercial line cost only.
@@ -859,10 +1165,24 @@ class PurchaseService:
                 )
         if not is_tally_opening:
             if invoice.company.accounting_enabled:
-                from accounting.services import PostingService
+                from accounting.services import PostingService, apply_specified_person_tds
 
+                apply_specified_person_tds(invoice)
+                if getattr(invoice.supplier, "income_tax_specified_person", False) and (
+                    invoice.tds_section or ""
+                ).strip():
+                    invoice.save(update_fields=["tds_rate", "tds_amount", "updated_at"])
                 PostingService.post_purchase(invoice, user)
-            emit("document.completed", document=invoice, user=user, event="purchase_invoice.completed")
+                emit("document.completed", document=invoice, user=user, event="purchase_invoice.completed")
+            record_document_event(
+                document=invoice, user=user, event="purchase_invoice.completed",
+                before={"status": "DRAFT"},
+            )
+            from planwave.services import stamp_document_party
+            from planwave.finish import classify_purchase_bill
+
+            stamp_document_party(invoice)
+            classify_purchase_bill(invoice)
             from core.models import StatutoryDocumentEvent, log_statutory_event
 
             log_statutory_event(
@@ -1013,6 +1333,7 @@ class PurchaseService:
                     user=user,
                 )
                 InventoryService.retire_source_layers(move, abs(Decimal(str(move.quantity))))
+            PurchaseService._unwind_grn_stock(invoice, user)
             for item in invoice.items.select_related("product"):
                 if item.product.track_serial and item.serial_numbers:
                     SerialNumber.objects.filter(
@@ -1025,6 +1346,7 @@ class PurchaseService:
         invoice.cancelled_at = timezone.now()
         invoice.updated_by = user
         invoice.save()
+        record_document_event(document=invoice, user=user, event="purchase_invoice.cancelled")
         emit("document.cancelled", document=invoice, user=user, event="purchase_invoice.cancelled")
         from core.models import StatutoryDocumentEvent, log_statutory_event
 
@@ -1037,6 +1359,79 @@ class PurchaseService:
             user=user,
         )
         return invoice
+
+    @staticmethod
+    def _unwind_grn_stock(invoice, user):
+        """Reverse goods-receipt layers that this bill did not post a second time."""
+        from inventory.models import SerialNumber, StockBalance, StockMovement
+
+        grns = list(
+            GoodsReceipt.objects.filter(
+                company_id=invoice.company_id,
+                converted_purchase_id=invoice.pk,
+                status=GoodsReceipt.Status.COMPLETED,
+            )
+        )
+        for grn in grns:
+            moves = list(
+                StockMovement.objects.filter(
+                    company=invoice.company,
+                    movement_type=MovementType.PURCHASE,
+                    reference_type="goods_receipt",
+                    reference_id=str(grn.pk),
+                )
+            )
+            for move in moves:
+                req_qty = abs(Decimal(str(move.quantity)))
+                bal = StockBalance.objects.filter(
+                    company=invoice.company,
+                    warehouse=move.warehouse or invoice.warehouse,
+                    product=move.product,
+                    batch=move.batch,
+                ).first()
+                if (
+                    bal
+                    and bal.on_hand < req_qty
+                    and (getattr(invoice.company, "negative_stock_policy", "BLOCK") or "BLOCK") == "BLOCK"
+                ):
+                    raise BusinessRuleError(
+                        f"Cannot cancel purchase invoice {invoice.number}: on-hand stock for "
+                        f"{move.product.name} ({bal.on_hand}) is less than the receipt quantity ({req_qty})."
+                    )
+            for move in moves:
+                InventoryService.post_movement(
+                    company=invoice.company,
+                    warehouse=move.warehouse or invoice.warehouse,
+                    product=move.product,
+                    batch=move.batch,
+                    movement_type=MovementType.ADJUSTMENT,
+                    quantity=-abs(Decimal(str(move.quantity))),
+                    unit_cost=move.unit_cost,
+                    reference_type="goods_receipt_unwind",
+                    reference_id=grn.pk,
+                    reason=f"Cancellation of {invoice.number}",
+                    user=user,
+                )
+                InventoryService.retire_source_layers(move, abs(Decimal(str(move.quantity))))
+            for item in grn.items.select_related("product"):
+                if not item.product.track_serial or not item.serial_numbers:
+                    continue
+                non_avail = SerialNumber.objects.filter(
+                    company=invoice.company,
+                    product=item.product,
+                    serial_number__in=list(item.serial_numbers),
+                ).exclude(status=SerialNumber.Status.AVAILABLE)
+                if non_avail.exists():
+                    raise BusinessRuleError(
+                        f"Cannot cancel purchase invoice {invoice.number}: serialized "
+                        f"'{item.product.name}' received on the GRN is no longer available."
+                    )
+                SerialNumber.objects.filter(
+                    company=invoice.company,
+                    product=item.product,
+                    serial_number__in=list(item.serial_numbers),
+                    status=SerialNumber.Status.AVAILABLE,
+                ).delete()
 
     # ---------------- Purchase return ----------------
 
@@ -1192,6 +1587,21 @@ class PurchaseService:
             unit_name = getattr(item, "unit_name", None) or unit_names.get(item.product_id)
             return _line_stock_qty(item.product, item.quantity, unit_name)
 
+        def _receipt_move_filter():
+            if invoice is None:
+                return Q(pk__in=[])
+            grn_ids = [
+                str(pk)
+                for pk in GoodsReceipt.objects.filter(
+                    company_id=invoice.company_id,
+                    converted_purchase_id=invoice.pk,
+                ).values_list("pk", flat=True)
+            ]
+            clause = Q(reference_type="purchase_invoice", reference_id=str(invoice.pk))
+            if grn_ids:
+                clause = clause | Q(reference_type="goods_receipt", reference_id__in=grn_ids)
+            return clause
+
         def _return_unit_cost(product, fallback_price):
             if invoice is None:
                 return fallback_price
@@ -1199,15 +1609,27 @@ class PurchaseService:
                 CostMove.objects.filter(
                     company=purchase_return.company,
                     movement_type=MovementType.PURCHASE,
-                    reference_type="purchase_invoice",
-                    reference_id=str(invoice.pk),
                     product=product,
                 )
+                .filter(_receipt_move_filter())
                 .order_by("id")
                 .first()
             )
-            if move is not None and move.unit_cost is not None:
-                return move.unit_cost
+            # Prefer the goods-receipt layer cost when the bill did not post stock.
+            grn_move = (
+                CostMove.objects.filter(
+                    company=purchase_return.company,
+                    movement_type=MovementType.PURCHASE,
+                    reference_type="goods_receipt",
+                    product=product,
+                )
+                .filter(_receipt_move_filter())
+                .order_by("id")
+                .first()
+            )
+            chosen = grn_move or move
+            if chosen is not None and chosen.unit_cost is not None:
+                return chosen.unit_cost
             return fallback_price
 
         for item in items:
@@ -1255,11 +1677,9 @@ class PurchaseService:
                     for move in CostMove.objects.filter(
                         company=purchase_return.company,
                         movement_type=MovementType.PURCHASE,
-                        reference_type="purchase_invoice",
-                        reference_id=str(invoice.pk),
                         product=item.product,
                         batch=batch,
-                    ).order_by("id"):
+                    ).filter(_receipt_move_filter()).order_by("id"):
                         if remaining <= 0:
                             break
                         take = min(remaining, abs(Decimal(str(move.quantity))))
@@ -1436,6 +1856,7 @@ class PurchaseService:
                 note, user, confirm_paid_invoice=True, confirm_price_override=True
             )
 
+        record_document_event(document=purchase_return, user=user, event="purchase_return.completed")
         emit("document.completed", document=purchase_return, user=user, event="purchase_return.completed")
         return purchase_return
 
@@ -1603,5 +2024,6 @@ class PurchaseService:
         purchase_return.cancelled_at = timezone.now()
         purchase_return.updated_by = user
         purchase_return.save()
+        record_document_event(document=purchase_return, user=user, event="purchase_return.cancelled")
         emit("document.cancelled", document=purchase_return, user=user, event="purchase_return.cancelled")
         return purchase_return

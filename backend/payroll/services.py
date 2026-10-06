@@ -315,7 +315,36 @@ def annual_new_regime_tax(annual_income: Decimal) -> Decimal:
     return _money(tax)
 
 
-def compute_statutory(employee, company, *, gross=None, month: int | None = None, paid_days=None, period_days=None) -> dict:
+def _esi_period_months(period: str) -> list[str]:
+    """ESI contribution periods are April–September and October–March."""
+    year = int(period[:4])
+    month = int(period[5:7])
+    if 4 <= month <= 9:
+        return [f"{year}-{slot:02d}" for slot in range(4, 10)]
+    if month >= 10:
+        return [f"{year}-{slot:02d}" for slot in range(10, 13)] + [
+            f"{year + 1}-{slot:02d}" for slot in range(1, 4)
+        ]
+    return [f"{year - 1}-{slot:02d}" for slot in range(10, 13)] + [
+        f"{year}-{slot:02d}" for slot in range(1, 4)
+    ]
+
+
+def _esi_continues_this_period(employee, company, period: str) -> bool:
+    """Once wages are inside the ceiling in a contribution period, ESI stays on until that period ends."""
+    earlier = [slot for slot in _esi_period_months(period) if slot < period]
+    if not earlier:
+        return False
+    return PaySlip.objects.filter(
+        company=company,
+        employee=employee,
+        pay_run__status=PayRun.Status.COMPLETED,
+        pay_run__period__in=earlier,
+        esi_employee__gt=0,
+    ).exists()
+
+
+def compute_statutory(employee, company, *, gross=None, month: int | None = None, paid_days=None, period_days=None, period: str | None = None) -> dict:
     gross_full = _money(gross if gross is not None else employee.salary)
     pf_employee = _money(0)
     pf_employer_eps = _money(0)
@@ -327,9 +356,9 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
     prorate = Decimal("1")
     if paid_days is not None and period_days:
         days = Decimal(str(paid_days))
-        period = Decimal(str(period_days))
-        if period > 0 and days < period:
-            prorate = days / period
+        span = Decimal(str(period_days))
+        if span > 0 and days < span:
+            prorate = days / span
     gross_amt = _money(gross_full * prorate)
     if gross_amt <= 0:
         # B9-003: a full-month loss-of-pay slip earns nothing — do not compute
@@ -364,7 +393,12 @@ def compute_statutory(employee, company, *, gross=None, month: int | None = None
     if employee.esi_applicable:
         esi_ceiling = _money(getattr(company, "esi_wage_ceiling", None) or ESI_WAGE_CEILING)
         # Eligibility is on full-month wages, not LOP-prorated gross.
-        if gross_full <= esi_ceiling:
+        # A month over the ceiling still contributes when an earlier month in
+        # the same April–September or October–March period was covered.
+        covered = gross_full <= esi_ceiling
+        if not covered and period and PERIOD_RE.match(period):
+            covered = _esi_continues_this_period(employee, company, period)
+        if covered:
             esi_employee = _money(gross_amt * ESI_EMPLOYEE_RATE)
             esi_employer = _money(gross_amt * ESI_EMPLOYER_RATE)
     # B9-015: PT is a fixed monthly levy keyed to the salary *rate*, not the
@@ -415,20 +449,90 @@ def _credit_line(account, amount: Decimal):
     return {"account": account, "credit": amount}
 
 
+def _refuse_old_regime_without_rate(company) -> None:
+    """Old-regime chapter VI-A and HRA are not collected. A zero rate would
+    post no TDS and look finished. Require an explicit rate instead."""
+    missing = list(
+        Employee.objects.filter(
+            company=company,
+            status=Employee.Status.ACTIVE,
+            tax_regime=Employee.TaxRegime.OLD,
+            tds_rate=0,
+        ).values_list("name", flat=True)[:5]
+    )
+    if missing:
+        raise BusinessRuleError(
+            "Old-regime TDS needs an explicit rate for: "
+            + ", ".join(missing)
+            + ". Declarations are not collected, so a zero rate is refused."
+        )
+
+
+def _component_totals(slip) -> tuple[Decimal, Decimal, Decimal]:
+    """Arrears join the wage base. Bonus is extra pay. An advance is recovered from net."""
+    arrear = bonus = advance = Decimal("0")
+    if slip is None:
+        return arrear, bonus, advance
+    from .models import EarningDeductionLine
+
+    for row in slip.components.all():
+        amount = _money(row.amount)
+        if row.kind == EarningDeductionLine.Kind.ARREAR:
+            arrear += amount
+        elif row.kind == EarningDeductionLine.Kind.BONUS:
+            bonus += amount
+        elif row.kind == EarningDeductionLine.Kind.ADVANCE:
+            advance += amount
+    return _money(arrear), _money(bonus), _money(advance)
+
+
+def _disbursement_account(company, *, pay_from_cash, bank_account_id):
+    from accounting.models import Account
+
+    if bank_account_id is not None:
+        account = Account.objects.filter(company=company, pk=bank_account_id, is_active=True).first()
+        if account is None or not (account.code == "1500" or account.bank_account_id):
+            raise BusinessRuleError("Choose a bank account for this company.")
+        return account, False
+    if pay_from_cash is True:
+        return None, True
+    if pay_from_cash is False:
+        return None, False
+    raise BusinessRuleError("Choose a bank account or confirm cash disbursement.")
+
+
+def _apply_pf_admin_floor(pay_run: PayRun) -> None:
+    """Establishment admin is at least Rs 500 when any PF wages were computed below that."""
+    slips = list(pay_run.slips.select_related("employee"))
+    pf_slips = [
+        slip for slip in slips
+        if slip.employee.pf_applicable and (slip.gross or 0) > 0 and (slip.pf_employee or 0) >= 0
+    ]
+    wages = [slip for slip in pf_slips if (slip.pf_admin_charges or 0) > 0 or (slip.pf_employee or 0) > 0]
+    if not wages:
+        return
+    admin_total = sum((slip.pf_admin_charges or Decimal("0") for slip in wages), Decimal("0"))
+    if admin_total <= 0 or admin_total >= PF_ADMIN_MIN_ESTABLISHMENT:
+        return
+    target = wages[0]
+    target.pf_admin_charges = _money(target.pf_admin_charges + (PF_ADMIN_MIN_ESTABLISHMENT - admin_total))
+    target.save(update_fields=["pf_admin_charges"])
+
+
 @transaction.atomic
-def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> PayRun:
-    """B9-036 (documented limitation, not built here): the only per-employee
-    input this run accepts is the `lop` action, which sets paid_days and
-    forces gross = emp.salary. There is no way to add a bonus, arrear,
-    advance recovery, or one-off deduction to a slip — any month with a
-    salary revision effective mid-period, a bonus, or a recovery cannot be
-    represented. Modeling this needs a real PaySlip earning/deduction-lines
-    schema (with its own TDS/PF/ESI tax-treatment rules per line type) —
-    a payroll feature build with real compliance stakes, not something to
-    improvise here."""
+def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool | None = None, bank_account_id=None) -> PayRun:
+    """Complete a run. Cash is not the default: pass a bank account or pay_from_cash=True.
+
+    Arrears increase the wage used for PF/ESI. A bonus is added after that
+    calculation. An advance is recovered from net and is not a PF wage.
+    """
     locked = PayRun.objects.select_for_update().get(pk=pay_run.pk)
     if locked.status == PayRun.Status.COMPLETED:
         raise BusinessRuleError("Pay run already completed.")
+    credit_acct, cash_choice = _disbursement_account(
+        locked.company, pay_from_cash=pay_from_cash, bank_account_id=bank_account_id,
+    )
+    _refuse_old_regime_without_rate(locked.company)
     from reporting.gst_periods import assert_period_allows_money_amend
 
     assert_period_allows_money_amend(locked.company, pay_period_month_end(locked.period))
@@ -453,7 +557,12 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
             gross = None
         elif gross is not None and gross == 0:
             gross = None
-        base_gross = _money(gross if gross is not None else emp.salary)
+        arrear, bonus, advance = _component_totals(existing_slip)
+        if arrear or bonus:
+            # A stored slip.gross already contains this slip's arrears and bonus. Feeding it back
+            # in would add them again on every cancel and re-complete.
+            gross = None
+        base_gross = _money((gross if gross is not None else emp.salary) + arrear)
         computed = compute_statutory(
             emp,
             locked.company,
@@ -461,7 +570,11 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
             month=_pt_month,
             paid_days=paid_days,
             period_days=_period_days,
+            period=locked.period,
         )
+        computed["gross"] = _money(computed["gross"] + bonus)
+        computed["deductions"] = _money(computed["deductions"] + advance)
+        computed["net"] = max(_money(0), _money(computed["gross"] - computed["deductions"]))
         computed["period_days"] = _period_days
         computed["paid_days"] = paid_days
         PaySlip.objects.update_or_create(
@@ -470,14 +583,21 @@ def complete_pay_run(pay_run: PayRun, user, *, pay_from_cash: bool = True) -> Pa
             employee=emp,
             defaults=computed,
         )
-    _post_pay_run_gl(locked, user, pay_from_cash=pay_from_cash)
+    _apply_pf_admin_floor(locked)
+    locked.pay_from_cash = cash_choice
+    locked.bank_account = credit_acct if bank_account_id is not None else None
+    locked.save(update_fields=["pay_from_cash", "bank_account", "updated_at"])
+    _post_pay_run_gl(locked, user, credit_account=credit_acct)
     locked.status = PayRun.Status.COMPLETED
     locked.updated_by = user
     locked.save(update_fields=["status", "updated_by", "updated_at"])
+    from core.services.audit import record_document_event
+
+    record_document_event(document=locked, user=user, event="payroll.finalised", before={"status": "DRAFT"})
     return locked
 
 
-def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool = True) -> bool:
+def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool | None = None, credit_account=None) -> bool:
     """Post the payroll journal for `locked`. Returns True iff an entry was posted.
 
     Idempotent — `uniq_accounting_source_posting` dedupes on
@@ -510,7 +630,18 @@ def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool = True) -> boo
     # no ~50 get_or_create round-trips on every pay-run completion.
     PostingService._ensure_chart(company)
     expense = PostingService._account(company, "5800")
-    credit_acct = PostingService._account(company, "1100" if pay_from_cash else "2150")
+    if credit_account is None:
+        if locked.bank_account_id:
+            credit_acct = locked.bank_account
+        elif locked.pay_from_cash is False:
+            credit_acct = PostingService._account(company, "2150")
+        elif pay_from_cash is False:
+            credit_acct = PostingService._account(company, "2150")
+        else:
+            # A run saved before disbursement was recorded was paid from cash.
+            credit_acct = PostingService._account(company, "1100")
+    else:
+        credit_acct = credit_account
     # BB-000703 / PR-01: employer PF (EPS+EPF) + admin + EDLI + ESI are
     # employer cost — Dr expense / Cr the statutory payables (2261 PF).
     total_expense = total_gross + total_pf_er + total_pf_admin + total_edli + total_esi_er
@@ -524,6 +655,13 @@ def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool = True) -> boo
         line = _credit_line(PostingService._account(company, code), amount)
         if line:
             lines.append(line)
+    # Advance recovered from net pay (and any amount lost to the zero-net clamp) is not a
+    # statutory payable and not cash paid out: it clears the employee-advance receivable. Without
+    # this credit the journal does not balance and the run cannot complete.
+    recovered = total_gross - total_net - total_pf - total_esi - total_pt - total_tds
+    recovery_line = _credit_line(PostingService._account(company, "1260"), recovered)
+    if recovery_line:
+        lines.append(recovery_line)
     net_line = _credit_line(credit_acct, total_net)
     if net_line:
         lines.append(net_line)
@@ -576,24 +714,30 @@ def cancel_pay_run(pay_run: PayRun, user) -> PayRun:
     assert_period_allows_money_amend(
         locked.company, pay_period_month_end(locked.period), allow_soft_closed=True
     )
-    if locked.company.accounting_enabled:
-        from accounting.models import JournalEntry
-        from accounting.services import PostingService
+    from accounting.models import JournalEntry
+    from accounting.services import PostingService
 
-        entry = (
-            JournalEntry.objects.filter(
-                company=locked.company,
-                source_type="PAY_RUN",
-                source_id=locked.pk,
-                purpose="PAYROLL",
-                status=JournalEntry.Status.POSTED,
-            )
-            .select_for_update()
-            .first()
+    entry = (
+        JournalEntry.objects.filter(
+            company=locked.company,
+            source_type="PAY_RUN",
+            source_id=locked.pk,
+            purpose="PAYROLL",
+            status=JournalEntry.Status.POSTED,
         )
-        if entry:
-            # R2-004: reversal posts on the cancellation date, not the pay period.
-            PostingService.reverse(entry, user=user)
+        .select_for_update()
+        .first()
+    )
+    if entry and not locked.company.accounting_enabled:
+        raise BusinessRuleError(
+            "This pay run has a posted payroll journal. Turn accounting on, then cancel, "
+            "so the journal can be reversed."
+        )
+    if entry:
+        # R2-004: reversal posts on the cancellation date, not the pay period.
+        # Never call reverse while books are off: post() would mark the journal
+        # REVERSED and store no reversal lines.
+        PostingService.reverse(entry, user=user)
     # Cancel returns the run to DRAFT so its period can be re-run
     # (test_cancel_pay_run_reverses_journal_and_reopens_draft). R4-009 keeps the
     # finalised slips (net > 0) for anyone who left mid-period rather than

@@ -87,6 +87,7 @@ const NewPurchaseOrderPage = lazy(() => import('@/pages/purchases/NewPurchaseOrd
 const PurchaseBillUploadPage = lazy(() => import('@/pages/purchases/PurchaseBillUploadPage').then((m) => ({ default: m.PurchaseBillUploadPage })));
 const PurchaseDetailPage = lazy(() => import('@/pages/purchases/PurchaseDetailPage').then((m) => ({ default: m.PurchaseDetailPage })));
 const BillsOfEntryPage = lazy(() => import('@/pages/purchases/BillsOfEntryPage').then((m) => ({ default: m.BillsOfEntryPage })));
+const GoodsReceiptsPage = lazy(() => import('@/pages/purchases/GoodsReceiptsPage').then((m) => ({ default: m.GoodsReceiptsPage })));
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage').then((m) => ({ default: m.ProductsPage })));
 const CurrentStockPage = lazy(() => import('@/pages/inventory/CurrentStockPage').then((m) => ({ default: m.CurrentStockPage })));
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage').then((m) => ({ default: m.StockAdjustmentPage })));
@@ -121,6 +122,8 @@ const InsightsHealthPage = lazy(() => import('@/pages/insights/InsightsHealthPag
 const InsightsCashflowPage = lazy(() => import('@/pages/insights/InsightsCashflowPage').then((m) => ({ default: m.InsightsCashflowPage })));
 const InsightsAssistantPage = lazy(() => import('@/pages/insights/InsightsAssistantPage').then((m) => ({ default: m.InsightsAssistantPage })));
 const AttentionPage = lazy(() => import('@/pages/AttentionPage').then((m) => ({ default: m.AttentionPage })));
+const MorningPage = lazy(() => import('@/pages/MorningPage').then((m) => ({ default: m.MorningPage })));
+const CloseMonthPage = lazy(() => import('@/pages/reports/CloseMonthPage').then((m) => ({ default: m.CloseMonthPage })));
 const CollectionsWorklistPage = lazy(() => import('@/pages/CollectionsWorklistPage').then((m) => ({ default: m.CollectionsWorklistPage })));
 const PurchasePlanningPage = lazy(() => import('@/pages/purchases/PurchasePlanningPage').then((m) => ({ default: m.PurchasePlanningPage })));
 const DemandForecastPage = lazy(() => import('@/pages/inventory/DemandForecastPage').then((m) => ({ default: m.DemandForecastPage })));
@@ -208,6 +211,7 @@ const OfflineOutboxPage = lazy(() =>
 );
 const SetupWizardPage = lazy(() => import('@/pages/setup/SetupWizardPage').then((m) => ({ default: m.SetupWizardPage })));
 const HelpPage = lazy(() => import('@/pages/help/HelpPage').then((m) => ({ default: m.HelpPage })));
+const PilotLimitsPage = lazy(() => import('@/pages/help/PilotLimitsPage').then((m) => ({ default: m.PilotLimitsPage })));
 const HelpHealthPage = lazy(() => import('@/pages/help/HelpHealthPage').then((m) => ({ default: m.HelpHealthPage })));
 
 function RouteFallback() {
@@ -421,6 +425,7 @@ export function App() {
             <Route index element={<HomePage />} />
             <Route path="offline-outbox" element={<OfflineOutboxPage />} />
             <Route path="help" element={<HelpPage />} />
+            <Route path="help/pilot-limits" element={<PilotLimitsPage />} />
             <Route element={<RoleRoute allow={allowHelpHealth} />}>
               <Route path="settings/help" element={<HelpHealthPage />} />
             </Route>
@@ -506,6 +511,7 @@ export function App() {
               <Route path="purchases/credit-notes" element={<PurchaseCreditNotesPage />} />
               <Route path="purchases/debit-notes" element={<PurchaseDebitNotesPage />} />
               <Route path="purchases/orders" element={<PurchaseOrdersPage />} />
+              <Route path="purchases/grns" element={<GoodsReceiptsPage />} />
               <Route path="purchases/suppliers" element={<SuppliersPage />} />
               <Route path="purchases/bills-of-entry" element={<BillsOfEntryPage />} />
             </Route>
@@ -533,6 +539,8 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={canViewFinancialReports} />}>
               <Route path="attention" element={<AttentionPage />} />
+              <Route path="morning" element={<MorningPage />} />
+              <Route path="reports/close-month" element={<CloseMonthPage />} />
               <Route path="payments/collections" element={<CollectionsWorklistPage />} />
               <Route path="reports/sales" element={<SalesReportPage />} />
               <Route path="reports/purchases" element={<PurchaseReportPage />} />

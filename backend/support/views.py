@@ -12,7 +12,12 @@ from core.services.feature_flags import flag_enabled
 from core.viewsets import CompanyScopedViewSet
 
 from .models import Ticket, TicketAttachment, TicketComment, VendorTicketShare
-from .serializers import TicketCommentSerializer, TicketSerializer, VendorTicketShareSerializer
+from .serializers import (
+    TicketCommentSerializer,
+    TicketSerializer,
+    VendorTicketShareSerializer,
+    live_ticket_statuses,
+)
 from .share import revoke_share, share_ticket
 from .tickets import create_ticket, transition_status
 
@@ -64,6 +69,8 @@ class TicketViewSet(CompanyScopedViewSet):
             subject=data["subject"],
             description=data.get("description") or "",
             priority=data.get("priority") or Ticket.Priority.MEDIUM,
+            category=data.get("category") or Ticket.Category.GENERAL,
+            assigned_to=data.get("assigned_to"),
         )
         self._audit("CREATE", row)
         return Response(TicketSerializer(row, context={"request": request}).data, status=201)
@@ -143,3 +150,13 @@ class VendorTicketShareViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         return super().get_queryset().filter(revoked_at__isnull=True)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = list(page) if page is not None else list(queryset)
+        context = {**self.get_serializer_context(), "live_status": live_ticket_statuses(rows)}
+        serializer = self.get_serializer(rows, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)

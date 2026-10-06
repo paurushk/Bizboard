@@ -74,7 +74,7 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging worker' &&
-      exec celery -A config worker -l info"
+      exec celery -A config worker -l info -Q celery,high_priority,media_heavy,reports"
   beat:
     image: bizboard-api:latest
     env_file:

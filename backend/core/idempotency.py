@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
+from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import IntegrityError, transaction
 from rest_framework import status
@@ -31,6 +33,7 @@ IN_FLIGHT_STALE_SECONDS = 15 * 60
 # ones that happened to spell their name the way this set expected.
 MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "receipt_create",
+    "invoice_record_payment",
     "supplier_payment_create",
     "allocation_create",
     "allocation_unallocate",
@@ -130,6 +133,51 @@ TRANSIENT_4XX_CODES = frozenset({
 })
 
 
+class IdempotencyKeyReusedError(APIException):
+    """Same Idempotency-Key, different request. Replaying the first answer would tell the
+    caller their (different) request succeeded when nothing of it was recorded."""
+
+    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    default_detail = (
+        "This Idempotency-Key was already used for a different request. "
+        "Use a new key for a new request, or resend the original request unchanged."
+    )
+    default_code = "idempotency_key_reused"
+
+
+def _canon(value):
+    if hasattr(value, "lists") and callable(value.lists):  # QueryDict / MultiValueDict
+        return {str(k): [_canon(x) for x in vs] for k, vs in sorted(value.lists(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, dict):
+        return {str(k): _canon(v) for k, v in sorted(value.items(), key=lambda kv: str(kv[0]))}
+    if isinstance(value, (list, tuple)):
+        return [_canon(v) for v in value]
+    if hasattr(value, "read") and hasattr(value, "name"):  # uploaded file: identity, not bytes
+        return {"file": getattr(value, "name", ""), "size": getattr(value, "size", None)}
+    return value
+
+
+def request_fingerprint(request) -> str:
+    """Stable hash of method + path + body, so a reused key can be told from a retry.
+
+    Returns "" (no fingerprint, so no conflict check) for anything that is not a full
+    request: unit tests drive these helpers with bare stand-ins, and an unreadable body
+    must never break a money request."""
+    try:
+        method, path = request.method, request.path
+        body = json.dumps(_canon(request.data), sort_keys=True, separators=(",", ":"), default=str)
+    except Exception:  # noqa: BLE001
+        return ""
+    return hashlib.sha256(f"{method}\n{path}\n{body}".encode("utf-8")).hexdigest()
+
+
+def _fingerprints_conflict(existing, fingerprint: str) -> bool:
+    if not fingerprint or not getattr(settings, "IDEMPOTENCY_STRICT_FINGERPRINT", True):
+        return False
+    stored = getattr(existing, "request_hash", "") or ""
+    return bool(stored) and stored != fingerprint  # legacy rows (no hash) are never rejected
+
+
 class IdempotencyInFlightError(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "A request with this Idempotency-Key is already in progress."
@@ -156,13 +204,24 @@ def _json_safe(value):
     return json.loads(json.dumps(value, cls=DjangoJSONEncoder))
 
 
-def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Response:
+def require_idempotency_key(request) -> str:
+    """Money creates must name a key. An empty header is a missing key."""
+    raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+    if not raw_key:
+        from core.exceptions import BusinessRuleError
+
+        raise BusinessRuleError("Idempotency-Key is required for this money write.")
+    return raw_key
+
+
+def begin_record(*, company, scope: str, raw_key: str, fingerprint: str = "") -> IdempotencyRecord | Response:
     """
     BB-000730: insert in-flight placeholder under unique constraint before create.
 
     Returns the new in-flight row when this request owns the key.
     Returns a replay Response when a completed row already exists.
-    Raises IdempotencyInFlightError when another request still holds the key.
+    Raises IdempotencyInFlightError when another request still holds the key, and
+    IdempotencyKeyReusedError when the key was used for a different request (``fingerprint``).
     """
     key = (raw_key or "").strip()
     if not key or company is None:
@@ -177,6 +236,7 @@ def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Re
                 status_code=IN_FLIGHT_STATUS,
                 body={},
                 resource_id="",
+                request_hash=fingerprint,
             )
     except IntegrityError:
         with transaction.atomic():
@@ -195,15 +255,28 @@ def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Re
                         status_code=IN_FLIGHT_STATUS,
                         body={},
                         resource_id="",
+                        request_hash=fingerprint,
                     )
                 except IntegrityError:
                     raise IdempotencyInFlightError() from None
+            if _fingerprints_conflict(existing, fingerprint):
+                raise IdempotencyKeyReusedError()
             if _is_complete(existing):
                 return replay_record(existing)
             from django.utils import timezone
 
             age = (timezone.now() - existing.created_at).total_seconds()
-            if age > IN_FLIGHT_STALE_SECONDS and not _is_money_idempotency_scope(scope):
+            # Money scopes are not reclaimed. resource_id is written by store_record only
+            # after the money write has committed, so a worker that dies in between leaves
+            # an empty resource_id on a key whose money already posted. Reclaiming it would
+            # post that money twice. The one exception is a *_complete scope: completing a
+            # document is guarded by the document's own status, so a retry after a committed
+            # complete is refused ("already completed") instead of posting again, and a
+            # retry after a crash can finish the still-draft document.
+            reclaim = age > IN_FLIGHT_STALE_SECONDS and (
+                not _is_money_idempotency_scope(scope) or scope.endswith("_complete")
+            )
+            if reclaim:
                 existing.delete()
                 try:
                     return IdempotencyRecord.objects.create(
@@ -213,6 +286,7 @@ def begin_record(*, company, scope: str, raw_key: str) -> IdempotencyRecord | Re
                         status_code=IN_FLIGHT_STATUS,
                         body={},
                         resource_id="",
+                        request_hash=fingerprint,
                     )
                 except IntegrityError:
                     raise IdempotencyInFlightError() from None
@@ -320,7 +394,9 @@ def wrap_idempotent(*, request, company, scope: str, build):
     raw_key = (request.headers.get("Idempotency-Key") or "").strip()
     claimed = None
     if raw_key:
-        claimed = begin_record(company=company, scope=scope, raw_key=raw_key)
+        claimed = begin_record(
+            company=company, scope=scope, raw_key=raw_key, fingerprint=request_fingerprint(request),
+        )
         if isinstance(claimed, Response):
             return claimed
     owns_key = raw_key and claimed is not None and not isinstance(claimed, Response)

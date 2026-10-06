@@ -1,0 +1,170 @@
+surface_id,path,component,files,loc,fields,buttons,tabs,dialogs,steps,choice_count,cog_load_1to5,t_calls,hardcoded_strings,hardcoded_sample,iconbtn_no_label,div_onclick,small_controls,has_loading,has_error,has_empty,has_responsive,has_guard,has_confirm,has_live_region,has_table,has_filter
+R:/login:LoginPage,/login,LoginPage,2,275,4,6,2,0,0,12,2,19,0,,0,0,0,0,1,0,0,0,0,0,0,1
+R:/register:RegisterPage,/register,RegisterPage,3,310,8,6,0,0,0,14,2,14,0,,0,0,0,0,1,0,0,0,0,0,0,0
+R:/forgot-password:ForgotPasswordPage,/forgot-password,ForgotPasswordPage,1,100,1,3,0,0,0,4,1,11,0,,0,0,0,0,1,0,1,0,0,0,0,0
+R:/reset-password:ResetPasswordPage,/reset-password,ResetPasswordPage,1,126,2,4,0,0,0,6,1,16,0,,0,0,0,0,1,0,1,0,0,0,0,1
+R:/invite:AcceptInvitePage,/invite,AcceptInvitePage,1,103,2,1,0,0,0,3,1,9,0,,0,0,0,0,1,0,0,0,0,1,0,1
+R:/pay/:token:PublicPayPage,/pay/:token,PublicPayPage,1,130,0,3,0,0,0,3,1,0,6,Open UPI app | Pay online | Payment Link Unavailable,0,0,0,1,1,0,1,0,0,0,0,0
+R:/portal:CustomerPortalRequestPage,/portal,CustomerPortalRequestPage,1,56,2,1,0,0,0,3,1,5,0,,0,0,0,1,0,0,0,0,0,0,0,0
+R:/portal/:token:CustomerPortalPage,/portal/:token,CustomerPortalPage,1,154,2,4,0,0,0,6,1,11,0,,0,0,4,1,1,1,1,0,0,0,0,0
+R:/lead-form/:token:LeadFormPage,/lead-form/:token,LeadFormPage,1,83,7,1,0,0,0,8,1,10,0,,0,0,0,0,0,0,0,0,0,0,0,1
+R:/setup:SetupWizardPage,/setup,SetupWizardPage,3,617,19,18,0,0,1,37,3,65,0,,0,0,0,1,1,1,1,0,1,1,0,1
+R:/:HomePage,/,HomePage,3,646,0,10,0,0,0,10,1,71,0,,0,0,8,1,1,1,1,0,0,0,1,1
+R:/offline-outbox:OfflineOutboxPage,/offline-outbox,OfflineOutboxPage,5,467,0,5,0,1,0,5,1,36,0,,0,0,3,1,1,1,0,0,1,1,1,0
+R:/help:HelpPage,/help,HelpPage,3,336,2,2,0,0,0,4,1,12,0,,0,0,3,0,0,1,0,0,0,0,0,1
+R:/settings/help:HelpHealthPage,/settings/help,HelpHealthPage,3,356,0,4,0,0,0,4,1,47,0,,0,0,4,1,1,1,1,0,0,0,1,1
+R:/insights:InsightsHubPage,/insights,InsightsHubPage,4,300,0,7,0,0,0,7,1,22,4,Payables | Receivables | Sales MTD,0,0,6,1,1,1,1,0,0,0,0,0
+R:/insights/alerts:InsightsAlertsPage,/insights/alerts,InsightsAlertsPage,3,221,0,2,0,0,0,2,1,21,0,,0,0,2,1,1,1,0,0,0,0,1,0
+R:/insights/health:InsightsHealthPage,/insights/health,InsightsHealthPage,3,264,0,1,0,0,0,1,1,19,2,Factor breakdown | Score history,0,0,1,1,1,1,0,0,0,0,0,0
+R:/insights/cashflow:InsightsCashflowPage,/insights/cashflow,InsightsCashflowPage,3,352,1,2,0,0,0,3,1,15,1,Cumulative,0,0,3,1,1,1,0,0,0,0,1,0
+R:/insights/assistant:InsightsAssistantPage,/insights/assistant,InsightsAssistantPage,3,431,1,9,0,0,0,10,1,21,2,Share link | Start a new chat to begin.,0,0,6,1,1,1,1,0,0,0,0,0
+R:/sales/new:SalesInvoiceEditor,/sales/new,SalesInvoiceEditor,11,3973,49,68,3,7,0,120,5,190,20,Company GSTIN | Cost center | Deemed export,1,0,34,1,1,1,1,1,1,1,0,1
+R:/sales/history/:id/edit:SalesInvoiceEditor,/sales/history/:id/edit,SalesInvoiceEditor,11,3973,49,68,3,7,0,120,5,190,20,Company GSTIN | Cost center | Deemed export,1,0,34,1,1,1,1,1,1,1,0,1
+R:/sales/quick-entry:QuickEntryPage,/sales/quick-entry,QuickEntryPage,4,500,4,7,0,0,0,11,2,26,0,,3,0,6,1,1,1,0,0,0,1,0,1
+R:/sales/bill-upload:SalesBillUploadPage,/sales/bill-upload,SalesBillUploadPage,2,955,25,12,0,0,0,37,4,50,0,,0,0,22,1,1,1,0,0,0,0,1,1
+R:/pos:PosPage,/pos,PosPage,8,3841,22,36,1,7,0,59,4,163,1,Retry Print,3,0,41,1,1,1,1,1,0,1,1,1
+R:/sales/history:SalesHistoryPage,/sales/history,SalesHistoryPage,9,1471,12,31,0,3,0,43,4,89,0,,0,0,25,1,1,1,1,0,1,1,1,1
+R:/sales/history/:id:InvoiceDetailPage,/sales/history/:id,InvoiceDetailPage,7,2335,27,55,0,5,0,82,5,134,31,Ack No | Allocations | Audit reason,0,0,54,1,1,1,1,0,1,1,1,1
+R:/sales/credit-notes:CreditNotesPage,/sales/credit-notes,CreditNotesPage,3,355,2,9,0,1,0,11,2,17,0,,0,0,9,1,1,1,0,0,1,0,1,1
+R:/sales/debit-notes:DebitNotesPage,/sales/debit-notes,DebitNotesPage,3,354,2,9,0,1,0,11,2,17,0,,0,0,9,1,1,1,0,0,1,0,1,1
+R:/sales/orders:SalesOrdersPage,/sales/orders,SalesOrdersPage,4,726,5,14,0,2,0,19,2,34,0,,0,0,18,1,1,1,1,0,1,0,1,1
+R:/sales/delivery-challans:DeliveryChallansPage,/sales/delivery-challans,DeliveryChallansPage,3,457,3,13,0,2,0,16,2,24,0,,0,0,12,1,1,1,0,0,1,0,1,1
+R:/sales/delivery-routes:DeliveryRoutesPage,/sales/delivery-routes,DeliveryRoutesPage,4,633,11,14,0,1,0,25,3,61,0,,0,0,15,1,1,1,1,0,0,1,1,1
+R:/sales/delivery-routes/:id:DeliveryRoutesPage,/sales/delivery-routes/:id,DeliveryRoutesPage,4,633,11,14,0,1,0,25,3,61,0,,0,0,15,1,1,1,1,0,0,1,1,1
+R:/sales/recurring:RecurringInvoicesPage,/sales/recurring,RecurringInvoicesPage,4,633,11,15,0,1,0,26,3,44,0,,0,0,18,1,1,1,1,0,1,0,1,1
+R:/sales/customers:CustomersPage,/sales/customers,CustomersPage,8,1043,18,21,0,1,0,39,3,62,4,Billing address | GSTIN status | Outstanding,0,0,19,1,1,1,1,0,0,1,1,1
+R:/sales/customers/:id:Customer360Page,/sales/customers/:id,Customer360Page,2,512,5,9,0,1,0,14,2,52,0,,0,0,7,1,1,1,1,0,0,0,0,1
+R:/sales/quotations:QuotationsPage,/sales/quotations,QuotationsPage,6,1297,19,24,0,2,0,43,4,82,0,,0,0,30,1,1,1,1,0,0,1,1,1
+R:/sales/quotations/:id:QuotationsPage,/sales/quotations/:id,QuotationsPage,6,1297,19,24,0,2,0,43,4,82,0,,0,0,30,1,1,1,1,0,0,1,1,1
+R:/sales/returns:SalesReturnsPage,/sales/returns,SalesReturnsPage,4,565,3,7,0,1,0,10,2,32,0,,0,0,4,1,1,1,0,0,0,1,1,1
+R:/sales/credit-notes/:id:CreditNoteEditor,/sales/credit-notes/:id,CreditNoteEditor,2,480,6,2,0,0,0,8,1,14,0,,0,0,3,1,1,0,1,1,0,0,0,1
+R:/sales/debit-notes/:id:DebitNoteEditor,/sales/debit-notes/:id,DebitNoteEditor,2,480,6,2,0,0,0,8,1,14,0,,0,0,3,1,1,0,1,1,0,0,0,1
+R:/sales/orders/:id:SalesOrderEditor,/sales/orders/:id,SalesOrderEditor,2,725,17,16,0,1,0,33,3,41,0,,1,0,10,1,1,0,1,1,0,0,1,1
+R:/sales/delivery-challans/:id:DeliveryChallanEditor,/sales/delivery-challans/:id,DeliveryChallanEditor,2,525,13,5,0,0,0,18,2,21,0,,1,0,7,1,1,0,1,0,0,0,1,1
+R:/sales/credit-notes/new:CreditNoteEditor,/sales/credit-notes/new,CreditNoteEditor,2,480,6,2,0,0,0,8,1,14,0,,0,0,3,1,1,0,1,1,0,0,0,1
+R:/sales/debit-notes/new:DebitNoteEditor,/sales/debit-notes/new,DebitNoteEditor,2,480,6,2,0,0,0,8,1,14,0,,0,0,3,1,1,0,1,1,0,0,0,1
+R:/sales/orders/new:SalesOrderEditor,/sales/orders/new,SalesOrderEditor,2,725,17,16,0,1,0,33,3,41,0,,1,0,10,1,1,0,1,1,0,0,1,1
+R:/sales/delivery-challans/new:DeliveryChallanEditor,/sales/delivery-challans/new,DeliveryChallanEditor,2,525,13,5,0,0,0,18,2,21,0,,1,0,7,1,1,0,1,0,0,0,1,1
+R:/sales/receipts:ReceiptsPage,/sales/receipts,ReceiptsPage,4,919,14,22,0,4,0,36,3,57,10,Amount applied to this bill (₹) | Apply to specific invoice (optional) | Deposit to Bank Account,0,0,18,1,1,1,1,0,1,1,1,1
+R:/payments/reconciliation:BankReconPage,/payments/reconciliation,BankReconPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/payments/account-aggregator:AccountAggregatorPage,/payments/account-aggregator,AccountAggregatorPage,1,18,0,0,0,0,0,0,1,3,0,,0,0,0,0,1,0,0,0,0,0,0,0
+R:/purchases/payments:SupplierPaymentsPage,/purchases/payments,SupplierPaymentsPage,4,630,10,12,0,1,0,22,3,37,3,Allocate to purchase (optional) | Allocated | New supplier payment,0,0,12,1,1,1,1,0,1,1,1,1
+R:/payments/links:PaymentLinksPage,/payments/links,PaymentLinksPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/payments/statements:BankStatementsPage,/payments/statements,BankStatementsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/purchases/returns:PurchaseReturnsPage,/purchases/returns,PurchaseReturnsPage,4,546,3,7,0,1,0,10,2,31,0,,0,0,4,1,1,1,0,0,0,1,1,1
+R:/purchases/new:PurchaseInvoiceEditor,/purchases/new,PurchaseInvoiceEditor,9,3436,42,60,0,7,0,102,5,162,17,Claimable | Company GSTIN | Cost center,1,0,28,1,1,1,1,1,1,1,0,1
+R:/purchases/history/:id/edit:PurchaseInvoiceEditor,/purchases/history/:id/edit,PurchaseInvoiceEditor,9,3436,42,60,0,7,0,102,5,162,17,Claimable | Company GSTIN | Cost center,1,0,28,1,1,1,1,1,1,1,0,1
+R:/purchases/credit-notes/new:PurchaseCreditNoteEditor,/purchases/credit-notes/new,PurchaseCreditNoteEditor,2,570,13,3,0,0,0,16,2,19,0,,1,0,5,1,1,1,1,1,0,0,1,1
+R:/purchases/debit-notes/new:PurchaseDebitNoteEditor,/purchases/debit-notes/new,PurchaseDebitNoteEditor,2,570,13,3,0,0,0,16,2,19,0,,1,0,5,1,1,1,1,1,0,0,1,1
+R:/purchases/orders/new:PurchaseOrderEditor,/purchases/orders/new,PurchaseOrderEditor,2,526,12,6,0,0,0,18,2,21,0,,1,0,7,1,1,0,1,1,0,0,1,1
+R:/purchases/credit-notes/:id:PurchaseCreditNoteEditor,/purchases/credit-notes/:id,PurchaseCreditNoteEditor,2,570,13,3,0,0,0,16,2,19,0,,1,0,5,1,1,1,1,1,0,0,1,1
+R:/purchases/debit-notes/:id:PurchaseDebitNoteEditor,/purchases/debit-notes/:id,PurchaseDebitNoteEditor,2,570,13,3,0,0,0,16,2,19,0,,1,0,5,1,1,1,1,1,0,0,1,1
+R:/purchases/orders/:id:PurchaseOrderEditor,/purchases/orders/:id,PurchaseOrderEditor,2,526,12,6,0,0,0,18,2,21,0,,1,0,7,1,1,0,1,1,0,0,1,1
+R:/purchases/history:PurchaseHistoryPage,/purchases/history,PurchaseHistoryPage,6,860,3,12,0,1,0,15,2,43,0,,0,0,12,1,1,1,1,0,1,1,1,1
+R:/purchases/history/:id:PurchaseDetailPage,/purchases/history/:id,PurchaseDetailPage,4,485,0,5,0,0,0,5,1,24,5,RCM CGST | RCM IGST | RCM SGST,0,0,4,1,1,1,1,0,1,1,1,0
+R:/purchases/credit-notes:PurchaseCreditNotesPage,/purchases/credit-notes,PurchaseCreditNotesPage,3,346,2,8,0,1,0,10,1,16,0,,0,0,8,1,1,1,0,0,1,0,1,1
+R:/purchases/debit-notes:PurchaseDebitNotesPage,/purchases/debit-notes,PurchaseDebitNotesPage,3,345,2,8,0,1,0,10,1,16,0,,0,0,8,1,1,1,0,0,1,0,1,1
+R:/purchases/orders:PurchaseOrdersPage,/purchases/orders,PurchaseOrdersPage,3,354,2,8,0,1,0,10,1,16,0,,0,0,8,1,1,1,0,0,1,0,1,1
+R:/purchases/suppliers:SuppliersPage,/purchases/suppliers,SuppliersPage,6,895,11,13,0,2,0,24,3,54,2,GSTIN status | Outstanding,0,0,15,1,1,1,1,0,0,1,1,1
+R:/purchases/bills-of-entry:BillsOfEntryPage,/purchases/bills-of-entry,BillsOfEntryPage,4,699,12,12,0,1,0,24,3,44,0,,0,0,19,1,1,1,1,0,1,0,1,1
+R:/purchases/bill-upload:PurchaseBillUploadPage,/purchases/bill-upload,PurchaseBillUploadPage,2,952,25,12,0,0,0,37,4,50,0,,0,0,22,1,1,1,0,0,0,0,1,1
+R:/inventory/products:ProductsPage,/inventory/products,ProductsPage,7,2135,59,59,4,5,0,122,5,80,46,Add godown / lot | Add serial | Adjust stock,2,0,24,1,1,1,1,1,1,0,1,1
+R:/inventory/stock:CurrentStockPage,/inventory/stock,CurrentStockPage,7,1053,10,11,0,2,0,21,3,40,3,Available | Nearest expiry | On Hand,0,0,23,1,1,1,1,0,0,1,1,1
+R:/inventory/low-stock:LowStockPage,/inventory/low-stock,LowStockPage,3,229,0,2,0,0,0,2,1,14,3,At or below reorder | Available | Reorder Level,0,0,3,1,1,1,0,0,0,0,1,0
+R:/inventory/purchase-planning:PurchasePlanningPage,/inventory/purchase-planning,PurchasePlanningPage,2,355,4,8,0,0,0,12,2,36,0,,0,0,3,1,1,1,1,0,0,0,1,1
+R:/inventory/demand-forecast:DemandForecastPage,/inventory/demand-forecast,DemandForecastPage,1,50,0,0,0,0,0,0,1,8,0,,0,0,1,0,0,1,0,0,0,0,1,0
+R:/inventory/expiry-alerts:ExpiryAlertsPage,/inventory/expiry-alerts,ExpiryAlertsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/inventory/adjustments:StockAdjustmentPage,/inventory/adjustments,StockAdjustmentPage,3,532,10,6,0,1,0,16,2,21,1,Specify Custom Reason,0,0,3,1,1,0,0,0,1,1,0,1
+R:/inventory/warehouses:WarehousesPage,/inventory/warehouses,WarehousesPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/inventory/stock-counts:StockCountPage,/inventory/stock-counts,StockCountPage,6,999,11,19,0,5,0,30,3,27,11,Add godown reorder | Cancel count | New count,0,0,12,1,1,1,1,0,1,1,1,1
+R:/inventory/transfers:StockTransferPage,/inventory/transfers,StockTransferPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/inventory/serials:SerialsPage,/inventory/serials,SerialsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/inventory/labels:LabelPrintPage,/inventory/labels,LabelPrintPage,2,321,3,3,0,0,0,6,1,19,0,,1,0,4,1,1,1,1,0,0,0,1,1
+R:/attention:AttentionPage,/attention,AttentionPage,2,400,3,14,0,2,0,17,2,38,0,,0,0,9,1,1,1,1,0,0,0,1,1
+R:/payments/collections:CollectionsWorklistPage,/payments/collections,CollectionsWorklistPage,2,572,1,8,0,1,0,9,1,51,4,Copy Text | Send WhatsApp | WhatsApp Message Preview,0,0,10,1,1,1,1,0,0,1,1,1
+R:/reports/sales:SalesReportPage,/reports/sales,SalesReportPage,4,581,4,2,0,0,0,6,1,28,0,,0,0,10,1,1,1,1,0,0,1,1,1
+R:/reports/purchases:PurchaseReportPage,/reports/purchases,PurchaseReportPage,4,511,4,2,0,0,0,6,1,17,0,,0,0,9,1,1,1,1,0,0,1,1,1
+R:/reports/discounts:DiscountReportPage,/reports/discounts,DiscountReportPage,3,510,2,1,0,0,0,3,1,35,0,,0,0,9,1,1,1,1,0,0,0,1,1
+R:/reports/sales-discounts:DiscountReportPage,/reports/sales-discounts,DiscountReportPage,3,510,2,1,0,0,0,3,1,35,0,,0,0,9,1,1,1,1,0,0,0,1,1
+R:/reports/invoice-profit:InvoiceProfitReportPage,/reports/invoice-profit,InvoiceProfitReportPage,3,463,2,2,0,0,0,4,1,16,0,,0,0,9,1,1,1,1,0,0,0,1,1
+R:/reports/invoice-profit/rollup:InvoiceProfitRollupPage,/reports/invoice-profit/rollup,InvoiceProfitRollupPage,3,475,2,1,0,0,0,3,1,33,0,,0,0,8,1,1,1,1,0,0,0,1,1
+R:/reports/inventory:InventoryReportPage,/reports/inventory,InventoryReportPage,5,795,5,5,0,0,0,10,2,26,3,Balance Drift | Reserved Drift | Reserved quantity exceeds physical stock or is negative,0,0,17,1,1,1,1,0,0,1,1,1
+R:/reports/customer-ledger:CustomerLedgerPage,/reports/customer-ledger,CustomerLedgerPage,4,772,21,21,4,0,0,46,4,80,1,"Type to search name, phone, or GSTIN",0,0,29,1,1,1,1,0,0,1,1,1
+R:/accounting/expenses:ExpensesPage,/accounting/expenses,ExpensesPage,5,770,12,16,0,3,0,28,3,48,0,,0,0,21,1,1,1,1,0,1,1,1,1
+R:/reports/supplier-ledger:SupplierLedgerPage,/reports/supplier-ledger,SupplierLedgerPage,2,301,4,3,0,0,0,7,1,21,0,,0,0,4,1,1,1,1,0,0,0,1,0
+R:/reports/statutory-events:StatutoryEventsPage,/reports/statutory-events,StatutoryEventsPage,3,383,2,9,0,0,0,11,1,23,1,COMPLETE,0,0,6,1,1,1,1,0,0,0,1,0
+R:/reports/cash-book:CashBookPage,/reports/cash-book,CashBookPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/reports/day-book:DayBookPage,/reports/day-book,DayBookPage,3,467,3,1,0,0,0,4,1,26,0,,0,0,8,1,1,1,1,0,0,0,1,1
+R:/reports/stock-valuation:StockValuationPage,/reports/stock-valuation,StockValuationPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/reports/tds-tcs:TdsTcsReportsPage,/reports/tds-tcs,TdsTcsReportsPage,3,364,3,2,0,0,0,5,1,12,0,,0,0,7,0,1,1,1,0,0,1,1,1
+R:/reports/trial-balance:TrialBalancePage,/reports/trial-balance,TrialBalancePage,2,223,3,3,0,0,0,6,1,6,5,Accounts Payable | Accounts Receivable | Cost center,0,0,6,1,1,0,1,0,0,0,0,0
+R:/reports/profit-and-loss:ProfitAndLossPage,/reports/profit-and-loss,ProfitAndLossPage,2,223,3,3,0,0,0,6,1,6,5,Accounts Payable | Accounts Receivable | Cost center,0,0,6,1,1,0,1,0,0,0,0,0
+R:/reports/balance-sheet:BalanceSheetPage,/reports/balance-sheet,BalanceSheetPage,2,223,3,3,0,0,0,6,1,6,5,Accounts Payable | Accounts Receivable | Cost center,0,0,6,1,1,0,1,0,0,0,0,0
+R:/reports/books-health:BooksHealthPage,/reports/books-health,BooksHealthPage,2,223,3,3,0,0,0,6,1,6,5,Accounts Payable | Accounts Receivable | Cost center,0,0,6,1,1,0,1,0,0,0,0,0
+R:/reports/gstr1:Gstr1ReportPage,/reports/gstr1,Gstr1ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr3b:Gstr3bReportPage,/reports/gstr3b,Gstr3bReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr4:Gstr4ReportPage,/reports/gstr4,Gstr4ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/cmp08:Cmp08ReportPage,/reports/cmp08,Cmp08ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr6:Gstr6ReportPage,/reports/gstr6,Gstr6ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr7:Gstr7ReportPage,/reports/gstr7,Gstr7ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr8:Gstr8ReportPage,/reports/gstr8,Gstr8ReportPage,4,779,5,12,0,0,0,17,2,58,2,All / primary | Company GSTIN,0,0,11,1,1,1,0,0,0,1,0,0
+R:/reports/gstr9:Gstr9ReportPage,/reports/gstr9,Gstr9ReportPage,3,297,1,5,0,0,0,6,1,23,0,,0,0,5,1,1,1,0,0,0,0,0,0
+R:/reports/gstr2b:Gstr2bPage,/reports/gstr2b,Gstr2bPage,6,834,4,28,0,3,0,32,3,74,0,,0,0,13,1,1,1,0,0,1,1,1,1
+R:/reports/missing-documents:MissingDocumentsPage,/reports/missing-documents,MissingDocumentsPage,4,569,3,5,0,1,0,8,1,30,0,,0,0,9,1,1,1,1,0,1,0,1,1
+R:/ca-needs:MissingDocumentsPage,/ca-needs,MissingDocumentsPage,4,569,3,5,0,1,0,8,1,30,0,,0,0,9,1,1,1,1,0,1,0,1,1
+R:/reports/gst-health:GstHealthPage,/reports/gst-health,GstHealthPage,3,239,1,2,0,0,0,3,1,21,0,,0,0,4,1,1,1,0,0,0,0,1,0
+R:/reports/gst-rate-exposure:GstRateExposurePage,/reports/gst-rate-exposure,GstRateExposurePage,4,386,2,2,0,0,0,4,1,22,0,,0,0,5,1,1,1,0,0,0,0,1,0
+R:/settings/packs:PackWizardPage,/settings/packs,PackWizardPage,3,326,4,11,0,0,0,15,2,29,0,,0,0,1,1,1,1,0,0,0,1,0,0
+R:/settings/company:CompanySettingsPage,/settings/company,CompanySettingsPage,6,732,20,8,0,1,0,28,3,33,10,Bank Account Number | Bank IFSC Code (e.g. SBIN0001234) | Bank Name (e.g. State Bank of India),0,0,1,1,1,1,1,1,1,1,0,1
+R:/settings/series:SeriesSettingsPage,/settings/series,SeriesSettingsPage,4,437,3,6,0,1,0,9,1,13,11,Configure | Current Prefix | Document Number Series,0,0,2,1,1,1,0,0,0,1,1,0
+R:/settings/units:UnitsSettingsPage,/settings/units,UnitsSettingsPage,5,471,3,10,0,2,0,13,2,26,4,"Short name | Shown on invoices (e.g. PCS, KG) | UQC code",0,0,3,1,1,1,0,1,0,1,1,0
+R:/settings/items:ItemSettingsPage,/settings/items,ItemSettingsPage,5,677,4,17,0,2,0,21,2,53,2,Move down | Move up,0,0,2,1,1,1,1,1,0,1,0,1
+R:/settings/templates:InvoiceTemplatesPage,/settings/templates,InvoiceTemplatesPage,5,444,1,7,0,1,0,8,1,18,6,Default template | Invoice terms | On the PDF,0,0,1,1,1,1,1,1,0,1,0,0
+R:/settings/users:UsersSettingsPage,/settings/users,UsersSettingsPage,5,830,30,20,0,2,0,50,4,38,16,Accountant | Can cancel documents | Can create purchase bills,0,0,5,1,1,1,0,0,1,1,1,0
+R:/settings/bank-accounts:BankAccountsPage,/settings/bank-accounts,BankAccountsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/settings/payment-gateway:PaymentGatewayPage,/settings/payment-gateway,PaymentGatewayPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/settings/billing:BillingPage,/settings/billing,BillingPage,4,404,1,6,0,0,0,7,1,15,5,Available plans | Churn reason | Current plan,0,0,3,1,1,1,1,0,1,1,0,0
+R:/settings/price-lists:PriceListsPage,/settings/price-lists,PriceListsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/settings/backup:BackupExportPage,/settings/backup,BackupExportPage,3,269,0,6,0,0,0,6,1,19,0,,0,0,0,1,1,1,0,0,0,1,0,0
+R:/settings/telegram:TelegramSettingsPage,/settings/telegram,TelegramSettingsPage,3,280,0,3,0,0,0,3,1,10,3,Connect Telegram | Disconnect | Open again,0,0,2,1,1,1,0,0,0,1,0,0
+R:/settings/ai:AiSettingsPage,/settings/ai,AiSettingsPage,5,457,7,6,0,1,0,13,2,29,0,,0,0,4,1,1,1,0,1,0,1,0,0
+R:/settings/accounting:AccountingSettingsPage,/settings/accounting,AccountingSettingsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/settings/gst:GstSettingsPage,/settings/gst,GstSettingsPage,8,1144,26,28,0,3,0,54,4,47,19,ABCDE1234F | Annual Business Turnover (₹) | ClearTax GSP,0,0,8,1,1,1,1,1,1,1,0,0
+R:/settings/statutory-licences:StatutoryLicencesPage,/settings/statutory-licences,StatutoryLicencesPage,6,722,6,11,0,1,0,17,2,37,0,,0,0,9,1,1,1,1,0,0,1,1,1
+R:/settings/import:ImportPage,/settings/import,ImportPage,7,1043,1,25,0,0,1,26,2,69,6,Customers | Opening stock | Products,0,0,7,1,1,1,0,0,1,1,1,1
+R:/settings/tally:TallyMigrationPage,/settings/tally,TallyMigrationPage,5,763,4,10,0,1,1,14,2,30,7,Choose CSV / Excel | Commit summary | Download error report,0,0,6,1,1,1,0,0,1,0,1,0
+R:/accounting/accounts:ChartOfAccountsPage,/accounting/accounts,ChartOfAccountsPage,2,223,3,3,0,0,0,6,1,6,5,Accounts Payable | Accounts Receivable | Cost center,0,0,6,1,1,0,1,0,0,0,0,0
+R:/accounting/journals:JournalsPage,/accounting/journals,JournalsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/accounting/bank-reconciliation:AccountingBankReconPage,/accounting/bank-reconciliation,AccountingBankReconPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/accounting/cost-centers:CostCentersPage,/accounting/cost-centers,CostCentersPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/accounting/fixed-assets:FixedAssetsPage,/accounting/fixed-assets,FixedAssetsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/accounting/periods:PeriodsPage,/accounting/periods,PeriodsPage,2,33,0,0,0,0,0,0,1,0,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/manufacturing/boms:BomsPage,/manufacturing/boms,BomsPage,5,630,7,10,0,1,0,17,2,34,0,,0,0,5,1,1,1,0,0,0,1,1,1
+R:/manufacturing/work-orders:WorkOrdersPage,/manufacturing/work-orders,WorkOrdersPage,6,798,8,19,0,3,0,27,3,56,0,,0,0,9,1,1,1,0,0,1,1,1,1
+R:/payroll/employees:EmployeesPage,/payroll/employees,EmployeesPage,5,569,13,9,0,1,0,22,3,41,0,,0,0,6,1,1,1,0,0,1,1,1,0
+R:/payroll/pay-runs:PayRunsPage,/payroll/pay-runs,PayRunsPage,5,656,3,15,0,2,0,18,2,43,0,,0,0,11,1,1,1,0,0,1,1,1,1
+R:/crm/leads:LeadsPage,/crm/leads,LeadsPage,5,926,21,34,0,4,0,55,4,84,0,,0,0,8,1,1,1,1,0,0,1,1,1
+R:/crm/onboarding:CrmOnboardingPage,/crm/onboarding,CrmOnboardingPage,1,24,0,0,0,0,0,0,1,2,0,,0,0,0,0,0,0,0,0,0,0,0,0
+R:/crm/opportunities:OpportunitiesPage,/crm/opportunities,OpportunitiesPage,5,564,6,13,0,1,0,19,2,35,0,,0,0,6,1,1,1,0,0,0,1,1,0
+R:/crm/campaigns:CampaignsPage,/crm/campaigns,CampaignsPage,2,229,9,8,0,0,0,17,2,31,0,,0,0,10,1,0,0,1,0,0,0,0,1
+R:/crm/pipeline:OpportunityPipelinePage,/crm/pipeline,OpportunityPipelinePage,3,420,12,6,0,0,0,18,2,28,0,,0,0,13,1,0,0,1,0,0,0,0,1
+R:/crm/referrals:ReferralsPage,/crm/referrals,ReferralsPage,4,563,10,9,0,0,0,19,2,25,1,WhatsApp,0,0,17,1,0,1,1,0,0,0,1,1
+R:/complaints:ComplaintsPage,/complaints,ComplaintsPage,3,605,17,18,0,0,0,35,3,38,0,,0,0,25,1,0,1,1,0,0,0,1,1
+R:/complaints/suppliers:SupplierComplaintsPage,/complaints/suppliers,SupplierComplaintsPage,3,591,17,15,0,0,0,32,3,36,0,,0,0,23,1,0,1,1,0,0,0,1,1
+R:/support/tickets:TicketsPage,/support/tickets,TicketsPage,3,596,17,13,0,0,0,30,3,34,3,Include description | Share with BizBoard | Stop sharing,0,0,20,1,0,1,1,0,0,0,1,1
+R:/support/shared:SharedTicketsPage,/support/shared,SharedTicketsPage,2,289,2,0,0,0,0,2,1,6,1,No shared tickets.,0,0,6,0,0,1,1,0,0,0,1,1
+R:/workshop/jobs:JobCardsPage,/workshop/jobs,JobCardsPage,3,460,9,4,0,0,0,13,2,19,1,Complaint,0,0,13,1,0,1,1,0,0,0,1,1
+R:/projects:ProjectsPage,/projects,ProjectsPage,3,520,11,8,0,0,0,19,2,15,3,Add milestone | Milestone | View invoice,0,0,19,1,0,1,1,0,0,1,1,1
+R:/insurance:InsurancePage,/insurance,InsurancePage,3,539,17,8,0,0,0,25,3,15,7,In force | Issue policy | Offer options,0,0,21,1,0,1,1,0,0,1,1,1
+R:/contracts:ContractsPage,/contracts,ContractsPage,3,563,16,10,0,0,0,26,3,32,0,,0,0,24,1,0,1,1,0,0,0,1,1
+R:/*:NotFoundPage,/*,NotFoundPage,1,41,0,1,0,0,0,1,1,0,2,Back to Dashboard | Page not found,0,0,0,0,0,0,0,0,0,0,0,0
+D:components/CompanyRequiredDialog.tsx,,CompanyRequiredDialog,1,101,0,1,0,1,0,1,1,3,0,,0,0,0,0,1,0,0,0,0,0,0,1
+D:components/ConfirmDialog.tsx,,ConfirmDialog,1,42,0,2,0,1,0,2,1,2,0,,0,0,0,0,0,0,0,0,1,0,0,0
+D:components/InvoiceQuickSettingsDialog.tsx,,InvoiceQuickSettingsDialog,2,308,10,11,3,1,0,24,3,26,0,,0,0,8,1,1,0,0,0,0,1,0,1
+D:components/RecordInvoicePaymentDialog.tsx,,RecordInvoicePaymentDialog,2,259,8,8,0,1,0,16,2,15,0,,0,0,9,1,0,0,1,0,0,0,0,0
+D:components/ShareInvoiceDialog.tsx,,ShareInvoiceDialog,1,166,2,2,0,1,0,4,1,17,0,,0,0,1,1,0,0,0,0,0,0,0,0
+D:pages/inventory/ItemFormDialog.tsx,,ItemFormDialog,4,1587,52,46,4,4,0,102,5,41,45,Add godown / lot | Add serial | Adjust stock,2,0,7,1,1,1,1,1,1,1,0,1
+D:pages/inventory/StockConflictModal.tsx,,StockConflictModal,1,51,0,3,0,1,0,3,1,7,0,,0,0,0,0,0,0,0,0,0,0,0,0
+D:pages/sales/ConvertQuotationDialog.tsx,,ConvertQuotationDialog,1,149,1,2,0,1,0,3,1,11,0,,0,0,2,0,0,1,0,0,0,0,1,0
+D:pages/settings/PackWizardPage.tsx,,PackWizardPage,3,326,4,11,0,0,0,15,2,29,0,,0,0,1,1,1,1,0,0,0,1,0,0
+D:pages/setup/SetupWizardPage.tsx,,SetupWizardPage,3,617,19,18,0,0,1,37,3,65,0,,0,0,0,1,1,1,1,0,1,1,0,1

@@ -23,7 +23,7 @@ recommendation: Portal create via wrap_idempotent scope portal_complaint_create.
 test_required: Flag off 404. Repeat key returns the same complaint. Over-long description is 400.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_portal_complaint_is_idempotent_and_length_capped
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

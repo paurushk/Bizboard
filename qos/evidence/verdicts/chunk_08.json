@@ -1,0 +1,362 @@
+[
+ {
+  "task_id": "P-0142",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:GoodsReceiptItem; backend/purchases/grn_service.py:GoodsReceiptService",
+  "reason": "GRN records received/accepted/rejected quantities and posts stock on completion, but has no batch field and always posts batch=None."
+ },
+ {
+  "task_id": "P-0143",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/reliability.py:supply_metrics",
+  "reason": "Only a per-supplier/product fill-rate and over-receipt figure exists; no line-by-line variance and the PO is never kept partially open."
+ },
+ {
+  "task_id": "P-0145",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:PurchaseInvoice; backend/purchases/grn_service.py:GoodsReceiptService",
+  "reason": "Purchase invoice with GST and charges exists and GRN converts to a bill, but no PO-to-invoice matching or 3-way reconciliation was found."
+ },
+ {
+  "task_id": "P-0147",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/views.py:PurchaseOrderItem; backend/purchases/reliability.py:last_completed_purchase_rate",
+  "reason": "Price history exists per one supplier and product; no cross-vendor comparison matrix or landed-cost ranking."
+ },
+ {
+  "task_id": "P-0148",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/reliability.py:supply_metrics",
+  "reason": "Lead time and fill rate exist; no on-time %, defect %, price stability or vendor score (docstring says no score)."
+ },
+ {
+  "task_id": "P-0171",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/llm.py:extract_purchase_bill; backend/imports/tasks.py:extract_purchase_bill_task; backend/purchases/models.py:PurchaseInvoice",
+  "reason": "Purchase bill upload with OCR/LLM extraction into a draft invoice exists; invoice carries ITC eligibility."
+ },
+ {
+  "task_id": "P-0175",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:PurchaseCreditNote; backend/purchases/models.py:PurchaseDebitNote; backend/purchases/services.py:restamp_fifo_layers_for_price_amend",
+  "reason": "Credit/debit notes and completed-invoice price amendment exist, but no dedicated discrepancy-resolution workflow."
+ },
+ {
+  "task_id": "X-0211",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/models.py:PurchaseOrder; backend/purchases/urls.py:PurchaseOrderViewSet",
+  "reason": "PurchaseOrder with DRAFT status, prices and expected_delivery is created via /orders endpoint."
+ },
+ {
+  "task_id": "X-0213",
+  "verdict": "Contradicted",
+  "evidence": "backend/purchases/models.py:PurchaseOrder",
+  "reason": "PO statuses are only DRAFT, CONVERTED, CANCELLED; no CONFIRMED status and no price lock."
+ },
+ {
+  "task_id": "X-0214",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched shipment, docket, lr_number, asn, expected_arrival in purchases",
+  "reason": "PO has only expected_delivery; no inbound shipment, LR number or ASN record."
+ },
+ {
+  "task_id": "X-0215",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/models.py:GoodsReceipt; backend/purchases/urls.py:GoodsReceiptViewSet",
+  "reason": "GoodsReceipt and GoodsReceiptItem record received, accepted and rejected quantities."
+ },
+ {
+  "task_id": "X-0216",
+  "verdict": "Confirmed",
+  "evidence": "backend/purchases/grn_service.py:GoodsReceiptService; backend/inventory/models.py:StockMovement; backend/inventory/models.py:StockBalance",
+  "reason": "complete() runs atomically and calls InventoryService.post_movement with accepted quantity; movement type is PURCHASE, not INWARD_PURCHASE."
+ },
+ {
+  "task_id": "X-0217",
+  "verdict": "Contradicted",
+  "evidence": "backend/purchases/models.py:GoodsReceiptItem; backend/purchases/grn_service.py:GoodsReceiptService",
+  "reason": "GRN items have no batch or serial fields; stock is posted with batch=None, so BatchLot/SerialNumber are not created from GRN."
+ },
+ {
+  "task_id": "X-0218",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:GoodsReceiptItem",
+  "reason": "quantity_rejected and rejection_reason are recorded and rejected stock is excluded, but no quarantine location is used."
+ },
+ {
+  "task_id": "X-0219",
+  "verdict": "Contradicted",
+  "evidence": "backend/purchases/grn_service.py:GoodsReceiptService; backend/purchases/models.py:PurchaseOrder",
+  "reason": "GRN completion does not update PO lines; no received_quantity or PARTIALLY_RECEIVED/RECEIVED status exists."
+ },
+ {
+  "task_id": "X-0220",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched three_way, 3-way, match_status, mismatch, tolerance in backend/purchases",
+  "reason": "No PO/GRN/invoice matching exists; GRN converts to a bill but invoices are not compared with PO or GRN."
+ },
+ {
+  "task_id": "X-0221",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched quantity_mismatch, variance, mismatch in backend/purchases",
+  "reason": "No billed-versus-received quantity check or approval block exists."
+ },
+ {
+  "task_id": "X-0222",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched price_variance, tolerance, contracted rate in backend/purchases",
+  "reason": "No bill-rate versus PO-rate check; only a historical PURCHASE_PRICE_JUMP alert exists."
+ },
+ {
+  "task_id": "X-0223",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/gst_health.py:build_gst_health",
+  "reason": "GST health flags non-standard rates, but no comparison against the HSN master rate at purchase entry."
+ },
+ {
+  "task_id": "X-0226",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/models.py:PurchaseInvoice",
+  "reason": "ITC eligibility enum (claimable/ineligible/reversed) exists; no Section 17(5) blocked-category selector on lines."
+ },
+ {
+  "task_id": "X-0227",
+  "verdict": "Confirmed",
+  "evidence": "backend/accounting/services.py:post_supplier_payment; backend/payments/models.py:SupplierPayment",
+  "reason": "SupplierPayment posts to GL against payable and bank, with allocation to invoices."
+ },
+ {
+  "task_id": "X-0232",
+  "verdict": "Partial",
+  "evidence": "backend/purchases/notes_services.py:PurchaseNotesService; backend/reporting/gst_returns.py",
+  "reason": "Purchase credit notes post reversal and flow to GST data, but 3B Table 4(B) reversal is marked manual review."
+ },
+ {
+  "task_id": "X-0233",
+  "verdict": "Partial",
+  "evidence": "backend/insights/models.py:AttentionRowState; backend/insights/attention.py",
+  "reason": "Attention rows exist for price jumps and GST guardrail/2B mismatches, not for PO/GRN invoice discrepancies."
+ },
+ {
+  "task_id": "X-0234",
+  "verdict": "Partial",
+  "evidence": "backend/core/services/audit.py:record_edited_document_event; backend/purchases/services.py",
+  "reason": "Before/after totals are recorded for edited completed bills, but no full version history of the document was found."
+ },
+ {
+  "task_id": "X-0533",
+  "verdict": "Confirmed",
+  "evidence": "backend/core/services/llm.py:extract_purchase_bill; backend/imports/tasks.py:extract_purchase_bill_task",
+  "reason": "LLM extraction of bill images into a draft import job exists."
+ },
+ {
+  "task_id": "X-0537",
+  "verdict": "Contradicted",
+  "evidence": "backend/purchases/reliability.py:supply_metrics",
+  "reason": "Only lead time and fill rate; docstring states no score; no health index, price-spike or GST filing factor."
+ },
+ {
+  "task_id": "X-0704",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched tolerance, price_variance, three_way in backend/purchases",
+  "reason": "No PO rate versus bill rate check, tolerance or payment hold exists."
+ },
+ {
+  "task_id": "D-0684",
+  "verdict": "Contradicted",
+  "evidence": "backend/insights/services.py:forecast_cashflow",
+  "reason": "Forecast uses fixed heuristic collection rates by ageing bucket and fixed +/-15% band; no Monte Carlo or per-debtor delay."
+ },
+ {
+  "task_id": "D-0685",
+  "verdict": "Partial",
+  "evidence": "backend/insights/assistant.py:ToolExecutor",
+  "reason": "Text NL assistant with company-scoped read tools exists; no SQL generation or voice support found."
+ },
+ {
+  "task_id": "D-0699",
+  "verdict": "Partial",
+  "evidence": "backend/insights/customer_actions.py:build_customer_action_rows",
+  "reason": "CHURN_RISK rows from order-gap vs median interval exist; no CLV or RFM scoring."
+ },
+ {
+  "task_id": "P-0015",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:invoice_profit_report; backend/reporting/models.py:InvoiceProfitSnapshot; backend/reporting/views.py:InvoiceProfitReportView",
+  "reason": "Per-invoice revenue, COGS and gross margin by date, behind financial-report permission; not on dashboard."
+ },
+ {
+  "task_id": "P-0024",
+  "verdict": "Partial",
+  "evidence": "backend/insights/alerts.py:LOW_STOCK_FAST_MOVER; backend/reporting/services.py:product_sales",
+  "reason": "Product sales report and fast-mover low-stock alert exist; no velocity/turnover report."
+ },
+ {
+  "task_id": "P-0025",
+  "verdict": "Partial",
+  "evidence": "backend/insights/alerts.py:DEAD_STOCK",
+  "reason": "DEAD_STOCK alert values stock unsold for 60 days; no 30/60/90 ageing report."
+ },
+ {
+  "task_id": "P-0035",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/views.py:SalesRegisterView; backend/reporting/services.py:sales_register",
+  "reason": "Sales register with date, customer, status, warehouse filters and export route exists."
+ },
+ {
+  "task_id": "P-0036",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup; backend/reporting/views.py:InvoiceProfitRollupView",
+  "reason": "Gross margin rolled up by customer, product, period, cost centre; no brand drill-down."
+ },
+ {
+  "task_id": "P-0051",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "Margin rollup by product, customer, period, cost centre only; no category or manufacturer grouping."
+ },
+ {
+  "task_id": "P-0065",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "group_by=customer aggregates revenue, COGS and margin per customer."
+ },
+ {
+  "task_id": "P-0066",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "Product margin rollup exists; no supplier rebates or freight in contribution margin."
+ },
+ {
+  "task_id": "P-0084",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:sales_register",
+  "reason": "Sales register can filter by warehouse but no comparative grouping by warehouse."
+ },
+ {
+  "task_id": "P-0085",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched warehouse in invoice_profit_rollup, group_by, reporting urls",
+  "reason": "Profit rollup groups by customer, product, period, cost centre only; no warehouse profit report."
+ },
+ {
+  "task_id": "P-0090",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched multi-store, outlet, branch, store comparison in backend urls and models",
+  "reason": "No multi-store comparison report or store/outlet entity exists."
+ },
+ {
+  "task_id": "P-0091",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/reports.py:profit_and_loss; backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "P&L filters by cost centre; no store P&L with allocated rent, utilities, payroll."
+ },
+ {
+  "task_id": "P-0096",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/reports.py:trial_balance; backend/accounting/reports.py:profit_and_loss; backend/accounting/reports.py:balance_sheet",
+  "reason": "TB, P&L and balance sheet from GL exist for one company; no multi-entity consolidation."
+ },
+ {
+  "task_id": "P-0097",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched store performance, underperform, target in insights",
+  "reason": "No store performance matrix or sales-target comparison; only SKU-level alerts exist."
+ },
+ {
+  "task_id": "P-0117",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:dashboard",
+  "reason": "Dashboard gives sales and purchases month totals; no monthly comparative timeline with margin."
+ },
+ {
+  "task_id": "P-0121",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "Product margin rollup is available; no ranked leaderboard by margin percent."
+ },
+ {
+  "task_id": "P-0122",
+  "verdict": "Confirmed",
+  "evidence": "backend/insights/alerts.py:SALE_BELOW_COST; backend/insights/attention.py",
+  "reason": "SALE_BELOW_COST alert flags sales priced below cost into the attention feed."
+ },
+ {
+  "task_id": "P-0123",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:invoice_profit_rollup",
+  "reason": "group_by=period gives margin by period; no MoM/YoY comparison or growth percentage."
+ },
+ {
+  "task_id": "P-0126",
+  "verdict": "Confirmed",
+  "evidence": "backend/insights/models.py:BusinessAlertEvent; backend/insights/urls.py",
+  "reason": "BusinessAlertEvent model with alerts API; dashboard shows top alerts."
+ },
+ {
+  "task_id": "P-0127",
+  "verdict": "Partial",
+  "evidence": "backend/reporting/services.py:dashboard",
+  "reason": "Dashboard shows recent invoice links; no general KPI-to-voucher drill-down."
+ },
+ {
+  "task_id": "P-0138",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched sales rep, salesperson, quota, target in sales/crm/accounts models",
+  "reason": "No sales rep quota or rep-wise sales performance report."
+ },
+ {
+  "task_id": "P-0502",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/reports.py:trial_balance; backend/accounting/reports.py:profit_and_loss; backend/accounting/reports.py:balance_sheet",
+  "reason": "TB, P&L, balance sheet exist; Schedule III grouping is only referenced for cash flow, no multi-period comparatives."
+ },
+ {
+  "task_id": "S-0561",
+  "verdict": "Partial",
+  "evidence": "backend/accounting/reports.py:trial_balance; backend/core/management/commands/check_invariants.py",
+  "reason": "Trial balance check and invariants command exist; no scheduled worker or quarantine of unbalanced batches."
+ },
+ {
+  "task_id": "S-0574",
+  "verdict": "Partial",
+  "evidence": "backend/insights/alerts.py:SALE_BELOW_COST; backend/insights/alerts.py:DISCOUNT_OVER_THRESHOLD; backend/insights/models.py:AttentionRowState",
+  "reason": "Threshold alerts for below-cost and high discount exist; no Z-score or abnormal bill-amount detection."
+ },
+ {
+  "task_id": "SaaS-0675",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched mrr, dau, feature adoption in billing, core, insights, accounts",
+  "reason": "No MRR, churn rate or DAU aggregation for a SuperAdmin dashboard."
+ },
+ {
+  "task_id": "UX-0585",
+  "verdict": "Partial",
+  "evidence": "web/src/components/PageState.tsx:EmptyState",
+  "reason": "Empty states with add actions exist on some lists; no illustrations and no Create Your First Bill prompt found."
+ },
+ {
+  "task_id": "UX-0586",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched ctrl+k, command palette, omnibar in web/src",
+  "reason": "No command palette or Ctrl+K handler exists."
+ },
+ {
+  "task_id": "UX-0591",
+  "verdict": "Contradicted",
+  "evidence": "none found: searched privacy mask, hideAmounts, shift+P in web/src",
+  "reason": "No privacy mask toggle exists."
+ },
+ {
+  "task_id": "UX-0595",
+  "verdict": "Partial",
+  "evidence": "web/src/pages/DashboardPage.tsx:topBiz; backend/insights/attention.py",
+  "reason": "Dashboard shows top 3 business alerts and a ranked attention feed; not a dedicated daily briefing engine."
+ },
+ {
+  "task_id": "X-0385",
+  "verdict": "Confirmed",
+  "evidence": "backend/reporting/services.py:dashboard",
+  "reason": "Dashboard computes sales today/month and counts live from invoices; no hourly velocity or AOV."
+ }
+]

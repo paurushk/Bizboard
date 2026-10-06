@@ -35,7 +35,7 @@ def test_trial_dict_names_every_grantable_flag_and_holds_the_rest(tenant_a):
     # The trial plan row is created on first use; do not depend on another test.
     ensure_register_trial(tenant_a.company)
     modules = trial_plan_modules()
-    assert set(modules) == set(ROLLOUT_GRANTABLE_KEYS)
+    assert set(modules) == set(ROLLOUT_GRANTABLE_KEYS) | {"ENABLE_GSTN_JSON"}
     assert modules["ENABLE_GSTR"] is True
     assert modules["ENABLE_GST_GUARD"] is True
     assert modules["ENABLE_CUSTOMER_PORTAL"] is True
@@ -217,7 +217,7 @@ def _onboarding(user):
     return CrmOnboardingView.as_view()(request)
 
 
-def test_booker_step_needs_an_active_sales_staff(tenant_a):
+def test_booker_step_counts_an_active_owner_or_sales_staff(tenant_a):
     from accounts.models import CompanyUser
 
     ready = _onboarding(tenant_a.owner)
@@ -229,7 +229,8 @@ def test_booker_step_needs_an_active_sales_staff(tenant_a):
     ).update(is_active=False)
     owner_only = _onboarding(tenant_a.owner)
     steps = {row["id"]: row["done"] for row in owner_only.data["steps"]}
-    assert steps["booker"] is False
+    assert steps["booker"] is True  # the owner counts
+
 
 
 def test_sales_package_does_not_import_contracts():

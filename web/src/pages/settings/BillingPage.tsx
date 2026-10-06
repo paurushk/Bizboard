@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Paper from '@mui/material/Paper';
@@ -20,7 +21,7 @@ import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
 function formatPaise(paise: number): string {
-  return `${formatMoney(paise / 100)} / mo`;
+  return `${formatMoney(paise / 100)} ${t('cog.perMonth')}`;
 }
 
 export function BillingPage() {
@@ -74,48 +75,56 @@ export function BillingPage() {
   const plans = query.data?.plans ?? [];
   const seatLimit = query.data?.seatLimit ?? sub?.plan?.seatLimit ?? null;
   const status = sub?.status ?? 'none';
+  const planLine = status === 'trial'
+    ? t('integrations.freeTrialEnds', { date: sub?.trialEndsAt ? String(sub.trialEndsAt).slice(0, 10) : '' })
+    : (sub?.plan?.name ?? t('integrations.noSubscription'));
 
   return (
     <Stack spacing={2} sx={{ maxWidth: 720 }}>
       <PageTitle>{t('nav.billing')}</PageTitle>
+      {!sub ? <Alert severity="warning">{t('integrations.billingClosed')}</Alert> : null}
       <Paper sx={{ p: 3 }}>
         <Stack spacing={1.5}>
-          <Typography variant="h6">Current plan</Typography>
+          <Typography variant="h6">{t('sweep2.currentPlan')}</Typography>
           <Typography>
-            {sub?.plan?.name ?? 'No subscription'} · status: {status}
+            {t('cog.billingStatus', { plan: planLine, status })}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Seats: {seatLimit ?? '—'}
-            {sub?.trialEndsAt ? ` · trial ends ${sub.trialEndsAt}` : ''}
-            {sub?.currentPeriodEnd ? ` · period ends ${sub.currentPeriodEnd}` : ''}
+            {t('cog.billingSeats', { count: seatLimit ?? '—' })}
+            {sub?.trialEndsAt ? ` · ${t('cog.trialEndsAt', { date: String(sub.trialEndsAt) })}` : ''}
+            {sub?.currentPeriodEnd ? ` · ${t('cog.periodEnds', { date: String(sub.currentPeriodEnd) })}` : ''}
           </Typography>
           {ops.data?.upgradePrompt && (ops.data.upgradePrompt as { show?: boolean }).show ? (
-            <HelpErrorAlert message={`Plan limit reached (${String((ops.data.upgradePrompt as { reason?: string }).reason ?? '')}). Choose a larger plan below.`} />
+            <HelpErrorAlert message={t('cog.planLimitReached', { reason: String((ops.data.upgradePrompt as { reason?: string }).reason ?? '') })} />
           ) : null}
           {ops.data?.trialNotice && (ops.data.trialNotice as { show?: boolean }).show ? (
-            <Typography>Trial ends in {String((ops.data.trialNotice as { daysLeft?: number }).daysLeft ?? '')} days. This notice is separate from a past-due reminder.</Typography>
+            <Typography>{t('cog.trialDaysLeft', { days: String((ops.data.trialNotice as { daysLeft?: number }).daysLeft ?? '') })}</Typography>
           ) : null}
           {status === 'suspended' || (status === 'trial' && sub?.writeBlocked) ? (
-            <HelpErrorAlert message="Workspace writes are blocked until billing is active." />
+            <HelpErrorAlert message={t('cog.writesBlockedBilling')} />
           ) : null}
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <TextField size="small" label="Churn reason" value={churnReason} onChange={(e) => setChurnReason(e.target.value)} />
+            <TextField size="small" label={t('sweep.churnReason')} value={churnReason} onChange={(e) => setChurnReason(e.target.value)} />
             <Button
               variant="outlined"
               disabled={!churnReason.trim() || suspend.isPending}
               onClick={() => {
-                if (window.confirm('Suspend this workspace? Writes stay available until the paid period ends, and renewal charges stop.')) {
+                if (window.confirm(t('cog.suspendWorkspace'))) {
                   suspend.mutate();
                 }
               }}
             >
-              Suspend
+              {t('sweep2.suspend')}
             </Button>
           </Stack>
           {suspendError ? <HelpErrorAlert message={suspendError} /> : null}
           {(Array.isArray(tenants.data) ? tenants.data : []).map((row) => (
             <Typography key={String(row.sourceCompanyId)} variant="body2">
-              {String(row.sourceCompanyName)} · setup {row.setupCompletedAt ? 'done' : 'open'} · first invoice {row.firstInvoiceAt ? 'yes' : 'no'}
+              {t('cog.vendorTenantLine', {
+                name: String(row.sourceCompanyName),
+                setup: row.setupCompletedAt ? t('cog.setupDone') : t('cog.setupOpen'),
+                invoice: row.firstInvoiceAt ? t('cog.invoiceYes') : t('cog.invoiceNo'),
+              })}
               {row.churnReason ? ` · ${String(row.churnReason)}` : ''}
             </Typography>
           ))}
@@ -123,7 +132,7 @@ export function BillingPage() {
       </Paper>
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 2 }}>
-          Available plans
+          {t('sweep2.availablePlans')}
         </Typography>
         {checkout.isError ? (
           <HelpErrorAlert error={checkout.error} sx={{ mb: 2 }} />
@@ -148,23 +157,22 @@ export function BillingPage() {
                 disabled={checkout.isPending || sub?.plan?.id === plan.id}
                 onClick={() => checkout.mutate(plan.id)}
               >
-                {sub?.plan?.id === plan.id ? 'Current' : 'Start checkout'}
+                {sub?.plan?.id === plan.id ? t('cog.currentPlan') : t('cog.startCheckout')}
               </Button>
             </Stack>
           ))}
           {plans.length === 0 ? (
-            <Typography color="text.secondary">No plans are configured yet.</Typography>
+            <Typography color="text.secondary">{t('sweep2.noPlansYet')}</Typography>
           ) : null}
         </Stack>
       </Paper>
       {dlqQuery.data && dlqQuery.data.length > 0 ? (
         <Paper sx={{ p: 3 }}>
           <Typography variant="h6" sx={{ mb: 2 }}>
-            Parked billing events
+            {t('sweep2.parkedBillingEvents')}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            A webhook or reconciliation check that couldn't be applied automatically. Replay once the
-            underlying issue is resolved.
+            {t('cog.parkedBillingHelp')}
           </Typography>
           {replayDeadLetter.isError ? <HelpErrorAlert error={replayDeadLetter.error} sx={{ mb: 2 }} /> : null}
           <Stack spacing={1.5}>
@@ -190,7 +198,7 @@ export function BillingPage() {
                   disabled={event.status !== 'pending' || replayDeadLetter.isPending}
                   onClick={() => replayDeadLetter.mutate(event.id)}
                 >
-                  Replay
+                  {t('sweep2.replay')}
                 </Button>
               </Stack>
             ))}

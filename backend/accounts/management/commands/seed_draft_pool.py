@@ -50,22 +50,32 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--count", type=int, default=700)
+        parser.add_argument(
+            "--company",
+            default="Demo Traders",
+            help="Company name. Use 'Load Tenant' for the staging soak pool.",
+        )
 
     def handle(self, *args, **options):
         _env = getattr(settings, "DJANGO_ENV", "").strip().lower()
-        if _env == "production" or not getattr(settings, "DEBUG", False):
+        allowed = _env in {"staging", "test"} or (_env == "development" and settings.DEBUG)
+        if _env == "production" or not allowed:
             raise CommandError(
-                f"seed_draft_pool refuses to run outside DEBUG / non-production (DJANGO_ENV={_env or 'unset'})."
+                f"seed_draft_pool refuses production and non-DEBUG development "
+                f"(DJANGO_ENV={_env or 'unset'})."
             )
 
-        company = Company.objects.filter(name="Demo Traders").first()
+        name = (options["company"] or "Demo Traders").strip()
+        company = Company.objects.filter(name=name).first()
         if not company:
-            raise CommandError("Run `seed_demo` first — seed_draft_pool builds on its company/customer/product.")
+            raise CommandError(
+                f"No company named {name}. Run seed_demo, or seed_load_tenant for the Load Tenant."
+            )
         customer = Customer.objects.filter(company=company).first()
         product = Product.objects.filter(company=company).first()
         owner = CompanyUser.objects.filter(company=company).order_by("id").first()
         if not customer or not product or not owner:
-            raise CommandError("Demo Traders is missing a customer/product/user to attach draft invoices to.")
+            raise CommandError(f"{company.name} is missing a customer/product/user to attach draft invoices to.")
 
         count = max(1, options["count"])
         # seed_demo only opens 100 units of stock — nowhere near enough for a

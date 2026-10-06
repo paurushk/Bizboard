@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -54,9 +54,12 @@ export function ConvertQuotationDialog({
     return map;
   }, [quotation]);
 
-  useEffect(() => {
+  // Reset the quantities to what remains whenever the quotation changes.
+  const [seenRemaining, setSeenRemaining] = useState(remainingById);
+  if (seenRemaining !== remainingById) {
+    setSeenRemaining(remainingById);
     setQtyById(remainingById);
-  }, [remainingById]);
+  }
 
   const open = Boolean(quotation && mode);
   const title =

@@ -24,7 +24,10 @@ describe('gst utils', () => {
     expect(isValidIfsc('HDFC0001234')).toBe(true);
     expect(isValidIfsc('HDFC1001234')).toBe(false);
     expect(isValidPincode('560001')).toBe(true);
+    expect(isValidPincode('100000')).toBe(true);
     expect(isValidPincode('56001')).toBe(false);
+    expect(isValidPincode('000000')).toBe(false);
+    expect(isValidPincode('-1')).toBe(false);
   });
 
   it('validates HSN/SAC length', () => {

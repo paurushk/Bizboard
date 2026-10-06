@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   createOpportunity,
+  createInvoiceFromOpportunity,
   createQuotationFromOpportunity,
   listLeadsPage,
   listOpportunitiesPage,
@@ -94,6 +95,9 @@ function OpportunitiesPageInner() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (form.stage === 'WON' && !form.customer) {
+        throw new Error(t('growth.wonNeedsCustomer'));
+      }
       const payload = {
         title: form.title,
         amount: form.amount || '0',
@@ -151,7 +155,7 @@ function OpportunitiesPageInner() {
         <EmptyState description={t('empty.opportunities')} />
       ) : null}
       {rows.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -185,16 +189,28 @@ function OpportunitiesPageInner() {
                       {t('common.edit')}
                     </Button>
                     {opp.stage === 'WON' ? (
-                      <Button
-                        size="small"
-                        onClick={() => {
-                          void createQuotationFromOpportunity(opp.id)
-                            .then((quotation) => navigate(`/sales/quotations/${quotation.id}`))
-                            .catch((err) => setError(getErrorMessage(err)));
-                        }}
-                      >
-                        {t('osPlan.createQuotation')}
-                      </Button>
+                      <>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            void createQuotationFromOpportunity(opp.id)
+                              .then((quotation) => navigate(`/sales/quotations/${quotation.id}`))
+                              .catch((err) => setError(getErrorMessage(err)));
+                          }}
+                        >
+                          {t('osPlan.createQuotation')}
+                        </Button>
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            void createInvoiceFromOpportunity(opp.id)
+                              .then((invoice) => navigate(`/sales/history/${invoice.id}`))
+                              .catch((err) => setError(getErrorMessage(err)));
+                          }}
+                        >
+                          {t('growth.createDraftInvoice')}
+                        </Button>
+                      </>
                     ) : null}
                   </TableCell>
                 </TableRow>

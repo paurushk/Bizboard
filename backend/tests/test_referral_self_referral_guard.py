@@ -31,7 +31,10 @@ from .conftest import make_customer
 
 
 def _flags(company, **extra):
-    company.feature_flags = {"ENABLE_CRM": True, "ENABLE_REFERRALS": True, **extra}
+    flags = {"ENABLE_CRM": True, "ENABLE_REFERRALS": True, "pack_grant": "insurance", **extra}
+    if flags.get("ENABLE_CRM") is not True:
+        flags.pop("pack_grant", None)
+    company.feature_flags = flags
     company.save(update_fields=["feature_flags"])
 
 
@@ -133,7 +136,8 @@ def test_legitimate_unrelated_referral_reward_proceeds_normally(tenant_a):
     referrer = make_customer(tenant_a.company, name="Real Referrer", phone="9444400001", email="referrer@example.test")
     code = issue_referral_code(
         tenant_a.company, tenant_a.owner, referrer_customer=referrer,
-        reward_type="PERCENT", reward_value=Decimal("10"),
+        # FLAT: a PERCENT reward is paid on invoiced revenue (BUG-CRM-002), which a bare won deal has none of
+        reward_type="FLAT", reward_value=Decimal("50"),
     )
     lead = capture_lead(
         tenant_a.company, tenant_a.owner, name="Real Lead", phone="9444400099",

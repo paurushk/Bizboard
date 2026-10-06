@@ -37,9 +37,9 @@ test('payment links list shows a link created from the invoice', async ({ page }
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c));
+  const invoiceNumber = textCells.map(c => c.trim()).find(c => /^INV-/.test(c))?.split('·')[0].trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   await createPaymentLinkAndReadPublicPath(page, invoiceNumber!);

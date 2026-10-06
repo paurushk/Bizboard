@@ -85,7 +85,7 @@ bullet prose (wording drifts; the id does not).
 | Bank reconciliation | ✅ | `test_wf33_bank_reconciliation` is **not** skipped and passes (this row was already stale before 2026-09-13 — the module's own header claiming "each is skipped" has been corrected); `test_wf41_bank_statement_import_and_matching` covers AA statement ingest + auto/'human' match + idempotent replay. Idempotent-replay gap closed 2026-09-13: `test_phase3_payments.py::test_g3_bank_statement_bare_recommit_does_not_duplicate_auto_matches` (a bare re-commit with no Idempotency-Key doesn't duplicate `ReconMatch` rows, complementing the existing idempotency-key-path test) |
 | Accounting period lifecycle | ✅ | `test_pj_wholesale_owner_multi_godown_day` (open→close), `test_pj_wholesale_accountant_period_close` |
 | TCS on sales / TDS on purchase / worksheets | ✅ | WF-34 / WF-35 / WF-36 |
-| Refunds / MDR reconciliation | 🚫 | WF-37 / WF-38 skipped — D3 sandbox credentials |
+| Refunds / MDR reconciliation | ✅ | `test_wf37_refunds` (skip_gateway=True), `test_wf38_mdr_settlement_reconciliation` (adapter parser) in `tests/workflows/test_wf_extended.py` |
 | Advance / on-account payments | ✅ | `test_wf39_advance_payment_on_account` |
 | Bad-debt write-off | ✅ | `test_wf40_bad_debt_writeoff` |
 | Bank statement import + matching | ✅ | `test_wf41_bank_statement_import_and_matching` |
@@ -420,7 +420,7 @@ WF-17 → webhook signature/replay files.
 **WF-11 / WF-13 / WF-14 / WF-15 / WF-18 / WF-45-verify / WF-46-ratelimit are
 implemented** (2026-09-15: WF-14 sales-bill CSV idempotency; WF-45-verify is a
 LIM pin that register has no email-verify route). Remaining genuine skips in
-`test_wf_extended_stubs.py`: **WF-37/38 only** (D3 sandbox credentials).
+`test_wf_extended.py`: **WF-37/38 only** (D3 sandbox credentials).
 
 ---
 
@@ -561,3 +561,22 @@ named.
 | CFT-123 | `tests/test_cft_checklist.py::test_cft_121_125_sales_lifecycle_surfaces_agree` |
 | CFT-124 | `tests/test_cft_checklist.py::test_cft_121_125_sales_lifecycle_surfaces_agree` + **CFT-NID-01** |
 | CFT-125 | `tests/test_cft_checklist.py::test_cft_121_125_sales_lifecycle_surfaces_agree` |
+
+## FMEA closures (2026-10-03)
+
+These rows do not add a SUPPORTED feature and do not flip a frozen flag on.
+`test_fmea2_008_audit_row_once` and `test_fmea2_006_cloud_send_same_phone` are
+green, so those two SUPPORTED-path rows are gated. Grant and dark rows stay
+out of freeze scope.
+
+| Finding | Freeze posture | Status | Gating test |
+|---|---|---|---|
+| FMEA-008 | SUPPORTED complete and cancel audit | ✅ gated | `test_fmea2_008_audit_row_once`, `test_fmea2_008_audit_failure_rolls_back` |
+| FMEA-006 | Pilot share stays `wa.me`. Cloud check is dormant while `ENABLE_WHATSAPP_CLOUD=0` | ✅ gated | `test_fmea2_006_cloud_send_same_phone` |
+| FMEA-014 | GSTN JSON stays off. Export needs env and company flag | 🚫 out of freeze (tightens a frozen-off export) | `test_fmea2_014_gstn_needs_env_and_flag` |
+| FMEA-010 | Trial text and lock. Dict is not widened | 🚫 out of freeze | `test_fmea2_010_trial_plan_lock` |
+| FMEA-001, FMEA-011 | Payroll and fixed assets. Not a freeze expansion | 🚫 out of freeze | `test_fmea2_001_pay_run_cancel_refuses_while_books_off`, `test_fmea2_011_skipped_month_keeps_error` |
+| FMEA-007, FMEA-004, FMEA-005, FMEA-009, FMEA-012, FMEA-013 | Grant lanes. Off on the frozen trial plan | 🚫 out of freeze | `test_fmea2_007`, `test_fmea2_004`, `test_fmea2_005`, `test_fmea2_009`, `test_fmea2_012`, `test_fmea2_013` |
+| FMEA-002, FMEA-003 | Dev command. Staging and production refused | 🚫 out of freeze | `test_fmea2_002_demo_refuses_staging`, `test_fmea2_003_demo_company_is_explicit` |
+| FMEA-015, FMEA-016, FMEA-017 | Shopify and AA. Off on the frozen host | 🚫 out of freeze | `test_fmea2_015_shopify_holds_large_delta`, `test_fmea2_016_shopify_domain_unique`, `test_fmea2_017_aa_live_fetch_closed` |
+

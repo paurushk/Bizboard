@@ -41,6 +41,8 @@ describe('RecordInvoicePaymentDialog', () => {
     expect(recordInvoicePayment).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ amount: 1000, discount: 180, mode: 'CASH' }),
+      // one key per payment entered, so a double click replays the first receipt
+      expect.objectContaining({ idempotencyKey: expect.any(String) }),
     );
   });
 });

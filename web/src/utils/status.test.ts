@@ -10,7 +10,7 @@ describe('paidAwareStatus', () => {
   });
 
   it('keeps completed when a balance remains', () => {
-    expect(paidAwareStatus('COMPLETED', 10)).toBe('COMPLETED');
+    expect(paidAwareStatus('COMPLETED', 10)).toBe('UNPAID');
   });
 
   it('does not treat missing balance as paid', () => {

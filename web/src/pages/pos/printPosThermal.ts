@@ -2,8 +2,10 @@
  * CR-114: shared thermal print (or warn) after POS sale / offline flush.
  */
 import { downloadInvoiceThermalPdf } from '@/api/resources';
-import { printEscPos } from '@/lib/native';
+import { DRAWER_KICK, printEscPos } from '@/lib/native';
 import { printBlob } from '@/utils/blob';
+
+export { DRAWER_KICK };
 
 export type ThermalWarn = { invoiceId: number; number: string };
 
@@ -13,8 +15,11 @@ export async function printPosThermalOrWarn(invoice: {
   number?: string | null;
 }): Promise<ThermalWarn | null> {
   const receipt = `BizBoard\n${invoice.number ?? invoice.id}\n\n\n`;
-  const bytes = new Uint8Array(receipt.length);
-  for (let i = 0; i < receipt.length; i += 1) bytes[i] = receipt.charCodeAt(i);
+  const text = new Uint8Array(receipt.length);
+  for (let i = 0; i < receipt.length; i += 1) text[i] = receipt.charCodeAt(i);
+  const bytes = new Uint8Array(text.length + DRAWER_KICK.length);
+  bytes.set(text, 0);
+  bytes.set(DRAWER_KICK, text.length);
   try {
     const mode = await printEscPos(bytes);
     if (mode === 'native') return null;

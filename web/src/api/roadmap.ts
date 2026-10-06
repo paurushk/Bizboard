@@ -5,13 +5,27 @@ export async function listJobCards() {
   return unwrapData<Record<string, unknown>[]>(data);
 }
 
-export async function createJobCard(payload: { customer: number; complaint?: string }) {
+export async function createJobCard(payload: {
+  customer: number;
+  complaint?: string;
+  registration_no?: string;
+  vehicle_model?: string;
+  odometer_reading?: string;
+}) {
   const { data } = await apiClient.post('/workshop/job-cards/', payload);
   return unwrapData<Record<string, unknown>>(data);
 }
 
 export async function convertJobCard(id: number) {
   const { data } = await apiClient.post(`/workshop/job-cards/${id}/convert/`);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function addJobCardLine(
+  id: number,
+  payload: { kind: string; product: number; quantity: string; unit_price: string; batch?: number; batch_no?: string },
+) {
+  const { data } = await apiClient.post(`/workshop/job-cards/${id}/lines/`, payload);
   return unwrapData<Record<string, unknown>>(data);
 }
 
@@ -35,8 +49,21 @@ export async function markMilestoneReady(projectId: number, milestoneId: number)
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function addMilestone(projectId: number, payload: { name: string; amount: string; serviceProduct: number }) {
+export async function addMilestone(
+  projectId: number,
+  payload: { name: string; amount: string; serviceProduct: number; targetCompletionDate?: string },
+) {
   const { data } = await apiClient.post(`/projects/${projectId}/milestones/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function updateMilestone(projectId: number, milestoneId: number, payload: Record<string, unknown>) {
+  const { data } = await apiClient.post(`/projects/${projectId}/milestones/${milestoneId}/edit/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function deleteMilestone(projectId: number, milestoneId: number) {
+  const { data } = await apiClient.post(`/projects/${projectId}/milestones/${milestoneId}/delete/`);
   return unwrapData<Record<string, unknown>>(data);
 }
 

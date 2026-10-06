@@ -24,5 +24,22 @@ if ($Environment -eq "dev") {
     $files = @("--env-file", ".env.staging", "-f", "docker-compose.yml", "-f", "docker-compose.staging.yml")
 }
 
+# UX programme: opt-in full-demo overlay (every module on). Dev only.
+# Staging is refused: the overlay is stack-wide and would change pilot companies.
+if ($env:BB_FULL_DEMO -eq "1") {
+    if ($Environment -eq "staging") {
+        Write-Error "BB_FULL_DEMO is dev-only. Staging stays on the frozen profile until you name a company for promotion."
+        exit 1
+    }
+    $files += @("-f", "docker-compose.fulldemo.yml")
+}
+if ($env:BB_UX_G7 -eq "1") {
+    if ($Environment -eq "staging") {
+        Write-Error "BB_UX_G7 is dev-only."
+        exit 1
+    }
+    $files += @("-f", "docker-compose.fulldemo.g7.yml")
+}
+
 & docker compose @files @ComposeArgs
 exit $LASTEXITCODE

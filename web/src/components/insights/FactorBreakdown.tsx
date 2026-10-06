@@ -28,6 +28,7 @@ export function FactorBreakdown({ factors }: { factors: HealthFactor[] }) {
             </Typography>
           </Stack>
           <LinearProgress
+            aria-label={f.label}
             variant="determinate"
             value={Math.max(0, Math.min(100, f.score))}
             sx={{ height: 8, borderRadius: 1, mt: 0.5 }}

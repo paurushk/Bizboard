@@ -470,8 +470,11 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         left_flow.append(Paragraph("<b>Bank Details</b>", styles["section_head"]))
         if company.bank_name:
             left_flow.append(Paragraph(company.bank_name, styles["meta"]))
-        if company.bank_account:
-            left_flow.append(Paragraph(f"A/C: {company.bank_account}", styles["meta"]))
+        from planwave.crypto import reveal_bank_account
+
+        plain_account = reveal_bank_account(company.bank_account or "")
+        if plain_account:
+            left_flow.append(Paragraph(f"A/C: {plain_account}", styles["meta"]))
         if company.bank_ifsc:
             left_flow.append(Paragraph(f"IFSC: {company.bank_ifsc}", styles["meta"]))
 

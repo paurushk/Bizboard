@@ -38,7 +38,7 @@ test('CG-02 / B14: Regular empty GSTIN blocks GST Complete until GSTIN is saved'
   await selectPartyOnDocument(page, customerName);
   await addInvoiceItem(page, sku);
   await expect(
-    page.getByText('Save the company GSTIN in GST settings before completing a GST invoice.'),
+    page.getByText('Save the company GSTIN in GST settings before completing a GST invoice.').first(),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeDisabled();
   await expect(page.getByText('GST settings').first()).toBeVisible();
@@ -50,5 +50,5 @@ test('CG-02 / B14: Regular empty GSTIN blocks GST Complete until GSTIN is saved'
   await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeEnabled();
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
-  await expect(page.getByRole('row', { name: new RegExp(customerName) })).toContainText('Completed');
+  await expect(page.getByRole('row', { name: new RegExp(customerName) })).toContainText('Unpaid');
 });

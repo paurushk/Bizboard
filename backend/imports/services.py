@@ -56,8 +56,8 @@ MASTER_COLUMN_ALIASES = {
     "hsn_code": ["hsn_code", "hsn", "hsn code", "hsn/sac", "hsn_sac"],
     "description": ["description", "item desc", "product description"],
     "gst_rate": ["gst_rate", "gst", "gst%", "tax_rate", "tax%", "gst rate", "gst tax rate(%)", "gst tax rate"],
-    "purchase_price": ["purchase_price", "purchase price", "cost", "buy price", "purchase rate"],
-    "selling_price": ["selling_price", "selling price", "sale price", "sell price", "rate", "sales price"],
+    "purchase_price": ["purchase_price", "purchase price", "cost", "buy price", "purchase rate", "rate"],
+    "selling_price": ["selling_price", "selling price", "sale price", "sell price", "sales price"],
     "mrp": ["mrp"],
     "wholesale_price": ["wholesale_price", "wholesale price", "wholesale rate", "wholesale"],
     "default_discount_percent": ["default_discount_percent", "discount", "discount %", "default discount"],
@@ -657,14 +657,14 @@ def _normalize_gst_rate(
         nearest = min(ALLOWED_GST, key=lambda allowed: abs(allowed - rate))
         if abs(nearest - rate) <= Decimal("0.5"):
             snapped = nearest
-            reason = f"GST rate {rate} snapped to nearest allowed rate {snapped}"
-        else:
-            snapped = Decimal("18")
-            reason = f"GST rate {rate} defaulted to 18 (not near an allowed slab)"
-        if warnings is not None:
-            prefix = f"Row {row}: " if row is not None else ""
-            warnings.append(f"{prefix}{reason}")
-        return snapped
+            if warnings is not None:
+                prefix = f"Row {row}: " if row is not None else ""
+                warnings.append(f"{prefix}GST rate {rate} snapped to nearest allowed rate {snapped}")
+            return snapped
+        prefix = f"Row {row}: " if row is not None else ""
+        raise BusinessRuleError(
+            f"{prefix}GST rate {rate} is not an allowed slab. Enter 0, 5, 12, 18, or 28."
+        )
     return rate
 
 

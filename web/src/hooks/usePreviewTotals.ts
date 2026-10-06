@@ -21,17 +21,25 @@ export function usePreviewTotals(
   const [pending, setPending] = useState(false);
   const [readyKey, setReadyKey] = useState('');
 
-  useEffect(() => {
+  // A new request (or an emptied body) resets what the last one left behind.
+  const requestKey = `${kind}|${debounced}`;
+  const [seenRequestKey, setSeenRequestKey] = useState('');
+  if (seenRequestKey !== requestKey) {
+    setSeenRequestKey(requestKey);
     if (!debounced) {
       setTotals(null);
       setError(null);
       setPending(false);
       setReadyKey('');
-      return;
+    } else {
+      setPending(true);
+      setError(null);
     }
+  }
+
+  useEffect(() => {
+    if (!debounced) return;
     let cancelled = false;
-    setPending(true);
-    setError(null);
     const parsed = JSON.parse(debounced) as Record<string, unknown>;
     const run = kind === 'purchase' ? previewPurchaseTotals : previewSalesTotals;
     void run(parsed)

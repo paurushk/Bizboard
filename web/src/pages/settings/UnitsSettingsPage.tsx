@@ -78,7 +78,7 @@ export function UnitsSettingsPage() {
     <Stack spacing={2}>
       <UnsavedChangesGuard when={dirty} />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <PageTitle>Units</PageTitle>
+        <PageTitle>{t('sweep2.units')}</PageTitle>
         <Button
           variant="contained"
           onClick={() => {
@@ -92,15 +92,15 @@ export function UnitsSettingsPage() {
         </Button>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
-      {query.data?.length === 0 ? <EmptyState description="No units yet" /> : null}
+      {query.data?.length === 0 ? <EmptyState description={t('cog.unitsEmpty')} /> : null}
       {query.data && query.data.length > 0 ? (
-        <Paper sx={{ overflow: 'auto' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>{t('common.name')}</TableCell>
-                <TableCell>Short name</TableCell>
-                <TableCell>UQC code</TableCell>
+                <TableCell>{t('sweep2.shortNameText')}</TableCell>
+                <TableCell>{t('cog.uqcCode')}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -138,7 +138,7 @@ export function UnitsSettingsPage() {
       ) : null}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{editing ? t('common.edit') : t('common.create')} unit</DialogTitle>
+        <DialogTitle>{editing ? t('cog.unitTitleEdit') : t('cog.unitTitleNew')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
@@ -148,14 +148,14 @@ export function UnitsSettingsPage() {
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             />
             <TextField
-              label="Short name"
+              label={t('sweep.shortName')}
               value={form.shortName}
               onChange={(e) => setForm((f) => ({ ...f, shortName: e.target.value }))}
-              helperText="Shown on invoices (e.g. PCS, KG)"
+              helperText={t('sweep.shortNameHelp')}
             />
             <TextField
               select
-              label="UQC code (GSTN)"
+              label={t('sweep.uqcCode')}
               value={form.uqcCode}
               onChange={(e) => setForm((f) => ({ ...f, uqcCode: e.target.value }))}
             >
@@ -169,7 +169,7 @@ export function UnitsSettingsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-          <Tooltip title={!form.name.trim() ? 'Enter unit name to save' : ''}>
+          <Tooltip title={!form.name.trim() ? t('cog.enterUnitName') : ''}>
             <span>
               <Button
                 variant="contained"

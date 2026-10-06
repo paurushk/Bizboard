@@ -1,0 +1,191 @@
+surface_id,kind,path,component,source_file,guards,nav_label,has_test,status,journey,heuristic_score,cog_load_1to5,choice_count,axe_violations,mobile_ok,hi_parity,notes,phase
+R:/login:LoginPage,page,/login,LoginPage,pages/LoginPage.tsx,,,no,Audited-auto,,,2,12,aria-progressbar-name,yes,,render 2292ms (mock),
+R:/register:RegisterPage,page,/register,RegisterPage,pages/RegisterPage.tsx,,,no,Audited-auto,,,2,14,aria-progressbar-name,yes,,render 2116ms (mock),
+R:/forgot-password:ForgotPasswordPage,page,/forgot-password,ForgotPasswordPage,pages/ForgotPasswordPage.tsx,,,no,Audited-auto,,,1,4,0,yes,,,
+R:/reset-password:ResetPasswordPage,page,/reset-password,ResetPasswordPage,pages/ResetPasswordPage.tsx,,,no,Audited-auto,,,1,6,0,yes,,,
+R:/invite:AcceptInvitePage,page,/invite,AcceptInvitePage,pages/AcceptInvitePage.tsx,,,no,Audited-auto,,,1,3,0,yes,,no h1,
+R:/pay/:token:PublicPayPage,page,/pay/:token,PublicPayPage,pages/public/PublicPayPage.tsx,,,no,Audited-static,,,1,3,,,,"parameterised route; static scan only, not crawled",
+R:/portal:CustomerPortalRequestPage,page,/portal,CustomerPortalRequestPage,pages/public/CustomerPortalRequestPage.tsx,,nav.customerPortal,yes,Audited-auto,,,1,3,0,yes,,,
+R:/portal/:token:CustomerPortalPage,page,/portal/:token,CustomerPortalPage,pages/public/CustomerPortalPage.tsx,,,yes,Audited-static,,,1,6,,,,"parameterised route; static scan only, not crawled",
+R:/lead-form/:token:LeadFormPage,page,/lead-form/:token,LeadFormPage,pages/public/LeadFormPage.tsx,,,yes,Audited-static,,,1,8,,,,"parameterised route; static scan only, not crawled",
+R:/setup:SetupWizardPage,page,/setup,SetupWizardPage,pages/setup/SetupWizardPage.tsx,,,yes,Audited-auto,,,3,37,aria-progressbar-name,yes,,,
+R:/reports/profit-loss:Navigate,redirect,/reports/profit-loss,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/accounting/chart-of-accounts:Navigate,redirect,/accounting/chart-of-accounts,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/accounting/bank-recon:Navigate,redirect,/accounting/bank-recon,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/sales/quotations/new:Navigate,redirect,/sales/quotations/new,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/sales/returns/new:Navigate,redirect,/sales/returns/new,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/sales/challans:Navigate,redirect,/sales/challans,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/sales/challans/new:Navigate,redirect,/sales/challans/new,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/purchases/returns/new:Navigate,redirect,/purchases/returns/new,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/reports/gstr-1:Navigate,redirect,/reports/gstr-1,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/reports/gstr-3b:Navigate,redirect,/reports/gstr-3b,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/reports/gstr-2b:Navigate,redirect,/reports/gstr-2b,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/reports/gstr-9:Navigate,redirect,/reports/gstr-9,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/reports/cmp-08:Navigate,redirect,/reports/cmp-08,Navigate,,,,,N/A-redirect,,,,,,,,,
+R:/:HomePage,page,/,HomePage,pages/HomePage.tsx,,nav.dashboard,no,Audited-auto,,,1,10,aria-progressbar-name,yes,,,
+R:/offline-outbox:OfflineOutboxPage,page,/offline-outbox,OfflineOutboxPage,pages/offline/OfflineOutboxPage.tsx,,nav.offlineOutbox,no,Audited-auto,,,1,5,0,yes,,,
+R:/help:HelpPage,page,/help,HelpPage,pages/help/HelpPage.tsx,,nav.help,no,Audited-auto,,,1,4,0,yes,,no h1,
+R:/settings/help:HelpHealthPage,page,/settings/help,HelpHealthPage,pages/help/HelpHealthPage.tsx,allowHelpHealth,nav.helpHealth,no,Audited-auto,,,1,4,0,yes,,no h1,
+R:/insights:InsightsHubPage,page,/insights,InsightsHubPage,pages/insights/InsightsHubPage.tsx,allowAiInsights,nav.insightsHub,no,Consent-gate-only,,,1,7,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
+R:/insights/alerts:InsightsAlertsPage,page,/insights/alerts,InsightsAlertsPage,pages/insights/InsightsAlertsPage.tsx,allowAiInsights,nav.insightsAlerts,no,Consent-gate-only,,,1,2,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
+R:/insights/health:InsightsHealthPage,page,/insights/health,InsightsHealthPage,pages/insights/InsightsHealthPage.tsx,allowAiInsights,nav.insightsHealth,no,Consent-gate-only,,,1,1,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
+R:/insights/cashflow:InsightsCashflowPage,page,/insights/cashflow,InsightsCashflowPage,pages/insights/InsightsCashflowPage.tsx,allowAiInsights,nav.insightsCashflow,no,Consent-gate-only,,,1,3,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
+R:/insights/assistant:InsightsAssistantPage,page,/insights/assistant,InsightsAssistantPage,pages/insights/InsightsAssistantPage.tsx,allowAiAssistant,nav.insightsAssistant,no,Consent-gate-only,,,1,10,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
+R:/sales/new:SalesInvoiceEditor,page,/sales/new,SalesInvoiceEditor,pages/sales/NewInvoicePage.tsx,canCreateSales,nav.newInvoice,yes,Audited-auto,,,5,120,0,yes,,19 touch targets <44px at 393px,
+R:/sales/history/:id/edit:SalesInvoiceEditor,page,/sales/history/:id/edit,SalesInvoiceEditor,pages/sales/NewInvoicePage.tsx,canCreateSales,,yes,Audited-static,,,5,120,,,,"parameterised route; static scan only, not crawled",
+R:/sales/quick-entry:QuickEntryPage,page,/sales/quick-entry,QuickEntryPage,pages/sales/QuickEntryPage.tsx,canCreateSales,nav.quickEntry,yes,Audited-auto,,,2,11,0,yes,,,
+R:/sales/bill-upload:SalesBillUploadPage,page,/sales/bill-upload,SalesBillUploadPage,pages/sales/SalesBillUploadPage.tsx,canImport,nav.uploadSalesBill,no,Audited-auto,,,4,37,0,yes,,,
+R:/sales/upload:Navigate,redirect,/sales/upload,Navigate,,canImport,,,N/A-redirect,,,,,,,,,
+R:/pos:PosPage,page,/pos,PosPage,pages/pos/PosPage.tsx,allowPos,nav.pos,no,Audited-auto,,,4,59,0,yes,,18 touch targets <44px at 393px,
+R:/sales/history:SalesHistoryPage,page,/sales/history,SalesHistoryPage,pages/sales/SalesHistoryPage.tsx,canViewSalesSurfaces,nav.salesHistory,yes,Audited-auto,,,4,43,0,yes,,17 touch targets <44px at 393px,
+R:/sales/history/:id:InvoiceDetailPage,page,/sales/history/:id,InvoiceDetailPage,pages/sales/InvoiceDetailPage.tsx,canViewSalesSurfaces,,yes,Audited-static,,,5,82,,,,"parameterised route; static scan only, not crawled",
+R:/sales/credit-notes:CreditNotesPage,page,/sales/credit-notes,CreditNotesPage,pages/sales/CreditNotesPage.tsx,canViewSalesSurfaces,nav.creditNotes,no,Audited-auto,,,2,11,0,yes,,,
+R:/sales/debit-notes:DebitNotesPage,page,/sales/debit-notes,DebitNotesPage,pages/sales/DebitNotesPage.tsx,canViewSalesSurfaces,nav.debitNotes,no,Audited-auto,,,2,11,0,yes,,,
+R:/sales/orders:SalesOrdersPage,page,/sales/orders,SalesOrdersPage,pages/sales/SalesOrdersPage.tsx,canViewSalesSurfaces,nav.salesOrders,no,Audited-auto,,,2,19,0,yes,,,
+R:/sales/delivery-challans:DeliveryChallansPage,page,/sales/delivery-challans,DeliveryChallansPage,pages/sales/DeliveryChallansPage.tsx,canViewSalesSurfaces,nav.deliveryChallans,no,Audited-auto,,,2,16,0,yes,,,
+R:/sales/delivery-routes:DeliveryRoutesPage,page,/sales/delivery-routes,DeliveryRoutesPage,pages/sales/DeliveryRoutesPage.tsx,canViewSalesSurfaces,nav.deliveryRoutes,yes,Audited-auto,,,3,25,0,yes,,no h1,
+R:/sales/delivery-routes/:id:DeliveryRoutesPage,page,/sales/delivery-routes/:id,DeliveryRoutesPage,pages/sales/DeliveryRoutesPage.tsx,canViewSalesSurfaces,,yes,Audited-static,,,3,25,,,,"parameterised route; static scan only, not crawled",
+R:/sales/recurring:RecurringInvoicesPage,page,/sales/recurring,RecurringInvoicesPage,pages/sales/RecurringInvoicesPage.tsx,canViewSalesSurfaces,nav.recurringInvoices,no,Audited-auto,,,3,26,0,yes,,no h1,
+R:/sales/customers:CustomersPage,page,/sales/customers,CustomersPage,pages/sales/CustomersPage.tsx,canViewSalesSurfaces,nav.customers,yes,Audited-auto,,,3,39,0,yes,,,
+R:/sales/customers/:id:Customer360Page,page,/sales/customers/:id,Customer360Page,pages/sales/Customer360Page.tsx,canViewSalesSurfaces,,yes,Audited-static,,,2,14,,,,"parameterised route; static scan only, not crawled",
+R:/sales/quotations:QuotationsPage,page,/sales/quotations,QuotationsPage,pages/sales/QuotationsPage.tsx,canViewSalesSurfaces,nav.quotations,no,Audited-auto,,,4,43,0,yes,,16 touch targets <44px at 393px,
+R:/sales/quotations/:id:QuotationsPage,page,/sales/quotations/:id,QuotationsPage,pages/sales/QuotationsPage.tsx,canViewSalesSurfaces,,no,Audited-static,,,4,43,,,,"parameterised route; static scan only, not crawled",
+R:/sales/returns:SalesReturnsPage,page,/sales/returns,SalesReturnsPage,pages/sales/SalesReturnsPage.tsx,canViewSalesSurfaces,nav.salesReturns,yes,Audited-auto,,,2,10,0,yes,,,
+R:/sales/credit-notes/:id:CreditNoteEditor,page,/sales/credit-notes/:id,CreditNoteEditor,pages/sales/NewCreditNotePage.tsx,canCreateSales,,no,Audited-static,,,1,8,,,,"parameterised route; static scan only, not crawled",
+R:/sales/debit-notes/:id:DebitNoteEditor,page,/sales/debit-notes/:id,DebitNoteEditor,pages/sales/NewDebitNotePage.tsx,canCreateSales,,no,Audited-static,,,1,8,,,,"parameterised route; static scan only, not crawled",
+R:/sales/orders/:id:SalesOrderEditor,page,/sales/orders/:id,SalesOrderEditor,pages/sales/NewSalesOrderPage.tsx,canCreateSales,,no,Audited-static,,,3,33,,,,"parameterised route; static scan only, not crawled",
+R:/sales/delivery-challans/:id:DeliveryChallanEditor,page,/sales/delivery-challans/:id,DeliveryChallanEditor,pages/sales/NewDeliveryChallanPage.tsx,canCreateSales,,no,Audited-static,,,2,18,,,,"parameterised route; static scan only, not crawled",
+R:/sales/credit-notes/new:CreditNoteEditor,page,/sales/credit-notes/new,CreditNoteEditor,pages/sales/NewCreditNotePage.tsx,canCreateSales,,no,Audited-auto,,,1,8,0,yes,,,
+R:/sales/debit-notes/new:DebitNoteEditor,page,/sales/debit-notes/new,DebitNoteEditor,pages/sales/NewDebitNotePage.tsx,canCreateSales,,no,Audited-auto,,,1,8,0,yes,,,
+R:/sales/orders/new:SalesOrderEditor,page,/sales/orders/new,SalesOrderEditor,pages/sales/NewSalesOrderPage.tsx,canCreateSales,,no,Audited-auto,,,3,33,0,yes,,,
+R:/sales/delivery-challans/new:DeliveryChallanEditor,page,/sales/delivery-challans/new,DeliveryChallanEditor,pages/sales/NewDeliveryChallanPage.tsx,canCreateSales,,no,Audited-auto,,,2,18,0,yes,,16 touch targets <44px at 393px,
+R:/sales/receipts:ReceiptsPage,page,/sales/receipts,ReceiptsPage,pages/sales/ReceiptsPage.tsx,canViewPaymentSurfaces,nav.receipts,yes,Audited-auto,,,3,36,0,yes,,30 touch targets <44px at 393px,
+R:/payments/reconciliation:BankReconPage,page,/payments/reconciliation,BankReconPage,pages/payments/BankReconPage.tsx,canViewBankRecon,nav.bankReconciliation,no,Audited-auto,,,1,0,0,yes,,,
+R:/payments/account-aggregator:AccountAggregatorPage,page,/payments/account-aggregator,AccountAggregatorPage,pages/payments/AccountAggregatorPage.tsx,canViewBankRecon,nav.accountAggregator,no,Audited-auto,,,1,0,0,yes,,,
+R:/payments/recon:Navigate,redirect,/payments/recon,Navigate,,canViewBankRecon,,,N/A-redirect,,,,,,,,,
+R:/purchases/payments:SupplierPaymentsPage,page,/purchases/payments,SupplierPaymentsPage,pages/purchases/SupplierPaymentsPage.tsx,canCreatePayments,nav.supplierPayments,yes,Audited-auto,,,3,22,0,yes,,,
+R:/payments/links:PaymentLinksPage,page,/payments/links,PaymentLinksPage,pages/payments/PaymentLinksPage.tsx,canCreatePayments,nav.paymentLinks,no,Audited-auto,,,1,0,0,yes,,,
+R:/payments/statements:BankStatementsPage,page,/payments/statements,BankStatementsPage,pages/payments/BankStatementsPage.tsx,canCreatePayments,nav.bankStatements,no,Audited-auto,,,1,0,0,yes,,,
+R:/purchases/returns:PurchaseReturnsPage,page,/purchases/returns,PurchaseReturnsPage,pages/purchases/PurchaseReturnsPage.tsx,canViewPurchaseSurfaces,nav.purchaseReturns,no,Audited-auto,,,2,10,0,yes,,,
+R:/purchases/new:PurchaseInvoiceEditor,page,/purchases/new,PurchaseInvoiceEditor,pages/purchases/NewPurchasePage.tsx,canCreatePurchases,nav.newPurchase,no,Audited-auto,,,5,102,0,yes,,17 touch targets <44px at 393px,
+R:/purchases/history/:id/edit:PurchaseInvoiceEditor,page,/purchases/history/:id/edit,PurchaseInvoiceEditor,pages/purchases/NewPurchasePage.tsx,canCreatePurchases,,no,Audited-static,,,5,102,,,,"parameterised route; static scan only, not crawled",
+R:/purchases/credit-notes/new:PurchaseCreditNoteEditor,page,/purchases/credit-notes/new,PurchaseCreditNoteEditor,pages/purchases/NewPurchaseCreditNotePage.tsx,canCreatePurchases,,no,Audited-auto,,,2,16,0,yes,,16 touch targets <44px at 393px,
+R:/purchases/debit-notes/new:PurchaseDebitNoteEditor,page,/purchases/debit-notes/new,PurchaseDebitNoteEditor,pages/purchases/NewPurchaseDebitNotePage.tsx,canCreatePurchases,,no,Audited-auto,,,2,16,0,yes,,16 touch targets <44px at 393px,
+R:/purchases/orders/new:PurchaseOrderEditor,page,/purchases/orders/new,PurchaseOrderEditor,pages/purchases/NewPurchaseOrderPage.tsx,canCreatePurchases,,no,Audited-auto,,,2,18,0,yes,,,
+R:/purchases/credit-notes/:id:PurchaseCreditNoteEditor,page,/purchases/credit-notes/:id,PurchaseCreditNoteEditor,pages/purchases/NewPurchaseCreditNotePage.tsx,canCreatePurchases,,no,Audited-static,,,2,16,,,,"parameterised route; static scan only, not crawled",
+R:/purchases/debit-notes/:id:PurchaseDebitNoteEditor,page,/purchases/debit-notes/:id,PurchaseDebitNoteEditor,pages/purchases/NewPurchaseDebitNotePage.tsx,canCreatePurchases,,no,Audited-static,,,2,16,,,,"parameterised route; static scan only, not crawled",
+R:/purchases/orders/:id:PurchaseOrderEditor,page,/purchases/orders/:id,PurchaseOrderEditor,pages/purchases/NewPurchaseOrderPage.tsx,canCreatePurchases,,no,Audited-static,,,2,18,,,,"parameterised route; static scan only, not crawled",
+R:/purchases/history:PurchaseHistoryPage,page,/purchases/history,PurchaseHistoryPage,pages/purchases/PurchaseHistoryPage.tsx,canViewPurchaseSurfaces,nav.purchaseHistory,yes,Audited-auto,,,2,15,0,yes,,20 touch targets <44px at 393px,
+R:/purchases/history/:id:PurchaseDetailPage,page,/purchases/history/:id,PurchaseDetailPage,pages/purchases/PurchaseDetailPage.tsx,canViewPurchaseSurfaces,,no,Audited-static,,,1,5,,,,"parameterised route; static scan only, not crawled",
+R:/purchases/credit-notes:PurchaseCreditNotesPage,page,/purchases/credit-notes,PurchaseCreditNotesPage,pages/purchases/PurchaseCreditNotesPage.tsx,canViewPurchaseSurfaces,nav.purchaseCreditNotes,no,Audited-auto,,,1,10,0,yes,,,
+R:/purchases/debit-notes:PurchaseDebitNotesPage,page,/purchases/debit-notes,PurchaseDebitNotesPage,pages/purchases/PurchaseDebitNotesPage.tsx,canViewPurchaseSurfaces,nav.purchaseDebitNotes,no,Audited-auto,,,1,10,0,yes,,,
+R:/purchases/orders:PurchaseOrdersPage,page,/purchases/orders,PurchaseOrdersPage,pages/purchases/PurchaseOrdersPage.tsx,canViewPurchaseSurfaces,nav.purchaseOrders,no,Audited-auto,,,1,10,0,yes,,,
+R:/purchases/suppliers:SuppliersPage,page,/purchases/suppliers,SuppliersPage,pages/purchases/SuppliersPage.tsx,canViewPurchaseSurfaces,nav.suppliers,no,Audited-auto,,,3,24,0,yes,,,
+R:/purchases/bills-of-entry:BillsOfEntryPage,page,/purchases/bills-of-entry,BillsOfEntryPage,pages/purchases/BillsOfEntryPage.tsx,canViewPurchaseSurfaces,nav.billsOfEntry,no,Audited-real,,,3,24,0,yes,,,G3
+R:/purchases/bill-upload:PurchaseBillUploadPage,page,/purchases/bill-upload,PurchaseBillUploadPage,pages/purchases/PurchaseBillUploadPage.tsx,canImport,nav.uploadBill,no,Audited-auto,,,4,37,0,yes,,,
+R:/purchases/upload:Navigate,redirect,/purchases/upload,Navigate,,canImport,,,N/A-redirect,,,,,,,,,
+R:/inventory/products:ProductsPage,page,/inventory/products,ProductsPage,pages/inventory/ProductsPage.tsx,canViewInventorySurfaces,nav.products,no,Audited-auto,,,5,122,0,yes,,21 touch targets <44px at 393px,
+R:/inventory/stock:CurrentStockPage,page,/inventory/stock,CurrentStockPage,pages/inventory/CurrentStockPage.tsx,canViewInventorySurfaces,nav.currentStock,no,Audited-auto,,,3,21,0,yes,,16 touch targets <44px at 393px,
+R:/inventory/low-stock:LowStockPage,page,/inventory/low-stock,LowStockPage,pages/inventory/LowStockPage.tsx,canViewInventorySurfaces,nav.lowStock,no,Audited-auto,,,1,2,0,yes,,,
+R:/inventory/purchase-planning:PurchasePlanningPage,page,/inventory/purchase-planning,PurchasePlanningPage,pages/purchases/PurchasePlanningPage.tsx,canViewInventorySurfaces,nav.purchasePlanning,no,Audited-auto,,,2,12,0,yes,,,
+R:/inventory/demand-forecast:DemandForecastPage,page,/inventory/demand-forecast,DemandForecastPage,pages/inventory/DemandForecastPage.tsx,canViewInventorySurfaces,nav.demandForecast,yes,Audited-auto,,,1,0,0,yes,,,
+R:/inventory/expiry-alerts:ExpiryAlertsPage,page,/inventory/expiry-alerts,ExpiryAlertsPage,pages/inventory/ExpiryAlertsPage.tsx,canViewInventorySurfaces,nav.expiryAlerts,no,Audited-real,,,1,0,0,yes,,,G3
+R:/inventory/expiry:Navigate,redirect,/inventory/expiry,Navigate,,canViewInventorySurfaces,,,N/A-redirect,,,,,,,,,
+R:/inventory/adjustments:StockAdjustmentPage,page,/inventory/adjustments,StockAdjustmentPage,pages/inventory/StockAdjustmentPage.tsx,canAdjustInventory,nav.stockAdjustment,no,Audited-auto,,,2,16,0,yes,,,
+R:/inventory/warehouses:WarehousesPage,page,/inventory/warehouses,WarehousesPage,pages/inventory/WarehousesPage.tsx,canAdjustInventory,nav.warehouses,no,Audited-real,,,1,0,0,yes,,,G3
+R:/inventory/stock-counts:StockCountPage,page,/inventory/stock-counts,StockCountPage,pages/inventory/StockCountPage.tsx,canAdjustInventory,nav.stockCounts,no,Audited-auto,,,3,30,0,yes,,no h1,
+R:/inventory/count:Navigate,redirect,/inventory/count,Navigate,,canAdjustInventory,,,N/A-redirect,,,,,,,,,
+R:/inventory/transfers:StockTransferPage,page,/inventory/transfers,StockTransferPage,pages/inventory/StockTransferPage.tsx,canAdjustInventory,nav.stockTransfers,no,Audited-real,,,1,0,0,yes,,,G3
+R:/inventory/serials:SerialsPage,page,/inventory/serials,SerialsPage,pages/inventory/SerialsPage.tsx,canAdjustInventory,nav.serials,no,Audited-real,,,1,0,0,yes,,,G3
+R:/inventory/labels:LabelPrintPage,page,/inventory/labels,LabelPrintPage,pages/inventory/LabelPrintPage.tsx,canAdjustInventory,nav.labelPrint,yes,Audited-auto,,,1,6,0,yes,,,
+R:/attention:AttentionPage,page,/attention,AttentionPage,pages/AttentionPage.tsx,canViewFinancialReports,nav.attention,yes,Audited-auto,,,2,17,0,yes,,,
+R:/payments/collections:CollectionsWorklistPage,page,/payments/collections,CollectionsWorklistPage,pages/CollectionsWorklistPage.tsx,canViewFinancialReports,nav.collections,yes,Audited-auto,,,1,9,0,yes,,,
+R:/reports/sales:SalesReportPage,page,/reports/sales,SalesReportPage,pages/reports/SalesReportPage.tsx,canViewFinancialReports,nav.salesReports,yes,Audited-auto,,,1,6,0,yes,,,
+R:/reports/purchases:PurchaseReportPage,page,/reports/purchases,PurchaseReportPage,pages/reports/PurchaseReportPage.tsx,canViewFinancialReports,nav.purchaseReports,no,Audited-auto,,,1,6,0,yes,,,
+R:/reports/discounts:DiscountReportPage,page,/reports/discounts,DiscountReportPage,pages/reports/DiscountReportPage.tsx,canViewFinancialReports,nav.discountReport,yes,Audited-auto,,,1,3,0,yes,,,
+R:/reports/sales-discounts:DiscountReportPage,page,/reports/sales-discounts,DiscountReportPage,pages/reports/DiscountReportPage.tsx,canViewFinancialReports,,yes,Audited-auto,,,1,3,0,yes,,render 2193ms (mock),
+R:/reports/invoice-profit:InvoiceProfitReportPage,page,/reports/invoice-profit,InvoiceProfitReportPage,pages/reports/InvoiceProfitReportPage.tsx,canViewFinancialReports,nav.invoiceProfitReport,yes,Audited-auto,,,1,4,0,yes,,,
+R:/reports/invoice-profit/rollup:InvoiceProfitRollupPage,page,/reports/invoice-profit/rollup,InvoiceProfitRollupPage,pages/reports/InvoiceProfitRollupPage.tsx,canViewFinancialReports,,yes,Audited-auto,,,1,3,0,yes,,,
+R:/reports/inventory:InventoryReportPage,page,/reports/inventory,InventoryReportPage,pages/reports/InventoryReportPage.tsx,canViewFinancialReports,nav.inventoryReports,no,Audited-auto,,,2,10,0,yes,,,
+R:/reports/customer-ledger:CustomerLedgerPage,page,/reports/customer-ledger,CustomerLedgerPage,pages/reports/CustomerLedgerPage.tsx,canViewFinancialReports,nav.customerLedger,yes,Audited-auto,,,4,46,0,yes,,,
+R:/accounting/expenses:ExpensesPage,page,/accounting/expenses,ExpensesPage,pages/accounting/ExpensesPage.tsx,canViewFinancialReports,nav.expenses,yes,Audited-real,,,3,28,0,yes,,,G1
+R:/reports/supplier-ledger:SupplierLedgerPage,page,/reports/supplier-ledger,SupplierLedgerPage,pages/reports/SupplierLedgerPage.tsx,canViewFinancialReports,nav.supplierLedger,no,Audited-auto,,,1,7,0,yes,,,
+R:/reports/statutory-events:StatutoryEventsPage,page,/reports/statutory-events,StatutoryEventsPage,pages/reports/StatutoryEventsPage.tsx,canViewFinancialReports,nav.statutoryEvents,no,Audited-auto,,,1,11,0,yes,,,
+R:/reports/cash-book:CashBookPage,page,/reports/cash-book,CashBookPage,pages/reports/CashBookPage.tsx,canViewFinancialReports,nav.cashBook,no,Audited-auto,,,1,0,0,yes,,no h1,
+R:/reports/day-book:DayBookPage,page,/reports/day-book,DayBookPage,pages/reports/DayBookPage.tsx,canViewFinancialReports,nav.dayBook,yes,Audited-auto,,,1,4,0,yes,,no h1,
+R:/reports/stock-valuation:StockValuationPage,page,/reports/stock-valuation,StockValuationPage,pages/reports/StockValuationPage.tsx,canViewFinancialReports,nav.stockValuation,no,Audited-auto,,,1,0,0,yes,,no h1,
+R:/reports/tds-tcs:TdsTcsReportsPage,page,/reports/tds-tcs,TdsTcsReportsPage,pages/reports/TdsTcsReportsPage.tsx,allowTdsReports,nav.tdsTcs,no,Audited-real,,,1,5,0,yes,,,G2
+R:/reports/trial-balance:TrialBalancePage,page,/reports/trial-balance,TrialBalancePage,pages/reports/TrialBalancePage.tsx,allowAccounting,nav.trialBalance,no,Audited-real,,,1,6,0,yes,,,G1
+R:/reports/profit-and-loss:ProfitAndLossPage,page,/reports/profit-and-loss,ProfitAndLossPage,pages/reports/ProfitAndLossPage.tsx,allowAccounting,nav.profitAndLoss,no,Audited-real,,,1,6,0,yes,,,G1
+R:/reports/balance-sheet:BalanceSheetPage,page,/reports/balance-sheet,BalanceSheetPage,pages/reports/BalanceSheetPage.tsx,allowAccounting,nav.balanceSheet,no,Audited-real,,,1,6,0,yes,,,G1
+R:/reports/books-health:BooksHealthPage,page,/reports/books-health,BooksHealthPage,pages/reports/BooksHealthPage.tsx,allowAccounting,nav.booksHealth,no,Audited-real,,,1,6,0,yes,,,G1
+R:/reports/gstr1:Gstr1ReportPage,page,/reports/gstr1,Gstr1ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr1,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr3b:Gstr3bReportPage,page,/reports/gstr3b,Gstr3bReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr3b,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr4:Gstr4ReportPage,page,/reports/gstr4,Gstr4ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr4,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/cmp08:Cmp08ReportPage,page,/reports/cmp08,Cmp08ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.cmp08,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr6:Gstr6ReportPage,page,/reports/gstr6,Gstr6ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr6,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr7:Gstr7ReportPage,page,/reports/gstr7,Gstr7ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr7,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr8:Gstr8ReportPage,page,/reports/gstr8,Gstr8ReportPage,pages/reports/GstReturnPage.tsx,allowGstrReports,nav.gstr8,no,Audited-real,,,2,17,0,yes,,,G2
+R:/reports/gstr9:Gstr9ReportPage,page,/reports/gstr9,Gstr9ReportPage,pages/reports/Gstr9ReportPage.tsx,allowGstrReports,nav.gstr9,no,Audited-real,,,1,6,0,yes,,,G2
+R:/reports/gstr2b:Gstr2bPage,page,/reports/gstr2b,Gstr2bPage,pages/reports/Gstr2bPage.tsx,allowGstrReports,nav.gstr2b,yes,Audited-real,,,3,32,0,yes,,,G2
+R:/reports/missing-documents:MissingDocumentsPage,page,/reports/missing-documents,MissingDocumentsPage,pages/reports/MissingDocumentsPage.tsx,allowGstrReports,nav.missingDocuments,no,Audited-real,,,1,8,0,yes,,,G2
+R:/ca-needs:MissingDocumentsPage,page,/ca-needs,MissingDocumentsPage,pages/reports/MissingDocumentsPage.tsx,allowGstrReports,,no,Audited-real,,,1,8,0,yes,,,G2
+R:/reports/gst-health:GstHealthPage,page,/reports/gst-health,GstHealthPage,pages/reports/GstHealthPage.tsx,allowGstrReports,nav.gstHealth,no,Audited-real,,,1,3,0,yes,,,G2
+R:/reports/gst-rate-exposure:GstRateExposurePage,page,/reports/gst-rate-exposure,GstRateExposurePage,pages/reports/GstRateExposurePage.tsx,allowGstrReports,nav.gstRateExposure,no,Audited-real,,,1,4,0,yes,,,G2
+R:/settings/packs:PackWizardPage,page,/settings/packs,PackWizardPage,pages/settings/PackWizardPage.tsx,canAccessSettings,nav.packWizard,no,Audited-auto,,,2,15,0,yes,,,
+R:/settings/company:CompanySettingsPage,page,/settings/company,CompanySettingsPage,pages/settings/CompanySettingsPage.tsx,canAccessSettings; canManageUsers,nav.company,no,Audited-auto,,,3,28,0,yes,,,
+R:/settings/series:SeriesSettingsPage,page,/settings/series,SeriesSettingsPage,pages/settings/SeriesSettingsPage.tsx,canAccessSettings; canManageUsers,nav.seriesSettings,no,Audited-auto,,,1,9,0,yes,,17 touch targets <44px at 393px,
+R:/settings/units:UnitsSettingsPage,page,/settings/units,UnitsSettingsPage,pages/settings/UnitsSettingsPage.tsx,canAccessSettings; canManageUsers,nav.units,no,Audited-auto,,,2,13,0,yes,,,
+R:/settings/items:ItemSettingsPage,page,/settings/items,ItemSettingsPage,pages/settings/ItemSettingsPage.tsx,canAccessSettings; canManageUsers,nav.itemSettings,no,Audited-auto,,,2,21,0,yes,,21 touch targets <44px at 393px,
+R:/settings/templates:InvoiceTemplatesPage,page,/settings/templates,InvoiceTemplatesPage,pages/settings/InvoiceTemplatesPage.tsx,canAccessSettings; canManageUsers,nav.invoiceTemplates,no,Audited-auto,,,1,8,0,yes,,,
+R:/settings/users:UsersSettingsPage,page,/settings/users,UsersSettingsPage,pages/settings/UsersSettingsPage.tsx,canAccessSettings; canManageUsers,nav.users,no,Audited-auto,,,4,50,0,yes,,,
+R:/settings/bank-accounts:BankAccountsPage,page,/settings/bank-accounts,BankAccountsPage,pages/settings/BankAccountsPage.tsx,canAccessSettings; canManageUsers,nav.bankAccounts,no,Audited-auto,,,1,0,0,yes,,,
+R:/settings/payment-gateway:PaymentGatewayPage,page,/settings/payment-gateway,PaymentGatewayPage,pages/settings/PaymentGatewayPage.tsx,canAccessSettings; canManageUsers,nav.paymentGateway,no,Audited-real,,,1,0,0,yes,,,G8
+R:/settings/billing:BillingPage,page,/settings/billing,BillingPage,pages/settings/BillingPage.tsx,canAccessSettings; canManageUsers,nav.billing,no,Audited-real,,,1,7,0,yes,,,G8
+R:/settings/price-lists:PriceListsPage,page,/settings/price-lists,PriceListsPage,pages/settings/PriceListsPage.tsx,canAccessSettings; canManageUsers,nav.priceLists,no,Audited-real,,,1,0,0,yes,,,G8
+R:/settings/backup:BackupExportPage,page,/settings/backup,BackupExportPage,pages/settings/BackupExportPage.tsx,canAccessSettings; canExport,nav.backupExport,no,Audited-auto,,,1,6,0,yes,,,
+R:/settings/telegram:TelegramSettingsPage,page,/settings/telegram,TelegramSettingsPage,pages/settings/TelegramSettingsPage.tsx,canAccessSettings,nav.telegram,no,Audited-real,,,1,3,0,yes,,,G8
+R:/settings/ai:AiSettingsPage,page,/settings/ai,AiSettingsPage,pages/settings/AiSettingsPage.tsx,canAccessSettings; allowAiSettings,nav.aiSettings,no,Audited-auto,,,2,13,0,yes,,,
+R:/settings/accounting:AccountingSettingsPage,page,/settings/accounting,AccountingSettingsPage,pages/settings/AccountingSettingsPage.tsx,canAccessSettings; allowAccountingSettings,nav.accounting,no,Audited-auto,,,1,0,0,yes,,,
+R:/settings/gst:GstSettingsPage,page,/settings/gst,GstSettingsPage,pages/settings/GstSettingsPage.tsx,canAccessSettings; canManageGst,nav.gst,no,Audited-auto,,,4,54,0,yes,,,
+R:/settings/statutory-licences:StatutoryLicencesPage,page,/settings/statutory-licences,StatutoryLicencesPage,pages/settings/StatutoryLicencesPage.tsx,canAccessSettings; canManageGst,nav.statutoryLicences,no,Audited-real,,,2,17,0,yes,,,G3
+R:/settings/import:ImportPage,page,/settings/import,ImportPage,pages/settings/ImportPage.tsx,canAccessSettings; canImport,nav.importData,no,Audited-auto,,,2,26,0,yes,,,
+R:/settings/tally:TallyMigrationPage,page,/settings/tally,TallyMigrationPage,pages/settings/TallyMigrationPage.tsx,canAccessSettings; allowTally,nav.tallyMigration,no,Audited-real,,,2,14,0,yes,,,G8
+R:/accounting/accounts:ChartOfAccountsPage,page,/accounting/accounts,ChartOfAccountsPage,pages/accounting/ChartOfAccountsPage.tsx,allowAccounting,nav.chartOfAccounts,no,Audited-real,,,1,6,0,yes,,,G1
+R:/accounting/journals:JournalsPage,page,/accounting/journals,JournalsPage,pages/accounting/JournalsPage.tsx,allowAccounting,nav.journals,no,Audited-real,,,1,0,0,yes,,,G1
+R:/accounting/bank-reconciliation:AccountingBankReconPage,page,/accounting/bank-reconciliation,AccountingBankReconPage,pages/accounting/AccountingBankReconPage.tsx,allowAccounting,nav.bankReconciliation,no,Audited-real,,,1,0,0,yes,,,G1
+R:/accounting/cost-centers:CostCentersPage,page,/accounting/cost-centers,CostCentersPage,pages/accounting/CostCentersPage.tsx,allowAccounting,nav.costCenters,no,Audited-real,,,1,0,0,yes,,,G1
+R:/accounting/fixed-assets:FixedAssetsPage,page,/accounting/fixed-assets,FixedAssetsPage,pages/accounting/FixedAssetsPage.tsx,allowAccounting,nav.fixedAssets,no,Audited-real,,,1,0,0,yes,,,G3
+R:/accounting/periods:PeriodsPage,page,/accounting/periods,PeriodsPage,pages/accounting/PeriodsPage.tsx,allowAccounting,nav.accountingPeriods,no,Audited-real,,,1,0,0,yes,,,G1
+R:/manufacturing:Navigate,redirect,/manufacturing,Navigate,,allowManufacturing,,,N/A-redirect,,,,,,,,,
+R:/manufacturing/boms:BomsPage,page,/manufacturing/boms,BomsPage,pages/manufacturing/BomsPage.tsx,allowManufacturing,nav.boms,no,Audited-real,,,2,17,0,yes,,,G6
+R:/manufacturing/work-orders:WorkOrdersPage,page,/manufacturing/work-orders,WorkOrdersPage,pages/manufacturing/WorkOrdersPage.tsx,allowManufacturing,nav.workOrders,no,Audited-real,,,3,27,0,yes,,,G6
+R:/payroll:Navigate,redirect,/payroll,Navigate,,allowPayroll,,,N/A-redirect,,,,,,,,,
+R:/payroll/employees:EmployeesPage,page,/payroll/employees,EmployeesPage,pages/payroll/EmployeesPage.tsx,allowPayroll,nav.employees,no,Audited-real,,,3,22,0,yes,,,G6
+R:/payroll/pay-runs:PayRunsPage,page,/payroll/pay-runs,PayRunsPage,pages/payroll/PayRunsPage.tsx,allowPayroll,nav.payRuns,no,Audited-real,,,2,18,0,yes,,,G6
+R:/crm:Navigate,redirect,/crm,Navigate,,allowCrm,,,N/A-redirect,,,,,,,,,
+R:/crm/leads:LeadsPage,page,/crm/leads,LeadsPage,pages/crm/LeadsPage.tsx,allowCrm,nav.leads,yes,Audited-real,,,4,55,aria-input-field-name;target-size,yes,,19 touch targets <44px at 393px,G4
+R:/crm/onboarding:CrmOnboardingPage,page,/crm/onboarding,CrmOnboardingPage,pages/crm/CrmOnboardingPage.tsx,allowCrm,nav.crmOnboarding,yes,Audited-real,,,1,0,0,yes,,,G4
+R:/crm/opportunities:OpportunitiesPage,page,/crm/opportunities,OpportunitiesPage,pages/crm/OpportunitiesPage.tsx,allowCrm,nav.opportunities,no,Audited-real,,,2,19,0,yes,,,G4
+R:/crm/campaigns:CampaignsPage,page,/crm/campaigns,CampaignsPage,pages/crm/CampaignsPage.tsx,allowCrm,nav.campaigns,yes,Audited-real,,,2,17,0,yes,,,G4
+R:/crm/pipeline:OpportunityPipelinePage,page,/crm/pipeline,OpportunityPipelinePage,pages/crm/OpportunityPipelinePage.tsx,allowCrm,nav.pipeline,yes,Audited-real,,,2,18,0,yes,,,G4
+R:/crm/referrals:ReferralsPage,page,/crm/referrals,ReferralsPage,pages/crm/ReferralsPage.tsx,allowReferrals,nav.referrals,yes,Audited-real,,,2,19,0,yes,,,G4
+R:/complaints:ComplaintsPage,page,/complaints,ComplaintsPage,pages/complaints/ComplaintsPage.tsx,allowComplaints,nav.complaints,yes,Audited-real,,,3,35,0,yes,,,G5
+R:/complaints/suppliers:SupplierComplaintsPage,page,/complaints/suppliers,SupplierComplaintsPage,pages/complaints/SupplierComplaintsPage.tsx,allowSupplierComplaints,nav.supplierComplaints,yes,Audited-real,,,3,32,0,yes,,,G5
+R:/support/tickets:TicketsPage,page,/support/tickets,TicketsPage,pages/support/TicketsPage.tsx,allowTickets,nav.tickets,yes,Audited-real,,,3,30,0,yes,,,G5
+R:/support/shared:SharedTicketsPage,page,/support/shared,SharedTicketsPage,pages/support/SharedTicketsPage.tsx,allowTickets,nav.sharedTickets,yes,Audited-real,,,1,2,0,yes,,,G5
+R:/workshop/jobs:JobCardsPage,page,/workshop/jobs,JobCardsPage,pages/workshop/JobCardsPage.tsx,allowWorkshop,nav.jobCards,yes,Audited-real,,,2,13,0,yes,,,G5
+R:/projects:ProjectsPage,page,/projects,ProjectsPage,pages/projects/ProjectsPage.tsx,allowProjects,nav.projects,yes,Audited-real,,,2,19,0,yes,,,G5
+R:/insurance:InsurancePage,page,/insurance,InsurancePage,pages/insurance/InsurancePage.tsx,allowInsurance,nav.insurance,yes,Audited-real,,,3,25,,,,needs POLICY_DESK role (owner sees the landing page); walked as ux-audit-policy,G5
+R:/contracts:ContractsPage,page,/contracts,ContractsPage,pages/contracts/ContractsPage.tsx,allowContracts,nav.contracts,yes,Audited-real,,,3,26,0,yes,,,G5
+R:/*:NotFoundPage,page,/*,NotFoundPage,pages/NotFoundPage.tsx,,,no,Audited-static,,,1,1,,,,"parameterised route; static scan only, not crawled",
+D:components/CompanyRequiredDialog.tsx,dialog,,CompanyRequiredDialog,components/CompanyRequiredDialog.tsx,,,no,Audited-static,,,1,1,,,,scanned with parent page; not crawled (opens on action),
+D:components/ConfirmDialog.tsx,dialog,,ConfirmDialog,components/ConfirmDialog.tsx,,,no,Audited-static,,,1,2,,,,scanned with parent page; not crawled (opens on action),
+D:components/InvoiceQuickSettingsDialog.tsx,dialog,,InvoiceQuickSettingsDialog,components/InvoiceQuickSettingsDialog.tsx,,,no,Audited-static,,,3,24,,,,scanned with parent page; not crawled (opens on action),
+D:components/RecordInvoicePaymentDialog.tsx,dialog,,RecordInvoicePaymentDialog,components/RecordInvoicePaymentDialog.tsx,,,yes,Audited-static,,,2,16,,,,scanned with parent page; not crawled (opens on action),
+D:components/ShareInvoiceDialog.tsx,dialog,,ShareInvoiceDialog,components/ShareInvoiceDialog.tsx,,,yes,Audited-static,,,1,4,,,,scanned with parent page; not crawled (opens on action),
+D:pages/inventory/ItemFormDialog.tsx,dialog,,ItemFormDialog,pages/inventory/ItemFormDialog.tsx,,,yes,Audited-static,,,5,102,,,,scanned with parent page; not crawled (opens on action),
+D:pages/inventory/StockConflictModal.tsx,dialog,,StockConflictModal,pages/inventory/StockConflictModal.tsx,,,no,Audited-static,,,1,3,,,,scanned with parent page; not crawled (opens on action),
+D:pages/sales/ConvertQuotationDialog.tsx,dialog,,ConvertQuotationDialog,pages/sales/ConvertQuotationDialog.tsx,,,yes,Audited-static,,,1,3,,,,scanned with parent page; not crawled (opens on action),
+D:pages/settings/PackWizardPage.tsx,dialog,,PackWizardPage,pages/settings/PackWizardPage.tsx,,,no,Audited-static,,,2,15,,,,scanned with parent page; not crawled (opens on action),
+D:pages/setup/SetupWizardPage.tsx,dialog,,SetupWizardPage,pages/setup/SetupWizardPage.tsx,,,yes,Audited-static,,,3,37,,,,scanned with parent page; not crawled (opens on action),

@@ -7,6 +7,30 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task
+def release_expired_reservations_task():
+    """Release stock holds that have passed their expiry. Runs every 15 minutes."""
+    from core.rls import iter_company_ids, set_rls_company
+
+    from accounts.models import Company
+
+    from .services import InventoryService
+
+    released_companies = 0
+    for cid in iter_company_ids():
+        set_rls_company(cid)
+        company = Company.objects.filter(pk=cid).first()
+        if company is None:
+            continue
+        try:
+            InventoryService.release_expired_reservations(company)
+            released_companies += 1
+        except Exception:  # noqa: BLE001
+            logger.exception("expired reservation release failed for company %s", cid)
+    set_rls_company(None)
+    return {"companies": released_companies}
+
+
+@shared_task
 def record_expiry_bands_task():
     """B8-005: daily near-expiry sweep — record ExpiryAlertLog bands and send the
     customer notifications that used to fire (per viewer!) from a GET.

@@ -15,6 +15,8 @@ asks for, sequenced against current reality instead of a green-field assumption.
 
 ## Analysis: what the PRD assumes vs. what exists
 
+Correction 2026-10-01: the table below is the 2026-09-24 snapshot. Campaigns, Customer 360, tickets, referrals, contracts, and complaints now exist. QOS-0083..0094 are `verified`. Do not use this table as the current build state.
+
 The PRD's seven epics read as if BizBoard has no CRM at all. It's about 40% built already — unevenly:
 
 | Epic | PRD asks for | Actually in the codebase today | Build state |

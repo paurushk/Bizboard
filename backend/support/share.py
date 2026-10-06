@@ -5,6 +5,7 @@ from django.http import Http404
 from django.utils import timezone
 
 from accounts.models import CompanyUser
+from core.exceptions import BusinessRuleError
 from core.models import AuditEvent
 from core.rls import rls_bypass
 
@@ -36,7 +37,7 @@ def share_ticket(ticket: Ticket, user, *, include_description: bool = False):
     _require_owner(ticket, user)
     vendor_id = vendor_company_id()
     if vendor_id is None:
-        raise Http404()
+        raise BusinessRuleError("No vendor company is configured.")
     payload = {
         "source_number": ticket.number,
         "subject": ticket.subject,

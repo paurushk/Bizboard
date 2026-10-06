@@ -2,6 +2,8 @@ from django.urls import path
 
 from .shopify import ShopifyWebhookView
 from .views import (
+    ShopifyConnectionView,
+    ShopifyPendingApplyView,
     TallyCommitView,
     TallyErrorsView,
     TallyExportView,
@@ -21,5 +23,11 @@ urlpatterns = [
     path("tally/migrate-diff/", TallyMigrationDiffView.as_view(), name="tally-migrate-diff"),
     path("tally/runs/<int:pk>/errors/", TallyErrorsView.as_view(), name="tally-errors"),
     path("whatsapp/connection/", WhatsAppConnectionView.as_view(), name="whatsapp-connection"),
+    path("shopify/connection/", ShopifyConnectionView.as_view(), name="shopify-connection"),
     path("shopify/webhook/", ShopifyWebhookView.as_view(), name="shopify-webhook"),
+    path(
+        "shopify/pending/<str:item_key>/apply/",
+        ShopifyPendingApplyView.as_view(),
+        name="shopify-pending-apply",
+    ),
 ]

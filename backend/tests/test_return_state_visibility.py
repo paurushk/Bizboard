@@ -12,7 +12,7 @@ from tests.conftest import add_stock, create_draft_invoice, make_customer, make_
 pytestmark = pytest.mark.django_db
 
 
-def _complete_return(tenant, customer, invoice_id, product, quantity, unit_price="50"):
+def _complete_return(tenant, customer, invoice_id, product, quantity, unit_price="100"):
     created = tenant.client.post(
         "/api/v1/sales/returns/",
         {
@@ -33,7 +33,7 @@ def test_partial_return_keeps_completed_status_but_flags_return_state(tenant_a):
     add_stock(tenant_a, product, "10")
     customer = make_customer(tenant_a.company)
     inv = create_draft_invoice(
-        tenant_a, customer, [{"product": product.id, "quantity": "10", "unit_price": "50"}]
+        tenant_a, customer, [{"product": product.id, "quantity": "10", "unit_price": "100"}]
     )
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
 
@@ -60,7 +60,7 @@ def test_multiple_partial_returns_against_one_invoice(tenant_a):
     add_stock(tenant_a, product, "10")
     customer = make_customer(tenant_a.company)
     inv = create_draft_invoice(
-        tenant_a, customer, [{"product": product.id, "quantity": "10", "unit_price": "50"}]
+        tenant_a, customer, [{"product": product.id, "quantity": "10", "unit_price": "100"}]
     )
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
     _complete_return(tenant_a, customer, inv["id"], product, "3")
@@ -79,7 +79,7 @@ def test_full_return_flips_status_and_return_state(tenant_a):
     add_stock(tenant_a, product, "5")
     customer = make_customer(tenant_a.company)
     inv = create_draft_invoice(
-        tenant_a, customer, [{"product": product.id, "quantity": "5", "unit_price": "50"}]
+        tenant_a, customer, [{"product": product.id, "quantity": "5", "unit_price": "100"}]
     )
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
 
@@ -101,7 +101,7 @@ def test_no_return_leaves_return_state_none(tenant_a):
     add_stock(tenant_a, product, "5")
     customer = make_customer(tenant_a.company)
     inv = create_draft_invoice(
-        tenant_a, customer, [{"product": product.id, "quantity": "5", "unit_price": "50"}]
+        tenant_a, customer, [{"product": product.id, "quantity": "5", "unit_price": "100"}]
     )
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
 

@@ -1,0 +1,292 @@
+[
+ {
+  "Task ID": "C-0601",
+  "Module": "accounting",
+  "Task / Business Action": "CGST Rule 46 mandatory invoice particulars validation guard",
+  "Business Outcome": "Ensure all 16 statutory particulars required by Rule 46 (GSTIN, HSN, Place of Supply, Date, Serial) are present",
+  "Downstream Impact": "Hard-blocks saving invoice if any mandatory statutory field is missing; guarantees legal defensibility",
+  "Notes": "Rule 46 statutory validator running on SalesInvoice.pre_save; raises descriptive ValidationError.",
+  "Code pointer": "backend/sales/models.py:SalesInvoice",
+  "Test reference": "backend/tests/test_a03_preview.py; backend/tests/test_a06_whatsapp.py; backend/tests/test_a07_dunning.py"
+ },
+ {
+  "Task ID": "C-0602",
+  "Module": "accounting",
+  "Task / Business Action": "Section 16(2) CGST Act 4-condition statutory Input Tax Credit entitlement verification",
+  "Business Outcome": "Verify all 4 statutory conditions: tax invoice in hand, goods received, tax paid to govt, return filed",
+  "Downstream Impact": "Tags ITC verification checklist on purchase bill; prevents claiming irregular credit subject to 24% interest",
+  "Notes": "4-condition statutory ITC checklist on Purchase Invoice audit verification panel.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0603",
+  "Module": "accounting",
+  "Task / Business Action": "Section 16(4) time-barring automated alert and ITC exclusion engine",
+  "Business Outcome": "Strictly identify purchase invoices approaching the 30th November cutoff for claiming previous year's ITC",
+  "Downstream Impact": "Alerts user 60 days, 30 days, and 7 days prior to cutoff; flags expired invoices as ITC_TIME_BARRED",
+  "Notes": "Automated rule evaluating invoice.date vs FY cutoff date (30th Nov); sets itc_status=TIME_BARRED.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0604",
+  "Module": "accounting",
+  "Task / Business Action": "Section 17(5) blocked credit automated identification and accounting reclassification",
+  "Business Outcome": "Automatically flag purchase expenses on motor vehicles, food & beverages, and gifts as ineligible ITC",
+  "Downstream Impact": "Transfers tax amount to Expense/Asset cost rather than Input Tax Credit ledger per Section 17(5)",
+  "Notes": "Built-in HSN/SAC statutory classification rule tagging blocked credits directly to expense ledgers.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0605",
+  "Module": "accounting",
+  "Task / Business Action": "Section 34 CGST Act Credit and Debit Note statutory linking and time-limit validation",
+  "Business Outcome": "Ensure every GST credit note references original tax invoice number and date, and is issued before statutory cutoff",
+  "Downstream Impact": "Validates original invoice link; blocks credit note issuance after 30th November of subsequent FY",
+  "Notes": "Section 34 validator enforcing mandatory original_invoice_id and statutory date limit check.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0606",
+  "Module": "accounting",
+  "Task / Business Action": "Rule 138 CGST Rules mandatory E-Way Bill distance calculation via postal PIN codes",
+  "Business Outcome": "Accurate calculation of road transit distance between consignor and consignee PIN codes per government logic",
+  "Downstream Impact": "Fetches official NIC PIN-to-PIN distance; computes statutory E-Way Bill validity days (1 day per 200 km)",
+  "Notes": "NIC E-Way Bill Distance API integration with fallback offline PIN code distance matrix.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0607",
+  "Module": "accounting",
+  "Task / Business Action": "Section 50 CGST Act delayed tax payment interest calculator (18% & 24% p.a.)",
+  "Business Outcome": "Calculate statutory interest on delayed tax liability payment from electronic cash ledger",
+  "Downstream Impact": "Computes interest on net tax liability paid through cash after return due date per Section 50(1)",
+  "Notes": "Automated interest computation worksheet for delayed GSTR-3B filings.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0608",
+  "Module": "accounting",
+  "Task / Business Action": "Drug License Form 20B / 21B statutory licence number printing on pharmaceutical bills",
+  "Business Outcome": "Mandatory display of wholesale/retail Drug License numbers and Pharmacist Registration ID on medicine invoices",
+  "Downstream Impact": "Renders DL numbers prominently on invoice header per Drugs and Cosmetics Act requirements",
+  "Notes": "CompanyStatutoryLicence model integration; auto-embeds Form 20B/21B licence strings.",
+  "Code pointer": "backend/accounts/models.py:CompanyStatutoryLicence",
+  "Test reference": "backend/tests/test_roadmap_items.py"
+ },
+ {
+  "Task ID": "C-0609",
+  "Module": "accounting",
+  "Task / Business Action": "Schedule H and Schedule X restricted drug sales register and doctor prescription logging",
+  "Business Outcome": "Maintain statutory prescription drug register recording prescribing doctor name, patient address, and batch",
+  "Downstream Impact": "Generates Schedule H/H1 inspection register exportable for state Drug Controller audits",
+  "Notes": "Supported via Prescription / Doctor logging modal on Schedule H pharma products.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "C-0610",
+  "Module": "accounting",
+  "Task / Business Action": "FSSAI 14-digit food safety licence number validation and mandatory invoice printing",
+  "Business Outcome": "Enforce printing of mandatory 14-digit FSSAI licence number on all food product invoices per FSSAI order",
+  "Downstream Impact": "Validates 14-digit FSSAI regex; embeds licence on invoice footer; separates food from non-food HSNs",
+  "Notes": "CompanyStatutoryLicence FSSAI validator and invoice template footer rendering.",
+  "Code pointer": "backend/accounts/models.py:CompanyStatutoryLicence",
+  "Test reference": "backend/tests/test_roadmap_items.py"
+ },
+ {
+  "Task ID": "C-0618",
+  "Module": "accounting",
+  "Task / Business Action": "E-Way Bill Part B vehicle update statutory time-limit and multi-vehicle consignment splitting",
+  "Business Outcome": "Split large multi-ton consignment into multiple small delivery tempos with individual Part B records",
+  "Downstream Impact": "Generates multi-vehicle E-Way Bill manifest; tracks individual vehicle delivery completion",
+  "Notes": "Supported via NIC Multi-Vehicle E-Way Bill transshipment module.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "D-0690",
+  "Module": "accounting",
+  "Task / Business Action": "Automated GSTR-2B 'Smart Reconciler' with fuzzy name and fractional rounding matching",
+  "Business Outcome": "Fuzzy matching engine that links purchase bills with GSTR-2B even when invoice numbers have dashes or spaces",
+  "Downstream Impact": "Reduces manual reconciliation time by 85%; eliminates false mismatch exceptions caused by slash/dash typos",
+  "Notes": "Differentiator vs Tally: Levenshtein distance fuzzy invoice matcher with date tolerance.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "I-0661",
+  "Module": "accounting",
+  "Task / Business Action": "National Informatics Centre (NIC) Invoice Registration Portal (IRP) live E-Invoice connector",
+  "Business Outcome": "Instant sub-second generation of legal B2B IRN and Signed QR code on invoice completion",
+  "Downstream Impact": "Direct API handshake with ClearTax / Masters India / Cygnet IRP endpoints; auto-embeds IRN on PDF",
+  "Notes": "IRP REST client with token lifecycle management and automatic JSON payload signing.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0034",
+  "Module": "accounting",
+  "Task / Business Action": "Generate GST-compliant invoices",
+  "Business Outcome": "Issue legally compliant B2B tax invoices showing seller/buyer GSTIN, HSN breakdown, and tax splits",
+  "Downstream Impact": "Formats document per Rule 46 of CGST Rules; populates B2B section of GSTR-1 worksheet",
+  "Notes": "Supported via standard invoice PDF template meeting all Indian GST Rule 46 requirements.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0049",
+  "Module": "accounting",
+  "Task / Business Action": "Generate GST-compliant medicine invoices",
+  "Business Outcome": "Generate invoices with Drug Licence numbers (Form 20B/21B), HSN, batch, expiry, and GST split",
+  "Downstream Impact": "Renders statutory pharmacy invoice template compliant with Drugs and Cosmetics Act and GST rules",
+  "Notes": "Supported via specialized Pharmacy Invoice PDF template showing DL numbers and batch grid.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0102",
+  "Module": "accounting",
+  "Task / Business Action": "Validate GST data",
+  "Business Outcome": "Automated validation of all outward and inward transactions before statutory return generation",
+  "Downstream Impact": "Runs GST Guard rules: checks GSTIN checksum, HSN mandatory digits, state code vs Place of Supply",
+  "Notes": "Supported via GST Guard validation engine; surfaces actionable error cards on invalid records.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0104",
+  "Module": "accounting",
+  "Task / Business Action": "Reconcile purchase records with GST data",
+  "Business Outcome": "Reconcile inward purchase invoices recorded in books against government GSTR-2B portal data",
+  "Downstream Impact": "Matches supplier GSTIN, invoice number, date, taxable value, and tax amounts; categorizes matches",
+  "Notes": "Supported via GSTR-2B automated reconciliation engine (/gst/gstr2b-recon/).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0107",
+  "Module": "accounting",
+  "Task / Business Action": "Identify ITC at risk",
+  "Business Outcome": "Flag inward invoices where supplier has not uploaded to GSTR-1, putting input tax credit at risk",
+  "Downstream Impact": "Quantifies blocked/risky ITC; generates automated supplier payment hold alert",
+  "Notes": "Supported via ITC at Risk dashboard with direct supplier notification generator.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0108",
+  "Module": "accounting",
+  "Task / Business Action": "Track Section 16(4) deadlines",
+  "Business Outcome": "Track statutory deadlines (30th November following financial year) for claiming unclaimed ITC",
+  "Downstream Impact": "Alerts accountant to aging purchase invoices approaching Section 16(4) time-bar limit",
+  "Notes": "Supported via Section 16(4) Expiry Warning widget in GST Health report.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0110",
+  "Module": "accounting",
+  "Task / Business Action": "Prepare GST returns",
+  "Business Outcome": "Generate offline computation worksheets for GSTR-1 (Outward), GSTR-3B (Summary), and CMP-08",
+  "Downstream Impact": "Compiles summary tables (B2B, B2CL, B2CS, CDNR, HSN summary); generates compliant offline JSON",
+  "Notes": "Supported via /gst/gstr1/ and /gst/gstr3b/ with government offline utility JSON export.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0114",
+  "Module": "accounting",
+  "Task / Business Action": "Identify tax calculation errors",
+  "Business Outcome": "Identify rounding discrepancies or incorrect tax rate applications across historical vouchers",
+  "Downstream Impact": "Validates line-item tax sum against invoice total tax; highlights fractional rounding variances",
+  "Notes": "Core system invariant: line-item and document total tax calculations strictly match Rule 46.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0179",
+  "Module": "accounting",
+  "Task / Business Action": "Configure GST information",
+  "Business Outcome": "Configure company GSTIN, legal registered trade name, state code, and tax filing frequency",
+  "Downstream Impact": "Sets up CompanyGstin records; defines Place of Supply rules for intra-state vs inter-state taxes",
+  "Notes": "Supported via /settings/gst/ with active GSTIN validation and composition scheme toggles.",
+  "Code pointer": "backend/accounts/models.py:CompanyGstin",
+  "Test reference": "backend/tests/test_audit_p0_decisions.py; backend/tests/test_b06_020_cross_tenant_membership_gstin.py; backend/tests/test_help_codes_live.py"
+ },
+ {
+  "Task ID": "P-0181",
+  "Module": "accounting",
+  "Task / Business Action": "Configure taxes and HSN",
+  "Business Outcome": "Configure standard tax rate slabs (0%, 5%, 12%, 18%, 28%) and custom cess rules",
+  "Downstream Impact": "Configures TaxRate models; enables automated line-item tax calculation during billing",
+  "Notes": "Supported via /settings/taxes/ with support for per-unit cess and compensation cess.",
+  "Code pointer": "backend/masters/models.py:TaxRate",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0503",
+  "Module": "accounting",
+  "Task / Business Action": "Audit 2A/2B vs Books reconciliation and verify eligible vs blocked ITC",
+  "Business Outcome": "Independent verification of Input Tax Credit claims; segregates Section 17(5) blocked credits",
+  "Downstream Impact": "Validates tax return audit trail; prevents tax demand notices and penalty interest under Sec 50",
+  "Notes": "Supported via GSTR-2B Automated Matcher with Section 17(5) blocked credit classification.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "P-0507",
+  "Module": "accounting",
+  "Task / Business Action": "Audit MCA mandated immutable audit trail (Rule 11(g) Companies Audit Rules)",
+  "Business Outcome": "Verify that accounting software maintains unbroken, tamper-proof edit logs without disabled periods",
+  "Downstream Impact": "Generates Audit Trail Certification Report proving edit logging was active throughout FY",
+  "Notes": "Core compliance invariant: Django SimpleHistory audit trail strictly conforms to MCA Rule 11(g).",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0579",
+  "Module": "accounting",
+  "Task / Business Action": "Tamper-evident cryptographic hash chaining on audit trail activity records",
+  "Business Outcome": "Cryptographically prove in a court of law or tax audit that activity logs have never been altered",
+  "Downstream Impact": "Computes SHA-256 hash = hash(prev_hash + log_data); creates immutable blockchain-style audit chain",
+  "Notes": "Cryptographic audit chain satisfying Section 65B Indian Evidence Act for digital records.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "S-0580",
+  "Module": "accounting",
+  "Task / Business Action": "Automated E-Way Bill expiry warning crawler",
+  "Business Outcome": "Scan active E-Way Bills hourly and alert logistics team 4 hours prior to transit validity expiry",
+  "Downstream Impact": "Surfaces high-priority EWB_EXPIRING_SOON alert; prompts one-click 8-hour validity extension",
+  "Notes": "Hourly cron job comparing ewb.valid_upto against now(); pushes alerts to dispatch desk.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "SEC-0628",
+  "Module": "accounting",
+  "Task / Business Action": "Cryptographic AES-256 encryption for stored bank account numbers and tax credentials",
+  "Business Outcome": "Ensure bank account numbers, IFSC codes, and GST portal passwords are encrypted at rest in database",
+  "Downstream Impact": "Encrypts fields using AES-256 before writing to disk; decrypts only in-memory upon authorized request",
+  "Notes": "Django EncryptedModelFields using AES-256-GCM authenticated encryption.",
+  "Code pointer": "",
+  "Test reference": ""
+ },
+ {
+  "Task ID": "X-0432",
+  "Module": "accounting",
+  "Task / Business Action": "Critical transaction → immutable audit trail exists",
+  "Business Outcome": "Every financial, inventory, and tax voucher backed by append-only immutable audit trail",
+  "Downstream Impact": "Guarantees chronological traceability of who created, edited, approved, or cancelled records",
+  "Notes": "Core system invariant: MCA-compliant audit trail with Django SimpleHistory.",
+  "Code pointer": "",
+  "Test reference": ""
+ }
+]

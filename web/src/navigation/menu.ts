@@ -18,18 +18,32 @@ import {
   isTdsEnabled,
 } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
+import { isNavMarkedNotReady } from '@/navigation/notReadyNav';
 
-/** Dead surfaces. Hidden for every company, pack or not. */
-const ALWAYS_HIDDEN_NAV = new Set(['bills-of-entry', 'telegram', 'fixed-assets']);
-/** This release ships GSTR-1 and GSTR-3B worksheets only. */
-const HIDDEN_GSTR_NAV = new Set([
-  'report-gstr2b',
-  'report-gstr4',
-  'report-gstr6',
-  'report-gstr7',
-  'report-gstr8',
-  'report-gstr9',
-]);
+/**
+ * Surfaces the frozen release hides. Each one shows only when its own runtime
+ * flag is on: the deployment env flag is the ceiling, and a company can be granted
+ * the flag where the backend allows it. Every flag defaults off, so a production or
+ * pilot profile is unchanged; demo and staging turn them on (see
+ * `manage.py enable_full_demo` and docs/UX_MASTER_EXECUTION_PLAN.md).
+ * Support tickets, insurance and contracts also keep their own `visible` checks.
+ */
+const FLAG_GATED_NAV: Record<string, string> = {
+  'bills-of-entry': 'ENABLE_BOE',
+  telegram: 'ENABLE_TELEGRAM',
+  'fixed-assets': 'ENABLE_FIXED_ASSETS',
+  tickets: 'ENABLE_SUPPORT_TICKETS',
+  'shared-tickets': 'ENABLE_SUPPORT_TICKETS',
+  insurance: 'ENABLE_INSURANCE',
+  contracts: 'ENABLE_CONTRACTS',
+  // The frozen release ships GSTR-1 and GSTR-3B worksheets only.
+  'report-gstr2b': 'ENABLE_GSTR_EXTENDED',
+  'report-gstr4': 'ENABLE_GSTR_EXTENDED',
+  'report-gstr6': 'ENABLE_GSTR_EXTENDED',
+  'report-gstr7': 'ENABLE_GSTR_EXTENDED',
+  'report-gstr8': 'ENABLE_GSTR_EXTENDED',
+  'report-gstr9': 'ENABLE_GSTR_EXTENDED',
+};
 /** Hidden only while a new company is still on the archetype-pack sidebar. */
 const PACK_HIDDEN_SECTIONS = new Set([
   'insights',
@@ -116,29 +130,25 @@ export const navigation: NavItem[] = [
     labelKey: 'nav.sales',
     children: [
       { id: 'new-invoice', labelKey: 'nav.newInvoice', path: '/sales/new', visible: canCreateSales },
-      { id: 'quick-entry', labelKey: 'nav.quickEntry', path: '/sales/quick-entry', visible: canCreateSales },
-      // UXW2B-015 follow-up: these five had no `visible` guard at all — the
-      // route layer gates them on canViewSalesSurfaces (App.tsx), so a
-      // zero/view-only-permission user saw them as normal sidebar links that
-      // dead-ended into "Access denied" on click (and were listed as
-      // "reachable" on the Forbidden landing page, which is what surfaced this).
       { id: 'sales-history', labelKey: 'nav.salesHistory', path: '/sales/history', visible: canViewSalesSurfaces },
       { id: 'quotations', labelKey: 'nav.quotations', path: '/sales/quotations', visible: canViewSalesSurfaces },
       { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canViewPaymentSurfaces },
-      {
-        id: 'sales-bill-upload',
-        labelKey: 'nav.uploadSalesBill',
-        path: '/sales/bill-upload',
-        visible: canImport,
-      },
-      { id: 'sales-returns', labelKey: 'nav.salesReturns', path: '/sales/returns', visible: canViewSalesSurfaces },
-      { id: 'credit-notes', labelKey: 'nav.creditNotes', path: '/sales/credit-notes', visible: canViewSalesSurfaces },
-      { id: 'debit-notes', labelKey: 'nav.debitNotes', path: '/sales/debit-notes', visible: canViewSalesSurfaces },
-      { id: 'sales-orders', labelKey: 'nav.salesOrders', path: '/sales/orders', visible: canViewSalesSurfaces },
-      { id: 'delivery-challans', labelKey: 'nav.deliveryChallans', path: '/sales/delivery-challans', visible: canViewSalesSurfaces },
-      { id: 'delivery-routes', labelKey: 'nav.deliveryRoutes', path: '/sales/delivery-routes', visible: canViewSalesSurfaces },
-      { id: 'recurring-invoices', labelKey: 'nav.recurringInvoices', path: '/sales/recurring', visible: canViewSalesSurfaces },
       { id: 'customers', labelKey: 'nav.customers', path: '/sales/customers', visible: canViewSalesSurfaces },
+      {
+        id: 'sales-more',
+        labelKey: 'nav.more',
+        children: [
+          { id: 'quick-entry', labelKey: 'nav.quickEntry', path: '/sales/quick-entry', visible: canCreateSales },
+          { id: 'sales-bill-upload', labelKey: 'nav.uploadSalesBill', path: '/sales/bill-upload', visible: canImport },
+          { id: 'sales-returns', labelKey: 'nav.salesReturns', path: '/sales/returns', visible: canViewSalesSurfaces },
+          { id: 'credit-notes', labelKey: 'nav.creditNotes', path: '/sales/credit-notes', visible: canViewSalesSurfaces },
+          { id: 'debit-notes', labelKey: 'nav.debitNotes', path: '/sales/debit-notes', visible: canViewSalesSurfaces },
+          { id: 'sales-orders', labelKey: 'nav.salesOrders', path: '/sales/orders', visible: canViewSalesSurfaces },
+          { id: 'delivery-challans', labelKey: 'nav.deliveryChallans', path: '/sales/delivery-challans', visible: canViewSalesSurfaces },
+          { id: 'delivery-routes', labelKey: 'nav.deliveryRoutes', path: '/sales/delivery-routes', visible: canViewSalesSurfaces },
+          { id: 'recurring-invoices', labelKey: 'nav.recurringInvoices', path: '/sales/recurring', visible: canViewSalesSurfaces },
+        ],
+      },
     ],
   },
   {
@@ -165,7 +175,8 @@ export const navigation: NavItem[] = [
       { id: 'purchase-credit-notes', labelKey: 'nav.purchaseCreditNotes', path: '/purchases/credit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-debit-notes', labelKey: 'nav.purchaseDebitNotes', path: '/purchases/debit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-orders', labelKey: 'nav.purchaseOrders', path: '/purchases/orders', visible: canViewPurchaseSurfaces },
-      { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: () => false },
+      { id: 'goods-receipts', labelKey: 'nav.goodsReceipts', path: '/purchases/grns', visible: canViewPurchaseSurfaces },
+      { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: canViewPurchaseSurfaces },
       { id: 'suppliers', labelKey: 'nav.suppliers', path: '/purchases/suppliers', visible: canViewPurchaseSurfaces },
     ],
   },
@@ -382,7 +393,7 @@ export const navigation: NavItem[] = [
         id: 'report-gstr9',
         labelKey: 'nav.gstr9',
         path: '/reports/gstr9',
-        visible: () => false,
+        visible: () => isGstrReportsEnabled(),
       },
       {
         id: 'report-gstr2b',
@@ -584,7 +595,7 @@ export const navigation: NavItem[] = [
         id: 'telegram',
         labelKey: 'nav.telegram',
         path: '/settings/telegram',
-        visible: () => false,
+        visible: (user) => canManageUsers(user),
       },
     ],
   },
@@ -599,7 +610,7 @@ export const navigation: NavItem[] = [
       { id: 'chart-of-accounts', labelKey: 'nav.chartOfAccounts', path: '/accounting/accounts' },
       { id: 'journals', labelKey: 'nav.journals', path: '/accounting/journals' },
       { id: 'cost-centers', labelKey: 'nav.costCenters', path: '/accounting/cost-centers' },
-      { id: 'fixed-assets', labelKey: 'nav.fixedAssets', path: '/accounting/fixed-assets', visible: () => false },
+      { id: 'fixed-assets', labelKey: 'nav.fixedAssets', path: '/accounting/fixed-assets' },
       { id: 'accounting-periods', labelKey: 'nav.accountingPeriods', path: '/accounting/periods' },
       { id: 'accounting-recon', labelKey: 'nav.bankReconciliation', path: '/accounting/bank-reconciliation' },
       { id: 'expenses', labelKey: 'nav.expenses', path: '/accounting/expenses' },
@@ -611,9 +622,19 @@ export const navigation: NavItem[] = [
 ];
 
 function navItemHidden(id: string): boolean {
-  if (ALWAYS_HIDDEN_NAV.has(id) || HIDDEN_GSTR_NAV.has(id)) return true;
+  if (isNavMarkedNotReady(id)) return true;
+  const gate = FLAG_GATED_NAV[id];
+  if (gate && !isRuntimeFlagEnabled(gate)) return true;
   if (isRuntimeFlagEnabled('NAV_PACK_DEFAULT') && PACK_HIDDEN_SECTIONS.has(id)) return true;
   return false;
+}
+
+function filterChildren(children: NavItem[] | undefined, user: User | null): NavItem[] | undefined {
+  if (!children) return undefined;
+  return children
+    .filter((child) => !navItemHidden(child.id) && (child.visible ? child.visible(user) : true))
+    .map((child) => ({ ...child, children: filterChildren(child.children, user) }))
+    .filter((child) => !child.children || child.children.length > 0);
 }
 
 export function filterNav(user: User | null): NavItem[] {
@@ -621,9 +642,7 @@ export function filterNav(user: User | null): NavItem[] {
     .filter((item) => !navItemHidden(item.id) && (item.visible ? item.visible(user) : true))
     .map((item) => ({
       ...item,
-      children: item.children?.filter((child) =>
-        !navItemHidden(child.id) && (child.visible ? child.visible(user) : true),
-      ),
+      children: filterChildren(item.children, user),
     }))
     .filter((item) => !item.children || item.children.length > 0);
 }
@@ -633,7 +652,7 @@ export function isReallyReachable(user: User | null, path: string): boolean {
   const nav = filterNav(user);
   for (const item of nav) {
     if (item.path && pathMatches(item.path, path)) return true;
-    if (item.children?.some((child) => child.path && pathMatches(child.path, path))) return true;
+    if (item.children?.some((child) => childMatches(child, path))) return true;
   }
   return false;
 }
@@ -655,13 +674,25 @@ function pathMatches(navPath: string, path: string): boolean {
   return false;
 }
 
+function childMatches(child: NavItem, path: string): boolean {
+  if (child.path && pathMatches(child.path, path)) return true;
+  return Boolean(child.children?.some((nested) => childMatches(nested, path)));
+}
+
+function firstReachablePath(item: NavItem, user: User | null): string | null {
+  if (item.path && item.path !== '/' && isReallyReachable(user, item.path)) return item.path;
+  for (const child of item.children ?? []) {
+    const found = firstReachablePath(child, user);
+    if (found) return found;
+  }
+  return null;
+}
+
 /** First sidebar path the user can open (BB-000528 limited-role landing). */
 export function findFirstNavPath(user: User | null): string | null {
-  const nav = filterNav(user);
-  for (const item of nav) {
-    if (item.path && item.path !== '/' && isReallyReachable(user, item.path)) return item.path;
-    const child = item.children?.find((c) => c.path && isReallyReachable(user, c.path));
-    if (child?.path) return child.path;
+  for (const item of filterNav(user)) {
+    const found = firstReachablePath(item, user);
+    if (found) return found;
   }
   return null;
 }

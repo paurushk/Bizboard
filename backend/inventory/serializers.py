@@ -27,6 +27,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
 class StockBalanceSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
     sku = serializers.CharField(source="product.sku", read_only=True)
+    rack_code = serializers.CharField(source="product.rack_code", read_only=True, default="")
     custom_fields = serializers.JSONField(source="product.custom_fields", read_only=True)
     warehouse_name = serializers.CharField(source="warehouse.name", read_only=True)
     batch_no = serializers.CharField(source="batch.batch_no", read_only=True, default=None)
@@ -38,7 +39,7 @@ class StockBalanceSerializer(serializers.ModelSerializer):
         model = StockBalance
         fields = [
             "id", "warehouse", "warehouse_name", "batch", "batch_no", "nearest_expiry",
-            "product", "product_name", "sku", "custom_fields", "on_hand", "reserved", "available", "reorder_level",
+            "product", "product_name", "sku", "rack_code", "custom_fields", "on_hand", "reserved", "available", "reorder_level",
         ]
 
     def get_reorder_level(self, obj):
@@ -95,7 +96,10 @@ class OpeningStockSerializer(serializers.Serializer):
 class WarehouseSerializer(serializers.ModelSerializer):
     class Meta:
         model = Warehouse
-        fields = ["id", "name", "code", "address", "is_default", "is_active", "created_at", "updated_at"]
+        fields = [
+            "id", "name", "code", "address", "contact_name", "contact_phone",
+            "is_default", "is_active", "created_at", "updated_at",
+        ]
 
     def _clear_other_defaults(self, company, exclude_pk=None):
         qs = Warehouse.objects.filter(company=company, is_default=True)
@@ -188,7 +192,7 @@ class StockTransferSerializer(serializers.ModelSerializer):
         model = StockTransfer
         fields = [
             "id", "number", "from_warehouse", "from_warehouse_name",
-            "to_warehouse", "to_warehouse_name", "status", "notes",
+            "to_warehouse", "to_warehouse_name", "status", "transfer_date", "notes",
             "lines", "completed_at", "cancelled_at", "created_at", "updated_at",
         ]
         read_only_fields = ["number", "status", "completed_at", "cancelled_at"]
@@ -372,10 +376,19 @@ class StockCountSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockCountSession
         fields = [
-            "id", "warehouse", "warehouse_name", "status", "counted_on", "notes",
+            "id", "warehouse", "warehouse_name", "status", "blind", "counted_on", "notes",
             "posted_at", "lines", "created_at", "updated_at",
         ]
         read_only_fields = ["status", "posted_at"]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if getattr(instance, "blind", False) and not self.context.get("reveal_count"):
+            for line in data.get("lines") or []:
+                line.pop("system_qty", None)
+                line.pop("variance", None)
+                line.pop("expected_qty", None)
+        return data
 
     def create(self, validated_data):
         lines = validated_data.pop("lines", None)

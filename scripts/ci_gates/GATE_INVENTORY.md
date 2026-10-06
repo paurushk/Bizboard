@@ -52,6 +52,7 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
 | `guard_no_raw_unit_cost_update` | Raw `unit_cost` write bypasses `stamp_cost`; running cost diverges from movements, all COGS/valuation/GL wrong silently. |
 | `guard_period_gate_coverage` (G-21/G-22) | A money-amend `complete()`/`cancel()` in the registry stops calling `assert_period_allows_money_amend`; a document dated inside a closed GST/accounting period could be written undetected. See `docs/CROSS_FLOW_IMPACT_MAP.md` §6. |
 | `guard_config_consistency` (FG-1) | A feature flag exists in code but is unclassified in `docs/FREEZE_SCOPE.md`; frozen surface undefined for it. |
+| `guard_runtime_alignment` (RT-1) | `backend/Dockerfile` / `web/Dockerfile` ship a different Python/Node than `ci.yml` tests; a green CI run no longer describes the shipped image. |
 | `guard_regression_corpus_grows` | A regression test was deleted without lowering `backend/tests/regression/.corpus_count`; a fixed bug is unprotected again. |
 | `guard_required_checks_match` | `ci.yml` jobs and `REQUIRED_CHECKS.txt` drifted; a merge gate may not be enforced. |
 | `guard_ca_tax_parity` | A CA-signed GST scenario (F1–F8 in `docs/ca/CA_SIGN_OFF_CHECKLIST.md`) lost its automated parity case in `backend/tests/fixtures/tax_parity_cases.json`, or the checklist stopped referencing the fixture — the sign-off no longer maps to the computed tax. |

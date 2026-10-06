@@ -9,6 +9,7 @@ from accounting.models import JournalEntry
 from core.exceptions import BusinessRuleError
 from ledgers.services import LedgerService
 from payments.models import CustomerReceipt, PaymentAllocation, ReceiptStatus
+from payments.services import PaymentService
 from purchases.boe_services import BillOfEntryService
 from purchases.models import BillOfEntry, PurchaseCreditNote, PurchaseInvoice
 from purchases.services import PurchaseService
@@ -169,3 +170,48 @@ def test_cr103_empty_posted_je_not_treated_as_done(tenant_a):
         updated_by=tenant_a.owner,
     )
     assert _has_je(tenant_a.company, "SALES_INVOICE", 999001, "COMPLETE") is False
+
+
+def _ap_card_matches_aging(company):
+    dash = ReportService.dashboard(company)
+    aging = ReportService.payables_aging(company)
+    assert dash["payables"] == ReportService._aging_total(aging)
+    assert dash["payables"] == ReportService._aging_total(dash["payables_aging"])
+    return dash["payables"]
+
+
+def _completed_purchase(tenant, unit_price="250"):
+    product = make_product(tenant.company, purchase_price=unit_price, gst_rate="0")
+    supplier = make_supplier(tenant.company)
+    pur = create_draft_purchase(
+        tenant,
+        supplier,
+        [{"product": product.id, "quantity": "1", "unit_price": unit_price, "gst_rate": "0"}],
+        purchase_type="NON_GST",
+    )
+    assert tenant.client.post(f"/api/v1/purchases/invoices/{pur['id']}/complete/").status_code == 200
+    return PurchaseInvoice.objects.get(pk=pur["id"]), supplier
+
+
+def test_qos0053_part_payment_dashboard_matches_outstanding(tenant_a):
+    inv, supplier = _completed_purchase(tenant_a)
+    payment = PaymentService.create_supplier_payment(
+        company=tenant_a.company,
+        supplier=supplier,
+        amount=Decimal("100.00"),
+        mode="CASH",
+        user=tenant_a.owner,
+    )
+    PaymentService.allocate_supplier_payment(
+        payment=payment, purchase_invoice=inv, amount=Decimal("100.00"), user=tenant_a.owner
+    )
+    outstanding = LedgerService.purchase_invoice_outstanding(inv)
+    assert outstanding == inv.grand_total - Decimal("100.00")
+    assert _ap_card_matches_aging(tenant_a.company) == outstanding
+
+
+def test_qos0053_books_on_dashboard_still_matches_aging(tenant_a):
+    tenant_a.company.accounting_enabled = True
+    tenant_a.company.save(update_fields=["accounting_enabled"])
+    inv, _supplier = _completed_purchase(tenant_a, unit_price="80")
+    assert _ap_card_matches_aging(tenant_a.company) == LedgerService.purchase_invoice_outstanding(inv)

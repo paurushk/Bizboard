@@ -8,6 +8,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import record_document_event
 from core.exceptions import BusinessRuleError
 from core.services.tax_engine.registry import get_tax_engine
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
@@ -99,7 +100,9 @@ class ReturnService:
             raise BusinessRuleError(
                 "Return date cannot be before the original invoice date."
             )
-        items = list(sales_return.items.select_related("product", "product__alternate_unit"))
+        items = list(
+            sales_return.items.select_related("product", "product__alternate_unit", "source_item")
+        )
         if not items:
             raise BusinessRuleError("Cannot complete a return without line items.")
 
@@ -108,6 +111,24 @@ class ReturnService:
         lines_by_product = defaultdict(list)
         for row in sold_lines:
             lines_by_product[row.product_id].append(row.id)
+
+        def _take_from(need, lids, *, overflow):
+            taken = []
+            for lid in lids:
+                if need <= 0:
+                    break
+                if lid not in remaining_by_line:
+                    raise BusinessRuleError("source_item does not belong to this invoice.")
+                avail = remaining_by_line[lid]
+                if avail <= 0:
+                    continue
+                take = min(need, avail)
+                remaining_by_line[lid] -= take
+                need -= take
+                taken.append((lid, take))
+            if need > 0:
+                raise BusinessRuleError(overflow)
+            return taken
 
         def _consume_prior(exclude=None):
             qs = SalesReturnItem.objects.filter(
@@ -118,35 +139,41 @@ class ReturnService:
                 qs = qs.exclude(sales_return=exclude)
             for prior in qs:
                 need = Decimal(str(prior.quantity))
-                for lid in lines_by_product.get(prior.product_id, []):
-                    if need <= 0:
-                        break
-                    take = min(need, remaining_by_line[lid])
-                    remaining_by_line[lid] -= take
-                    need -= take
-                if need > 0:
-                    raise BusinessRuleError(
+                if prior.source_item_id:
+                    lids = [prior.source_item_id]
+                    overflow = "Prior returns exceed the named invoice line; repair the return history."
+                else:
+                    lids = lines_by_product.get(prior.product_id, [])
+                    overflow = (
                         "Prior returns exceed invoice quantity for this product; repair the return history."
                     )
+                _take_from(need, lids, overflow=overflow)
 
         _consume_prior(exclude=sales_return)
         source_takes = []
         for item in items:
             need = Decimal(str(item.quantity))
-            for lid in lines_by_product.get(item.product_id, []):
-                if need <= 0:
-                    break
-                avail = remaining_by_line[lid]
-                if avail <= 0:
-                    continue
-                take = min(need, avail)
-                remaining_by_line[lid] -= take
-                need -= take
-                source_takes.append((item, lid, take))
-            if need > 0:
-                raise BusinessRuleError(
-                    f"Return quantity for '{item.product.name}' exceeds remaining returnable quantity on matching invoice lines."
+            if item.source_item_id:
+                if item.source_item is not None and item.source_item.product_id != item.product_id:
+                    raise BusinessRuleError("source_item product does not match the return line.")
+                lids = [item.source_item_id]
+                overflow = (
+                    f"Return quantity for '{item.product.name}' exceeds the remaining "
+                    "quantity on the named invoice line."
                 )
+            else:
+                lids = lines_by_product.get(item.product_id, [])
+                if len(lids) > 1:
+                    raise BusinessRuleError(
+                        "Return lines must name the invoice line (source_item) when "
+                        "the same product is on more than one line."
+                    )
+                overflow = (
+                    f"Return quantity for '{item.product.name}' exceeds remaining "
+                    "returnable quantity on matching invoice lines."
+                )
+            for lid, take in _take_from(need, lids, overflow=overflow):
+                source_takes.append((item, lid, take))
 
         sold = {
             row["product"]: row["total"]
@@ -332,6 +359,7 @@ class ReturnService:
                 )
                 PostingService.post_sales_return_scrap(sales_return, scrap_share, user)
 
+        record_document_event(document=sales_return, user=user, event="sales_return.completed")
         emit("document.completed", document=sales_return, user=user, event="sales_return.completed")
         return sales_return
 
@@ -484,5 +512,6 @@ class ReturnService:
         sales_return.cancelled_at = timezone.now()
         sales_return.updated_by = user
         sales_return.save()
+        record_document_event(document=sales_return, user=user, event="sales_return.cancelled")
         emit("document.cancelled", document=sales_return, user=user, event="sales_return.cancelled")
         return sales_return

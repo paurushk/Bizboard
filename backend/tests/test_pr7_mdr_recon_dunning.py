@@ -240,7 +240,7 @@ def test_recon_better_amount_match_wins_over_first_row(tenant_a):
 
 
 @pytest.mark.django_db
-def test_aa_better_amount_match_wins_over_first_fuzzy(tenant_a):
+def test_aa_ambiguous_prefix_utr_with_equal_amounts_does_not_auto_bind(tenant_a):
     from banking.models import AaConsent, AaTransaction
     from banking.services import match_aa_to_receipts
 
@@ -274,7 +274,10 @@ def test_aa_better_amount_match_wins_over_first_fuzzy(tenant_a):
         txn_date=date(2026, 6, 12),
         raw={"narration": "UPI/CR/UTR123456789/IMP CO"},
     )
-    assert match_aa_to_receipts(company=tenant_a.company) == 1
-    matched = AaTransaction.objects.get(txn_id="bankinternal-r043")
-    assert matched.matched_payment_id == closer.id
-    assert matched.matched_payment_id != first.id
+    # BUG-PAY-006: a narration that is only a *prefix* of two receipts' UTRs is not an
+    # equal UTR. Two receipts share the amount, so neither is unique and nothing auto-binds.
+    # (The old rule picked the closer date; a wrong bind there is silent and hard to undo.)
+    assert match_aa_to_receipts(company=tenant_a.company) == 0
+    unmatched = AaTransaction.objects.get(txn_id="bankinternal-r043")
+    assert unmatched.matched_payment_id is None
+    assert closer.id != first.id

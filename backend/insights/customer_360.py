@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
+
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
+
 from core.services.feature_flags import flag_enabled
 from payments.dunning import customer_risk_snapshot
 from reporting.services import ReportService
@@ -112,4 +117,13 @@ def customer_360(company, customer, company_user=None) -> dict | None:
             }
             for row in Complaint.objects.filter(company=company, customer=customer).order_by("-id")[:20]
         ]
+    if flag_enabled(company, "ENABLE_CRM"):
+        from crm.models import Opportunity
+
+        total = Opportunity.objects.filter(company=company, customer=customer).aggregate(
+            total=Sum(Coalesce("amount", Decimal("0"))),
+        )["total"] or Decimal("0")
+        body["opportunity_total"] = str(
+            Decimal(total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
     return body

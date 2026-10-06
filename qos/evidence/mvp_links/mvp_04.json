@@ -1,0 +1,323 @@
+[
+ {
+  "task_id": "P-0178",
+  "test_ids": [
+   "backend/tests/test_auth.py::test_owner_updates_company_gst_settings",
+   "backend/tests/test_wave2_open_fixes.py::test_company_logo_rejects_foreign_file_asset"
+  ],
+  "confidence": "Medium",
+  "note": "Owner PATCH of company GSTIN persists and logo ownership is validated; legal name, address, currency, financial year and document defaults are not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_auth.py::test_owner_updates_company_gst_settings",
+   "backend/tests/test_wave2_open_fixes.py::test_company_logo_rejects_foreign_file_asset"
+  ]
+ },
+ {
+  "task_id": "X-0715",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "No test edits a customer name/address and asserts historical completed invoices retain the old address snapshot.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0002",
+  "test_ids": [
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf19_pos_checkout"
+  ],
+  "confidence": "Medium",
+  "note": "POS cash checkout creates allocated receipt of 236 and balanced GL entries; Cash-in-Hand and Sales Revenue accounts are not asserted specifically.",
+  "test_ids_resolved": [
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf19_pos_checkout"
+  ]
+ },
+ {
+  "task_id": "P-0003",
+  "test_ids": [
+   "backend/tests/test_audit_p0_decisions.py::test_pos_mismatch_message_is_human_and_split_tender_posts_both"
+  ],
+  "confidence": "Medium",
+  "note": "Split CASH+UPI POS checkout creates two receipts; no UPI QR, UTR reference storage or bank-clearing ledger debit assertion.",
+  "test_ids_resolved": [
+   "backend/tests/test_audit_p0_decisions.py::test_pos_mismatch_message_is_human_and_split_tender_posts_both"
+  ]
+ },
+ {
+  "task_id": "S-0573",
+  "test_ids": [
+   "backend/tests/test_phase3_payments.py::test_webhook_hmac_fail_rejected",
+   "backend/tests/errors/test_webhook_and_async_contracts.py::test_billing_webhook_rejects_bad_signature_and_dedups_replay"
+  ],
+  "confidence": "High",
+  "note": "Bad signature webhook returns 4xx, payment link stays CREATED and no receipt is created; billing webhook missing/wrong HMAC returns 400.",
+  "test_ids_resolved": [
+   "backend/tests/errors/test_webhook_and_async_contracts.py::test_billing_webhook_rejects_bad_signature_and_dedups_replay",
+   "backend/tests/test_phase3_payments.py::test_webhook_hmac_fail_rejected"
+  ]
+ },
+ {
+  "task_id": "SaaS-0669",
+  "test_ids": [
+   "backend/tests/test_sprint_d_saas_billing.py::test_bb_000671_webhook_updates_subscription_status"
+  ],
+  "confidence": "Medium",
+  "note": "Razorpay subscription webhooks update subscription status; recurring auto-debit, period activation and emailed GST SaaS invoice are not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint_d_saas_billing.py::test_bb_000671_webhook_updates_subscription_status"
+  ]
+ },
+ {
+  "task_id": "X-0530",
+  "test_ids": [
+   "backend/tests/test_cheque_payment.py::test_set_cheque_status_http_bounce_voids",
+   "backend/tests/test_cheque_payment.py::test_bounced_cheque_cannot_be_re_cleared"
+  ],
+  "confidence": "Medium",
+  "note": "Bounced cheque receipt becomes VOIDED and is terminal; invoice returning to UNPAID, bank fee debit, notice letter and owner alert are not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_cheque_payment.py::test_bounced_cheque_cannot_be_re_cleared",
+   "backend/tests/test_cheque_payment.py::test_set_cheque_status_http_bounce_voids"
+  ]
+ },
+ {
+  "task_id": "X-0713",
+  "test_ids": [
+   "backend/tests/test_cheque_payment.py::test_cheque_receipt_starts_pending_and_bounce_voids"
+  ],
+  "confidence": "Medium",
+  "note": "Cheque bounce voids the receipt; no test for Rs 350 bank fee debit, invoice UNPAID restoration, Section 138 notice or owner alert.",
+  "test_ids_resolved": [
+   "backend/tests/test_cheque_payment.py::test_cheque_receipt_starts_pending_and_bounce_voids"
+  ]
+ },
+ {
+  "task_id": "F-0746",
+  "test_ids": [
+   "backend/tests/test_wave17_erp.py::test_payrun_complete",
+   "backend/tests/test_sprint4_erp_rls.py::test_bb_000685_payrun_complete_is_idempotent"
+  ],
+  "confidence": "High",
+  "note": "Completing a pay run yields one slip per employee; second complete returns 400 with a single payroll journal; completed run is immutable.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint4_erp_rls.py::test_bb_000685_payrun_complete_is_idempotent",
+   "backend/tests/test_wave17_erp.py::test_payrun_complete"
+  ]
+ },
+ {
+  "task_id": "D-0681",
+  "test_ids": [
+   "backend/tests/test_purchase_bill_import.py::test_purchase_bill_commit_creates_products_and_draft",
+   "backend/tests/test_purchase_bill_import.py::test_purchase_bill_extract_preview"
+  ],
+  "confidence": "High",
+  "note": "Mocked LLM extraction gives a previewed bill; commit creates a DRAFT purchase invoice with supplier, bill number and lines, no stock effect.",
+  "test_ids_resolved": [
+   "backend/tests/test_purchase_bill_import.py::test_purchase_bill_commit_creates_products_and_draft",
+   "backend/tests/test_purchase_bill_import.py::test_purchase_bill_extract_preview"
+  ]
+ },
+ {
+  "task_id": "P-0043",
+  "test_ids": [
+   "backend/tests/test_pr5_returns_serials_fefo.py::test_r039_purchase_return_retires_earliest_expiry_first",
+   "backend/tests/test_c02_lot_identity.py::test_purchase_complete_rejects_expiry_mismatch"
+  ],
+  "confidence": "High",
+  "note": "Purchase complete with batch_no and expiry creates BatchLots and per-lot StockBalance quantities; conflicting expiry on an existing lot is rejected.",
+  "test_ids_resolved": [
+   "backend/tests/test_c02_lot_identity.py::test_purchase_complete_rejects_expiry_mismatch",
+   "backend/tests/test_pr5_returns_serials_fefo.py::test_r039_purchase_return_retires_earliest_expiry_first"
+  ]
+ },
+ {
+  "task_id": "D-0684",
+  "test_ids": [
+   "backend/tests/test_phase6_insights.py::test_cashflow_conservation"
+  ],
+  "confidence": "Medium",
+  "note": "Deterministic cashflow forecast series sums consistently; no Monte Carlo, debtor-delay probability or deficit warning is tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_phase6_insights.py::test_cashflow_conservation"
+  ]
+ },
+ {
+  "task_id": "P-0116",
+  "test_ids": [
+   "backend/tests/test_ledger.py::test_dashboard_kpis_match_documents"
+  ],
+  "confidence": "Medium",
+  "note": "Dashboard sales_today total/count and receivables match completed invoice; cash-in, net margin and daily digest are not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_ledger.py::test_dashboard_kpis_match_documents"
+  ]
+ },
+ {
+  "task_id": "S-0561",
+  "test_ids": [
+   "backend/tests/test_holistic_80.py::test_trial_balance_balanced_after_lifecycle_close",
+   "backend/tests/test_phase5_accounting.py::test_trial_balance_and_balance_sheet_equation"
+  ],
+  "confidence": "Medium",
+  "note": "Trial balance report shows debit equals credit; the background worker, alerting and quarantining of unbalanced batches do not exist or are untested.",
+  "test_ids_resolved": [
+   "backend/tests/test_holistic_80.py::test_trial_balance_balanced_after_lifecycle_close",
+   "backend/tests/test_phase5_accounting.py::test_trial_balance_and_balance_sheet_equation"
+  ]
+ },
+ {
+  "task_id": "I-0651",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "ESC/POS WebUSB/Bluetooth printer driver is frontend; no backend test covers raw print or cash drawer kick.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "I-0655",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "HID/camera barcode scanner capture is frontend; no backend test covers keystroke wedge or scan-to-cart.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "P-0001",
+  "test_ids": [
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf19_pos_checkout"
+  ],
+  "confidence": "High",
+  "note": "POS checkout completes invoice, stock drops 20 to 18, cash receipt allocated, GL entries posted balanced and cross-reconciled.",
+  "test_ids_resolved": [
+   "backend/tests/workflows/test_wf_todo_stubs.py::test_wf19_pos_checkout"
+  ]
+ },
+ {
+  "task_id": "P-0018",
+  "test_ids": [
+   "backend/tests/test_stock_flow.py::test_sale_complete_decreases_stock",
+   "backend/tests/test_sprint0_books.py::test_gst_invoice_complete_posts_balanced_journal"
+  ],
+  "confidence": "High",
+  "note": "Completing an invoice decrements stock with a SALE movement and posts a balanced GL journal; customer outstanding is covered by dashboard tests.",
+  "test_ids_resolved": [
+   "backend/tests/test_sprint0_books.py::test_gst_invoice_complete_posts_balanced_journal",
+   "backend/tests/test_stock_flow.py::test_sale_complete_decreases_stock"
+  ]
+ },
+ {
+  "task_id": "P-0038",
+  "test_ids": [
+   "backend/tests/test_c02_lot_identity.py::test_fefo_persists_all_allocated_batch_nos",
+   "backend/tests/test_phase4_inventory.py::test_sale_allocates_unselected_tracked_batch_by_fefo"
+  ],
+  "confidence": "High",
+  "note": "Sale auto-allocates earliest-expiry lots, decrements those lots and stores batch numbers on the invoice line; expired lots are blocked.",
+  "test_ids_resolved": [
+   "backend/tests/test_c02_lot_identity.py::test_fefo_persists_all_allocated_batch_nos",
+   "backend/tests/test_phase4_inventory.py::test_sale_allocates_unselected_tracked_batch_by_fefo"
+  ]
+ },
+ {
+  "task_id": "P-0046",
+  "test_ids": [
+   "backend/tests/test_search_reports_audit.py::test_universal_search_by_name_sku_barcode_and_number"
+  ],
+  "confidence": "Medium",
+  "note": "Universal search finds by name, SKU and barcode; composition/salt and manufacturer search and displayed stock are not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_search_reports_audit.py::test_universal_search_by_name_sku_barcode_and_number"
+  ]
+ },
+ {
+  "task_id": "P-0052",
+  "test_ids": [
+   "backend/tests/test_c04_price_slabs.py::test_invoice_line_snapshots_list_name",
+   "backend/tests/test_sprint3_multicompany_pricing.py::test_bb_000657_server_resolves_price_list"
+  ],
+  "confidence": "Medium",
+  "note": "Wholesale price list and quantity slab auto-apply to invoice lines; bulk CSV entry, AR debit and GST B2B invoice outcome not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_c04_price_slabs.py::test_invoice_line_snapshots_list_name",
+   "backend/tests/test_sprint3_multicompany_pricing.py::test_bb_000657_server_resolves_price_list"
+  ]
+ },
+ {
+  "task_id": "R-0636",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "Only an 800ms p95 complete roundtrip test exists; no 200ms checkout latency or Locust load test is covered.",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "R-0638",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "Offline IndexedDB outbox and background sync are frontend; no test covers queued bill sync (only PWA offline fallback page).",
+  "test_ids_resolved": []
+ },
+ {
+  "task_id": "R-0639",
+  "test_ids": [
+   "backend/tests/test_status_machines.py::test_invoice_create_idempotency_key",
+   "backend/tests/personas/test_pj_resilience_and_tenant_isolation.py::test_pj_idempotency_safe_retry_single_transaction_effect"
+  ],
+  "confidence": "High",
+  "note": "Repeated invoice POST with the same Idempotency-Key returns the original invoice id and creates exactly one invoice.",
+  "test_ids_resolved": [
+   "backend/tests/personas/test_pj_resilience_and_tenant_isolation.py::test_pj_idempotency_safe_retry_single_transaction_effect",
+   "backend/tests/test_status_machines.py::test_invoice_create_idempotency_key"
+  ]
+ },
+ {
+  "task_id": "S-0565",
+  "test_ids": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_invoice_numbering_no_duplicate"
+  ],
+  "confidence": "Medium",
+  "note": "Two concurrent invoice completions get distinct numbers (Postgres only); gap-free sequentiality is not asserted.",
+  "test_ids_resolved": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_invoice_numbering_no_duplicate"
+  ]
+ },
+ {
+  "task_id": "X-0202",
+  "test_ids": [
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete",
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice"
+  ],
+  "confidence": "High",
+  "note": "Completing an invoice over customer credit limit returns 400 citing credit limit; only owner override with reason bypasses it.",
+  "test_ids_resolved": [
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice",
+   "backend/tests/test_phase1_notes_ledger.py::test_credit_limit_blocks_complete"
+  ]
+ },
+ {
+  "task_id": "X-0701",
+  "test_ids": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_sales_complete_oversell_blocked",
+   "backend/tests/test_concurrency_races.py::test_concurrent_stock_oversell_blocked"
+  ],
+  "confidence": "High",
+  "note": "Two concurrent completes of the last unit: one succeeds, one gets BusinessRuleError, stock ends at 0 (Postgres only); alternative suggestions untested.",
+  "test_ids_resolved": [
+   "backend/tests/test_concurrency_races.py::test_concurrent_sales_complete_oversell_blocked",
+   "backend/tests/test_concurrency_races.py::test_concurrent_stock_oversell_blocked"
+  ]
+ },
+ {
+  "task_id": "X-0702",
+  "test_ids": [
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice"
+  ],
+  "confidence": "Medium",
+  "note": "Owner-only credit override with reason is audited and copied to one invoice; WhatsApp approval and 15-minute token expiry are not tested.",
+  "test_ids_resolved": [
+   "backend/tests/test_next_batch_so_challan.py::test_credit_override_is_owner_only_and_copies_onto_that_invoice"
+  ]
+ },
+ {
+  "task_id": "UX-0596",
+  "test_ids": [],
+  "confidence": "None",
+  "note": "Type-to-confirm dialog is frontend UI; no backend test covers it.",
+  "test_ids_resolved": []
+ }
+]

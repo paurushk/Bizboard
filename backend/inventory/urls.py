@@ -5,6 +5,7 @@ from .forecast import DemandForecastView
 from .planning import PurchasePlanningView
 from .views import (
     AdjustmentView,
+    BarcodeLabelZplView,
     LowStockAlertsView,
     ExpiryAlertsView,
     OpeningStockView,
@@ -31,6 +32,7 @@ router.register("stock-counts", StockCountSessionViewSet, basename="stock-counts
 
 urlpatterns = [
     path("adjustments/", AdjustmentView.as_view(), name="stock-adjustments"),
+    path("labels.zpl", BarcodeLabelZplView.as_view(), name="barcode-label-zpl"),
     path("opening-stock/", OpeningStockView.as_view(), name="opening-stock"),
     path("alerts/", LowStockAlertsView.as_view(), name="stock-alerts"),
     path("alerts/expiry/", ExpiryAlertsView.as_view(), name="expiry-alerts"),

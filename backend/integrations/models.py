@@ -10,6 +10,7 @@ class IntegrationConnection(CompanyScopedModel):
         BUSY = "BUSY"
         ZOHO = "ZOHO"
         SHOPIFY = "SHOPIFY"
+        FIU = "FIU"
 
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
@@ -19,9 +20,27 @@ class IntegrationConnection(CompanyScopedModel):
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     encrypted_secrets = models.TextField(blank=True, default="")
     metadata = models.JSONField(default=dict, blank=True)
+    shop_domain = models.CharField(max_length=255, blank=True, default="")
+
+    def save(self, *args, **kwargs):
+        if self.provider == self.Provider.SHOPIFY:
+            meta = dict(self.metadata or {})
+            domain = str(self.shop_domain or meta.get("shop_domain") or "").strip().lower()
+            self.shop_domain = domain
+            if domain:
+                meta["shop_domain"] = domain
+                self.metadata = meta
+        super().save(*args, **kwargs)
 
     class Meta:
         unique_together = [("company", "provider")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["shop_domain"],
+                condition=models.Q(status="ACTIVE") & ~models.Q(shop_domain=""),
+                name="uniq_active_shopify_domain",
+            ),
+        ]
 
 
 class IntegrationSyncRun(CompanyScopedModel):

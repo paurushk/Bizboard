@@ -62,6 +62,7 @@ test('golden path: POS cash checkout decrements exact stock in the selected godo
 });
 
 test('golden path: POS cash checkout against a non-default godown only moves that godown', async ({ page }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E POS MultiWH ${id}`;
   const email = `e2e-pos-multiwh-${id}@example.test`;

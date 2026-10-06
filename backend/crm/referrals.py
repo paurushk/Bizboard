@@ -264,6 +264,37 @@ def reward_amount_for(reward_type, reward_value, base) -> Decimal:
     return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def invoiced_taxable_for_opportunity(opportunity) -> Decimal:
+    """Completed-invoice taxable value for the deal's customer, net of completed credit notes."""
+    from django.db.models import Sum
+
+    from sales.models import SalesCreditNote, SalesInvoice
+
+    if not opportunity.customer_id:
+        return Decimal("0")
+    invoices = SalesInvoice.objects.filter(
+        company_id=opportunity.company_id,
+        customer_id=opportunity.customer_id,
+        status=SalesInvoice.Status.COMPLETED,
+    )
+    # Only business done since the deal opened. Revenue the customer gave before the
+    # referral is not the referrer's doing and must not earn them a percentage.
+    opened = getattr(opportunity, "created_at", None)
+    if opened is not None:
+        invoices = invoices.filter(invoice_date__gte=opened.date())
+    taxable = invoices.aggregate(total=Sum("taxable_total"))["total"] or Decimal("0")
+    credits = (
+        SalesCreditNote.objects.filter(
+            company_id=opportunity.company_id,
+            sales_invoice_id__in=invoices.values("id"),
+            status=SalesCreditNote.Status.COMPLETED,
+        ).aggregate(total=Sum("taxable_total"))["total"]
+        or Decimal("0")
+    )
+    net = Decimal(taxable) - Decimal(credits)
+    return net if net > 0 else Decimal("0")
+
+
 def evaluate_referral_reward(opportunity):
     lead = opportunity.lead
     if lead is None or not lead.referral_code_id:
@@ -274,7 +305,10 @@ def evaluate_referral_reward(opportunity):
     if existing is not None:
         return existing
     code = lead.referral_code
-    amount = reward_amount_for(code.reward_type, code.reward_value, opportunity.amount)
+    base = opportunity.amount
+    if code.reward_type == ReferralCode.RewardType.PERCENT:
+        base = invoiced_taxable_for_opportunity(opportunity)
+    amount = reward_amount_for(code.reward_type, code.reward_value, base)
     is_self_referral = _referral_self_check(code, opportunity.customer, lead=lead)
     status = ReferralReward.Status.REJECTED if is_self_referral else ReferralReward.Status.PENDING
     try:
@@ -322,79 +356,72 @@ def evaluate_referral_reward(opportunity):
 
 
 def _draft_reward_credit_note(reward, user):
-    """One draft credit note for the referrer, through the existing notes service.
+    """Draft only. Completing the note is a separate posting step."""
+    from decimal import Decimal
 
-    Completing the note is a separate call and is what changes the balance.
-    """
     from sales.models import NoteReason, SalesCreditNote, SalesInvoice
     from sales.notes_services import SalesNotesService
 
-    customer = reward.referral_code.referrer_customer or reward.opportunity.customer
-    if customer is None:
-        raise BusinessRuleError("This reward has no customer to credit.")
+    referrer = reward.referral_code.referrer_customer
+    if referrer is None:
+        raise BusinessRuleError("A customer referrer is required before drafting the credit note.")
     invoice = (
         SalesInvoice.objects.filter(
             company=reward.company,
-            customer=customer,
+            customer=referrer,
             status=SalesInvoice.Status.COMPLETED,
         )
         .order_by("-id")
         .first()
     )
     if invoice is None:
-        raise BusinessRuleError(
-            "Complete a sales invoice for this customer before marking the reward paid."
-        )
-    source = invoice.items.order_by("id").first()
+        raise BusinessRuleError("Complete an invoice for the referrer before marking the reward paid.")
+    source = invoice.items.select_related("product").order_by("id").first()
     if source is None:
-        raise BusinessRuleError("The sales invoice has no lines to credit.")
-    qty = min(Decimal("1"), Decimal(source.quantity))
-    if qty <= 0:
-        raise BusinessRuleError("The sales invoice line has no quantity left to credit.")
-    unit_price = (Decimal(str(reward.reward_amount)) / qty).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP,
-    )
+        raise BusinessRuleError("The referrer's invoice has no lines to credit.")
+    amount = Decimal(str(reward.reward_amount or 0))
+    if amount <= 0:
+        raise BusinessRuleError("The reward amount must be positive before a credit note can be drafted.")
     note = SalesCreditNote.objects.create(
         company=reward.company,
-        customer=customer,
+        customer=referrer,
         sales_invoice=invoice,
-        reason=NoteReason.OTHERS,
-        notes=f"Referral reward {reward.pk}",
-        filing_party_gstin=invoice.filing_party_gstin or (invoice.customer.gstin or ""),
-        filing_place_of_supply=invoice.filing_place_of_supply or (invoice.customer.state or ""),
-        company_gstin=invoice.company_gstin,
+        status=SalesCreditNote.Status.DRAFT,
+        reason=NoteReason.POST_SALE_DISCOUNT,
+        reason_detail=f"Referral reward {reward.pk}",
         created_by=user,
         updated_by=user,
     )
     SalesNotesService.set_credit_note_items(
         note,
         [{
-            "product": source.product_id,
-            "source_item": source.id,
-            "quantity": str(qty),
-            "unit_price": str(unit_price),
-            "gst_rate": str(source.gst_rate),
+            "product": source.product,
+            "quantity": Decimal("1"),
+            "unit_price": amount,
+            "gst_rate": source.gst_rate,
+            "source_item": source,
         }],
         user,
     )
+    note.refresh_from_db()
+    if note.status != SalesCreditNote.Status.DRAFT:
+        raise BusinessRuleError("The referral credit note must stay a draft.")
     return note
 
 
 def mark_reward_paid(reward, user):
-    """Draft one credit note and mark the reward paid.
-
-    A later call returns the note already stored on the reward. Completing
-    the note adjusts the customer balance. This does not send cash.
-    """
+    """Draft a credit note, then record the reward as paid. The note is not posted."""
     with transaction.atomic():
-        reward = ReferralReward.objects.select_for_update().get(pk=reward.pk)
-        if reward.credit_note_id:
+        reward = ReferralReward.objects.select_for_update().select_related(
+            "referral_code__referrer_customer",
+        ).get(pk=reward.pk)
+        if reward.reward_status == ReferralReward.Status.PAID:
             return reward
         if reward.reward_status == ReferralReward.Status.REJECTED:
             raise BusinessRuleError("A rejected reward cannot be marked paid.")
         if reward.reward_status != ReferralReward.Status.APPROVED:
             raise BusinessRuleError("Only an approved reward can be marked paid.")
-        note = _draft_reward_credit_note(reward, user)
+        note = reward.credit_note if reward.credit_note_id else _draft_reward_credit_note(reward, user)
         reward.credit_note = note
         reward.reward_status = ReferralReward.Status.PAID
         reward.paid_at = timezone.now()
@@ -408,10 +435,7 @@ def mark_reward_paid(reward, user):
         user=user,
         entity_type="ReferralReward",
         entity_id=reward.pk,
-        metadata={
-            "reward_amount": str(reward.reward_amount),
-            "credit_note_id": reward.credit_note_id,
-        },
+        metadata={"reward_amount": str(reward.reward_amount)},
     )
     return reward
 

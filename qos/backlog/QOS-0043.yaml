@@ -23,8 +23,11 @@ evidence:
   - docs/FREEZE_SCOPE.md G3 (collection-risk scoring exists)
   - backend/payments/recon.py::narration_tokens,payee_memory_bonus,remember_payee
   - backend/tests/test_qos0043_payee_memory.py
+  - backend/tests/test_qos0043_matcher_eval.py
   detail: First-hand code read + 5 passing tests, including a safety-rail test (memory alone cannot bypass
-    the amount-hit cap); full backend suite green.
+    the amount-hit cap); full backend suite green. A synthetic precision/recall harness
+    (test_qos0043_matcher_eval.py) shows memory lifts recall from 1/3 to 1.0 with precision
+    unchanged. It uses hand-built cases, so real bank data is still unmeasured.
 scoring:
   reach: 3
   severity: 2

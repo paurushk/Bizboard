@@ -23,7 +23,7 @@ recommendation: CanViewFinancialReports. Label both sums. Do not say predicted.
 test_required: Won opportunity and its customer's completed invoice are in the month sums. An open opportunity is not.
 guard_ref:
   test: backend/tests/test_llm_path_to_ten.py::test_won_amount_sits_next_to_invoices
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

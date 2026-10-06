@@ -40,6 +40,12 @@ class CampaignViewSet(CompanyScopedViewSet):
     permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "Campaign"
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        term = (self.request.query_params.get("q") or "").strip()
+        # Search on the server: the list is paged, so a filter over the loaded page misses the rest.
+        return qs.filter(name__icontains=term) if term else qs
+
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         assert_crm_enabled(get_company_user(request).company)

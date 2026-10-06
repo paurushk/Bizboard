@@ -14,6 +14,8 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.mail import send_mail
+from django.db.models import F, Value
+from django.db.models.functions import Replace
 from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import status
@@ -30,6 +32,14 @@ from ledgers.services import LedgerService
 from masters.models import Customer
 
 from .models import CustomerPortalToken, PaymentLink, PaymentLinkStatus
+
+
+def _portal_phone_digits():
+    """SQL digits of Customer.phone so a portal lookup does not load every row (BUG-SEC-012)."""
+    expr = F("phone")
+    for ch in ("+", " ", "-", "(", ")", ".", "/"):
+        expr = Replace(expr, Value(ch), Value(""))
+    return expr
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +119,11 @@ class CustomerPortalRequestView(APIView):
                 matches = list(qs.filter(email__iexact=email))
                 channel = CustomerPortalToken.Channel.EMAIL
             else:
-                matches = [c for c in qs.exclude(phone="") if "".join(ch for ch in c.phone if ch.isdigit()) == phone]
+                matches = list(
+                    qs.exclude(phone="")
+                    .annotate(_phone_digits=_portal_phone_digits())
+                    .filter(_phone_digits=phone)
+                )
                 channel = CustomerPortalToken.Channel.WHATSAPP
         debug_token = None
         for customer in matches:
@@ -180,6 +194,7 @@ def _deliver(row: CustomerPortalToken) -> None:
         [url],
         company=row.company,
         allow_cloud=True,
+        opt_in=True,
     )
     logger.info(
         "customer portal WhatsApp company=%s customer=%s mode=%s",
@@ -257,9 +272,13 @@ class CustomerPortalPdfView(APIView):
         _touch(row)
         from sales.models import SalesInvoice
         from sales.pdf import render_gst_tax_invoice
+        from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
         invoice = SalesInvoice.objects.filter(
-            company=row.company, customer=row.customer, pk=invoice_id
+            company=row.company,
+            customer=row.customer,
+            pk=invoice_id,
+            status__in=OPEN_RECEIVABLE_STATUSES,
         ).first()
         if invoice is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -313,6 +332,27 @@ class CustomerPortalPayView(APIView):
 
 
 _COMPLAINT_DESCRIPTION_MAX = 2000
+_COMPLAINT_PAGE_CAP = 250
+
+
+def _complaint_page(request, qs):
+    """page / page_size, same cap as other lists (250)."""
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except (TypeError, ValueError):
+        page = 1
+    if page < 1:
+        page = 1
+    try:
+        page_size = int(request.query_params.get("page_size") or 50)
+    except (TypeError, ValueError):
+        page_size = 50
+    if page_size < 1:
+        page_size = 1
+    page_size = min(page_size, _COMPLAINT_PAGE_CAP)
+    total = qs.count()
+    start = (page - 1) * page_size
+    return list(qs[start:start + page_size]), total, page, page_size
 
 
 class CustomerPortalComplaintView(APIView):
@@ -328,7 +368,10 @@ class CustomerPortalComplaintView(APIView):
         _touch(row)
         from complaints.models import Complaint
 
-        rows = Complaint.objects.filter(company=row.company, customer=row.customer).order_by("-id")
+        rows, total, page, page_size = _complaint_page(
+            request,
+            Complaint.objects.filter(company=row.company, customer=row.customer).order_by("-id"),
+        )
         return Response({
             "complaints": [
                 {
@@ -340,6 +383,9 @@ class CustomerPortalComplaintView(APIView):
                 }
                 for item in rows
             ],
+            "count": total,
+            "page": page,
+            "page_size": page_size,
         })
 
     def post(self, request, token):

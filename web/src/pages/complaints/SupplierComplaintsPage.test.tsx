@@ -62,9 +62,10 @@ describe('SupplierComplaintsPage', () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText('Supplier complaints')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'New supplier complaint' }));
     await user.click(screen.getByRole('button', { name: 'pick-supplier' }));
     await user.type(screen.getByLabelText('Description'), 'Torn bags');
-    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await user.click(screen.getByRole('button', { name: 'Log complaint' }));
     expect(createSupplierComplaint).toHaveBeenCalledWith({
       supplier: 4, category: 'OTHER', description: 'Torn bags',
     });
@@ -87,11 +88,11 @@ describe('SupplierComplaintsPage', () => {
     expect(await screen.findByText(/Resolved: 1/)).toBeInTheDocument();
     expect(screen.getByText(/Without a document: 1/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Detail' }));
-    expect(await screen.findByRole('button', { name: 'Move to REJECTED' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Move to APPROVED' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Move to RESOLVED' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Move to Rejected' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Move to Approved' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Move to Resolved' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create debit note' })).toBeDisabled();
-    await user.click(screen.getByRole('button', { name: 'Move to REJECTED' }));
+    await user.click(screen.getByRole('button', { name: 'Move to Rejected' }));
     expect(transitionSupplierComplaint).toHaveBeenCalledWith(2, {
       status: 'REJECTED', inspection_notes: '',
     });

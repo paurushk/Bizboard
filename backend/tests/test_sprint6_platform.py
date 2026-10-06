@@ -48,10 +48,12 @@ def test_bb_000580_pwa_has_offline_fallback():
     assert offline.is_file()
     text = offline.read_text(encoding="utf-8").lower()
     assert "offline" in text
-    # BB-000758: also assert vite navigateFallback (detailed in test_wave22_f4_pwa_flags).
+    # BB-000758: offline.html is the NetworkFirst error document, not navigateFallback.
     vite = (REPO / "web" / "vite.config.ts").read_text(encoding="utf-8")
+    assert "handlerDidError" in vite
     assert "offline.html" in vite
-    assert "navigateFallback: '/offline.html'" in vite or 'navigateFallback: "/offline.html"' in vite
+    assert "navigateFallback: null" in vite
+    assert "navigateFallback: '/offline.html'" not in vite
 
 
 def test_bb_000575_capacitor_unclaimed_in_readme():

@@ -30,13 +30,16 @@ def resolve_place_of_supply_code(
     company=None,
     seller_gstin="",
     seller_state="",
+    confirm_blank_pos=False,
 ) -> str | None:
     if is_export_or_sez_supply(supply_type):
         return EXPORT_POS_CODE
     code = party_state_code(party_state, party_gstin)
     if code:
         return code
-    if company is not None and getattr(company, "assume_local_state_for_blank_party", False):
+    if company is not None and (
+        getattr(company, "assume_local_state_for_blank_party", False) or confirm_blank_pos
+    ):
         return (
             extract_state_code(seller_gstin)
             or extract_state_code(seller_state)
@@ -53,6 +56,7 @@ def assert_place_of_supply_for_gst(
     party_gstin: str = "",
     tax_enabled: bool,
     supply_type: str = "",
+    confirm_blank_pos: bool = False,
 ):
     """Block GST Complete when place of supply cannot be determined."""
     if not tax_enabled:
@@ -68,7 +72,9 @@ def assert_place_of_supply_for_gst(
     # BB-000063: place_of_supply_known uses GSTIN digits + state-name→code map.
     if place_of_supply_known(party_state=party_state, party_gstin=party_gstin):
         return
-    if not (party_state or "").strip() and getattr(company, "assume_local_state_for_blank_party", False):
+    if not (party_state or "").strip() and (
+        getattr(company, "assume_local_state_for_blank_party", False) or confirm_blank_pos
+    ):
         return
     raise BusinessRuleError(
         "Customer/supplier state or GSTIN is required for GST invoices. "

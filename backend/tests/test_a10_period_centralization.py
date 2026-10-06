@@ -262,7 +262,9 @@ def test_cr052_stock_transfer_cancel_blocked_in_hard_closed(tenant_a):
     )
     StockTransferLine.objects.create(transfer=transfer, product=product, quantity="1")
     result = StockTransferService.complete(transfer, tenant_a.owner)
-    # complete may return (transfer, warnings) after CR-050/055 work
+    # complete dispatches into transit; receive lands the goods.
+    dispatched = result[0] if isinstance(result, tuple) else result
+    result = StockTransferService.receive(dispatched, tenant_a.owner)
     completed = result[0] if isinstance(result, tuple) else result
     assert completed.status == StockTransfer.Status.COMPLETED
 

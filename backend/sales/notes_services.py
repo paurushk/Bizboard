@@ -3,11 +3,12 @@
 from datetime import date
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import record_document_event
 from core.exceptions import BusinessRuleError, raise_confirm_required
 from core.help_codes import HelpCode
 from core.services.billing import apply_rcm_memo_after_tax
@@ -95,6 +96,44 @@ def _sales_note_headroom(inv, *, exclude_cn_id=None) -> Decimal:
         or Decimal("0")
     )
     return Decimal(str(inv.grand_total or 0)) - Decimal(str(prior_cns)) + Decimal(str(prior_dns))
+
+
+def _restore_peeled_receipt_allocations(note, user):
+    """Put receipt slices back on the source invoice after a credit note is cancelled."""
+    slices = list(note.peeled_receipt_allocations or [])
+    if not slices or not note.sales_invoice_id:
+        return
+    from ledgers.services import LedgerService
+    from payments.models import CustomerReceipt, ReceiptStatus
+    from payments.services import PaymentService, _allocated_of_payment
+
+    inv = SalesInvoice.objects.select_for_update().get(
+        pk=note.sales_invoice_id, company_id=note.company_id,
+    )
+    for slice_ in slices:
+        receipt = (
+            CustomerReceipt.objects.select_for_update()
+            .filter(pk=slice_.get("receipt_id"), company_id=note.company_id)
+            .first()
+        )
+        if receipt is None or receipt.status != ReceiptStatus.POSTED:
+            continue
+        want = Decimal(str(slice_.get("amount") or 0))
+        outstanding = LedgerService.sales_invoice_outstanding(inv)
+        unallocated = Decimal(str(receipt.amount or 0)) - _allocated_of_payment("receipt", receipt)
+        apply_amt = min(want, outstanding, unallocated)
+        if apply_amt > 0:
+            try:
+                with transaction.atomic():
+                    PaymentService.allocate_receipt(
+                        receipt=receipt, sales_invoice=inv, amount=apply_amt, user=user,
+                    )
+            except (BusinessRuleError, IntegrityError):
+                # The receipt was allocated to this invoice again while the credit note stood.
+                # That slice is already covered; cancelling the note must not fail over it.
+                continue
+    note.peeled_receipt_allocations = []
+    note.save(update_fields=["peeled_receipt_allocations", "updated_at"])
 
 
 class SalesNotesService:
@@ -211,6 +250,7 @@ class SalesNotesService:
             remaining = Decimal(str(note.grand_total or 0)) - open_now
             if remaining < 0:
                 remaining = Decimal("0")
+            peeled = []
             for alloc in list(
                 inv.allocations.select_for_update()
                 .filter(reversed_at__isnull=True, receipt__isnull=False)
@@ -224,14 +264,20 @@ class SalesNotesService:
                 receipt = alloc.receipt
                 PaymentService.reverse_allocation(allocation=alloc, user=user)
                 if alloc_amt <= remaining:
+                    if receipt is not None:
+                        peeled.append({"receipt_id": receipt.pk, "amount": str(alloc_amt)})
                     remaining -= alloc_amt
                 else:
                     keep = alloc_amt - remaining
+                    if receipt is not None:
+                        peeled.append({"receipt_id": receipt.pk, "amount": str(remaining)})
                     remaining = Decimal("0")
                     if keep > 0 and receipt is not None:
                         PaymentService.allocate_receipt(
                             receipt=receipt, sales_invoice=inv, amount=keep, user=user
                         )
+            if peeled:
+                note.peeled_receipt_allocations = peeled
         # CR-026: unit_price override vs source line needs confirm.
         if not confirm_price_override:
             for item in note.items.select_related("source_item"):
@@ -368,6 +414,10 @@ class SalesNotesService:
             PostingService.post_note(
                 note, source_type="SALES_CREDIT_NOTE", direction="SALES_CREDIT", user=user
             )
+        record_document_event(document=note, user=user, event="sales_credit_note.completed")
+        from planwave.services import stamp_document_party
+
+        stamp_document_party(note)
         emit("document.completed", document=note, user=user, event="sales_credit_note.completed")
         emit("sales_credit_note.completed", document=note, user=user)
         return note, warnings
@@ -405,6 +455,8 @@ class SalesNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
+        _restore_peeled_receipt_allocations(note, user)
+        record_document_event(document=note, user=user, event="sales_credit_note.cancelled")
         return note
 
     # ---------- Debit notes ----------
@@ -608,6 +660,10 @@ class SalesNotesService:
             PostingService.post_note(
                 note, source_type="SALES_DEBIT_NOTE", direction="SALES_DEBIT", user=user
             )
+        record_document_event(document=note, user=user, event="sales_debit_note.completed")
+        from planwave.services import stamp_document_party
+
+        stamp_document_party(note)
         emit("document.completed", document=note, user=user, event="sales_debit_note.completed")
         emit("sales_debit_note.completed", document=note, user=user)
         return note, warnings
@@ -636,6 +692,7 @@ class SalesNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
+        record_document_event(document=note, user=user, event="sales_debit_note.cancelled")
         return note
 
     # ---------- Sales orders ----------
@@ -682,6 +739,9 @@ class SalesNotesService:
         order = SalesOrder.objects.select_for_update().get(pk=order.pk)
         if order.status != SalesOrder.Status.DRAFT:
             raise BusinessRuleError(f"Cannot confirm an order in status {order.status}.")
+        from planwave.services import assert_chronic_credit_allowed
+
+        assert_chronic_credit_allowed(order)
         items = list(order.items.select_related("product"))
         if not items:
             raise BusinessRuleError("Cannot confirm an order without line items.")
@@ -719,19 +779,25 @@ class SalesNotesService:
 
     @staticmethod
     @transaction.atomic
-    def convert_sales_order(order: SalesOrder, user):
+    def convert_sales_order(order: SalesOrder, user, line_quantities=None):
         from inventory.services import InventoryService
 
         order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
-        if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
+        if order.status not in (
+            SalesOrder.Status.DRAFT,
+            SalesOrder.Status.CONFIRMED,
+            SalesOrder.Status.PARTIALLY_CONVERTED,
+        ):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
         SalesNotesService._require_confirmation_when_gates_on(order)
-        if order.converted_invoice_id:
-            raise BusinessRuleError("This sales order already has an invoice.")
         if DeliveryChallan.objects.filter(sales_order=order).exclude(
             status=DeliveryChallan.Status.CANCELLED
         ).exists():
             raise BusinessRuleError("This sales order already has a delivery challan.")
+        order_lines = list(order.items.select_related("product"))
+        requested = SalesNotesService._conversion_quantities(
+            order_lines, line_quantities, counter="invoiced_quantity",
+        )
         if order.customer.status == Customer.Status.BLOCKED:
             raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
         if not order.number:
@@ -762,11 +828,15 @@ class SalesNotesService:
             created_by=user,
             updated_by=user,
         )
-        items_data = [
-            {
+        items_data = []
+        for item in order_lines:
+            qty = requested[item.pk]
+            if qty <= 0:
+                continue
+            items_data.append({
                 "product": item.product,
                 "description": item.description,
-                "quantity": item.quantity,
+                "quantity": qty,
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
@@ -782,27 +852,129 @@ class SalesNotesService:
                 "batch": getattr(item, "batch", None),
                 "batch_no": getattr(item, "batch_no", "") or "",
                 "serial_numbers": getattr(item, "serial_numbers", None) or [],
-            }
-            for item in order.items.select_related("product")
-        ]
+            })
+            item.invoiced_quantity = Decimal(str(item.invoiced_quantity or 0)) + qty
+            item.save(update_fields=["invoiced_quantity"])
+        if not items_data:
+            raise BusinessRuleError("This sales order already has an invoice.")
         SalesService.set_items(invoice, items_data, user)
         from sales.order_gates import copy_credit_override
 
         copy_credit_override(order, invoice)
-        # Keep SO CONFIRMED/DRAFT until invoice Completes so reservations stay valid.
+        invoice.source_order = order
+        invoice.save(update_fields=["source_order"])
+        # Keep a confirmed order confirmed until the invoice Completes when the
+        # whole quantity moved. A short convert stays open for the remainder.
+        remaining = any(
+            Decimal(str(item.invoiced_quantity or 0)) < Decimal(str(item.quantity or 0))
+            for item in order_lines
+        )
         order.converted_invoice = invoice
         order.updated_by = user
-        order.save(update_fields=["converted_invoice", "updated_by", "updated_at"])
+        update_fields = ["converted_invoice", "updated_by", "updated_at"]
+        if remaining:
+            order.status = SalesOrder.Status.PARTIALLY_CONVERTED
+            update_fields.append("status")
+        order.save(update_fields=update_fields)
         return invoice
 
     @staticmethod
+    def release_order_conversion(order, items, *, counter="invoiced_quantity", unlink_invoice_id=None):
+        """Give back the quantity a discarded draft invoice or challan had taken from its order.
+
+        Converting counts the quantity on the order lines at once. Without this reversal,
+        deleting the draft leaves those lines counted: the order cannot be converted again, and
+        a partly converted order cannot be cancelled either.
+        """
+        if order is None:
+            return
+        order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+        taken: dict = {}
+        for it in items:
+            taken[it.product_id] = taken.get(it.product_id, Decimal("0")) + Decimal(str(it.quantity or 0))
+        lines = list(order.items.all())
+        for line in lines:
+            give = min(taken.get(line.product_id, Decimal("0")), Decimal(str(getattr(line, counter) or 0)))
+            if give > 0:
+                setattr(line, counter, Decimal(str(getattr(line, counter) or 0)) - give)
+                taken[line.product_id] -= give
+                line.save(update_fields=[counter])
+        fields = ["updated_at"]
+        if unlink_invoice_id and order.converted_invoice_id == unlink_invoice_id:
+            order.converted_invoice = None
+            fields.append("converted_invoice")
+        if order.status in (SalesOrder.Status.PARTIALLY_CONVERTED, SalesOrder.Status.CONVERTED):
+            still = any(
+                Decimal(str(row.invoiced_quantity or 0)) > 0 or Decimal(str(row.shipped_quantity or 0)) > 0
+                for row in lines
+            )
+            if not still and order.status == SalesOrder.Status.PARTIALLY_CONVERTED:
+                order.status = SalesOrder.Status.CONFIRMED
+                fields.append("status")
+        order.save(update_fields=fields)
+
+    @staticmethod
+    def _conversion_quantities(order_lines, line_quantities, *, counter):
+        """Map each line id to the quantity this convert should take.
+
+        Omitted lines take nothing when the caller passed an explicit map.
+        A request above the remaining quantity is refused.
+        """
+        explicit = line_quantities is not None
+        lookup = {}
+        if explicit:
+            if isinstance(line_quantities, dict):
+                pairs = line_quantities.items()
+            else:
+                pairs = (
+                    (row.get("id", row.get("line_id")), row.get("quantity"))
+                    for row in line_quantities
+                )
+            for key, raw in pairs:
+                lookup[int(key)] = Decimal(str(raw))
+        requested = {}
+        any_qty = False
+        for item in order_lines:
+            remaining = Decimal(str(item.quantity or 0)) - Decimal(str(getattr(item, counter) or 0))
+            if remaining < 0:
+                remaining = Decimal("0")
+            if explicit:
+                if item.pk not in lookup:
+                    requested[item.pk] = Decimal("0")
+                    continue
+                qty = lookup[item.pk]
+            else:
+                qty = remaining
+            if qty < 0:
+                raise BusinessRuleError("Conversion quantity must be greater than zero.")
+            if qty > remaining:
+                raise BusinessRuleError(
+                    f"Cannot convert {qty} of '{item.product.name}': "
+                    f"only {remaining} is still open on this sales order."
+                )
+            if qty > 0:
+                any_qty = True
+            requested[item.pk] = qty
+        if explicit and not any_qty:
+            raise BusinessRuleError(
+                "This sales order already has an invoice."
+                if counter == "invoiced_quantity"
+                else "This sales order already has a delivery challan."
+            )
+        return requested
+
+    @staticmethod
     @transaction.atomic
-    def convert_sales_order_to_challan(order: SalesOrder, user):
+    def convert_sales_order_to_challan(order: SalesOrder, user, line_quantities=None):
         from .models import DeliveryChallan
         from inventory.services import InventoryService
 
         order = SalesOrder.objects.select_for_update().get(pk=order.pk, company_id=order.company_id)
-        if order.status not in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
+        if order.status not in (
+            SalesOrder.Status.DRAFT,
+            SalesOrder.Status.CONFIRMED,
+            SalesOrder.Status.PARTIALLY_CONVERTED,
+        ):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
         SalesNotesService._require_confirmation_when_gates_on(order)
         if order.customer.status == Customer.Status.BLOCKED:
@@ -814,12 +986,10 @@ class SalesNotesService:
                 gstin=resolve_series_gstin(order.company),
                 on_date=order.order_date,
             )
-        live_challan = (
-            DeliveryChallan.objects.filter(sales_order=order)
-            .exclude(status=DeliveryChallan.Status.CANCELLED)
+        if (
+            DeliveryChallan.objects.filter(sales_order=order, status=DeliveryChallan.Status.DRAFT)
             .exists()
-        )
-        if live_challan:
+        ):
             raise BusinessRuleError("This sales order already has a delivery challan.")
         # CR-120: SO already converted to an invoice cannot also become a challan
         # (would double-post stock/AR when both complete).
@@ -841,11 +1011,19 @@ class SalesNotesService:
             updated_by=user,
             delivery_address=getattr(order, "delivery_address", "") or "",
         )
-        items_data = [
-            {
+        order_lines = list(order.items.select_related("product"))
+        requested = SalesNotesService._conversion_quantities(
+            order_lines, line_quantities, counter="shipped_quantity",
+        )
+        items_data = []
+        for item in order_lines:
+            qty = requested[item.pk]
+            if qty <= 0:
+                continue
+            items_data.append({
                 "product": item.product,
                 "description": item.description,
-                "quantity": item.quantity,
+                "quantity": qty,
                 "unit_price": item.unit_price,
                 "discount_percent": item.discount_percent,
                 "gst_rate": item.gst_rate,
@@ -857,12 +1035,22 @@ class SalesNotesService:
                 "batch_no": getattr(item, "batch_no", "") or "",
                 "serial_numbers": getattr(item, "serial_numbers", None) or [],
                 "expected_price": getattr(item, "expected_price", None) or Decimal("0"),
-            }
-            for item in order.items.select_related("product")
-        ]
+            })
+            item.shipped_quantity = Decimal(str(item.shipped_quantity or 0)) + qty
+            item.save(update_fields=["shipped_quantity"])
+        if not items_data:
+            raise BusinessRuleError("This sales order already has a delivery challan.")
         SalesNotesService.set_challan_items(challan, items_data, user)
+        remaining = any(
+            Decimal(str(item.shipped_quantity or 0)) < Decimal(str(item.quantity or 0))
+            for item in order_lines
+        )
         order.updated_by = user
-        order.save(update_fields=["updated_by", "updated_at"])
+        update_fields = ["updated_by", "updated_at"]
+        if remaining and order.status != SalesOrder.Status.DRAFT:
+            order.status = SalesOrder.Status.PARTIALLY_CONVERTED
+            update_fields.append("status")
+        order.save(update_fields=update_fields)
         return challan
 
     @staticmethod
@@ -980,12 +1168,35 @@ class SalesNotesService:
                     "has an invoice."
                 )
             warehouse = order.warehouse or InventoryService.default_warehouse(challan.company)
-            if order.status == SalesOrder.Status.CONFIRMED:
-                for item in order.items.select_related("product"):
-                    InventoryService.release_reservation(
-                        challan.company, warehouse, item.product, item.quantity, user
+            if order.status in (
+                SalesOrder.Status.CONFIRMED,
+                SalesOrder.Status.PARTIALLY_CONVERTED,
+            ):
+                challan_qty = {
+                    item.product_id: Decimal(str(item.quantity or 0)) for item in items
+                }
+                order_lines = list(order.items.select_related("product"))
+                tracked = any(Decimal(str(row.shipped_quantity or 0)) > 0 for row in order_lines)
+                for item in order_lines:
+                    release_qty = (
+                        challan_qty.get(item.product_id, Decimal("0"))
+                        if tracked
+                        else Decimal(str(item.quantity or 0))
                     )
-            order.status = SalesOrder.Status.CONVERTED
+                    if release_qty > 0:
+                        InventoryService.release_reservation(
+                            challan.company, warehouse, item.product, release_qty, user
+                        )
+            order_lines = list(order.items.all())
+            if order_lines and all(
+                Decimal(str(row.shipped_quantity or 0)) >= Decimal(str(row.quantity or 0))
+                for row in order_lines
+            ):
+                order.status = SalesOrder.Status.CONVERTED
+            elif any(Decimal(str(row.shipped_quantity or 0)) > 0 for row in order_lines):
+                order.status = SalesOrder.Status.PARTIALLY_CONVERTED
+            else:
+                order.status = SalesOrder.Status.CONVERTED
             order.updated_by = user
             order.save(update_fields=["status", "updated_by", "updated_at"])
         stock_posted = False
@@ -1033,12 +1244,21 @@ class SalesNotesService:
                         user=user,
                     )
             stock_posted = True
+        from planwave.services import assert_chronic_credit_allowed
+
+        credit_delivery = True
+        if challan.sales_order_id:
+            linked_terms = int(getattr(getattr(challan, "sales_order", None), "payment_terms_days", 0) or 0)
+            credit_delivery = linked_terms > 0
+        if credit_delivery:
+            assert_chronic_credit_allowed(challan, force=True)
         challan.status = DeliveryChallan.Status.COMPLETED
         challan.completed_at = timezone.now()
         challan.pdf_status = SalesInvoice.PdfStatus.QUEUED
         challan.stock_posted = stock_posted
         challan.updated_by = user
         challan.save()
+        record_document_event(document=challan, user=user, event="delivery_challan.completed")
         emit("document.completed", document=challan, user=user, event="delivery_challan.completed")
         emit("delivery_challan.completed", document=challan, user=user)
         return challan
@@ -1161,6 +1381,9 @@ class SalesNotesService:
 
         challan = DeliveryChallan.objects.select_for_update().get(pk=challan.pk)
         if challan.status == DeliveryChallan.Status.DRAFT:
+            SalesNotesService.release_order_conversion(
+                getattr(challan, "sales_order", None), challan.items.all(), counter="shipped_quantity",
+            )
             challan.status = DeliveryChallan.Status.CANCELLED
             challan.cancelled_at = timezone.now()
             challan.updated_by = user
@@ -1248,4 +1471,5 @@ class SalesNotesService:
             order.status = SalesOrder.Status.CONFIRMED
             order.updated_by = user
             order.save(update_fields=["status", "updated_by", "updated_at"])
+        record_document_event(document=challan, user=user, event="delivery_challan.cancelled")
         return challan

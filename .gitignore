@@ -27,6 +27,7 @@ mobile/ios/
 .env.dev
 .env.e2e
 .env.staging
+.ux-audit-credentials.local
 .idea/
 .vscode/
 *.log

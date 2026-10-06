@@ -275,7 +275,62 @@ export async function printEscPos(payload: Uint8Array): Promise<'native' | 'brow
     await plugin.print({ data: Array.from(payload) });
     return 'native';
   }
+  const usb = await printEscPosWebUsb(payload);
+  if (usb) return 'native';
   return 'browser';
+}
+
+/** Drawer kick pulse for a cash drawer wired to the printer (BUG-SALES-008). */
+export const DRAWER_KICK = new Uint8Array([0x1b, 0x70, 0x00, 0x19, 0xfa]);
+
+async function printEscPosWebUsb(payload: Uint8Array): Promise<boolean> {
+  const nav = navigator as Navigator & {
+    usb?: {
+      getDevices?: () => Promise<Array<{ open: () => Promise<void>; transferOut: (endpoint: number, data: BufferSource) => Promise<unknown>; close: () => Promise<void> }>>;
+    };
+  };
+  if (!nav.usb?.getDevices) return false;
+  const devices = await nav.usb.getDevices().catch(() => []);
+  const device = devices?.[0];
+  if (!device) return false;
+  await device.open();
+  try {
+    await device.transferOut(1, payload);
+    return true;
+  } finally {
+    await device.close().catch(() => undefined);
+  }
+}
+
+/** Browser cannot open a raw TCP socket. Callers show the desktop-bridge note. */
+export async function printEscPosNetwork(): Promise<'bridge'> {
+  return 'bridge';
+}
+
+/** Web Serial scale read. No-ops when the browser has no serial port. */
+export async function readScaleWeight(): Promise<number | null> {
+  const nav = navigator as Navigator & {
+    serial?: { requestPort?: () => Promise<{ open: (opts: { baudRate: number }) => Promise<void>; readable: ReadableStream<Uint8Array> | null; close: () => Promise<void> }> };
+  };
+  if (!nav.serial?.requestPort) return null;
+  try {
+    const port = await nav.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    const reader = port.readable?.getReader();
+    if (!reader) {
+      await port.close().catch(() => undefined);
+      return null;
+    }
+    const { value } = await reader.read();
+    reader.releaseLock();
+    await port.close().catch(() => undefined);
+    if (!value) return null;
+    const text = new TextDecoder().decode(value);
+    const weight = Number(text.replace(/[^\d.]/g, ''));
+    return Number.isFinite(weight) ? weight : null;
+  } catch {
+    return null;
+  }
 }
 
 /** POD photo via the installed Capacitor camera plugin. Returns null in a plain browser. */

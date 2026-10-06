@@ -183,7 +183,11 @@ def test_crm_convert_gated_when_flag_off(tenant_a):
 
 def test_opportunity_stage_is_terminal_once_won(tenant_a):
     """B9-039: WON/LOST are terminal -- can't flip back to OPEN or to each other."""
-    opp = Opportunity.objects.create(company=tenant_a.company, title="Deal 1", amount="500")
+    from tests.conftest import make_customer
+
+    # a deal needs a customer before it can be won (BUG-CRM-003)
+    buyer = make_customer(tenant_a.company, name="Terminal Buyer")
+    opp = Opportunity.objects.create(company=tenant_a.company, title="Deal 1", amount="500", customer=buyer)
     won = tenant_a.client.patch(
         f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "WON"}, format="json",
     )

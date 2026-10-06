@@ -228,6 +228,10 @@ class InventoryService:
                 movement_date=movement_date or timezone.localdate(),
                 created_by=user,
             )
+            if movement_type == MovementType.ADJUSTMENT:
+                from core.services.audit import record_document_event
+
+                record_document_event(document=movement, user=user, event="stock.adjusted")
             balance.on_hand = balance.on_hand + delta
             balance.save(update_fields=["on_hand"])
             # Wave 16B: perpetual FIFO layers
@@ -1065,11 +1069,12 @@ class InventoryService:
             )
         balance.reserved = balance.reserved + qty
         balance.save(update_fields=["reserved"])
+        InventoryService._track_reservation(company, warehouse, product, batch, qty, user)
         return balance
 
     @staticmethod
     @transaction.atomic
-    def release_reservation(company, warehouse, product, qty, user=None, batch=None):
+    def release_reservation(company, warehouse, product, qty, user=None, batch=None, *, consume_records=True):
         """Decrease reserved (floored at zero). BB-000343: release across FEFO lots when batched."""
         qty = Decimal(qty)
         if qty <= 0:
@@ -1092,6 +1097,10 @@ class InventoryService:
                 take = min(remaining, balance.reserved)
                 balance.reserved = balance.reserved - take
                 balance.save(update_fields=["reserved"])
+                if consume_records:
+                    InventoryService._consume_reservations(
+                        company, warehouse, product, balance.batch, take,
+                    )
                 remaining -= take
             return None
         try:
@@ -1102,7 +1111,99 @@ class InventoryService:
             return None
         balance.reserved = max(Decimal("0"), balance.reserved - qty)
         balance.save(update_fields=["reserved"])
+        if consume_records:
+            InventoryService._consume_reservations(company, warehouse, product, batch, qty)
         return balance
+
+    @staticmethod
+    def _track_reservation(company, warehouse, product, batch, qty, user):
+        from datetime import timedelta
+
+        from django.conf import settings
+
+        from .models import StockReservation
+
+        flags = getattr(company, "feature_flags", None) or {}
+        # Expiry is opt-in. A confirmed sales order or a workshop job legitimately holds
+        # stock for days; releasing it on a timer would let the same stock be sold twice.
+        # A company that wants abandoned holds released sets reservation_ttl_hours.
+        hours = int(
+            flags.get("reservation_ttl_hours")
+            or flags.get("cart_ttl_hours")
+            or getattr(settings, "STOCK_RESERVATION_TTL_HOURS", 0)
+            or 0
+        )
+        if hours <= 0:
+            return
+        StockReservation.objects.create(
+            company=company,
+            warehouse=warehouse,
+            product=product,
+            batch=batch,
+            quantity=qty,
+            expires_at=timezone.now() + timedelta(hours=hours),
+            created_by=user if getattr(user, "pk", None) else None,
+            updated_by=user if getattr(user, "pk", None) else None,
+        )
+
+    @staticmethod
+    def _consume_reservations(company, warehouse, product, batch, qty):
+        from .models import StockReservation
+
+        remaining = Decimal(qty)
+        rows = (
+            StockReservation.objects.select_for_update()
+            .filter(
+                company=company,
+                warehouse=warehouse,
+                product=product,
+                batch=batch,
+                released_at__isnull=True,
+            )
+            .order_by("id")
+        )
+        now = timezone.now()
+        for row in rows:
+            if remaining <= 0:
+                break
+            take = min(remaining, row.quantity)
+            if take >= row.quantity:
+                row.released_at = now
+                row.save(update_fields=["released_at", "updated_at"])
+            else:
+                row.quantity = row.quantity - take
+                row.save(update_fields=["quantity", "updated_at"])
+            remaining -= take
+
+    @staticmethod
+    @transaction.atomic
+    def release_expired_reservations(company, *, now=None):
+        """Drop holds whose expiry has passed. Does not touch open, unexpired rows."""
+        from .models import StockReservation
+
+        now = now or timezone.now()
+        rows = list(
+            StockReservation.objects.select_for_update().filter(
+                company=company,
+                released_at__isnull=True,
+                expires_at__lte=now,
+            )
+        )
+        released = Decimal("0")
+        for row in rows:
+            qty = row.quantity
+            row.released_at = now
+            row.save(update_fields=["released_at", "updated_at"])
+            InventoryService.release_reservation(
+                company,
+                row.warehouse,
+                row.product,
+                qty,
+                batch=row.batch,
+                consume_records=False,
+            )
+            released += qty
+        return released
 
     @staticmethod
     def _confirmed_so_qty(company, product, warehouse):
@@ -1314,14 +1415,50 @@ class SerialNumberService:
 
 class StockTransferService:
     @staticmethod
+    def in_transit_warehouse(company):
+        warehouse = Warehouse.objects.filter(company=company, code="IN_TRANSIT").first()
+        if warehouse:
+            return warehouse
+        return Warehouse.objects.create(
+            company=company,
+            name="In transit",
+            code="IN_TRANSIT",
+            is_default=False,
+            is_active=True,
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def dispatch(transfer: StockTransfer, user=None):
+        return StockTransferService._move(transfer, user, stage="dispatch")
+
+    @staticmethod
+    @transaction.atomic
+    def receive(transfer: StockTransfer, user=None, receipts=None):
+        return StockTransferService._move(transfer, user, stage="receive", receipts=receipts)
+
+    @staticmethod
     @transaction.atomic
     def complete(transfer: StockTransfer, user=None):
+        """Load the truck. Stock leaves the source and is not yet at the destination."""
+        return StockTransferService.dispatch(transfer, user)
+
+    @staticmethod
+    @transaction.atomic
+    def _move(transfer: StockTransfer, user=None, *, stage="dispatch", receipts=None):
         # CR-055: DRAFT is non-binding (no reservation). Stock moves only here.
         transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
-        if transfer.status == StockTransfer.Status.COMPLETED:
-            return transfer, []
-        if transfer.status != StockTransfer.Status.DRAFT:
-            raise BusinessRuleError(f"Cannot complete transfer in status {transfer.status}.")
+        receiving = stage == "receive"
+        if receiving:
+            if transfer.status == StockTransfer.Status.COMPLETED:
+                return transfer, []
+            if transfer.status != StockTransfer.Status.DISPATCHED:
+                raise BusinessRuleError(f"Cannot receive a transfer in status {transfer.status}.")
+        else:
+            if transfer.status in (StockTransfer.Status.DISPATCHED, StockTransfer.Status.COMPLETED):
+                return transfer, []
+            if transfer.status != StockTransfer.Status.DRAFT:
+                raise BusinessRuleError(f"Cannot complete transfer in status {transfer.status}.")
         lines = list(transfer.lines.select_related("product", "batch"))
         if not lines:
             raise BusinessRuleError("Cannot complete a transfer without line items.")
@@ -1330,9 +1467,16 @@ class StockTransferService:
         # CR-052: closed-period gate (same as adjustments / stock count).
         from reporting.gst_periods import assert_period_allows_money_amend
 
-        assert_period_allows_money_amend(transfer.company, timezone.localdate())
+        # Dispatch is dated at the transfer date. Receipt happens later and is dated and
+        # period-checked today: a receipt after a month closed must not be refused or back-dated
+        # into the closed month.
+        biz_date = timezone.localdate() if receiving else (transfer.transfer_date or timezone.localdate())
+        assert_period_allows_money_amend(transfer.company, biz_date)
+        transit = StockTransferService.in_transit_warehouse(transfer.company)
+        source_wh = transit if receiving else transfer.from_warehouse
+        dest_wh = transfer.to_warehouse if receiving else transit
         # CR-040: acquire stock balance locks in consistent warehouse ID order to prevent AB-BA deadlocks
-        wh_ids = sorted([transfer.from_warehouse_id, transfer.to_warehouse_id])
+        wh_ids = sorted([source_wh.id, dest_wh.id])
         for wh_id in wh_ids:
             for line in lines:
                 StockBalance.objects.select_for_update().get_or_create(
@@ -1340,12 +1484,25 @@ class StockTransferService:
                 )
 
         warnings = []
+        received_by_line = {}
+        shortage_reasons = {}
+        line_ids = {line.pk for line in lines}
+        for row in receipts or []:
+            try:
+                line_id = int(row["line"])
+                received_qty_in = Decimal(str(row.get("quantity") or 0))
+            except (KeyError, TypeError, ValueError, ArithmeticError):
+                raise BusinessRuleError("Each received line needs a line id and a quantity.") from None
+            if line_id not in line_ids:
+                raise BusinessRuleError(f"Line {line_id} is not on this transfer.")
+            received_by_line[line_id] = received_qty_in
+            shortage_reasons[line_id] = (row.get("reason") or "")[:255]
         for line in lines:
             if line.quantity <= 0:
                 raise BusinessRuleError("Transfer quantities must be greater than zero.")
             # CR-050 / CR-041: forbid negative stock at source warehouse under WARN unless admin
             warning = InventoryService.check_negative_stock(
-                transfer.company, line.product, line.quantity, transfer.from_warehouse, batch=line.batch
+                transfer.company, line.product, line.quantity, source_wh, batch=line.batch
             )
             if warning:
                 is_admin = (
@@ -1365,7 +1522,7 @@ class StockTransferService:
                 warnings.append(warning)
             if line.product.track_serial:
                 SerialNumberService.transition(
-                    company=transfer.company, product=line.product, warehouse=transfer.from_warehouse,
+                    company=transfer.company, product=line.product, warehouse=source_wh,
                     numbers=line.serial_numbers, quantity=line.quantity,
                     source=SerialNumber.Status.AVAILABLE, target=SerialNumber.Status.AVAILABLE, user=user,
                 )
@@ -1381,34 +1538,56 @@ class StockTransferService:
                         "A serial on this transfer is no longer available."
                     )
                 for serial in locked:
-                    serial.warehouse = transfer.to_warehouse
+                    serial.warehouse = dest_wh
                     serial.updated_by = user
                     serial.save(update_fields=["warehouse", "updated_by", "updated_at"])
+            move_qty = line.quantity
+            if receiving and line.pk in received_by_line:
+                move_qty = received_by_line[line.pk]
+                if move_qty < 0 or move_qty > line.quantity:
+                    raise BusinessRuleError("Received quantity cannot exceed the quantity that was dispatched.")
+                line.shortage_qty = line.quantity - move_qty
+                line.shortage_reason = shortage_reasons.get(line.pk, "")
+                line.save(update_fields=["shortage_qty", "shortage_reason"])
+            if move_qty == 0:
+                continue
             cost = InventoryValuationService.unit_cost(
                 transfer.company, line.product,
-                warehouse=transfer.from_warehouse, batch=line.batch,
+                warehouse=source_wh, batch=line.batch,
             )
             out_move = InventoryService.post_movement(
-                company=transfer.company, warehouse=transfer.from_warehouse,
+                company=transfer.company, warehouse=source_wh,
                 product=line.product, batch=line.batch, movement_type=MovementType.TRANSFER_OUT,
-                quantity=line.quantity, unit_cost=cost,
+                quantity=move_qty, unit_cost=cost,
                 reference_type="stock_transfer", reference_id=transfer.pk, user=user,
+                movement_date=biz_date,
             )
             InventoryService.post_movement(
-                company=transfer.company, warehouse=transfer.to_warehouse,
+                company=transfer.company, warehouse=dest_wh,
                 product=line.product, batch=line.batch, movement_type=MovementType.TRANSFER_IN,
-                quantity=line.quantity, unit_cost=out_move.unit_cost or cost,
+                quantity=move_qty, unit_cost=out_move.unit_cost or cost,
                 reference_type="stock_transfer", reference_id=transfer.pk, user=user,
+                movement_date=biz_date,
             )
         if not transfer.number:
             from core.services.document_numbers import DocumentNumberService
             transfer.number = DocumentNumberService.next_number(
                 transfer.company, "STOCK_TRANSFER"
             )
-        transfer.status = StockTransfer.Status.COMPLETED
-        transfer.completed_at = timezone.now()
+        transfer.status = (
+            StockTransfer.Status.COMPLETED if receiving else StockTransfer.Status.DISPATCHED
+        )
+        if receiving:
+            transfer.completed_at = timezone.now()
         transfer.updated_by = user
-        transfer.save(update_fields=["number", "status", "completed_at", "updated_by"])
+        transfer.save(update_fields=["number", "status", "completed_at", "updated_by", "updated_at"])
+        from core.services.audit import record_document_event
+
+        record_document_event(
+            document=transfer,
+            user=user,
+            event="stock_transfer.completed" if receiving else "stock_transfer.dispatched",
+        )
         return transfer, warnings
 
     @staticmethod
@@ -1417,19 +1596,28 @@ class StockTransferService:
         transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
         if transfer.status == StockTransfer.Status.CANCELLED:
             raise BusinessRuleError("Transfer is already cancelled.")
-        if transfer.status == StockTransfer.Status.COMPLETED:
+        if transfer.status in (
+            StockTransfer.Status.COMPLETED,
+            StockTransfer.Status.DISPATCHED,
+        ):
             # CR-052: cancel reverses stock — respect period locks (cancel unwind).
             from reporting.gst_periods import assert_period_allows_money_amend
 
+            biz_date = transfer.transfer_date or timezone.localdate()
             assert_period_allows_money_amend(
-                transfer.company, timezone.localdate(), allow_soft_closed=True
+                transfer.company, biz_date, allow_soft_closed=True
+            )
+            dest_wh = (
+                transfer.to_warehouse
+                if transfer.status == StockTransfer.Status.COMPLETED
+                else StockTransferService.in_transit_warehouse(transfer.company)
             )
             used_out_ids: set[int] = set()
             used_in_ids: set[int] = set()
             for line in transfer.lines.select_related("product", "batch"):
                 if line.product.track_serial:
                     SerialNumberService.transition(
-                        company=transfer.company, product=line.product, warehouse=transfer.to_warehouse,
+                        company=transfer.company, product=line.product, warehouse=dest_wh,
                         numbers=line.serial_numbers, quantity=line.quantity,
                         source=SerialNumber.Status.AVAILABLE, target=SerialNumber.Status.AVAILABLE, user=user,
                     )
@@ -1459,7 +1647,7 @@ class StockTransferService:
                 in_move = (
                     StockMovement.objects.filter(
                         company=transfer.company,
-                        warehouse=transfer.to_warehouse,
+                        warehouse=dest_wh,
                         product=line.product,
                         batch=line.batch,
                         movement_type=MovementType.TRANSFER_IN,
@@ -1486,13 +1674,26 @@ class StockTransferService:
                 )
                 if out_move is not None:
                     InventoryService.restore_fifo_peels(out_move, inbound)
+                # Take back what the destination actually received. After a short receipt that is
+                # less than the dispatched quantity; reversing the full line would overdraw it.
+                received_qty = abs(Decimal(str(in_move.quantity)))
                 InventoryService.post_movement(
-                    company=transfer.company, warehouse=transfer.to_warehouse,
+                    company=transfer.company, warehouse=dest_wh,
                     product=line.product, batch=line.batch, movement_type=MovementType.ADJUSTMENT,
-                    quantity=-line.quantity, unit_cost=in_move.unit_cost if in_move else None,
+                    quantity=-received_qty, unit_cost=in_move.unit_cost if in_move else None,
                     reference_type="stock_transfer_cancel", reference_id=transfer.pk, user=user,
                     reason=f"Cancellation of transfer {transfer.number or transfer.pk}",
                 )
+                shortage = Decimal(str(line.shortage_qty or 0))
+                if transfer.status == StockTransfer.Status.COMPLETED and shortage > 0:
+                    # The short quantity never left transit; clear it so it is not stranded there.
+                    InventoryService.post_movement(
+                        company=transfer.company, warehouse=StockTransferService.in_transit_warehouse(transfer.company),
+                        product=line.product, batch=line.batch, movement_type=MovementType.ADJUSTMENT,
+                        quantity=-shortage, unit_cost=in_move.unit_cost if in_move else None,
+                        reference_type="stock_transfer_cancel", reference_id=transfer.pk, user=user,
+                        reason=f"Cancellation of transfer {transfer.number or transfer.pk}: short quantity returned",
+                    )
                 if in_move is not None:
                     InventoryService.retire_source_layers(in_move, abs(Decimal(str(in_move.quantity))))
         transfer.status = StockTransfer.Status.CANCELLED
@@ -2085,6 +2286,33 @@ class InventoryValuationService:
             "batch_no",
             "id",
         ).distinct()
+
+    @staticmethod
+    def assert_fefo_batch(company, product, warehouse, batch, *, override=False):
+        """Pharmaceutical and FMCG issues must take the earliest-expiry lot.
+
+        An administrator may pass override=True to sell a later lot on purpose.
+        """
+        if batch is None or not getattr(product, "track_batch", False):
+            return
+        regulated = getattr(product, "regulated_category", "") or ""
+        category = getattr(product, "category", None)
+        category_name = (getattr(category, "name", "") or "").upper()
+        requires = regulated in ("DRUG", "FOOD") or any(
+            token in category_name for token in ("FMCG", "PHARMA", "PHARMACEUTICAL")
+        )
+        if not requires:
+            return
+        first = InventoryValuationService.fefo_batches(company, product, warehouse).first()
+        if first is None or first.pk == getattr(batch, "pk", None):
+            return
+        if override:
+            return
+        raise BusinessRuleError(
+            f"Batch '{getattr(batch, 'batch_no', batch)}' is not the earliest expiry for "
+            f"'{product.name}'. Sell the nearest-expiry lot first.",
+            code="fefo_required",
+        )
 
 
 @dataclass

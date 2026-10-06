@@ -464,6 +464,7 @@ class ReportService:
         status=None,
         warehouse_id=None,
         company_gstin_id=None,
+        product_id=None,
     ):
         qs = SalesInvoice.objects.filter(company=company).exclude(status=SalesInvoice.Status.DRAFT)
         if status:
@@ -475,6 +476,8 @@ class ReportService:
             qs = qs.filter(customer_id=customer_id)
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
+        if product_id:
+            qs = qs.filter(items__product_id=product_id).distinct()
         if company_gstin_id:
             qs = _register_gstin_scope(qs, company, company_gstin_id, field="company_gstin_id")
         if date_from:
@@ -574,7 +577,7 @@ class ReportService:
     @staticmethod
     def purchase_register(
         company, date_from=None, date_to=None, supplier_id=None, status=None, warehouse_id=None,
-        company_gstin_id=None,
+        company_gstin_id=None, product_id=None,
     ):
         qs = PurchaseInvoice.objects.filter(company=company).exclude(
             status=PurchaseInvoice.Status.DRAFT
@@ -588,6 +591,8 @@ class ReportService:
             qs = qs.filter(supplier_id=supplier_id)
         if warehouse_id:
             qs = qs.filter(warehouse_id=warehouse_id)
+        if product_id:
+            qs = qs.filter(items__product_id=product_id).distinct()
         if company_gstin_id:
             qs = _register_gstin_scope(qs, company, company_gstin_id, field="company_gstin_id")
         if date_from:

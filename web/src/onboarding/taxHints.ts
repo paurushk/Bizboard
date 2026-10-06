@@ -27,6 +27,17 @@ export function firstBillHelpTextKey(registrationType?: RegistrationType): strin
     : 'onboarding.stepInvoiceDescBos';
 }
 
+/** Series GSTIN from the API, or the head-office column when an old payload omits the field. */
+export function resolvedSeriesGstin(
+  company?: { seriesGstin?: string | null; gstin?: string | null } | null,
+): string {
+  if (!company) return '';
+  if (company.seriesGstin !== undefined && company.seriesGstin !== null) {
+    return company.seriesGstin.trim();
+  }
+  return company.gstin?.trim() ?? '';
+}
+
 export function companyStepIncompleteNeedsGst(company?: Company | null): boolean {
-  return company?.registrationType === 'REGULAR' && !company.gstin?.trim();
+  return company?.registrationType === 'REGULAR' && !resolvedSeriesGstin(company);
 }

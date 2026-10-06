@@ -45,7 +45,7 @@ def test_compute_pf_esi_pt_known_fixture(tenant_a):
     assert computed["pf_employer"] == Decimal("1800.00")            # EPS + EPF
     assert computed["pf_employer_eps"] == Decimal("1249.50")        # 8.33% of 15000
     assert computed["pf_employer_epf"] == Decimal("550.50")         # residual
-    assert computed["pf_admin_charges"] == Decimal("75.00")         # 0.5% of 15000
+    assert computed["pf_admin_charges"] == Decimal("75.00")         # 0.5% of 15000; the Rs 500 floor is on the pay run
     assert computed["edli_charges"] == Decimal("75.00")             # 0.5% of 15000, cap 75
     assert computed["esi_employer"] == Decimal("650.00")  # 3.25% of 20000
 
@@ -71,19 +71,20 @@ def test_complete_pay_run_persists_statutory_and_posts_gross_split(tenant_a):
         created_by=tenant_a.owner,
         updated_by=tenant_a.owner,
     )
-    complete_pay_run(run, tenant_a.owner)
+    complete_pay_run(run, tenant_a.owner, pay_from_cash=True)
     slip = run.slips.get()
     assert slip.pf_employee == Decimal("1800.00")
     assert slip.esi_employee == Decimal("150.00")
     assert slip.pt_amount == Decimal("0.00")   # no PT state configured
     assert slip.net == Decimal("18050.00")
+    assert slip.pf_admin_charges == Decimal("500.00")
     entry = JournalEntry.objects.get(
         company=tenant_a.company, source_type="PAY_RUN", source_id=run.pk, purpose="PAYROLL",
     )
     codes = {line.account.code: (line.debit, line.credit) for line in entry.lines.all()}
-    # 20000 gross + 1800 PF er + 75 admin + 75 EDLI + 650 ESI er
-    assert codes["5800"][0] == Decimal("22600.00")
-    assert codes["2261"][1] == Decimal("3750.00")  # 1800 emp + 1800 er + 75 admin + 75 EDLI
+    # 20000 gross + 1800 PF er + 500 admin floor + 75 EDLI + 650 ESI er
+    assert codes["5800"][0] == Decimal("23025.00")
+    assert codes["2261"][1] == Decimal("4175.00")  # 1800 emp + 1800 er + 500 admin + 75 EDLI
     assert codes["2262"][1] == Decimal("800.00")   # 150 emp + 650 er
     assert "2263" not in codes                       # PT is nil
     assert codes["1100"][1] == Decimal("18050.00")
@@ -164,7 +165,9 @@ def test_employee_api_accepts_statutory_fields(tenant_a):
     assert body["esi_applicable"] is True
     run = tenant_a.client.post("/api/v1/payroll/pay-runs/", {"period": "2026-09"}, format="json")
     run_id = _body(run)["id"]
-    complete = tenant_a.client.post(f"/api/v1/payroll/pay-runs/{run_id}/complete/")
+    complete = tenant_a.client.post(
+        f"/api/v1/payroll/pay-runs/{run_id}/complete/", {"pay_from_cash": True}, format="json",
+    )
     assert complete.status_code == 200, complete.data
     slip = _body(complete)["slips"][0]
     assert Decimal(str(slip["pf_employee"])) == Decimal("1800.00")

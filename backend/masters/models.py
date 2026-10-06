@@ -1,8 +1,9 @@
 from decimal import Decimal
 
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
-from core.models import CompanyScopedModel
+from core.models import AliveManager, CompanyScopedModel, SoftDeleteFields
 from core.validators import validate_gst_rate, validate_gstin, validate_hsn
 
 
@@ -77,7 +78,7 @@ class ExpenseCategory(CompanyScopedModel):
         return self.name
 
 
-class Customer(CompanyScopedModel):
+class Customer(SoftDeleteFields, CompanyScopedModel):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
         BLOCKED = "BLOCKED"
@@ -129,10 +130,16 @@ class Customer(CompanyScopedModel):
     custom_fields = models.JSONField(default=dict, blank=True)
     pan = models.CharField(max_length=10, blank=True)
     party_bank_name = models.CharField(max_length=100, blank=True)
-    party_bank_account = models.CharField(max_length=32, blank=True)
+    party_bank_account = models.TextField(blank=True)
     party_bank_ifsc = models.CharField(max_length=16, blank=True)
+    # Optimistic concurrency for PUT. PATCH merges fields under a row lock.
+    version = models.PositiveIntegerField(default=1)
+
+    objects = AliveManager()
+    all_objects = models.Manager()
 
     class Meta:
+        base_manager_name = "all_objects"
         ordering = ["name"]
         indexes = [models.Index(fields=["company", "status"])]
         constraints = [
@@ -140,7 +147,7 @@ class Customer(CompanyScopedModel):
             # without this, duplicate customer records fragment purchase
             # history and understate true outstanding balances.
             models.UniqueConstraint(
-                fields=["company", "gstin"], condition=~models.Q(gstin=""),
+                fields=["company", "gstin"], condition=~models.Q(gstin="") & models.Q(is_deleted=False),
                 name="uniq_customer_gstin_per_company",
             ),
         ]
@@ -176,13 +183,16 @@ class CustomerShippingAddress(CompanyScopedModel):
         return self.label or (self.address[:40] if self.address else f"Address #{self.pk}")
 
 
-class Supplier(CompanyScopedModel):
+class Supplier(SoftDeleteFields, CompanyScopedModel):
     name = models.CharField(max_length=255, db_index=True)
     phone = models.CharField(max_length=20, blank=True, db_index=True)
     email = models.EmailField(blank=True)
     gstin = models.CharField(max_length=15, blank=True, validators=[validate_gstin])
     address = models.TextField(blank=True)
     state = models.CharField(max_length=64, blank=True)
+    # ISO 3166-1 alpha-2. Blank keeps the older GSTIN/state import check.
+    # Any other country is a foreign import and needs its own Bill of Entry.
+    country = models.CharField(max_length=2, blank=True, default="")
     is_active = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
     gstin_verification_status = models.CharField(max_length=16, blank=True, default="UNVERIFIED")
@@ -195,12 +205,19 @@ class Supplier(CompanyScopedModel):
         default=Customer.TaxpayerType.REGULAR,
         blank=True,
     )
+    # Section 206AB / 206CCA: income-tax non-filer. Withholding uses the higher rate.
+    income_tax_specified_person = models.BooleanField(default=False)
+    gstin_cancelled_on = models.DateField(null=True, blank=True)
+
+    objects = AliveManager()
+    all_objects = models.Manager()
 
     class Meta:
+        base_manager_name = "all_objects"
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["company", "gstin"], condition=~models.Q(gstin=""),
+                fields=["company", "gstin"], condition=~models.Q(gstin="") & models.Q(is_deleted=False),
                 name="uniq_supplier_gstin_per_company",
             ),
         ]
@@ -220,7 +237,7 @@ class Supplier(CompanyScopedModel):
         )
 
 
-class Product(CompanyScopedModel):
+class Product(SoftDeleteFields, CompanyScopedModel):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
         INACTIVE = "INACTIVE"
@@ -284,13 +301,22 @@ class Product(CompanyScopedModel):
     conversion_rate = models.DecimalField(max_digits=12, decimal_places=4, default=Decimal("1"))
     default_discount_percent = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
+    salt = models.CharField(max_length=255, blank=True)
+    composition = models.CharField(max_length=255, blank=True)
+    manufacturer = models.CharField(max_length=255, blank=True)
+    drug_schedule = models.CharField(max_length=8, blank=True)
+    rack_code = models.CharField(max_length=32, blank=True)
+
+    objects = AliveManager()
+    all_objects = models.Manager()
 
     class Meta:
+        base_manager_name = "all_objects"
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(
                 fields=["company", "sku"],
-                condition=~models.Q(sku=""),
+                condition=~models.Q(sku="") & models.Q(is_deleted=False),
                 name="uniq_product_sku_per_company",
             ),
             # BUG-320: without this, two products can share a barcode and a
@@ -298,11 +324,23 @@ class Product(CompanyScopedModel):
             # applying stock/price changes to the wrong SKU.
             models.UniqueConstraint(
                 fields=["company", "barcode"],
-                condition=~models.Q(barcode=""),
+                condition=~models.Q(barcode="") & models.Q(is_deleted=False),
                 name="uniq_product_barcode_per_company",
             ),
         ]
-        indexes = [models.Index(fields=["company", "status"])]
+        indexes = [
+            models.Index(fields=["company", "status"]),
+            GinIndex(
+                fields=["name", "sku", "barcode"],
+                name="product_name_sku_barcode_trgm",
+                opclasses=["gin_trgm_ops", "gin_trgm_ops", "gin_trgm_ops"],
+            ),
+            GinIndex(
+                fields=["salt", "composition", "manufacturer"],
+                name="product_medicine_trgm",
+                opclasses=["gin_trgm_ops", "gin_trgm_ops", "gin_trgm_ops"],
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -343,7 +381,7 @@ class Product(CompanyScopedModel):
         return False
 
 
-class PriceList(CompanyScopedModel):
+class PriceList(SoftDeleteFields, CompanyScopedModel):
     """B8-032 (documented limitation, not built here): prices here (and on
     Product) have no currency field — every price list is implicitly the
     company's home currency. An export customer (Customer.TaxpayerType has
@@ -355,12 +393,24 @@ class PriceList(CompanyScopedModel):
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
 
+    objects = AliveManager()
+    all_objects = models.Manager()
+
     class Meta:
+        base_manager_name = "all_objects"
         ordering = ["name"]
-        constraints = [models.UniqueConstraint(fields=["company", "name"], name="uniq_price_list_per_company")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "name"], condition=models.Q(is_deleted=False),
+                name="uniq_price_list_per_company",
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+    def is_referenced(self):
+        return self.customers.exists() or self.items.exists()
 
 
 class PriceListItem(models.Model):

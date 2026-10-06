@@ -26,6 +26,7 @@ import {
  */
 
 test('COMP-003: customer requests a link, views invoices, downloads a PDF, and pays', async ({ page, browser }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E Portal ${id}`;
   const email = `e2e-portal-${id}@example.test`;

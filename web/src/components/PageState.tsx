@@ -7,6 +7,7 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { ModuleNotReady } from '@/components/ModuleNotReady';
 
 export function LoadingState({ label }: { label?: string }) {
   return (
@@ -51,10 +52,13 @@ export function EmptyState({
   title,
   description,
   action,
+  asPage = false,
 }: {
   title?: string;
   description?: string;
   action?: ReactNode;
+  /** True when this empty state is the whole page, so its title is the page's h1. */
+  asPage?: boolean;
 }) {
   return (
     <Box
@@ -69,7 +73,7 @@ export function EmptyState({
           'radial-gradient(circle at top, rgba(15,118,110,0.06), transparent 55%)',
       }}
     >
-      <Typography variant="h6" gutterBottom>
+      <Typography variant="h6" component={asPage ? 'h1' : 'h6'} gutterBottom>
         {title ?? t('common.empty')}
       </Typography>
       {description ? (
@@ -86,22 +90,37 @@ export function ErrorState({
   message,
   onRetry,
   error,
+  notReady,
+  asPage = false,
 }: {
   message?: string;
   onRetry?: () => void;
   error?: unknown;
+  notReady?: boolean;
+  /** True when this error replaces the whole page, so it carries the page's h1. Inline cards leave it off. */
+  asPage?: boolean;
 }) {
+  if (notReady) {
+    return <ModuleNotReady message={message} onRetry={onRetry} />;
+  }
   return (
-    <HelpErrorAlert
-      message={message ?? t('common.error')}
-      error={error}
-      action={
-        onRetry ? (
-          <Button color="inherit" size="small" onClick={onRetry}>
-            {t('common.retry')}
-          </Button>
-        ) : undefined
-      }
-    />
+    <Stack spacing={asPage ? 2 : 0}>
+      {asPage ? (
+        <Typography variant="h5" component="h1">
+          {t('errorBoundary.title')}
+        </Typography>
+      ) : null}
+      <HelpErrorAlert
+        message={message ?? t('common.error')}
+        error={error}
+        action={
+          onRetry ? (
+            <Button color="inherit" size="small" onClick={onRetry}>
+              {t('common.retry')}
+            </Button>
+          ) : undefined
+        }
+      />
+    </Stack>
   );
 }

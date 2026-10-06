@@ -41,6 +41,10 @@ def encrypt_gsp_credentials(payload: dict[str, Any] | None) -> str:
 def decrypt_gsp_credentials(ciphertext: str) -> dict[str, Any]:
     if not (ciphertext or "").strip():
         return {}
+    if str(ciphertext).startswith("gcm1."):
+        from planwave.services import open_credential_blob
+
+        return open_credential_blob(ciphertext)
     try:
         raw = _fernet().decrypt(ciphertext.encode("utf-8"))
     except (InvalidToken, ValueError):

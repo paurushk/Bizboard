@@ -18,6 +18,7 @@ import { isOwner } from '@/utils/permissions';
 import { HELP_INTENTS } from './intents';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { isHelpV2Enabled } from '@/config/features';
+import { isOlderThanMs } from '@/utils/clock';
 
 const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 182;
 
@@ -42,15 +43,12 @@ export function HelpHealthPage() {
     return <ErrorState message={getErrorMessage(health.error)} error={health.error} onRetry={() => void health.refetch()} />;
   }
   const data = health.data;
-  const stale = HELP_INTENTS.filter((i) => {
-    const t0 = Date.parse(i.lastReviewed);
-    return Number.isFinite(t0) && Date.now() - t0 > SIX_MONTHS_MS;
-  });
+  const stale = HELP_INTENTS.filter((i) => isOlderThanMs(i.lastReviewed, SIX_MONTHS_MS));
   const missingHi = HELP_INTENTS.filter((i) => !i.answer.hi);
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h4">{t('help.healthTitle')}</Typography>
+      <Typography variant="h4" component="h1">{t('help.healthTitle')}</Typography>
       <Typography variant="body2" color="text.secondary">
         {t('help.healthSubtitle')}
       </Typography>

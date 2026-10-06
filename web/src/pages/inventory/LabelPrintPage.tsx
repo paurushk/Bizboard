@@ -141,7 +141,7 @@ export function LabelPrintPage() {
         <EmptyState description={t('labels.empty')} />
       ) : (
         <>
-          <Paper className="no-print" sx={{ overflow: 'auto' }}>
+          <Paper className="no-print" tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>

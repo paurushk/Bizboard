@@ -115,8 +115,10 @@ export function CustomerLedgerPage() {
   const [addresses, setAddresses] = useState<ShippingAddress[]>([]);
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
 
-  useEffect(() => {
-    if (!ledger.data) return;
+  // Load the profile into the edit form each time the ledger refreshes.
+  const [seenLedger, setSeenLedger] = useState<typeof ledger.data>(undefined);
+  if (ledger.data && ledger.data !== seenLedger) {
+    setSeenLedger(ledger.data);
     setProfileForm({
       name: String(profile.name ?? ''),
       phone: String(profile.phone ?? ''),
@@ -133,7 +135,7 @@ export function CustomerLedgerPage() {
     const rows = (profile.shippingAddresses as ShippingAddress[]) ?? [];
     setAddresses(rows.length ? rows.map((a) => ({ label: a.label, address: a.address, isDefault: a.isDefault })) : [{ label: 'Default', address: String(profile.shippingAddress ?? ''), isDefault: true }]);
     setPartyCustom((profile.customFields as Record<string, string> | undefined) ?? {});
-  }, [ledger.data, profile]);
+  }
 
   const saveProfile = useMutation({
     mutationFn: () =>
@@ -175,7 +177,7 @@ export function CustomerLedgerPage() {
           loading={customerSearch.isFetching}
           sx={{ minWidth: 280, flex: 1 }}
           renderInput={(params) => (
-            <TextField {...params} label={t('billing.customer')} placeholder="Type to search name, phone, or GSTIN" />
+            <TextField {...params} label={t('billing.customer')} placeholder={t('sweep.searchPartyHint')} />
           )}
         />
         {customer && ledger.data ? (
@@ -262,7 +264,7 @@ export function CustomerLedgerPage() {
               {transactions.length === 0 ? (
                 <EmptyState description="No transactions found for the selected date range." />
               ) : (
-                <Paper sx={{ overflow: 'auto' }}>
+                <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
                   <Table size="small">
                     <TableHead>
                       <TableRow>
@@ -347,7 +349,7 @@ export function CustomerLedgerPage() {
             itemWise.length === 0 ? (
               <EmptyState description={t('ledger.itemWiseEmpty')} />
             ) : (
-              <Paper sx={{ overflow: 'auto' }}>
+              <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
@@ -376,7 +378,7 @@ export function CustomerLedgerPage() {
             statementEntries.length === 0 ? (
               <EmptyState description="No transactions found for the selected date range." />
             ) : (
-              <Paper sx={{ overflow: 'auto' }}>
+              <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>

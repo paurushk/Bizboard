@@ -13,6 +13,10 @@ from .tasks import (
 
 
 def _enqueue(task, pk, company_id):
+    from core.seed_guard import seed_load_active
+
+    if seed_load_active():
+        return
     kwargs = {"company_id": company_id}
     if settings.CELERY_TASK_ALWAYS_EAGER:
         safe_delay(task, pk, **kwargs)
@@ -23,6 +27,10 @@ def _enqueue(task, pk, company_id):
 @subscribe("sales_invoice.completed")
 def enqueue_invoice_pdf(*, invoice, **kwargs):
     """Queue async PDF after Complete. Task never re-raises into the business txn."""
+    from core.seed_guard import seed_load_active
+
+    if seed_load_active():
+        return
     _enqueue(generate_invoice_pdf, invoice.pk, invoice.company_id)
     try:
         from insights.telemetry import record_pdf_started

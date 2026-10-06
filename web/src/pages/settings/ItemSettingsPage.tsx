@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
@@ -94,12 +94,13 @@ export function ItemSettingsPage() {
   // F3-015: JSON-compare against the last-loaded/last-saved baseline — this
   // page isn't react-hook-form, so there's no isDirty for free.
   const [savedDefsJson, setSavedDefsJson] = useState('');
-  useEffect(() => {
-    if (!query.data) return;
+  const [seenData, setSeenData] = useState<typeof query.data>(undefined);
+  if (query.data && query.data !== seenData) {
+    setSeenData(query.data);
     const normalized = normalizeCustomFieldDefs(query.data.itemCustomFieldDefs ?? []);
     setDefs(normalized);
     setSavedDefsJson(JSON.stringify(normalized));
-  }, [query.data]);
+  }
   const dirty = JSON.stringify(defs) !== savedDefsJson;
 
   const actives = defs.filter((row) => row.active !== false);
@@ -247,17 +248,17 @@ export function ItemSettingsPage() {
                     <MenuItem value="list">{t('customFields.typeList')}</MenuItem>
                   </TextField>
                   <Stack direction="row">
-                    <IconButton aria-label="Move up" disabled={index === 0} onClick={() => move(index, -1)}>
+                    <IconButton aria-label={t('sweep.moveUp')} disabled={index === 0} onClick={() => move(index, -1)}>
                       <ArrowUpwardIcon />
                     </IconButton>
                     <IconButton
-                      aria-label="Move down"
+                      aria-label={t('sweep.moveDown')}
                       disabled={index === actives.length - 1}
                       onClick={() => move(index, 1)}
                     >
                       <ArrowDownwardIcon />
                     </IconButton>
-                    <IconButton aria-label="Remove" onClick={() => setRemoveTarget(row)}>
+                    <IconButton aria-label={t('sweep.remove')} onClick={() => setRemoveTarget(row)}>
                       <DeleteOutlineIcon />
                     </IconButton>
                   </Stack>

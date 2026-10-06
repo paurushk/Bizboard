@@ -154,23 +154,34 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
   const job = jobQuery.data;
 
+  // When a job reaches PREVIEWED, load its extracted bill into the editable form.
+  const previewedJob = job && isBillPreview(job.preview) && job.status === 'PREVIEWED' ? job : null;
+  const [seenPreview, setSeenPreview] = useState<{ job: typeof previewedJob; isSales: boolean } | null>(null);
+  if (previewedJob && isBillPreview(previewedJob.preview) && (seenPreview?.job !== previewedJob || seenPreview.isSales !== isSales)) {
+    setSeenPreview({ job: previewedJob, isSales });
+    setLines(toPreviewLines(previewedJob.preview));
+    setBillNumber(previewedJob.preview.billNumber ?? '');
+    setBillDate(previewedJob.preview.billDate ?? '');
+    setLowConfidenceAccepted(Boolean(previewedJob.preview.lowConfidenceAccepted));
+    if ('confirm_non_gst' in previewedJob.preview) {
+      setConfirmNonGst(Boolean(previewedJob.preview.confirm_non_gst));
+    }
+  }
+
   useEffect(() => {
-    if (!job || !isBillPreview(job.preview)) return;
-    if (job.status !== 'PREVIEWED') return;
-    setLines(toPreviewLines(job.preview));
-    setBillNumber(job.preview.billNumber ?? '');
-    setBillDate(job.preview.billDate ?? '');
-    setLowConfidenceAccepted(Boolean(job.preview.lowConfidenceAccepted));
-    if ('confirm_non_gst' in job.preview) {
-      setConfirmNonGst(Boolean(job.preview.confirm_non_gst));
-    }
-    const detectedPartyId = isSales ? job.customer : job.supplier;
-    if (detectedPartyId) {
-      void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
-        .then((p) => setParty(p))
-        .catch(() => {});
-    }
-  }, [job, isSales]);
+    if (!previewedJob) return;
+    const detectedPartyId = isSales ? previewedJob.customer : previewedJob.supplier;
+    if (!detectedPartyId) return;
+    let cancelled = false;
+    void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
+      .then((p) => {
+        if (!cancelled) setParty(p);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [previewedJob, isSales]);
 
   const uploadMutation = useMutation({
     mutationFn: () => {
@@ -249,7 +260,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
           confirmNonGst: !isSales ? confirmNonGst : undefined,
           confirm_non_gst: !isSales ? confirmNonGst : undefined,
         },
-        { idempotencyKey: commitKeyRef.current.key || undefined },
+        { idempotencyKey: commitKey.key || undefined },
       );
     },
     onSuccess: (result) => {
@@ -302,9 +313,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     includedCount > 0 && includedLines.every((l) => Number(l.gstRate || 0) === 0);
   // one stable idempotency key per job so a retry after the button re-enables
   // doesn't create a second draft.
-  const commitKeyRef = useRef<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
-  if (jobId != null && commitKeyRef.current.jobId !== jobId) {
-    commitKeyRef.current = { jobId, key: `import-commit-${jobId}-${newIdempotencyKey()}` };
+  const [commitKey, setCommitKey] = useState<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
+  if (jobId != null && commitKey.jobId !== jobId) {
+    setCommitKey({ jobId, key: `import-commit-${jobId}-${newIdempotencyKey()}` });
   }
   const flaggedIndices = useMemo(
     () => lines.map((l, i) => (l.flags && l.flags.length > 0 ? i : -1)).filter((i) => i >= 0),
@@ -884,7 +895,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                     label={
                       <Box>
                         <Typography variant="body2" fontWeight={600}>
-                          Book as Non-GST Bill (Bill of Supply)
+                          {t('sweep2.bookNonGst')}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" display="block">
                           All lines have 0% GST. Check this box to record as Non-GST bill; leave unchecked to record as Nil/Exempt GST.

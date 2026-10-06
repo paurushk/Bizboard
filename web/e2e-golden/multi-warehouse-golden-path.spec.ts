@@ -31,6 +31,7 @@ import {
  */
 
 test('golden path: sale and purchase against a non-default godown never touch the other godown', async ({ page }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E MultiWH ${id}`;
   const email = `e2e-multiwh-${id}@example.test`;
@@ -61,7 +62,7 @@ test('golden path: sale and purchase against a non-default godown never touch th
   await selectDocumentWarehouse(page, branchName);
   await addInvoiceItem(page, productSku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   // Branch decremented by exactly 1; the default godown is untouched.
   expect(await readGodownStock(page, branchName, productName)).toBe(9);

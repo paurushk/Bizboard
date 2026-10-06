@@ -15,6 +15,10 @@ import os
 if not os.environ.get("CI") and os.environ.get("PYTEST_KEEP_DATABASE_URL") != "1":
     os.environ.pop("DATABASE_URL", None)
 os.environ["DJANGO_ENV"] = "test"
+# S2: the suite must not demand TOTP. Set before settings import so production
+# default-on never applies, and so a parent shell cannot turn it on.
+os.environ["MFA_ENFORCE_FOR_MONEY_ROLES"] = "0"
+os.environ["MFA_ENFORCE_WAIVER"] = "0"
 # Force DEBUG on for tests (do not use setdefault — parent shells may export DJANGO_DEBUG=0).
 os.environ["DJANGO_DEBUG"] = "1"
 os.environ["DJANGO_ALLOWED_HOSTS"] = "localhost,127.0.0.1,testserver"
@@ -84,3 +88,9 @@ GSP_FERNET_KEY = os.environ.get(
     "GSP_FERNET_KEY",
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
 )
+MFA_ENFORCE_FOR_MONEY_ROLES = False
+MFA_ENFORCE_WAIVER = False
+
+# Most test bills are priced freely against the default purchase price. The below-cost block
+# has its own tests, which set the company flag to False explicitly.
+ALLOW_BELOW_COST_SALES_DEFAULT = True

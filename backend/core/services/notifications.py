@@ -46,7 +46,12 @@ class NotificationService:
             from core.services.whatsapp import send_whatsapp_template
 
             template_name = (subject or "").strip()
-            if template_name not in ("invoice_ready", "payment_reminder", "invoice_share"):
+            if template_name not in (
+                "invoice_with_payment_link",
+                "invoice_ready",
+                "payment_reminder",
+                "invoice_share",
+            ):
                 template_name = "invoice_share" if "invoice" in (subject or "").lower() else "payment_reminder"
             result = send_whatsapp_template(
                 recipient,
@@ -54,6 +59,7 @@ class NotificationService:
                 params=[body] if body else None,
                 company=company,
                 allow_cloud=allow_cloud,
+                opt_in=allow_cloud,
             )
             # BB-000743: surface delivery mode for UI honesty (not persisted).
             notification.delivery_mode = result.mode  # type: ignore[attr-defined]

@@ -88,6 +88,34 @@ describe('flushPosDraft (F1-001)', () => {
     expect(getSalesInvoice).not.toHaveBeenCalled();
   });
 
+  it('pins the invoice date on the draft at the first attempt and persists it', async () => {
+    completeSalesInvoice.mockResolvedValue({ id: 501, grandTotal: '236.00', number: 'INV-501', status: 'COMPLETED' });
+    await flushPosDraft(baseDraft());
+    const created = createSalesInvoice.mock.calls[0][0] as { invoiceDate: string; dueDate: string };
+    expect(created.invoiceDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(created.dueDate).toBe(created.invoiceDate);
+    expect(updateDraft).toHaveBeenCalledWith(
+      1, 9, 'key-1',
+      expect.objectContaining({ payload: expect.objectContaining({ invoiceDate: created.invoiceDate }) }),
+    );
+  });
+
+  it('a retry sends the SAME create body even after midnight (server refuses a reused key with a changed body)', async () => {
+    completeSalesInvoice.mockResolvedValue({ id: 501, grandTotal: '236.00', number: 'INV-501', status: 'COMPLETED' });
+    // First attempt happened yesterday and pinned its date on the draft.
+    const pinned = baseDraft({ payload: { invoiceDate: '2026-10-01' } });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-02T00:05:00'));
+    try {
+      await flushPosDraft(pinned);
+    } finally {
+      vi.useRealTimers();
+    }
+    const body = createSalesInvoice.mock.calls[0][0] as { invoiceDate: string; dueDate: string };
+    expect(body.invoiceDate).toBe('2026-10-01');
+    expect(body.dueDate).toBe('2026-10-01');
+  });
+
   it('forwards warehouse and serials from the draft (R-009)', async () => {
     completeSalesInvoice.mockResolvedValue({ id: 501, grandTotal: '236.00', number: 'INV-501', status: 'COMPLETED' });
     await flushPosDraft(
@@ -207,7 +235,35 @@ describe('flushPosDraft (F1-001)', () => {
       }),
     );
     expect(createCustomer).toHaveBeenCalledTimes(1);
-    expect(updateDraft).toHaveBeenCalledTimes(1);
+    // The customer is bound onto the draft exactly once. (updateDraft is also used to pin the
+    // invoice date, so count only the customer-binding writes.)
+    const customerBindings = updateDraft.mock.calls.filter(
+      (c) => (c[3] as { customerId?: number }).customerId !== undefined,
+    );
+    expect(customerBindings).toHaveLength(1);
+  });
+
+  it('creates one customer per draft, never merging two drafts that typed the same name', async () => {
+    createCustomer.mockResolvedValue({ id: 88, name: 'Walk In' });
+    completeSalesInvoice.mockResolvedValue({
+      id: 501,
+      grandTotal: '236.00',
+      number: 'INV-501',
+      status: 'COMPLETED',
+    });
+    for (const key of ['a', 'b', 'c']) {
+      await flushPosDraft(
+        baseDraft({
+          id: `scope:${key}`,
+          idempotencyKey: key,
+          customerId: undefined,
+          pendingCustomerName: 'Walk In',
+          payload: { pendingCustomerName: 'Walk In' },
+        }),
+      );
+    }
+    // Two different people can both be "Walk In": sharing one id would merge their ledgers.
+    expect(createCustomer).toHaveBeenCalledTimes(3);
   });
 
   it('flushPendingDraft_triggers_thermal_for_each_flushed_sale (CR-006)', async () => {

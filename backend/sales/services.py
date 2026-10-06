@@ -5,9 +5,11 @@ from collections import defaultdict
 from decimal import Decimal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core.events import emit
+from core.services.audit import AuditService, record_document_event, record_edited_document_event
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from core.services.billing import apply_rcm_memo_after_tax, recompute_totals_for_stamped_gstin
@@ -228,6 +230,26 @@ def _build_items(model_cls, parent_field, parent, items_data):
         from core.services.uqc import snapshot_unit_fields
 
         source_item = None
+        return_source = None
+        if model_cls is SalesReturnItem and getattr(parent, "sales_invoice_id", None):
+            return_source = _resolve_source_item(
+                line, parent.company_id, invoice_id=parent.sales_invoice_id,
+            )
+            if return_source is None:
+                matches = list(
+                    SalesItem.objects.filter(
+                        invoice_id=parent.sales_invoice_id, product=product,
+                    ).order_by("id")
+                )
+                if len(matches) == 1:
+                    return_source = matches[0]
+                elif len(matches) > 1:
+                    raise BusinessRuleError(
+                        "Return lines must name the invoice line (source_item) when "
+                        "the same product is on more than one line."
+                    )
+            if return_source is not None and return_source.product_id != product.pk:
+                raise BusinessRuleError("source_item product does not match the return line.")
         if model_cls in (SalesCreditNoteItem, SalesDebitNoteItem):
             source_item = _resolve_source_item(
                 line, parent.company_id, invoice_id=getattr(parent, "sales_invoice_id", None)
@@ -340,6 +362,8 @@ def _build_items(model_cls, parent_field, parent, items_data):
         if model_cls is SalesReturnItem:
             kwargs["serial_numbers"] = line.get("serial_numbers") or []
             kwargs["condition"] = line.get("condition") or SalesReturnItem.Condition.SELLABLE
+            if return_source is not None:
+                kwargs["source_item"] = return_source
         if model_cls in (SalesCreditNoteItem, SalesDebitNoteItem) and source_item is not None:
             kwargs["source_item"] = source_item
         items.append(model_cls(**kwargs))
@@ -598,6 +622,13 @@ class SalesService:
                     f"Insufficient stock in batch '{getattr(chosen, 'batch_no', chosen)}' "
                     f"for '{item.product.name}': available {available}, required {qty}."
                 )
+            InventoryValuationService.assert_fefo_batch(
+                invoice.company,
+                item.product,
+                warehouse,
+                chosen,
+                override=bool(getattr(invoice, "_fefo_override", False)),
+            )
             return [(chosen, qty)]
 
         remaining = qty
@@ -688,31 +719,54 @@ class SalesService:
         # CR-123: invoice converted from SO — freeze quantities to SO line qtys.
         from sales.models import SalesOrder
 
+        # converted_invoice points only at the latest draft of a partly converted order, so the
+        # earlier drafts are found through source_order.
         source_orders = list(
-            SalesOrder.objects.filter(converted_invoice=invoice).prefetch_related("items")
+            SalesOrder.objects.filter(
+                Q(converted_invoice=invoice) | Q(pk=getattr(invoice, "source_order_id", None))
+            ).prefetch_related("items")
         )
         if source_orders:
             so_qty = defaultdict(Decimal)
+            so_taken = defaultdict(Decimal)
+            carried = defaultdict(Decimal)  # what this invoice carries right now (draft or completed)
+            for existing_line in invoice.items.all():
+                carried[existing_line.product_id] += Decimal(str(existing_line.quantity or 0))
             for order in source_orders:
                 for soi in order.items.all():
                     so_qty[soi.product_id] += Decimal(str(soi.quantity or 0))
+                # What the order's other live invoices carry, read from them rather than from the
+                # line counters: editing a draft's quantity does not touch those counters.
+                for other_item in SalesItem.objects.filter(invoice__source_order=order).exclude(
+                    invoice=invoice
+                ).exclude(invoice__status=SalesInvoice.Status.CANCELLED):
+                    so_taken[other_item.product_id] += Decimal(str(other_item.quantity or 0))
             for product_id, new_q in new_qty_preview.items():
-                cap = so_qty.get(product_id, Decimal("0"))
+                # What this invoice may carry: the order quantity minus what other documents
+                # already took. A partial conversion took only part, so the cap is not the whole line.
+                taken_elsewhere = so_taken.get(product_id, Decimal("0"))
+                cap = so_qty.get(product_id, Decimal("0")) - taken_elsewhere
                 if new_q > cap:
                     raise BusinessRuleError(
                         f"Quantity {new_q} exceeds sales-order quantity {cap} for this "
                         "converted invoice. Amend the order before convert, or use a "
                         "separate invoice for extra qty."
                     )
-            for product_id, cap in so_qty.items():
-                if product_id not in new_qty_preview and cap > 0:
-                    # Dropping an SO line on the draft invoice is also a freeze breach.
+            for product_id, qty_now in carried.items():
+                if product_id not in new_qty_preview and qty_now > 0 and so_qty.get(product_id, Decimal("0")) > 0:
+                    # Dropping an SO line this draft carries is also a freeze breach.
                     raise BusinessRuleError(
                         "Cannot remove sales-order lines from a converted invoice. "
                         "Quantities are frozen to the source order."
                     )
 
         if adjust_stock:
+            # FMEA-001: price and tax edits are money amends. The GL poster
+            # checks the period only when books are on, so the document itself
+            # must refuse a closed or soft-closed period before any line write.
+            from reporting.gst_periods import assert_period_allows_money_amend
+
+            assert_period_allows_money_amend(invoice.company, invoice.invoice_date)
             # CR-024 / CR-128: completed invoices cannot change quantities
             # via set_items (use credit note / return instead).
             for product_id in set(old_qty) | set(new_qty_preview):
@@ -767,6 +821,9 @@ class SalesService:
             invoice.pdf_status = SalesInvoice.PdfStatus.QUEUED
             invoice.updated_by = user
             invoice.save()
+            record_edited_document_event(
+                invoice=invoice, user=user, old_totals=old_totals, amend=True,
+            )
             emit(
                 "sales_invoice.edited",
                 invoice=invoice,
@@ -869,9 +926,34 @@ class SalesService:
     @transaction.atomic
     def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
                  confirm_gstin_total_change=False, confirm_missing_licence=False,
-                 gst_guard_override_reason=None):
+                 gst_guard_override_reason=None, fefo_override=False, unlock_code=None, below_cost_override_reason="",
+                 pharmacy_patient="", pharmacy_prescriber="", pharmacy_registration="",
+                 pharmacy_prescription=""):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
+        from accounts.models import CompanyUser
+
+        is_admin = bool(
+            user
+            and (
+                getattr(user, "is_staff", False)
+                or getattr(user, "is_superuser", False)
+                or CompanyUser.objects.filter(
+                    company_id=invoice.company_id,
+                    user=user,
+                    role=CompanyUser.Role.OWNER,
+                ).exists()
+            )
+        )
+        # A below-cost sale is the owner's call inside this company. Platform staff with no
+        # membership here are not the company's owner.
+        is_company_owner = bool(
+            user
+            and CompanyUser.objects.filter(
+                company_id=invoice.company_id, user=user, is_active=True, role=CompanyUser.Role.OWNER,
+            ).exists()
+        )
+        invoice._fefo_override = bool(fefo_override) and is_admin
         from billing.quotas import assert_complete_allowed
         from core.tracing import trace_span
 
@@ -904,6 +986,19 @@ class SalesService:
                 code=HelpCode.BLOCKED_CUSTOMER,
             )
         items = list(invoice.items.select_related("product", "batch"))
+        from planwave.services import assert_pharmacy_sale
+
+        for line in items:
+            assert_pharmacy_sale(
+                company=invoice.company,
+                product=line.product,
+                patient_name=pharmacy_patient,
+                prescriber_name=pharmacy_prescriber,
+                prescriber_registration=pharmacy_registration,
+                prescription_note=pharmacy_prescription,
+                quantity=line.quantity,
+                record=False,
+            )
         if not items:
             raise BusinessRuleError("Cannot complete an invoice without line items.")
 
@@ -921,6 +1016,23 @@ class SalesService:
                 "TALLY_OPENING notes are not accepted. Opening invoices must be imported via Tally adapter."
             )
         is_tally_opening = bool(getattr(invoice, "is_opening_balance", False))
+        if not is_tally_opening:
+            from sales.order_gates import assert_below_cost_blocked
+
+            allowed_below_cost = assert_below_cost_blocked(
+                invoice.company, items,
+                override_reason=below_cost_override_reason, can_override=is_company_owner,
+            )
+            if allowed_below_cost:
+                AuditService.log(
+                    company=invoice.company,
+                    user=user,
+                    action="UPDATE",
+                    entity_type="SalesInvoice",
+                    entity_id=str(invoice.pk),
+                    description="Below-cost sale allowed by owner: " + below_cost_override_reason.strip()[:200],
+                    metadata={"lines": allowed_below_cost},
+                )
 
         from core.services.billing import place_of_supply_known
 
@@ -933,6 +1045,18 @@ class SalesService:
         # makes place_of_supply_known() true and short-circuits this guard.)
         assume_local_blank_party = not (invoice.customer.state or "").strip() and getattr(
             invoice.company, "assume_local_state_for_blank_party", False
+        )
+        # FMEA-002: the company flag is a standing intra-state assumption.
+        # Stamp it on the invoice so the GSTR worksheet can show it.
+        invoice.pos_assumed_local = bool(
+            tax_enabled
+            and not is_tally_opening
+            and not is_export_or_sez_supply(invoice.supply_type or "")
+            and not place_of_supply_known(
+                party_state=invoice.customer.state or "",
+                party_gstin=invoice.customer.gstin or "",
+            )
+            and (assume_local_blank_party or confirm_blank_pos)
         )
 
         if (
@@ -1002,6 +1126,10 @@ class SalesService:
         # status is already stop_credit/overdue_severe, even with no limit set —
         # the ladder's "hold new orders" rung driven by risk status, not just a
         # static ceiling. Off by default so existing tenants see no change.
+        if int(invoice.payment_terms_days or 0) > 0 and not is_tally_opening:
+            from planwave.services import assert_chronic_credit_allowed
+
+            assert_chronic_credit_allowed(invoice, unlock_code=unlock_code)
         if invoice.company.auto_credit_hold_on_severe_overdue and not is_tally_opening:
             from payments.dunning import customer_risk_snapshot
 
@@ -1019,6 +1147,7 @@ class SalesService:
             party_gstin=customer.gstin or "",
             tax_enabled=tax_enabled,
             supply_type=invoice.supply_type or "",
+            confirm_blank_pos=confirm_blank_pos,
         )
 
         supply = (invoice.supply_type or "").strip().upper()
@@ -1167,6 +1296,12 @@ class SalesService:
                 )
             if item.quantity <= 0:
                 raise BusinessRuleError("Quantity on each line must be greater than zero.")
+        # A job card holds its parts while the repair runs. That hold must not block the
+        # invoice that bills those same parts, so it is released before the stock check.
+        # It all happens in this transaction: a refused complete puts the hold back.
+        from workshop.services import release_reservations_for_invoice
+
+        release_reservations_for_invoice(invoice, user)
         if not stock_from_challan and not is_tally_opening:
             from inventory.item_stock import tracks_inventory
 
@@ -1249,6 +1384,7 @@ class SalesService:
                 company=invoice.company,
                 seller_gstin=getattr(stamp, "gstin", None) or "",
                 seller_state=getattr(stamp, "state", None) or "",
+                confirm_blank_pos=confirm_blank_pos,
             )
             if not resolved_code and not is_export_or_sez_supply(invoice.supply_type) and tax_enabled:
                 raise BusinessRuleError(
@@ -1277,11 +1413,18 @@ class SalesService:
         from projects.services import sync_project_milestone
 
         sync_project_milestone(invoice, completed=True)
+        from core.seed_guard import seed_load_active
+
         invoice.pdf_status = (
-            SalesInvoice.PdfStatus.NONE if is_tally_opening else SalesInvoice.PdfStatus.QUEUED
+            SalesInvoice.PdfStatus.NONE
+            if is_tally_opening or seed_load_active()
+            else SalesInvoice.PdfStatus.QUEUED
         )
         invoice.updated_by = user
         invoice.save()
+        from workshop.services import sync_job_card
+
+        sync_job_card(invoice, completed=True)
         company_id = invoice.company_id
         transaction.on_commit(lambda cid=company_id: _note_first_saas_invoice(cid))
 
@@ -1292,12 +1435,20 @@ class SalesService:
             # CR-020: release SO reservation held through draft invoice, then mark CONVERTED.
             from .models import SalesOrder
 
-            for order in SalesOrder.objects.select_for_update().filter(converted_invoice=invoice):
+            order_ids = set(
+                SalesOrder.objects.filter(converted_invoice=invoice).values_list("pk", flat=True)
+            )
+            if getattr(invoice, "source_order_id", None):
+                order_ids.add(invoice.source_order_id)
+            for order in SalesOrder.objects.select_for_update().filter(pk__in=order_ids):
                 inv_qty_by_product = defaultdict(Decimal)
                 for it in invoice.items.all():
                     inv_qty_by_product[it.product_id] += Decimal(str(it.quantity or 0))
 
-                if order.status == SalesOrder.Status.CONFIRMED:
+                if order.status in (
+                    SalesOrder.Status.CONFIRMED,
+                    SalesOrder.Status.PARTIALLY_CONVERTED,
+                ):
                     warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
                     for item in order.items.select_related("product"):
                         release_qty = min(
@@ -1309,11 +1460,23 @@ class SalesService:
                                 order.company, warehouse, item.product, release_qty, user
                             )
 
-                fully_converted = all(
-                    inv_qty_by_product.get(it.product_id, Decimal("0")) >= Decimal(str(it.quantity or 0))
-                    for it in order.items.all()
-                )
-                if fully_converted and order.status in (SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED):
+                order_lines = list(order.items.all())
+                tracked = any(Decimal(str(it.invoiced_quantity or 0)) > 0 for it in order_lines)
+                if tracked:
+                    fully_converted = all(
+                        Decimal(str(it.invoiced_quantity or 0)) >= Decimal(str(it.quantity or 0))
+                        for it in order_lines
+                    )
+                else:
+                    fully_converted = all(
+                        inv_qty_by_product.get(it.product_id, Decimal("0")) >= Decimal(str(it.quantity or 0))
+                        for it in order_lines
+                    )
+                if fully_converted and order.status in (
+                    SalesOrder.Status.DRAFT,
+                    SalesOrder.Status.CONFIRMED,
+                    SalesOrder.Status.PARTIALLY_CONVERTED,
+                ):
                     order.status = SalesOrder.Status.CONVERTED
                     order.updated_by = user
                     order.save(update_fields=["status", "updated_by", "updated_at"])
@@ -1339,11 +1502,33 @@ class SalesService:
 
                 PostingService.post_sales_invoice(invoice, user)
                 PostingService.post_sales_cogs(invoice, cogs_total, user)
+            record_document_event(document=invoice, user=user, event="sales_invoice.completed")
+            from planwave.services import assert_pharmacy_sale, stamp_party
+            from planwave.finish import review_completed_sale
+
+            stamp_party(invoice, invoice.customer)
+            for line in invoice.items.select_related("product", "batch"):
+                assert_pharmacy_sale(
+                    company=invoice.company,
+                    product=line.product,
+                    patient_name=pharmacy_patient,
+                    prescriber_name=pharmacy_prescriber,
+                    prescriber_registration=pharmacy_registration,
+                    prescription_note=pharmacy_prescription,
+                    quantity=line.quantity,
+                    invoice_number=invoice.number or "",
+                    batch_no=getattr(getattr(line, "batch", None), "batch_no", "") or "",
+                )
+            review_completed_sale(invoice)
             emit("document.completed", document=invoice, user=user, event="sales_invoice.completed")
             emit("sales_invoice.completed", invoice=invoice, user=user)
             from core.models import StatutoryDocumentEvent, log_statutory_event
 
-            _complete_payload = {"number": invoice.number, "grand_total": str(invoice.grand_total)}
+            _complete_payload = {
+                "number": invoice.number,
+                "grand_total": str(invoice.grand_total),
+                "pos_assumed_local": bool(invoice.pos_assumed_local),
+            }
             if getattr(invoice, "_tcs_override", None):
                 _complete_payload["tcs_override"] = invoice._tcs_override
             log_statutory_event(
@@ -1560,6 +1745,7 @@ class SalesService:
             updated_by=user,
             updated_at=timezone.now(),
         )
+        record_document_event(document=invoice, user=user, event="sales_invoice.cancelled")
         emit("document.cancelled", document=invoice, user=user, event="sales_invoice.cancelled")
         from core.models import StatutoryDocumentEvent, log_statutory_event
 

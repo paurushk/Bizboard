@@ -31,10 +31,14 @@ def test_forecast_includes_qualified_and_negotiation_and_not_a_won_deal(tenant_a
 def test_won_cannot_move_and_open_can_advance(tenant_a):
     from .test_growth_os import _flags
 
+    from tests.conftest import make_customer
+
     _flags(tenant_a.company)
+    # a deal needs a customer before it can be won (BUG-CRM-003)
+    buyer = make_customer(tenant_a.company, name="Pipeline Buyer")
     created = tenant_a.client.post(
         "/api/v1/crm/opportunities/",
-        {"title": "Deal", "amount": "10", "stage": "OPEN"},
+        {"title": "Deal", "amount": "10", "stage": "OPEN", "customer": buyer.id},
         format="json",
     )
     assert created.status_code == 201, created.data

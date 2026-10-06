@@ -23,6 +23,7 @@ import {
  */
 
 test('golden path: register -> enable accounting -> invoice -> receipt -> GL posted', async ({ page }) => {
+  test.setTimeout(180_000);
   const id = unique();
   const companyName = `E2E Payments ${id}`;
   const email = `e2e-payments-${id}@example.test`;
@@ -61,12 +62,16 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   await expect(page.getByText('₹100.00').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/);
+  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Completed');
+  await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells.map((c) => c.trim()).find((c) => /^INV-/.test(c));
-  expect(invoiceNumber).toMatch(/^INV-\d+$/);
+  const invoiceNumber = textCells
+    .map((c) => c.trim())
+    .find((c) => /^INV-/.test(c))
+    ?.split('·')[0]
+    .trim();
+  expect(invoiceNumber).toMatch(/^INV-/);
 
   // 7. Receive a CASH receipt and allocate it to the invoice in one step.
   await page.goto('/sales/receipts');
@@ -85,7 +90,7 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   // below is the independent GL-level proof of the same thing.
   await page.goto('/sales/customers');
   const customerRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(customerRow).toContainText('₹0.00');
+  await expect(customerRow).toContainText('₹0.00', { timeout: 30_000 });
 
   // 9. GL proof: the trial balance must actually be balanced (double-entry
   // held across invoice-complete + receipt + allocation postings) and must

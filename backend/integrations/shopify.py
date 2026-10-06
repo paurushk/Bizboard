@@ -30,11 +30,15 @@ def _shop_connection(shop_domain: str):
         connections = list(IntegrationConnection.objects.filter(
             provider="SHOPIFY", status=IntegrationConnection.Status.ACTIVE,
         ))
+    matches = []
     for conn in connections:
         meta = conn.metadata or {}
-        if str(meta.get("shop_domain") or "").strip().lower() == domain:
-            return conn
-    return None
+        stored = str(getattr(conn, "shop_domain", "") or meta.get("shop_domain") or "").strip().lower()
+        if stored == domain:
+            matches.append(conn)
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def _apply_shopify_event(conn, topic: str, payload: dict) -> dict:
@@ -108,6 +112,20 @@ def _import_order(conn, payload: dict) -> dict:
     return {"status": "accepted", "applied": True, "sales_order_id": order.id}
 
 
+def _shopify_time(value):
+    from datetime import timezone as dt_timezone
+
+    from django.utils.dateparse import parse_datetime
+    from django.utils import timezone
+
+    parsed = parse_datetime(str(value or "").strip())
+    if parsed is None:
+        return None
+    if timezone.is_naive(parsed):
+        parsed = timezone.make_aware(parsed, dt_timezone.utc)
+    return parsed
+
+
 def _sync_stock(conn, payload: dict) -> dict:
     from inventory.models import MovementType, StockBalance, Warehouse
     from inventory.services import InventoryService
@@ -139,31 +157,135 @@ def _sync_stock(conn, payload: dict) -> dict:
     product = Product.objects.filter(company=conn.company, sku=sku).first()
     if product is None:
         return {"status": "skipped", "applied": False, "error": f"SKU {sku} is not in this company. No stock was changed."}
-    # Lock the balance row (if any) before reading on_hand, and hold that lock
-    # through post_movement, so a concurrent webhook/sale/GRN for the same
-    # product+warehouse can't slip in between the read and the delta being
-    # applied — it blocks on the lock and re-reads the now-current balance.
+    incoming = _shopify_time(payload.get("updated_at"))
+    if incoming is None:
+        return {"status": "skipped", "applied": False, "error": "Stock sync needs updated_at. No stock was changed."}
+    item_key = str(payload.get("inventory_item_id") or sku)
     with transaction.atomic():
+        locked = IntegrationConnection.objects.select_for_update().get(pk=conn.pk)
+        meta = dict(locked.metadata or {})
+        applied_map = dict(meta.get("shopify_applied_at") or {})
+        pending_map = dict(meta.get("shopify_pending") or {})
+        previous = _shopify_time(applied_map.get(item_key))
+        if previous is not None and incoming <= previous:
+            return {"status": "skipped", "applied": True, "delta": "0", "reason": "stale"}
+        pending = pending_map.get(item_key) or {}
+        pending_time = _shopify_time(pending.get("updated_at"))
+        if pending_time is not None and incoming <= pending_time:
+            return {"status": "skipped", "applied": True, "delta": "0", "reason": "stale_pending"}
         balance = (
             StockBalance.objects.select_for_update()
-            .filter(company=conn.company, product=product, warehouse=warehouse)
+            .filter(company=locked.company, product=product, warehouse=warehouse)
             .first()
         )
         on_hand = balance.on_hand if balance else Decimal("0")
         delta = Decimal(str(payload["available"])) - Decimal(on_hand)
+        stamp = incoming.isoformat()
         if delta == 0:
+            applied_map[item_key] = stamp
+            pending_map.pop(item_key, None)
+            meta["shopify_applied_at"] = applied_map
+            meta["shopify_pending"] = pending_map
+            locked.metadata = meta
+            locked.save(update_fields=["metadata", "updated_at"])
             return {"status": "accepted", "applied": True, "delta": "0"}
+        band = max(Decimal("1"), (Decimal("0.25") * Decimal(on_hand)).quantize(Decimal("0.001")))
+        if abs(delta) <= band:
+            InventoryService.post_movement(
+                company=locked.company,
+                product=product,
+                warehouse=warehouse,
+                movement_type=MovementType.ADJUSTMENT,
+                quantity=delta,
+                reason="Shopify inventory_levels/update",
+                reference_type="shopify",
+                reference_id=item_key,
+            )
+            applied_map[item_key] = stamp
+            pending_map.pop(item_key, None)
+            meta["shopify_applied_at"] = applied_map
+            meta["shopify_pending"] = pending_map
+            locked.metadata = meta
+            locked.save(update_fields=["metadata", "updated_at"])
+            return {"status": "accepted", "applied": True, "delta": str(delta)}
+        pending_map[item_key] = {
+            "available": str(payload["available"]),
+            "updated_at": stamp,
+            "delta": str(delta),
+            "on_hand_before": str(on_hand),
+            "sku": sku,
+        }
+        meta["shopify_pending"] = pending_map
+        locked.metadata = meta
+        locked.save(update_fields=["metadata", "updated_at"])
+        return {"status": "held", "applied": True, "delta": str(delta)}
+
+
+def apply_pending_stock(conn, item_key, user=None) -> dict:
+    """Post one held Shopify delta. Large deltas stay held until this call."""
+    from core.exceptions import BusinessRuleError
+    from inventory.models import MovementType, Warehouse
+    from inventory.services import InventoryService
+    from masters.models import Product
+
+    item_key = str(item_key or "").strip()
+    if not item_key:
+        raise BusinessRuleError("A pending item key is required.")
+    with transaction.atomic():
+        locked = IntegrationConnection.objects.select_for_update().get(
+            pk=conn.pk, company_id=conn.company_id,
+        )
+        meta = dict(locked.metadata or {})
+        pending_map = dict(meta.get("shopify_pending") or {})
+        row = pending_map.get(item_key)
+        if not row:
+            raise BusinessRuleError("That Shopify stock change is not waiting for review.")
+        warehouse = Warehouse.objects.filter(
+            company=locked.company, pk=meta.get("warehouse_id"),
+        ).first()
+        product = Product.objects.filter(company=locked.company, sku=row.get("sku") or "").first()
+        if warehouse is None or product is None:
+            raise BusinessRuleError("The held Shopify change is missing a godown or a product.")
+        delta = Decimal(str(row.get("delta") or "0"))
+        if row.get("available") not in (None, ""):
+            # The stored delta was measured when the webhook arrived. A sale or receipt since then
+            # would leave on-hand at neither Shopify's number nor the right one, so measure again
+            # against what is on hand now.
+            from inventory.models import StockBalance
+
+            balance = (
+                StockBalance.objects.select_for_update()
+                .filter(company=locked.company, product=product, warehouse=warehouse)
+                .first()
+            )
+            on_hand_now = Decimal(str(balance.on_hand)) if balance else Decimal("0")
+            delta = Decimal(str(row["available"])) - on_hand_now
+        if delta == 0:
+            pending_map.pop(item_key, None)
+            meta["shopify_pending"] = pending_map
+            locked.metadata = meta
+            locked.save(update_fields=["metadata", "updated_at"])
+            return {"status": "applied", "item_key": item_key, "delta": "0", "pending_count": len(pending_map)}
         InventoryService.post_movement(
-            company=conn.company,
+            company=locked.company,
             product=product,
             warehouse=warehouse,
             movement_type=MovementType.ADJUSTMENT,
             quantity=delta,
-            reason="Shopify inventory_levels/update",
+            reason="Shopify pending stock approved",
             reference_type="shopify",
-            reference_id=str(payload.get("inventory_item_id") or sku),
+            reference_id=item_key,
+            user=user,
         )
-    return {"status": "accepted", "applied": True, "delta": str(delta)}
+        pending_map.pop(item_key, None)
+        applied_map = dict(meta.get("shopify_applied_at") or {})
+        applied_map[item_key] = row.get("updated_at")
+        meta["shopify_pending"] = pending_map
+        meta["shopify_applied_at"] = applied_map
+        locked.metadata = meta
+        locked.updated_by = user
+        locked.save(update_fields=["metadata", "updated_by", "updated_at"])
+    return {"status": "applied", "item_key": item_key, "delta": str(delta), "pending_count": len(pending_map)}
 
 
 class ShopifyWebhookView(APIView):
@@ -224,3 +346,60 @@ class ShopifyWebhookView(APIView):
             created_by=None,
         )
         return Response(outcome)
+
+
+def notify_shopify_gaps():
+    """Tell each owner about a shared shop domain or a held stock delta.
+
+    Does not post stock. A large delta stays in connection metadata until an
+    operator posts an inventory adjustment by hand.
+    """
+    rows = list(IntegrationConnection.objects.filter(
+        provider="SHOPIFY", status=IntegrationConnection.Status.ACTIVE,
+    ))
+    by_domain: dict[str, list] = {}
+    for conn in rows:
+        meta = conn.metadata or {}
+        domain = str(conn.shop_domain or meta.get("shop_domain") or "").strip().lower()
+        if domain:
+            by_domain.setdefault(domain, []).append(conn)
+    for domain, conns in by_domain.items():
+        if len(conns) < 2:
+            continue
+        company_ids = sorted({c.company_id for c in conns})
+        logger.error("SHOPIFY_DOMAIN_CLASH domain=%s companies=%s", domain, company_ids)
+        for conn in conns:
+            _shopify_notice(
+                conn.company,
+                "SHOPIFY_DOMAIN_CLASH",
+                f"Shopify domain {domain} is active on more than one company. "
+                "Stock updates are rejected until one connection is deactivated.",
+            )
+    for conn in rows:
+        pending = (conn.metadata or {}).get("shopify_pending") or {}
+        if not pending:
+            continue
+        _shopify_notice(
+            conn.company,
+            "SHOPIFY_STOCK_HELD",
+            f"{len(pending)} Shopify stock change(s) are held and were not posted.",
+        )
+
+
+def _shopify_notice(company, code, body):
+    from accounts.models import CompanyUser
+    from core.models import Notification
+    from core.services.notifications import NotificationService
+
+    owners = CompanyUser.objects.filter(
+        company=company, role=CompanyUser.Role.OWNER, is_active=True,
+    ).select_related("user")
+    for membership in owners:
+        NotificationService.send(
+            company=company,
+            channel=Notification.Channel.IN_APP,
+            recipient=membership.user.email or str(membership.user_id),
+            subject=code,
+            body=body,
+            user=membership.user,
+        )

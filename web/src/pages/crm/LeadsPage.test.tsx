@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { listLeadsPage } from '@/api/crm';
 import { LeadsPage } from '@/pages/crm/LeadsPage';
 
 vi.mock('@/pages/erp/erpShared', () => ({
@@ -71,5 +72,47 @@ describe('LeadsPage CSV import result', () => {
     expect(await screen.findByText('Imported 2. 1 need review.')).toBeInTheDocument();
     expect(screen.getByText('Row 3: Phone is required')).toBeInTheDocument();
     await waitFor(() => expect(importLeadsCsv).toHaveBeenCalled());
+  });
+});
+
+describe('LeadsPage capture setup (UX-M08)', () => {
+  it('keeps links and import in one Lead capture menu, not as four buttons beside the list', async () => {
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LeadsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole('button', { name: 'Web form link' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Lead capture' }));
+    expect(await screen.findByRole('menuitem', { name: 'Web form link' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'WhatsApp webhook link' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Import CSV' })).toBeInTheDocument();
+  });
+});
+
+describe('LeadsPage assignee target (GM-41)', () => {
+  it('keeps the assignee control at least 44px tall', async () => {
+    vi.mocked(listLeadsPage).mockResolvedValue({
+      results: [{ id: 7, name: 'Asha', phone: '', email: '', status: 'NEW', assignedTo: null } as never],
+      count: 1,
+      next: null,
+      previous: null,
+    });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LeadsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const box = await screen.findByRole('combobox', { name: 'Assign Asha' });
+    const root = box.closest('.MuiInputBase-root');
+    expect(root).toBeTruthy();
+    expect(getComputedStyle(root as HTMLElement).minHeight).toBe('44px');
   });
 });

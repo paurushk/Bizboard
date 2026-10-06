@@ -159,7 +159,7 @@ def test_pj_crm_referral_self_referral_guard_auto_rejects_reward():
     # dark-module default (ENABLE_CRM) off for this company (see
     # feature_flags._build_feature_flags_uncached's "opt-in once you touch
     # module flags" rule).
-    company.feature_flags = {"ENABLE_CRM": True, "ENABLE_REFERRALS": True}
+    company.feature_flags = {"ENABLE_CRM": True, "ENABLE_REFERRALS": True, "pack_grant": "insurance"}
     company.save(update_fields=["feature_flags"])
 
     referrer_and_referee = trader.customers[0]

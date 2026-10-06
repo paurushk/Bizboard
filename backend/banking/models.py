@@ -43,10 +43,39 @@ class AaTransaction(CompanyScopedModel):
         on_delete=models.SET_NULL,
         related_name="aa_transactions",
     )
+    matched_supplier_payment = models.ForeignKey(
+        "payments.SupplierPayment",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="aa_transactions",
+    )
+    matched_expense = models.ForeignKey(
+        "accounting.Expense",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="aa_transactions",
+    )
 
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["company", "txn_id"], name="uniq_aa_txn_per_company"),
+            models.UniqueConstraint(
+                fields=["matched_payment"],
+                condition=models.Q(matched_payment__isnull=False),
+                name="uniq_aa_txn_matched_receipt",
+            ),
+            models.UniqueConstraint(
+                fields=["matched_supplier_payment"],
+                condition=models.Q(matched_supplier_payment__isnull=False),
+                name="uniq_aa_txn_matched_supplier_payment",
+            ),
+            models.UniqueConstraint(
+                fields=["matched_expense"],
+                condition=models.Q(matched_expense__isnull=False),
+                name="uniq_aa_txn_matched_expense",
+            ),
         ]
         ordering = ["-txn_date", "-id"]
 

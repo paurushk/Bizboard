@@ -183,18 +183,32 @@ def test_switch_company_multi_membership(tenant_a, tenant_b):
 
 @override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=True, ENABLE_CRM=True)
 def test_feature_flags_dark_modules_require_company_opt_in(tenant_a):
-    tenant_a.company.feature_flags = {"ENABLE_CRM": True}
+    tenant_a.company.feature_flags = {
+        "ENABLE_CRM": True, "ENABLE_MANUFACTURING": True, "ENABLE_PAYROLL": True,
+    }
     tenant_a.company.save(update_fields=["feature_flags"])
     resp = tenant_a.client.get("/api/v1/feature-flags/")
     assert resp.status_code == 200
     assert resp.data["ENABLE_MANUFACTURING"] is False
     assert resp.data["ENABLE_PAYROLL"] is False
-    assert resp.data["ENABLE_CRM"] is True
+    assert resp.data["ENABLE_CRM"] is False
+    tenant_a.company.feature_flags = {
+        "pack_grant": "insurance",
+        "manufacturing_pack_grant": True,
+        "ENABLE_PAYROLL": True,
+    }
+    tenant_a.company.save(update_fields=["feature_flags"])
+    granted = tenant_a.client.get("/api/v1/feature-flags/")
+    assert granted.data["ENABLE_CRM"] is True
+    assert granted.data["ENABLE_MANUFACTURING"] is True
+    assert granted.data["ENABLE_PAYROLL"] is False
 
 
 @override_settings(ENABLE_MANUFACTURING=True, ENABLE_PAYROLL=False, ENABLE_CRM=True)
 def test_feature_flags_endpoint(tenant_a):
-    tenant_a.company.feature_flags = {"ENABLE_CRM": True, "ENABLE_MANUFACTURING": False}
+    tenant_a.company.feature_flags = {
+        "ENABLE_CRM": True, "ENABLE_MANUFACTURING": False, "pack_grant": "insurance",
+    }
     tenant_a.company.save(update_fields=["feature_flags"])
 
     resp = tenant_a.client.get("/api/v1/feature-flags/")

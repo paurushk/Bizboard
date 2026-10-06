@@ -30,6 +30,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=150, blank=True)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    # Bumped on deactivation so already-issued access tokens fail the next request.
+    session_version = models.PositiveIntegerField(default=0)
     date_joined = models.DateTimeField(default=timezone.now)
     push_token = models.CharField(max_length=512, blank=True, default="")
     telegram_chat_id = models.CharField(
@@ -91,6 +93,28 @@ class User(AbstractBaseUser, PermissionsMixin):
         ]
 
 
+class UserMfa(models.Model):
+    """TOTP second factor for a user (F-SEC-02). Exists once enrolment starts;
+    only ``confirmed_at`` set means the factor is enforced at login."""
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="mfa")
+    secret_enc = models.TextField()
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    # Highest TOTP time step already accepted - rejects replay of the same code.
+    last_used_step = models.BigIntegerField(default=0)
+    # Keyed hashes of the unused single-use recovery codes.
+    recovery_hashes = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_active(self) -> bool:
+        return self.confirmed_at is not None
+
+    def __str__(self):
+        return f"MFA({self.user_id}, {'on' if self.is_active else 'pending'})"
+
+
 class Company(TimeStampedModel):
     """One legal company (tenant). Multiple warehouses are stock locations;
     legal GSTIN branches are CompanyGstin rows — not the same as warehouses.
@@ -121,7 +145,7 @@ class Company(TimeStampedModel):
     whatsapp_webhook_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
     upi_id = models.CharField(max_length=100, blank=True)
     bank_name = models.CharField(max_length=100, blank=True)
-    bank_account = models.CharField(max_length=32, blank=True)
+    bank_account = models.TextField(blank=True)
     bank_ifsc = models.CharField(max_length=16, blank=True)
     logo = models.ForeignKey(
         "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"

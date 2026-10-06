@@ -158,7 +158,7 @@ export function PurchasePlanningPage() {
         <EmptyState description={t('osPlan.planningEmpty')} />
       ) : null}
       {rows.length > 0 ? (
-        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+        <Paper variant="outlined" tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
