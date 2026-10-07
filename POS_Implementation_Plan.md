@@ -27,7 +27,7 @@ These are the answers to the pre-implementation review. Later sections follow th
 | 4 | Exchange is a return plus a new bill. Checkout can apply the customer's unallocated advance. If the new bill is smaller, the cashier refunds the rest or keeps it as an advance. R-09 stays **Partial** until that ships. |
 | 5 | v1 takes one refund mode per return. The refund row is keyed by an idempotency key. There is no unique constraint on the return, so several rows per return can be added in Phase 5. |
 | 6 | Phase 2 moves `pos_owner_pin_hash` into a `PosApproverPin` row for the owner and clears the flag. There is no one-release fallback in `feature_flags`. |
-| 7 | Offline credit is opt-in (`pos_offline_credit`, default off). Caps: ₹5,000 per customer per outage, or the cached remaining limit if lower; 20 credit bills per terminal per outage; never for stop-credit or severe overdue. Device and server both check. `POS_Fix.md` records this reversal when the setting ships. |
+| 7 | Offline credit is on by default (`pos_offline_credit`, owner can turn it off; decided 2026-10-08). Caps: ₹5,000 per customer per outage, or the cached remaining limit if lower; 20 credit bills per terminal per outage; never for stop-credit or severe overdue. Device and server both check. `POS_Fix.md` records this reversal when the setting ships. |
 | 8 | Legacy create-then-receipt is already gone. `collectPosPayment` on an already-completed invoice is recovery, not a second pay path. Phase 0 deletes `VITE_ENABLE_ATOMIC_POS_CHECKOUT` and `isAtomicPosCheckoutEnabled`. |
 | 9 | Calendar is 10–12 weeks with two engineers. Effort is the phase table. Phase 0 is 3–4 days. The mis-post report runs in parallel and does not block the merge. |
 | 10 | One PR, five commits, merged with a merge commit. CI (Postgres, coverage 83%) is the gate. |
@@ -261,7 +261,7 @@ Do not add `pos_min_margin_percent`.
 
 ### P3-B. Offline credit for a named customer (3–4 d)
 
-This reverses the cash-only offline rule in `POS_Fix.md`. Write that reversal into `POS_Fix.md` in the same change. Setting `pos_offline_credit`, default off.
+This reverses the cash-only offline rule in `POS_Fix.md`. Write that reversal into `POS_Fix.md` in the same change. Setting `pos_offline_credit`, default on (2026-10-08); the owner can turn it off.
 
 When the setting is on:
 
@@ -396,7 +396,7 @@ The skeleton can land in week 2. Flows that need P1-A, P1-E, or Phase 3 are adde
 |---|---|---|
 | Shift uniqueness migration on live data | Failed migration or two open drawers | Copy-first dry run. Abort and `report_open_shifts` when one cashier has two open rows. Never pick a survivor. |
 | Refund journal disagrees with the books | Double reversal of sales, or a second refund swallowed by the receipt's `REFUND` purpose | Dr 2300 / Cr cash or bank, sourced on the refund row. Accountant sees that shape before step 3 of P1-A. |
-| Offline credit abuse | Over-limit sales | Opt-in setting. Device caps and the same caps at sync. Document exposure as cap times terminal count. |
+| Offline credit abuse | Over-limit sales | Owner can turn it off. Device caps and the same caps at sync. Document exposure as cap times terminal count. |
 | `PosPage` split causes regressions | Counter outage | One module per PR. E2e skeleton before the split; money flows added as each phase merges. |
 | PIN migration drops the owner's hash | Overrides blocked | Copy into `PosApproverPin` and only then delete the flag, in one migration. |
 | Scope creep in Phase 5 | Delay to returns and pharmacy | Committed work is P5-A, P5-A2, P5-E, and P5-F. Coupons, schemes, and gift cards stay out. |

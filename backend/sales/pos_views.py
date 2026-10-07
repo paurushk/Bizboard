@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from sales.pos_policy import (
     expired_lot_policy,
+    offline_credit_enabled,
     max_line_discount,
     pin_configured,
     save_pos_settings,
@@ -48,7 +49,7 @@ class PosSettingsView(APIView):
             "period_blocked": bool(blocked),
             "period_message": blocked,
             "require_open_shift": bool(_flags_value(company, "pos_require_open_shift")),
-            "offline_credit": bool(_flags_value(company, "pos_offline_credit")),
+            "offline_credit": offline_credit_enabled(company),
             "return_window_days": _flags_value(company, "pos_return_window_days") or 0,
             "catalog_warn_hours": _flags_value(company, "pos_catalog_warn_hours") or 24,
             "catalog_block_hours": _flags_value(company, "pos_catalog_block_hours") or 72,

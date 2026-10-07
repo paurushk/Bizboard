@@ -783,3 +783,44 @@ def test_till_cash_is_not_counted_on_two_open_drawers(tenant_a):
     assert "pos_till_ambiguous" in str(refused.data)
     assert SupplierPayment.objects.filter(company=tenant_a.company).count() == 1
 
+
+
+def _offline_credit_bill(tenant, customer, product):
+    return tenant.client.post(
+        "/api/v1/sales/invoices/pos-checkout/",
+        {
+            "invoice": {
+                "customer": customer.id,
+                "invoice_type": "NON_GST",
+                "invoice_date": "2026-10-07",
+                "items": [{
+                    "product": product.id,
+                    "quantity": "1",
+                    "unit_price": "10.00",
+                    "gst_rate": "0",
+                }],
+            },
+            "payment": {"mode": "CREDIT"},
+            "offline_credit": True,
+            "credit_cached_at": "2020-01-01T00:00:00",
+        },
+        format="json",
+    )
+
+
+def test_offline_credit_is_on_unless_the_owner_turns_it_off(tenant_a):
+    product = make_product(tenant_a.company, sku="POS-OFFC-DEFAULT", gst_rate="0", selling_price="10")
+    add_stock(tenant_a, product, "3")
+    customer = make_customer(tenant_a.company, name="Default on")
+    settings = tenant_a.client.get("/api/v1/sales/pos/settings/")
+    assert settings.data["offline_credit"] is True
+    # The switch is on, so the request gets past it and meets the next rule (a stale credit check).
+    reached = _offline_credit_bill(tenant_a, customer, product)
+    assert "pos_offline_credit_stale" in str(reached.data)
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["pos_offline_credit"] = False
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+    assert tenant_a.client.get("/api/v1/sales/pos/settings/").data["offline_credit"] is False
+    refused = _offline_credit_bill(tenant_a, customer, product)
+    assert "pos_offline_credit_off" in str(refused.data)

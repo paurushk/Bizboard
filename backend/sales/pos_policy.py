@@ -43,6 +43,11 @@ def expired_lot_policy(company) -> str:
     return str(_flags(company).get("pos_expired_lot_policy") or "REASON").upper()
 
 
+def offline_credit_enabled(company) -> bool:
+    """Offline named-customer credit is on unless the owner turned it off."""
+    return bool(_flags(company).get("pos_offline_credit", True))
+
+
 def pin_configured(company) -> bool:
     from sales.models import PosApproverPin
 
@@ -456,7 +461,7 @@ def _assert_offline_credit(invoice, *, mode: str, offline: bool, credit_cached_a
         )
     if "CREDIT" not in modes:
         return
-    if not _flags(invoice.company).get("pos_offline_credit"):
+    if not offline_credit_enabled(invoice.company):
         raise BusinessRuleError("Offline credit is turned off for this company.", code="pos_offline_credit_off")
     from datetime import timedelta
     from django.utils.dateparse import parse_datetime
