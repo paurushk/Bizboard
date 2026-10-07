@@ -927,10 +927,19 @@ class SalesService:
     def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
                  confirm_gstin_total_change=False, confirm_missing_licence=False,
                  gst_guard_override_reason=None, fefo_override=False, unlock_code=None, below_cost_override_reason="",
+                 below_cost_owner_approved=False,
                  pharmacy_patient="", pharmacy_prescriber="", pharmacy_registration="",
-                 pharmacy_prescription=""):
+                 pharmacy_prescription="", pharmacy_prescription_file=None):
         """Atomic Complete: rules + number + SALE movements + PDF event (E4.4)."""
+        # select_for_update reloads the row and would drop the POS settlement
+        # marker set on the unsaved instance before this call.
+        pos_settlement = getattr(invoice, "_pos_settlement", None)
+        pos_pin_ok = getattr(invoice, "_pos_owner_pin_ok", False)
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
+        if pos_settlement is not None:
+            invoice._pos_settlement = pos_settlement
+        if pos_pin_ok:
+            invoice._pos_owner_pin_ok = pos_pin_ok
         from accounts.models import CompanyUser
 
         is_admin = bool(
@@ -996,6 +1005,7 @@ class SalesService:
                 prescriber_name=pharmacy_prescriber,
                 prescriber_registration=pharmacy_registration,
                 prescription_note=pharmacy_prescription,
+                prescription_file=pharmacy_prescription_file,
                 quantity=line.quantity,
                 record=False,
             )
@@ -1021,7 +1031,8 @@ class SalesService:
 
             allowed_below_cost = assert_below_cost_blocked(
                 invoice.company, items,
-                override_reason=below_cost_override_reason, can_override=is_company_owner,
+                override_reason=below_cost_override_reason,
+                can_override=is_company_owner or bool(below_cost_owner_approved),
             )
             if allowed_below_cost:
                 AuditService.log(
@@ -1031,7 +1042,14 @@ class SalesService:
                     entity_type="SalesInvoice",
                     entity_id=str(invoice.pk),
                     description="Below-cost sale allowed by owner: " + below_cost_override_reason.strip()[:200],
-                    metadata={"lines": allowed_below_cost},
+                    metadata={
+                        "lines": allowed_below_cost,
+                        "approver_id": getattr(getattr(invoice, "_pos_approver", None), "pk", None),
+                        "approver_name": (
+                            getattr(getattr(invoice, "_pos_approver", None), "get_full_name", lambda: "")()
+                            or getattr(getattr(invoice, "_pos_approver", None), "username", "")
+                        ),
+                    },
                 )
 
         from core.services.billing import place_of_supply_known
@@ -1104,10 +1122,14 @@ class SalesService:
         from sales.order_gates import invoice_credit_override_covers
 
         if limit > 0 and not is_tally_opening and not invoice_credit_override_covers(invoice):
+            from sales.pos_policy import projected_exposure
+
             exposure = LedgerService.customer_exposure_for_credit_limit(
                 invoice.company, customer
             )
-            projected = exposure + invoice.grand_total
+            projected = projected_exposure(
+                exposure, invoice.grand_total, getattr(invoice, "_pos_settlement", None),
+            )
             if projected > limit:
                 raise BusinessRuleError(
                     f"Credit limit exceeded. Exposure {exposure} + invoice "
@@ -1515,6 +1537,7 @@ class SalesService:
                     prescriber_name=pharmacy_prescriber,
                     prescriber_registration=pharmacy_registration,
                     prescription_note=pharmacy_prescription,
+                    prescription_file=pharmacy_prescription_file,
                     quantity=line.quantity,
                     invoice_number=invoice.number or "",
                     batch_no=getattr(getattr(line, "batch", None), "batch_no", "") or "",

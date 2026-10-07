@@ -17,13 +17,14 @@ class CashShiftRegisterSerializer(serializers.ModelSerializer):
     class Meta:
         model = CashShiftRegister
         fields = [
-            "id", "cashier", "business_date", "opening_float", "denominations",
+            "id", "cashier", "business_date", "opening_float", "cash_dropped", "denominations",
             "expected_cash", "counted_cash", "variance", "status", "locked_at",
+            "terminal_id", "terminal_label", "opened_at", "closed_at",
             "created_at", "updated_at",
         ]
         read_only_fields = [
-            "cashier", "expected_cash", "counted_cash", "variance", "status",
-            "locked_at", "denominations", "created_at", "updated_at",
+            "cashier", "cash_dropped", "expected_cash", "counted_cash", "variance", "status",
+            "locked_at", "closed_at", "opened_at", "denominations", "created_at", "updated_at",
         ]
 
 

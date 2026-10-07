@@ -10,6 +10,7 @@ from .phase1_views import (
 from .route_combine import RouteCombineView
 from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet, PodSlipView
 from .pos_batch import PosBatchSyncView
+from .pos_views import PosCollectView, PosCounterEventView, PosReturnView, PosSettingsView
 from .views import QuotationViewSet, RecurringInvoiceScheduleViewSet, SalesInvoiceViewSet, SalesReturnViewSet
 
 router = DefaultRouter()
@@ -26,6 +27,10 @@ router.register("recurring-schedules", RecurringInvoiceScheduleViewSet, basename
 
 urlpatterns = [
     path("pos/batch-sync/", PosBatchSyncView.as_view(), name="pos-batch-sync"),
+    path("pos/settings/", PosSettingsView.as_view(), name="pos-settings"),
+    path("pos/events/", PosCounterEventView.as_view(), name="pos-events"),
+    path("pos/collect/", PosCollectView.as_view(), name="pos-collect"),
+    path("pos/return/", PosReturnView.as_view(), name="pos-return"),
     path("delivery-routes/combine-suggestions/", RouteCombineView.as_view(), name="route-combine"),
     re_path(
         r"^delivery-routes/(?P<pk>[0-9]+)/stops/(?P<stop_id>[0-9]+)/pod\.pdf$",

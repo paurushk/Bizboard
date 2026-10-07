@@ -192,6 +192,13 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
                     cheque_image=serializer.validated_data.get("cheque_image"),
                     settlement_discount=serializer.validated_data.get("settlement_discount") or 0,
                 )
+                if (
+                    str(serializer.validated_data.get("mode", "CASH")).upper() == "CASH"
+                    and serializer.validated_data.get("paid_from_till")
+                ):
+                    from sales.pos_shift import mark_paid_from_till
+
+                    mark_paid_from_till(receipt, self.company, request.user)
                 if request.data.get("allocate_oldest") in (True, "true", "True", 1, "1"):
                     PaymentService.allocate_receipt_oldest_first(receipt=receipt, user=request.user)
         except Exception:
@@ -287,29 +294,37 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
 
             assert_period_allows_money_amend(self.company, serializer.validated_data.get("payment_date"))
             warning = period_complete_warning(self.company, serializer.validated_data.get("payment_date"))
-            payment = PaymentService.create_supplier_payment(
-                company=self.company,
-                supplier=serializer.validated_data["supplier"],
-                amount=serializer.validated_data["amount"],
-                mode=serializer.validated_data.get("mode", "CASH"),
-                payment_date=serializer.validated_data.get("payment_date"),
-                reference=serializer.validated_data.get("reference", ""),
-                utr=serializer.validated_data.get("utr", ""),
-                notes=serializer.validated_data.get("notes", ""),
-                bank_account=serializer.validated_data.get("bank_account"),
-                tds_section=serializer.validated_data.get("tds_section", ""),
-                tds_rate=serializer.validated_data.get("tds_rate"),
-                tds_amount=serializer.validated_data.get("tds_amount"),
-                user=request.user,
-                cheque_number=serializer.validated_data.get("cheque_number", ""),
-                cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
-                cheque_date=serializer.validated_data.get("cheque_date"),
-                cheque_image=serializer.validated_data.get("cheque_image"),
-                gstin_hold_override=str(request.data.get("gstin_hold_override") or "").lower() in (
-                    "true", "1", "yes",
-                ),
-                gstin_hold_reason=str(request.data.get("gstin_hold_reason") or ""),
-            )
+            with transaction.atomic():
+                payment = PaymentService.create_supplier_payment(
+                    company=self.company,
+                    supplier=serializer.validated_data["supplier"],
+                    amount=serializer.validated_data["amount"],
+                    mode=serializer.validated_data.get("mode", "CASH"),
+                    payment_date=serializer.validated_data.get("payment_date"),
+                    reference=serializer.validated_data.get("reference", ""),
+                    utr=serializer.validated_data.get("utr", ""),
+                    notes=serializer.validated_data.get("notes", ""),
+                    bank_account=serializer.validated_data.get("bank_account"),
+                    tds_section=serializer.validated_data.get("tds_section", ""),
+                    tds_rate=serializer.validated_data.get("tds_rate"),
+                    tds_amount=serializer.validated_data.get("tds_amount"),
+                    user=request.user,
+                    cheque_number=serializer.validated_data.get("cheque_number", ""),
+                    cheque_bank_name=serializer.validated_data.get("cheque_bank_name", ""),
+                    cheque_date=serializer.validated_data.get("cheque_date"),
+                    cheque_image=serializer.validated_data.get("cheque_image"),
+                    gstin_hold_override=str(request.data.get("gstin_hold_override") or "").lower() in (
+                        "true", "1", "yes",
+                    ),
+                    gstin_hold_reason=str(request.data.get("gstin_hold_reason") or ""),
+                )
+                if (
+                    str(serializer.validated_data.get("mode", "CASH")).upper() == "CASH"
+                    and serializer.validated_data.get("paid_from_till")
+                ):
+                    from sales.pos_shift import mark_paid_from_till
+
+                    mark_paid_from_till(payment, self.company, request.user)
         except Exception:
             if raw_key:
                 release_record(company=self.company, scope="supplier_payment_create", raw_key=raw_key)

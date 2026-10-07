@@ -491,6 +491,7 @@ class RegisterView(APIView):
                     feature_flags={
                         "ENABLE_ARCHETYPE_PACKS": True,
                         "NAV_PACK_DEFAULT": True,
+                        "pos_require_open_shift": True,
                     },
                 )
                 CompanyUser.objects.create(

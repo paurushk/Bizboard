@@ -413,6 +413,57 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     created_by=request.user,
                     updated_by=request.user,
                 )
+                from sales.pos_policy import apply_pos_invoice_rules, resolve_bank
+                from sales.pos_shift import assert_cash_shift, stamp_receipt
+
+                payment_preview = request.data.get("payment") or {}
+                splits_preview = request.data.get("payments")
+                terminal_id = str(request.data.get("terminal_id") or "")[:64]
+                terminal_label = str(request.data.get("terminal_label") or "")[:64]
+                invoice.terminal_id = terminal_id
+                invoice.terminal_label = terminal_label
+                invoice.pos_offline = bool(request.data.get("offline_credit"))
+                invoice.pos_outage_id = str(request.data.get("outage_id") or "")[:64]
+                salesperson = request.data.get("salesperson")
+                if salesperson not in (None, ""):
+                    from accounts.models import CompanyUser
+
+                    if not str(salesperson).isdigit() or not CompanyUser.objects.filter(
+                        company=self.company, user_id=int(salesperson), is_active=True,
+                    ).exists():
+                        raise BusinessRuleError("The salesperson is not an active user of this company.")
+                    invoice.salesperson_id = int(salesperson)
+                invoice.save(update_fields=[
+                    "terminal_id", "terminal_label", "pos_offline", "pos_outage_id", "salesperson", "updated_at",
+                ])
+                if isinstance(splits_preview, list) and len(splits_preview) >= 2:
+                    tender_modes = [str((part or {}).get("mode") or "") for part in splits_preview]
+                else:
+                    tender_modes = [str(payment_preview.get("mode") or "CASH")]
+                open_shift = assert_cash_shift(self.company, request.user, terminal_id, tender_modes)
+                if (request.data.get("offline") or invoice.pos_offline) and request.data.get("shift_id") not in (None, ""):
+                    from accounting.models import CashShiftRegister
+
+                    recorded = CashShiftRegister.objects.filter(
+                        company=self.company, pk=request.data.get("shift_id"),
+                    ).first()
+                    if recorded is None or recorded.status != CashShiftRegister.Status.OPEN:
+                        raise BusinessRuleError(
+                            "The till that took this offline bill is closed. Review the bill before posting.",
+                            code="pos_shift_closed",
+                        )
+                    open_shift = recorded
+                offline_sync = bool(request.data.get("offline") or request.data.get("offline_credit"))
+                apply_pos_invoice_rules(
+                    invoice,
+                    payment=payment_preview,
+                    splits=splits_preview,
+                    owner_pin=str(request.data.get("owner_pin") or ""),
+                    expired_reason=str(request.data.get("expired_lot_reason") or ""),
+                    user=request.user,
+                    offline=offline_sync,
+                    credit_cached_at=request.data.get("credit_cached_at"),
+                )
 
                 gst_guard_override_reason = request.data.get("gst_guard_override_reason") or None
                 confirm_blank_pos = str(
@@ -420,24 +471,49 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     or (raw_invoice or {}).get("confirm_blank_pos")
                     or ""
                 ).lower() in ("1", "true", "yes")
+                pin_approved = bool(getattr(invoice, "_pos_owner_pin_ok", False))
+                below_reason = str(request.data.get("below_cost_override_reason") or "")
+                if pin_approved and not below_reason:
+                    below_reason = "Owner PIN at the counter"
                 completed, _warnings = SalesService.complete(
                     invoice,
                     user=request.user,
                     gst_guard_override_reason=gst_guard_override_reason,
                     confirm_blank_pos=confirm_blank_pos,
-                    below_cost_override_reason=str(request.data.get("below_cost_override_reason") or ""),
+                    below_cost_override_reason=below_reason,
+                    below_cost_owner_approved=pin_approved,
+                    pharmacy_patient=str(request.data.get("pharmacy_patient") or ""),
+                    pharmacy_prescriber=str(request.data.get("pharmacy_prescriber") or ""),
+                    pharmacy_registration=str(request.data.get("pharmacy_registration") or ""),
+                    pharmacy_prescription=str(request.data.get("pharmacy_prescription") or ""),
+                    pharmacy_prescription_file=request.data.get("pharmacy_prescription_file"),
                 )
+                apply_raw = request.data.get("apply_advance")
+                if apply_raw not in (None, "", False, 0, "0"):
+                    from decimal import Decimal
+
+                    from ledgers.services import LedgerService
+                    from sales.pos_advance import apply_customer_advance
+
+                    if str(apply_raw).lower() in ("all", "true", "1"):
+                        advance_target = LedgerService.sales_invoice_outstanding(completed)
+                    else:
+                        advance_target = Decimal(str(apply_raw))
+                    apply_customer_advance(completed, advance_target, request.user)
 
                 payment_data = request.data.get("payment")
                 splits = request.data.get("payments")
                 receipt_data = None
                 if isinstance(splits, list) and len(splits) >= 2:
                     from decimal import Decimal
-                    from payments.models import BankAccount, PaymentMode
+                    from payments.models import PaymentMode
                     from payments.serializers import CustomerReceiptSerializer
                     from payments.services import PaymentService, cheque_fields_from_payload
 
+                    from ledgers.services import LedgerService
+
                     grand_total = Decimal(str(completed.grand_total or 0))
+                    due = Decimal(str(LedgerService.sales_invoice_outstanding(completed) or 0)).quantize(Decimal("0.01"))
                     parts = []
                     for part in splits:
                         parts.append(Decimal(str((part or {}).get("amount") or 0)))
@@ -447,24 +523,33 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                         or (payment_data or {}).get("confirm_totals_mismatch")
                         or ""
                     ).lower() in ("1", "true", "yes")
-                    drift = (split_total - grand_total).quantize(Decimal("0.01"))
+                    drift = (split_total - due).quantize(Decimal("0.01"))
+                    if drift > Decimal("0.05") and apply_raw not in (None, "", False, 0, "0"):
+                        overflow = drift
+                        for idx in range(len(parts) - 1, -1, -1):
+                            if overflow <= 0:
+                                break
+                            take = min(parts[idx], overflow)
+                            parts[idx] = (parts[idx] - take).quantize(Decimal("0.01"))
+                            overflow = (overflow - take).quantize(Decimal("0.01"))
+                        split_total = sum(parts, Decimal("0"))
+                        drift = (split_total - due).quantize(Decimal("0.01"))
                     if drift > Decimal("0.05"):
-                        # Never take more than the bill, confirmed or not.
                         raise BusinessRuleError(
-                            f"Split payments add up to {split_total}, more than the bill "
-                            f"of {grand_total}."
+                            f"Split payments add up to {split_total}, more than the "
+                            f"{due} still due."
                         )
                     if abs(drift) > Decimal("0.05") and not confirm_split_mismatch:
                         exc = BusinessRuleError(
                             (
-                                f"Till total changed from {split_total} to {grand_total}. "
+                                f"Till total changed from {split_total} to {due}. "
                                 "Re-confirm before completing."
                             ),
                             code="pos_totals_mismatch",
                             extra={
                                 "confirm_codes": ["pos_totals_mismatch"],
                                 "client_total": str(split_total),
-                                "server_total": str(grand_total),
+                                "server_total": str(due),
                             },
                         )
                         exc.status_code = status.HTTP_409_CONFLICT
@@ -488,11 +573,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                                 f"Unknown payment mode '{mode_str}'."
                             ) from exc
                         bank_account = None
-                        bank_acc_id = (part or {}).get("bank_account")
-                        if bank_acc_id:
-                            bank_account = BankAccount.objects.filter(
-                                company=self.company, pk=bank_acc_id,
-                            ).first()
+                        if mode_str in ("UPI", "CARD", "BANK", "CHEQUE"):
+                            bank_account = resolve_bank(self.company, mode_str)
                         receipt = PaymentService.create_receipt(
                             company=self.company,
                             customer=completed.customer,
@@ -511,11 +593,12 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                             amount=amount,
                             user=request.user,
                         )
+                        stamp_receipt(receipt, open_shift)
                         posted.append(CustomerReceiptSerializer(receipt).data)
                     receipt_data = posted[0] if posted else None
                 elif payment_data:
                     from decimal import Decimal
-                    from payments.models import BankAccount, PaymentMode
+                    from payments.models import PaymentMode
                     from payments.serializers import CustomerReceiptSerializer
                     from payments.services import PaymentService, cheque_fields_from_payload
 
@@ -533,9 +616,14 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     # walk-in customer's ledger (GL 2300). A smaller `amount` is a
                     # legitimate part-payment and is left as-is.
                     amount = min(requested, grand_total)
+                    from ledgers.services import LedgerService
+
+                    still_open = Decimal(str(LedgerService.sales_invoice_outstanding(completed) or 0))
+                    amount = min(amount, still_open)
                     notes = payment_data.get("notes") or ""
                     tendered_dec = Decimal(str(tendered)) if tendered is not None else requested
-                    change = tendered_dec - grand_total
+                    # With an advance applied the customer owes less than the bill.
+                    change = tendered_dec - min(grand_total, still_open)
                     if change > 0:
                         notes = f"Tendered: ₹{tendered_dec}, Change: ₹{change}. {notes}".strip()
                     elif tendered and tendered_dec != amount:
@@ -565,18 +653,24 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                             exc.status_code = status.HTTP_409_CONFLICT
                             raise exc
 
-                    bank_account = None
-                    bank_acc_id = payment_data.get("bank_account")
-                    if bank_acc_id:
-                        bank_account = BankAccount.objects.filter(
-                            company=self.company, pk=bank_acc_id
-                        ).first()
-
                     mode_str = str(payment_data.get("mode") or "CASH").upper()
                     try:
                         mode = PaymentMode(mode_str)
-                    except ValueError:
-                        mode = PaymentMode.CASH
+                    except ValueError as exc:
+                        raise BusinessRuleError(f"Unknown payment mode '{mode_str}'.") from exc
+                    if mode not in (
+                        PaymentMode.CASH, PaymentMode.CREDIT, PaymentMode.UPI,
+                        PaymentMode.CARD, PaymentMode.BANK, PaymentMode.CHEQUE,
+                    ):
+                        raise BusinessRuleError(f"Unknown payment mode '{mode_str}'.")
+
+                    # Cash stays on ledger 1100. Bank modes use the saved POS
+                    # account, never a bank id the browser sent.
+                    bank_account = None
+                    if mode == PaymentMode.CREDIT:
+                        amount = Decimal("0")
+                    elif mode_str in ("UPI", "CARD", "BANK", "CHEQUE"):
+                        bank_account = resolve_bank(self.company, mode_str)
 
                     # A short-collect of ₹0 is a deliberate "collect nothing
                     # now" choice — leave the invoice fully unpaid rather than
@@ -601,7 +695,20 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                             amount=min(amount, completed.grand_total),
                             user=request.user,
                         )
+                        stamp_receipt(receipt, open_shift)
                         receipt_data = CustomerReceiptSerializer(receipt).data
+                        if mode == PaymentMode.UPI:
+                            from core.services.audit import AuditService
+
+                            AuditService.log(
+                                company=self.company,
+                                user=request.user,
+                                action="UPDATE",
+                                entity_type="SalesInvoice",
+                                entity_id=str(completed.pk),
+                                description=f"UPI payment received {amount} on {completed.number}",
+                                metadata={"amount": str(amount), "mode": "UPI"},
+                            )
 
                 invoice_data = self.get_serializer(completed).data
                 invoice_data["gst_guard_warnings"] = getattr(completed, "_gst_guard_warnings", [])

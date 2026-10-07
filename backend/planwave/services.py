@@ -340,8 +340,20 @@ def pharmacy_required(company) -> bool:
     return bool(flags.get("pharmacy_enabled"))
 
 
+def _prescription_file_id(company, file_id):
+    if file_id in (None, ""):
+        return None
+    from core.models import FileAsset
+
+    asset = FileAsset.objects.filter(company=company, pk=file_id).first()
+    if asset is None:
+        raise BusinessRuleError("That prescription file is not in this company.")
+    return asset.id
+
+
 def assert_pharmacy_sale(*, company, product, patient_name="", prescriber_name="", prescriber_registration="",
-                         prescription_note="", quantity=None, record=True, invoice_number="", batch_no=""):
+                         prescription_note="", quantity=None, record=True, invoice_number="", batch_no="",
+                         prescription_file=None):
     """Check a Schedule H/H1/X sale has its details. ``record=False`` only checks.
 
     The invoice completion path checks first and records once, after the invoice has a number,
@@ -369,6 +381,7 @@ def assert_pharmacy_sale(*, company, product, patient_name="", prescriber_name="
         prescriber_registration=prescriber_registration,
         quantity=Decimal(str(quantity or "1")),
         prescription_note=prescription_note,
+        prescription_image_id=_prescription_file_id(company, prescription_file),
     )
 
 

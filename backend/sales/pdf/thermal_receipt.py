@@ -133,6 +133,12 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     story.append(Paragraph(f"Date: {_invoice_datetime(invoice)}", styles["body"]))
     if customer.name:
         story.append(Paragraph(f"Customer: {pdf_esc(customer.name)}", styles["body"]))
+    if getattr(invoice, "terminal_label", ""):
+        story.append(Paragraph(f"Terminal: {pdf_esc(invoice.terminal_label)}", styles["body"]))
+    cashier = getattr(getattr(invoice, "created_by", None), "get_full_name", None)
+    cashier_name = cashier() if callable(cashier) else ""
+    if cashier_name:
+        story.append(Paragraph(f"Cashier: {pdf_esc(cashier_name)}", styles["body"]))
     story.append(Spacer(1, 1 * mm))
     story.append(Paragraph("—" * (24 if narrow else 32), styles["divider"]))
     story.append(Spacer(1, 1 * mm))
@@ -257,12 +263,19 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
     ]))
     story.append(total_table)
 
-    if company.upi_id:
+    due = Decimal(str(getattr(invoice, "grand_total", 0) or 0))
+    try:
+        from ledgers.services import LedgerService
+
+        due = Decimal(str(LedgerService.sales_invoice_outstanding(invoice) or 0))
+    except Exception:
+        due = Decimal(str(getattr(invoice, "grand_total", 0) or 0))
+    if company.upi_id and due > 0:
         story.append(Spacer(1, 2 * mm))
         qr_size = 22 * mm if narrow else 26 * mm
         qr_png = build_upi_qr_png(
             company.upi_id,
-            amount=invoice.grand_total,
+            amount=due,
             note=f"Invoice {invoice.number or invoice.pk}",
         )
         if qr_png:
@@ -271,7 +284,12 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
             story.append(qr_img)
             story.append(Spacer(1, 1 * mm))
         story.append(Paragraph(f"UPI: {pdf_esc(company.upi_id)}", styles["center"]))
+    if getattr(invoice, "irn", ""):
+        story.append(Paragraph(f"IRN: {pdf_esc(str(invoice.irn)[:40])}", styles["center"]))
 
+    footer = (getattr(company, "invoice_terms", "") or "").strip().splitlines()
+    if footer:
+        story.append(Paragraph(pdf_esc(footer[0][:80]), styles["center"]))
     story.append(Spacer(1, 2 * mm))
     story.append(Paragraph("Thank you!", styles["center"]))
     story.append(Spacer(1, 3 * mm))

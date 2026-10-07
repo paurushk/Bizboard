@@ -74,12 +74,14 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
             "cheque_date",
             "cheque_status",
             "cheque_image",
+            "paid_from_till",
+            "shift",
             "settlement_discount",
             "dishonour_fee",
             "section_138_notice",
         ]
         read_only_fields = [
-            "number", "source", "gateway_payment", "status",
+            "number", "source", "gateway_payment", "status", "shift",
             "dishonour_fee", "section_138_notice",
         ]
 
@@ -172,8 +174,10 @@ class SupplierPaymentSerializer(serializers.ModelSerializer):
             "cheque_date",
             "cheque_status",
             "cheque_image",
+            "paid_from_till",
+            "shift",
         ]
-        read_only_fields = ["number", "source", "status"]
+        read_only_fields = ["number", "source", "status", "shift"]
 
     def get_allocated(self, obj) -> Decimal:
         return obj.allocations.filter(reversed_at__isnull=True).aggregate(total=Sum("amount"))["total"] or Decimal("0")
