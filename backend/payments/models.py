@@ -93,6 +93,14 @@ class CustomerReceipt(CompanyScopedModel):
         default=ReceiptStatus.POSTED,
         db_index=True,
     )
+    shift = models.ForeignKey(
+        "accounting.CashShiftRegister",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="receipts",
+    )
+    paid_from_till = models.BooleanField(default=False)
     bank_account = models.ForeignKey(
         BankAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="receipts"
     )
@@ -171,6 +179,14 @@ class SupplierPayment(CompanyScopedModel):
         default=SupplierPaymentStatus.POSTED,
         db_index=True,
     )
+    shift = models.ForeignKey(
+        "accounting.CashShiftRegister",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="supplier_payments",
+    )
+    paid_from_till = models.BooleanField(default=False)
     tds_section = models.CharField(max_length=16, blank=True)
     tds_rate = models.DecimalField(max_digits=6, decimal_places=3, default=0)
     tds_amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)

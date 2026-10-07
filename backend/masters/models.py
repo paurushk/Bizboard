@@ -97,6 +97,7 @@ class Customer(SoftDeleteFields, CompanyScopedModel):
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE)
     credit_limit = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     credit_days = models.PositiveIntegerField(default=0)
+    is_pos_walk_in = models.BooleanField(default=False)
     notes = models.TextField(blank=True)
     gstin_verification_status = models.CharField(max_length=16, blank=True, default="UNVERIFIED")
     gstin_legal_name = models.CharField(max_length=255, blank=True)
@@ -149,6 +150,11 @@ class Customer(SoftDeleteFields, CompanyScopedModel):
             models.UniqueConstraint(
                 fields=["company", "gstin"], condition=~models.Q(gstin="") & models.Q(is_deleted=False),
                 name="uniq_customer_gstin_per_company",
+            ),
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(is_pos_walk_in=True, is_deleted=False),
+                name="uniq_pos_walk_in_per_company",
             ),
         ]
 
