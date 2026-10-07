@@ -12,14 +12,18 @@ export function buildAtomicPosInvoicePayload(args: {
   lines: InvoiceDraftLine[];
   invoiceDiscount?: number;
   additionalCharges?: number;
+  invoiceDiscountMode?: 'BEFORE_TAX' | 'AFTER_TAX';
+  paymentTermsDays?: number;
 }) {
+  const terms = args.paymentTermsDays ?? 0;
   return {
     customer: args.customer,
     invoice_type: args.invoiceType,
     price_mode: args.priceModeInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
     invoice_date: args.invoiceDate,
     due_date: args.invoiceDate,
-    payment_terms_days: 0,
+    payment_terms_days: terms,
+    invoice_discount_mode: args.invoiceDiscountMode ?? 'AFTER_TAX',
     auto_round_off: true,
     warehouse: args.warehouseId,
     invoice_discount: args.invoiceDiscount ?? 0,

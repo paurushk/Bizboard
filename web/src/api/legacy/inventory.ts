@@ -9,6 +9,7 @@ export async function listStock(params?: {
   q?: string;
   cf?: Record<string, string[]>;
   productIds?: number[];
+  warehouse?: number;
 }): Promise<StockBalance[]> {
   const allIds = params?.productIds?.filter((id) => Number.isFinite(id));
   if (allIds && allIds.length > STOCK_ID_CHUNK) {
@@ -24,6 +25,7 @@ export async function listStock(params?: {
   const query = {
     q: params?.q,
     cf: params?.cf,
+    warehouse: params?.warehouse,
     ...(productIds?.length ? { product_ids: productIds.join(',') } : {}),
   };
   return withMocks(

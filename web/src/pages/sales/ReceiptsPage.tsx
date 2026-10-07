@@ -66,6 +66,7 @@ export function ReceiptsPage() {
   const [amount, setAmount] = useState('');
   const [oldestFirst, setOldestFirst] = useState(false);
   const [mode, setMode] = useState<PaymentMode>('CASH');
+  const [paidFromTill, setPaidFromTill] = useState(false);
   const [invoice, setInvoice] = useState<SalesInvoice | null>(null);
   const [allocAmount, setAllocAmount] = useState('');
   const [utr, setUtr] = useState('');
@@ -164,6 +165,7 @@ export function ReceiptsPage() {
           receiptDate: todayIso(),
           utr: utr || undefined,
           bankAccount: bankAccount ? Number(bankAccount) : undefined,
+          paidFromTill: mode === 'CASH' ? paidFromTill : undefined,
           chequeNumber: mode === 'CHEQUE' ? cheque.chequeNumber.trim() : undefined,
           chequeBankName: mode === 'CHEQUE' ? cheque.chequeBankName.trim() : undefined,
           chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
@@ -560,6 +562,12 @@ export function ReceiptsPage() {
                 </MenuItem>
               ))}
             </TextField>
+            {mode === 'CASH' ? (
+              <FormControlLabel
+                control={<Checkbox checked={paidFromTill} onChange={(event) => setPaidFromTill(event.target.checked)} />}
+                label={t('phase1.paidFromTill')}
+              />
+            ) : null}
             {mode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             {(mode === 'BANK' || mode === 'UPI') ? <TextField label={t('sweep.utrReference')} value={utr} onChange={(e) => setUtr(e.target.value)} helperText={t('sweep.utrDuplicateHelp')} /> : null}
             {(mode === 'BANK' || mode === 'UPI') ? <TextField select label={t('sweep.depositToBank')} value={bankAccount} onChange={(e) => setBankAccount(e.target.value)}>

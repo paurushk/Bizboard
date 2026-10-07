@@ -204,6 +204,7 @@ export interface Company {
   gspProvider?: string;
   gspCredentialsConfigured?: boolean;
   einvoiceEnabled?: boolean;
+  requirePaymentReference?: boolean;
   ewayEnabled?: boolean;
   ewayThresholdAmount?: string | number;
   aatoTurnover?: string | number | null;
@@ -267,6 +268,7 @@ export interface Customer {
   status: CustomerStatus;
   creditLimit?: string | number;
   creditDays?: number;
+  isPosWalkIn?: boolean;
   notes?: string;
   outstanding?: string | number;
   gstinVerificationStatus?: GstinVerificationStatus;

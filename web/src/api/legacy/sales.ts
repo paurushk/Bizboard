@@ -99,6 +99,22 @@ export async function posCheckout(
     invoice: Record<string, unknown>;
     /** Cashier confirmed a walk-in sale with no place of supply (assume local). */
     confirm_blank_pos?: boolean;
+    owner_pin?: string;
+    expired_lot_reason?: string;
+    terminal_id?: string;
+    terminal_label?: string;
+    apply_advance?: string;
+    offline_credit?: boolean;
+    pharmacy_patient?: string;
+    pharmacy_prescriber?: string;
+    pharmacy_registration?: string;
+    pharmacy_prescription?: string;
+    salesperson?: string | number;
+    pharmacy_prescription_file?: number;
+    offline?: boolean;
+    shift_id?: number;
+    outage_id?: string;
+    credit_cached_at?: string;
     payment?: {
       mode?: string;
       amount?: number | string;

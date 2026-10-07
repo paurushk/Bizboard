@@ -444,8 +444,8 @@ export async function flushOutbox(
   userId: number,
   sendFn: (draft: OutboxDraft) => Promise<void>,
   filter?: (draft: OutboxDraft) => boolean,
-): Promise<{ flushed: number; failed: number; conflicts: number; errors: string[] }> {
-  const empty = { flushed: 0, failed: 0, conflicts: 0, errors: [] as string[] };
+): Promise<{ flushed: number; failed: number; conflicts: number; errors: string[]; failedDrafts: OutboxDraft[] }> {
+  const empty = { flushed: 0, failed: 0, conflicts: 0, errors: [] as string[], failedDrafts: [] as OutboxDraft[] };
   const lockName = `bb-outbox-flush:${companyId}:${userId}`;
   const run = async () => {
     const drafts = (await listDrafts(companyId, userId)).filter(
@@ -455,6 +455,7 @@ export async function flushOutbox(
     let failed = 0;
     let conflicts = 0;
     const errors: string[] = [];
+    const failedDrafts: OutboxDraft[] = [];
     for (const draft of drafts) {
       try {
         for (const line of draft.lines ?? []) assertFlushableLine(line);
@@ -464,6 +465,7 @@ export async function flushOutbox(
       } catch (err) {
         const message = getErrorMessage(err);
         errors.push(message);
+        failedDrafts.push(draft);
         if (isPermanentConflict(err)) {
           // SR-51: park it — a retry will only fail the same way. The operator
           // resolves it from the outbox page.
@@ -482,7 +484,7 @@ export async function flushOutbox(
         }
       }
     }
-    return { flushed, failed, conflicts, errors };
+    return { flushed, failed, conflicts, errors, failedDrafts };
   };
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined;
   if (locks?.request) {

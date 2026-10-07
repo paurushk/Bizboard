@@ -1,6 +1,4 @@
-/** Scanner wedge timing and quantity prefixes (BUG-UI-002, BUG-UI-003).
- * PosPage is owned by other work, so the counter screen does not call these yet.
- */
+/** Scanner wedge timing and quantity prefixes (BUG-UI-002, BUG-UI-003). */
 
 const SCANNER_GAP_MS = 50;
 

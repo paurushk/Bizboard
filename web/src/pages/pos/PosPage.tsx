@@ -4,6 +4,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import Alert from '@mui/material/Alert';
+import Collapse from '@mui/material/Collapse';
 import AlertTitle from '@mui/material/AlertTitle';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -33,7 +34,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import RemoveIcon from '@mui/icons-material/Remove';
 import QrCodeScannerIcon from '@mui/icons-material/QrCodeScanner';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -62,14 +63,13 @@ import {
   type PosUpiPendingSnapshot,
 } from '@/pages/pos/posStatus';
 import { printPosThermalOrWarn } from '@/pages/pos/printPosThermal';
-import { DRAWER_KICK, printEscPos, readScaleWeight } from '@/lib/native';
+import { PosTillStrip } from '@/pages/pos/PosTillStrip';
+import { cashNeedsOpenShift, clearPosOutage, posOutageId, posTerminalId, posTerminalLabel } from '@/pages/pos/posTerminal';
+import { useTill } from '@/pages/pos/useTill';
+import { collectPosPayment, createPosHold, getPosSettings, listPosHolds, postPosEvent, releasePosHold, returnPosBill } from '@/pages/pos/posCounterApi';
+import { DRAWER_KICK, isNative, printEscPos, readScaleWeight } from '@/lib/native';
 import {
-  completeSalesInvoice,
-  createAllocation,
   createCustomer,
-  createReceipt,
-  createSalesInvoice,
-  deleteSalesInvoice,
   getCompany,
   getCustomer,
   getProduct,
@@ -78,27 +78,37 @@ import {
   listBatches,
   listCustomersPage,
   listPriceLists,
+  listProductsPage,
+  listSalesInvoicesPage,
   listStock,
   listWarehouses,
   posCheckout,
   searchProducts,
   shareInvoice,
+  uploadFile,
 } from '@/api/resources';
 import {
   getErrorCode,
   getErrorDetails,
   getErrorMessage,
-  newIdempotencyKey,
   userGestureIdempotencyKey,
 } from '@/api/client';
 import { trackShopFloor, trackInvoiceComplete, trackJourneyStarted, trackJourneyFailed, classifyCompleteFailure } from '@/lib/telemetry';
 import { onNetworkOnline, scanBarcode } from '@/lib/native';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
-import { isAtomicPosCheckoutEnabled, isPosEnabled } from '@/config/features';
+import { isPosEnabled } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { NumericField, parseSerialNumbersText, todayIso, useDebouncedValue } from '@/components/billing';
 import { availablePosBatches, expiryForChosenBatch } from '@/pages/pos/posBatchExpiry';
+import {
+  availableInWarehouse,
+  discountModeForCustomer,
+  lineSkipsStockGate,
+  offlineTenderAllowed,
+  offlineCreditBlock,
+  samePosLine,
+} from '@/pages/pos/posRules';
 import { LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -109,13 +119,15 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   enqueueDraft,
   flushOutbox,
+  isFlushableDraft,
   listDrafts,
   removeDraft,
   OUTBOX_WARNING_DISMISS_KEY,
   type InvoiceDraftLine,
 } from '@/offline/invoiceDraftCache';
-import { flushPosDraft } from '@/offline/flushPosCheckout';
-import type { Customer, PaymentMode, Product } from '@/types/domain';
+import { flushPosBatch, flushPosDraft } from '@/offline/flushPosCheckout';
+import { catalogAgeHours, catalogSellBlocked, findLocalCatalog, priceListMissing, syncPosCatalog, syncPosPriceLists } from '@/offline/posCatalog';
+import type { PaymentMode, Product } from '@/types/domain';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { posPayDisabledReason } from '@/completeGates/completeBlockers';
@@ -140,13 +152,12 @@ interface CartLine {
   batchNo?: string;
   /** Outbox snapshot already stored the alt-unit price; do not convert again. */
   priceAlreadyConverted?: boolean;
+  priceOverride?: number;
+  /** Shown when an offline sync of this line failed. */
+  syncError?: string;
 }
 
 const EMPTY_CHEQUE: ChequePaymentValues = { chequeNumber: '', chequeBankName: '', chequeDate: '' };
-
-function newPosSessionId() {
-  return `bill-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-}
 
 function posLineUnitPrice(
   product: Product,
@@ -197,7 +208,7 @@ function draftLinesFromCart(
     productName: line.product.name,
     sku: line.product.sku,
     quantity: line.quantity,
-    unitPrice: posLineUnitPrice(
+    unitPrice: line.priceOverride ?? posLineUnitPrice(
       line.product,
       line.quantity,
       line.unitName,
@@ -284,6 +295,7 @@ export function PosPage() {
   const { writesBlocked } = useSubscriptionGate();
   const companyId = user?.companyId ?? 0;
   const userId = user?.id ?? 0;
+  const queryClient = useQueryClient();
   const searchRef = useRef<HTMLInputElement>(null);
   const scanGaps = useRef<number[]>([]);
   const scanLast = useRef(0);
@@ -317,34 +329,51 @@ export function PosPage() {
       return 'CASH';
     }
   });
-  const rememberMethod = (m: PaymentMode) => {
+  const rememberMethod = useCallback((m: PaymentMode) => {
     setLastMethod(m);
     try {
       localStorage.setItem(`${POS_LAST_METHOD_KEY}:${companyId}`, m);
     } catch {
       // quota / private mode — non-fatal
     }
-  };
+  }, [companyId]);
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [heldCarts, setHeldCarts] = useState<{ id: string; label: string; cart: CartLine[]; at: number }[]>(() => {
-    try {
-      const raw = sessionStorage.getItem(`bb_pos_holds:${companyId}:${userId}`);
-      const parsed = raw ? JSON.parse(raw) as { id: string; label: string; cart: CartLine[]; at: number }[] : [];
-      const fresh = parsed.filter((row) => Date.now() - row.at < 24 * 60 * 60 * 1000);
-      return fresh;
-    } catch {
-      return [];
-    }
-  });
-  const rememberHolds = (rows: { id: string; label: string; cart: CartLine[]; at: number }[]) => {
-    setHeldCarts(rows);
-    try {
-      // Per company and user: another login in this tab must not recall these carts.
-      sessionStorage.setItem(`bb_pos_holds:${companyId}:${userId}`, JSON.stringify(rows));
-    } catch {
-      // quota / private mode: the held carts still work for this page view
-    }
-  };
+  const [heldCarts, setHeldCarts] = useState<{ id: string; label: string; cart: CartLine[]; at: number }[]>([]);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [showAdjust, setShowAdjust] = useState(false);
+  const [showMoreTenders, setShowMoreTenders] = useState(false);
+  const [ownerPin, setOwnerPin] = useState('');
+  const [refundMode, setRefundMode] = useState<'CASH' | 'BANK' | 'ADVANCE' | 'SPLIT'>('CASH');
+  const [applyAdvanceNext, setApplyAdvanceNext] = useState(false);
+  const [pharmacyPatient, setPharmacyPatient] = useState('');
+  const [pharmacyPrescriber, setPharmacyPrescriber] = useState('');
+  const [pharmacyRegistration, setPharmacyRegistration] = useState('');
+  const [pharmacyNote, setPharmacyNote] = useState('');
+  const [salespersonId, setSalespersonId] = useState('');
+  const [returnPick, setReturnPick] = useState<{
+    invoice: number;
+    exchange: boolean;
+    lines: Array<{ id: number; name: string; take: string }>;
+  } | null>(null);
+  const [prescriptionFileId, setPrescriptionFileId] = useState<number | null>(null);
+  const [expiredReason, setExpiredReason] = useState('');
+  const [paymentRef, setPaymentRef] = useState('');
+  const [recentBills, setRecentBills] = useState<{ id: number; number: string }[]>([]);
+  const [upiArmed, setUpiArmed] = useState(false);
+  const [pricePrompt, setPricePrompt] = useState<{ key: string; price: number; reason: string } | null>(null);
+  const [pinPrompt, setPinPrompt] = useState<{
+    mode: PaymentMode;
+    opts?: {
+      confirmBlankPos?: boolean;
+      confirmWalkIn?: boolean;
+      confirmTotalsMismatch?: boolean;
+      shortCollectAmount?: number;
+      splitPayments?: Array<{ mode: string; amount: string }>;
+    };
+  } | null>(null);
+  const [drawerAsk, setDrawerAsk] = useState(false);
+  const [scaleReady] = useState(() => typeof navigator !== 'undefined' && 'serial' in navigator);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'F2') {
@@ -439,9 +468,26 @@ export function PosPage() {
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const taxEnabled = preferredInvoiceType(company.data?.registrationType) !== 'NON_GST';
   const posInvoiceType = taxEnabled ? 'RETAIL' : 'NON_GST';
-  const customers = useQuery({
-    queryKey: ['pos-customers'],
-    queryFn: () => listCustomersPage({ pageSize: 100 }),
+  const debouncedCustomer = useDebouncedValue(customerQuery, 250);
+  const customerSearch = useQuery({
+    queryKey: ['pos-customer-search', debouncedCustomer],
+    queryFn: () => listCustomersPage({ q: debouncedCustomer, pageSize: 20, status: 'ACTIVE' }),
+    enabled: debouncedCustomer.trim().length >= 1,
+  });
+  const posSettings = useQuery({
+    queryKey: ['pos-settings', companyId],
+    queryFn: getPosSettings,
+    enabled: companyId > 0,
+  });
+  const recentServer = useQuery({
+    queryKey: ['pos-recent-bills', companyId],
+    queryFn: () => listSalesInvoicesPage({ pageSize: 5, status: 'COMPLETED' }),
+    enabled: companyId > 0,
+  });
+  const catalogProbe = useQuery({
+    queryKey: ['pos-catalog-count', companyId],
+    queryFn: () => listProductsPage({ pageSize: 1 }),
+    enabled: companyId > 0,
   });
   const selectedCustomer = useQuery({
     queryKey: ['customer', customerId],
@@ -507,33 +553,34 @@ export function PosPage() {
     enabled: debouncedQuery.length >= 1 || hasCf,
   });
   const stockBalances = useQuery({
-    queryKey: ['stock'],
-    queryFn: () => listStock(),
+    queryKey: ['stock', warehouseId],
+    queryFn: () => listStock(warehouseId ? { warehouse: Number(warehouseId) } : {}),
     staleTime: 60_000,
+    refetchOnWindowFocus: true,
   });
+  const tillToday = useTill(posTerminalId());
+  const tillShift = tillToday.data?.shift;
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
 
   if (!warehouseId && warehouses.data?.length) {
     const fallback = warehouses.data.find((row) => row.isDefault) ?? warehouses.data[0];
     if (fallback && warehouseId !== fallback.id) setWarehouseId(fallback.id);
   }
-  const availableByProduct = useMemo(() => {
-    const map = new Map<number, number>();
-    for (const s of stockBalances.data ?? []) {
-      const id = Number(s.product);
-      map.set(id, (map.get(id) ?? 0) + toNumber(s.available));
-    }
-    return map;
-  }, [stockBalances.data]);
+  const availableByProduct = useMemo(
+    () => availableInWarehouse(stockBalances.data ?? [], warehouseId),
+    [stockBalances.data, warehouseId],
+  );
 
   useEffect(() => {
     if (!stockBalances.data || warehouseId === '') return;
+    // Stock arrives after the line was added, so the earliest lot is filled in once it lands.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCart((prev) => {
       let changed = false;
       const next = prev.map((line) => {
         if (!line.product.trackBatch || String(line.batchNo ?? '').trim()) return line;
         const lots = availablePosBatches(stockBalances.data ?? [], line.product.id, warehouseId);
-        if (lots.length !== 1) return line;
+        if (!lots.length) return line;
         changed = true;
         return { ...line, batchNo: lots[0].batchNo };
       });
@@ -546,6 +593,7 @@ export function PosPage() {
     if (!stockBalances.data || stockBalances.isError) return false;
     const needed = new Map<number, number>();
     for (const line of cart) {
+      if (lineSkipsStockGate(line.product)) continue;
       needed.set(line.product.id, (needed.get(line.product.id) ?? 0) + toNumber(line.quantity));
     }
     for (const [id, qty] of needed) {
@@ -559,18 +607,84 @@ export function PosPage() {
   );
 
   const activeCustomers = useMemo(() => {
-    const rows = (customers.data?.results ?? []).filter((c) => c.status === 'ACTIVE');
-    return [...rows].sort((a, b) => {
-      const aw = /walk[\s-]?in/i.test(a.name) ? 0 : 1;
-      const bw = /walk[\s-]?in/i.test(b.name) ? 0 : 1;
-      return aw - bw || a.name.localeCompare(b.name);
-    });
-  }, [customers.data?.results]);
+    const rows = (customerSearch.data?.results ?? []).filter((c) => c.status === 'ACTIVE' && !c.isPosWalkIn);
+    return rows.sort((a, b) => a.name.localeCompare(b.name));
+  }, [customerSearch.data?.results]);
 
+  const walkInLookup = useQuery({
+    queryKey: ['pos-walk-in', companyId],
+    queryFn: () => listCustomersPage({ pageSize: 1, is_pos_walk_in: '1' }),
+    enabled: companyId > 0,
+  });
   const walkInCustomer = useMemo(
-    () => activeCustomers.find((c) => /walk[\s-]?in/i.test(c.name)),
-    [activeCustomers],
+    () => walkInLookup.data?.results?.[0] ?? activeCustomers.find((c) => c.isPosWalkIn),
+    [activeCustomers, walkInLookup.data],
   );
+  useEffect(() => {
+    if (!companyId || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      const storageKey = `bb_pos_holds:${companyId}:${userId}`;
+      const migratedKey = `bb_pos_sessions_parked:${companyId}:${userId}`;
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        const local = raw ? JSON.parse(raw) as { label?: string; cart?: CartLine[]; at?: number }[] : [];
+        for (const row of local) {
+          if (row.cart?.length) await createPosHold(row.label || 'Cart', { cart: row.cart, at: row.at });
+        }
+        sessionStorage.removeItem(storageKey);
+      } catch {
+        /* the server list replaces the device store */
+      }
+      if (!sessionStorage.getItem(migratedKey)) {
+        sessionStorage.setItem(migratedKey, '1');
+        try {
+          const read = readDraft<{
+            sessions: Record<string, PosBillSession>;
+            activeSessionId: string;
+            sessionIds: string[];
+          }>(companyId, userId, 'pos-sessions');
+          if (read.ok) {
+            const ids = (read.payload.sessionIds?.length
+              ? read.payload.sessionIds
+              : [read.payload.activeSessionId]).filter(Boolean);
+            const activeId = read.payload.activeSessionId;
+            for (const id of ids) {
+              if (id === activeId) continue;
+              const extra = read.payload.sessions?.[id];
+              if (extra?.cart?.length) {
+                await createPosHold(t('pos.holdCart'), { cart: extra.cart, at: Date.now() });
+              }
+            }
+          }
+        } catch {
+          sessionStorage.removeItem(migratedKey);
+        }
+      }
+      try {
+        const rows = await listPosHolds();
+        if (cancelled) return;
+        setHeldCarts(rows.map((row) => ({
+          id: String(row.id),
+          label: row.label,
+          cart: Array.isArray(row.payload?.cart) ? row.payload.cart as CartLine[] : [],
+          at: Number(row.payload?.at) || Date.now(),
+        })));
+      } catch {
+        /* offline: nothing to recall until the server answers */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, userId]);
+  useEffect(() => {
+    const onFocus = () => {
+      void queryClient.invalidateQueries({ queryKey: ['stock'] });
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [queryClient]);
 
   // Not while the cashier chose "name only": that choice is exactly "no saved customer".
   if (!customerId && !nameOnlySale && walkInCustomer?.id) setCustomerId(walkInCustomer.id);
@@ -709,15 +823,20 @@ export function PosPage() {
 
   const totals = useMemo(
     () =>
-      calculateInvoiceTotals(
+        calculateInvoiceTotals(
         lineTaxes.map((tax, i) => ({
           ...tax,
           gstRate: taxEnabled ? toNumber(cart[i]?.product.gstRate) : 0,
           intraState,
         })),
-        { applyRoundOff: true, invoiceDiscount, additionalCharges, invoiceDiscountMode: 'AFTER_TAX' },
+        {
+          applyRoundOff: true,
+          invoiceDiscount,
+          additionalCharges,
+          invoiceDiscountMode: discountModeForCustomer(Boolean(selectedCustomer.data?.gstin)),
+        },
       ),
-    [lineTaxes, cart, intraState, taxEnabled, invoiceDiscount, additionalCharges],
+    [lineTaxes, cart, intraState, taxEnabled, invoiceDiscount, additionalCharges, selectedCustomer.data?.gstin],
   );
 
   const tenderedAmount =
@@ -789,6 +908,8 @@ export function PosPage() {
         restoreSession(snap);
         setActiveSessionId(activeId);
         heldLineCountRef.current = snap.cart?.length ?? 0;
+        const activeIdForTabs = snap.id || read.payload.activeSessionId;
+        if (ids.some((id) => id !== activeIdForTabs)) setSessionIds([activeIdForTabs]);
       } else {
         heldLineCountRef.current = 0;
       }
@@ -901,29 +1022,32 @@ export function PosPage() {
     setActiveSessionId(id);
   }, [activeSessionId, captureSession, restoreSession]);
 
+  const recallHold = useCallback((row: { id: string; cart: CartLine[] }) => {
+    void (async () => {
+      const current = cartRef.current;
+      if (current.length > 0) {
+        const parked = await createPosHold(t('pos.holdCart'), { cart: current, at: Date.now() });
+        setHeldCarts((prev) => [
+          ...prev.filter((item) => item.id !== row.id),
+          { id: String(parked.id), label: t('pos.holdCart'), cart: current, at: Date.now() },
+        ]);
+      } else {
+        setHeldCarts((prev) => prev.filter((item) => item.id !== row.id));
+      }
+      await releasePosHold(row.id);
+      setCart(row.cart);
+      searchRef.current?.focus();
+    })().catch((err) => setError(getErrorMessage(err)));
+  }, []);
+
   const holdAndCreateSession = useCallback(() => {
-    sessionStore.current[activeSessionId] = captureSession();
-    const id = newPosSessionId();
-    const empty: PosBillSession = {
-      id,
-      cart: [],
-      customerId: '',
-      warehouseId,
-      cashTendered: '',
-      idempotencyKey: null,
-      upiPending: null,
-      cashPending: null,
-      walkInName: '',
-      serverTenderTotal: null,
-      cheque: EMPTY_CHEQUE,
-      invoiceDiscount: 0,
-      additionalCharges: 0,
-    };
-    sessionStore.current[id] = empty;
-    restoreSession(empty);
-    setSessionIds((prev) => [...prev, id]);
-    setActiveSessionId(id);
-  }, [activeSessionId, captureSession, restoreSession, warehouseId]);
+    if (cart.length === 0) return;
+    void createPosHold(t('pos.holdCart'), { cart, at: Date.now() }).then((created) => {
+      setHeldCarts((prev) => [...prev, { id: String(created.id), label: t('pos.holdCart'), cart, at: Date.now() }]);
+      setCart([]);
+      searchRef.current?.focus();
+    }).catch((err) => setError(getErrorMessage(err)));
+  }, [cart]);
 
   // CR-091 / CR-106 / CR-108 / CR-109: restore mid-settlement after reload.
   useEffect(() => {
@@ -972,9 +1096,19 @@ export function PosPage() {
 
   const addProduct = (product: Product | null, quantity = 1, opts?: { fromScan?: boolean }) => {
     if (!product || product.status !== 'ACTIVE') return;
+    if (companyId && catalogSellBlocked(catalogAgeHours(companyId), posSettings.data?.catalogBlockHours ?? 72)) {
+      setError(t('pos.catalogueStale', { hours: String(Math.floor(catalogAgeHours(companyId) ?? 0)) }));
+      return;
+    }
     if (cashPending || upiPending) {
       setError(t('pos.finishPendingSettlement'));
       return;
+    }
+    if (product.trackBatch || product.trackSerial) {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        setError(t('pos.offlineLotBlocked'));
+        return;
+      }
     }
     let incomingSerials: string[] | undefined;
     if (product.trackSerial) {
@@ -988,7 +1122,16 @@ export function PosPage() {
     trackShopFloor('pos_line_added');
     setSaleJustCompleted(false);
     setCart((prev) => {
-      const existing = prev.find((l) => l.product.id === product.id);
+      const lotsForMerge = product.trackBatch
+        ? availablePosBatches(stockBalances.data ?? [], product.id, warehouseId)
+        : [];
+      const incomingBatch = product.trackBatch ? lotsForMerge[0]?.batchNo : undefined;
+      const existing = prev.find((l) =>
+        samePosLine(
+          { productId: l.product.id, batchNo: l.batchNo, trackBatch: l.product.trackBatch },
+          { productId: product.id, batchNo: incomingBatch, trackBatch: product.trackBatch },
+        ),
+      );
       if (existing) {
         return prev.map((l) =>
           l.key === existing.key
@@ -1014,7 +1157,7 @@ export function PosPage() {
           discountPercent: 0,
           unitName: product.unitName || 'PCS',
           serialNumbers: incomingSerials,
-          batchNo: lots.length === 1 ? lots[0].batchNo : undefined,
+          batchNo: lots[0]?.batchNo,
         },
       ];
     });
@@ -1051,6 +1194,25 @@ export function PosPage() {
     if (!q) return;
     let matches: Product[] = [];
     try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false && companyId) {
+        const local = await findLocalCatalog(companyId, q);
+        if (local) {
+          addProduct({
+            id: local.id,
+            name: local.name,
+            sku: local.sku,
+            barcode: local.barcode,
+            sellingPrice: local.price,
+            gstRate: local.gst,
+            hsnCode: local.hsn,
+            unitName: local.unit,
+            trackBatch: local.trackBatch,
+            trackSerial: local.trackSerial,
+            status: 'ACTIVE',
+          } as Product, qty, { fromScan: true });
+          return;
+        }
+      }
       matches = (await searchProducts(q)).filter((p) => p.status === 'ACTIVE');
     } catch {
       matches = (products.data ?? []).filter((p) => p.status === 'ACTIVE');
@@ -1113,7 +1275,7 @@ export function PosPage() {
     setCart((prev) => prev.map((l) => (l.key === key ? { ...l, discountPercent: clamped } : l)));
   };
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setCart([]);
     if (idempotencyKey) void removeDraft(companyId, userId, idempotencyKey);
     setIdempotencyKey(null);
@@ -1132,13 +1294,15 @@ export function PosPage() {
     setCreditLimitBanner(null);
     setWaOffer(null);
     searchRef.current?.focus();
-  };
+  }, [companyId, idempotencyKey, userId]);
 
   /** Route a checkout failure to the dedicated credit-limit banner instead of
    * the generic error toast when that's what it is; otherwise unchanged. */
   const lastPayMode = useRef<PaymentMode>('CASH');
 
   const handleCheckoutError = useCallback((err: unknown) => {
+    // The owner PIN approves one attempt. A wrong or used PIN must not ride along on the next bill.
+    setOwnerPin('');
     if (getErrorCode(err) === 'pos_totals_mismatch') {
       const details = getErrorDetails(err) ?? {};
       const shown = Number(details.clientTotal ?? details.client_total);
@@ -1178,8 +1342,19 @@ export function PosPage() {
   const finishSale = useCallback(
     async (completed: { id: number; number?: string | null; whatsappOffer?: { phone?: string } }, key?: string) => {
       lastCompletedSaleRef.current = completed;
+      setOwnerPin('');
+      setExpiredReason('');
       const warn = await printPosThermalOrWarn(completed);
       setThermalWarn(warn);
+      setRecentBills((prev) => [
+        { id: completed.id, number: String(completed.number ?? `#${completed.id}`) },
+        ...prev.filter((row) => row.id !== completed.id),
+      ].slice(0, 5));
+      void queryClient.invalidateQueries({ queryKey: ['stock'] });
+      void queryClient.invalidateQueries({ queryKey: ['pos-recent-bills', companyId] });
+      if (walkInCustomer?.id) setCustomerId(walkInCustomer.id);
+      setNameOnlySale(false);
+      setWalkInName('');
       if (key) await removeDraft(companyId, userId, key);
       setCart([]);
       setIdempotencyKey(null);
@@ -1203,7 +1378,7 @@ export function PosPage() {
         setWaOffer(null);
       }
     },
-    [companyId, selectedCustomer.data?.phone, userId],
+    [companyId, queryClient, selectedCustomer.data?.phone, userId, walkInCustomer],
   );
 
   const sendWaMutation = useMutation({
@@ -1230,102 +1405,6 @@ export function PosPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  const createCompletedInvoice = useCallback(
-    async (lines: InvoiceDraftLine[], customer: number, key?: string, confirmBlankPos = false) => {
-      const invoiceDate = todayIso();
-      const isInclusive = company.data?.priceMode === 'INCLUSIVE';
-      const invoice = await createSalesInvoice(
-        {
-          customer,
-          invoiceType: posInvoiceType,
-          priceMode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
-          invoiceDate,
-          dueDate: invoiceDate,
-          paymentTermsDays: 0,
-          autoRoundOff: true,
-          warehouse: warehouseId ? Number(warehouseId) : undefined,
-          items: lines.map((line) => ({
-            product: line.productId,
-            description: line.productName,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            unitPriceInclusive: isInclusive ? line.unitPrice : undefined,
-            gstRate: taxEnabled ? line.gstRate : 0,
-            cessRate: taxEnabled ? toNumber((line as { cessRate?: number }).cessRate) : 0,
-            discountPercent: line.discountPercent ?? 0,
-            unitName: line.unitName || undefined,
-            ...(line.serials?.length ? { serialNumbers: line.serials } : {}),
-            ...(line.batchNo ? { batchNo: line.batchNo } : {}),
-          })),
-        },
-        { idempotencyKey: key },
-      );
-      const started = Date.now();
-      trackJourneyStarted('invoice_complete', 'pos');
-      try {
-        // F2-004: a stable key derived from the create key means a retry
-        // that reaches the server again (rather than minting a fresh key,
-        // see `checkout`) replays the already-completed response instead
-        // of erroring on "already completed".
-        const completedInv = await completeSalesInvoice(invoice.id, {
-          confirmBlankPos,
-          idempotencyKey: key ? `${key}-complete` : undefined,
-        });
-        trackInvoiceComplete(Date.now() - started, pointerCount.current);
-        pointerCount.current = 0;
-        return completedInv;
-      } catch (err) {
-        // F2-004: `completeSalesInvoice` may have actually succeeded
-        // server-side with the response lost in transit (the flaky
-        // connection POS is built for). Blindly deleting + rethrowing used
-        // to strand that now-COMPLETED-but-unpaid invoice: the cashier's
-        // retry then minted a brand-new idempotency key (`checkout` always
-        // does), creating a *second* completed invoice — double stock
-        // decrement, and the first invoice never got a receipt/allocation.
-        // Probe the invoice's own status before deciding.
-        let existing;
-        try {
-          existing = await getSalesInvoice(invoice.id);
-        } catch {
-          /* can't confirm either way -- handled below */
-        }
-        if (existing?.status === 'COMPLETED') {
-          trackInvoiceComplete(Date.now() - started, pointerCount.current);
-          pointerCount.current = 0;
-          return existing;
-        }
-        trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
-          durationMs: Date.now() - started,
-          feature: 'pos',
-        });
-        if (existing) {
-          // Confirmed still DRAFT -- genuinely failed, safe to clean up.
-          try {
-            await deleteSalesInvoice(invoice.id);
-          } catch {
-            /* leftover draft if delete is blocked */
-          }
-          setIdempotencyKey(null);
-          throw err;
-        }
-        // Status truly unknown (the probe itself failed too, e.g. still
-        // offline) -- don't guess. Deleting could discard a real sale and
-        // a blind cart retry could double-charge, so surface it the same
-        // way the UPI "collect later" path does instead of silently
-        // erroring: the cashier can look it up and finish it manually.
-        const recovered = unpaidRecoverFromAbort({
-          invoiceId: invoice.id,
-          invoiceNumber: invoice.number,
-        });
-        if (recovered) setUnpaidRecover(recovered);
-        setCart([]);
-        setIdempotencyKey(null);
-        throw err;
-      }
-    },
-    [company.data?.priceMode, posInvoiceType, taxEnabled, warehouseId],
-  );
-
   const performCashCheckout = useCallback(
     async (
       lines: InvoiceDraftLine[],
@@ -1345,7 +1424,7 @@ export function PosPage() {
       setError(null);
       setCreditLimitBanner(null);
       setMessage(null);
-      let settlement: CashPending | null =
+      const settlement: CashPending | null =
         posCashSettlementPhase(cashPending) === 'receipt_alloc' ? cashPending : null;
       try {
         let completed: { id: number; number?: string | null; grandTotal?: string | number };
@@ -1355,7 +1434,7 @@ export function PosPage() {
             number: settlement.invoiceNumber,
             grandTotal: settlement.amount,
           };
-        } else if (isAtomicPosCheckoutEnabled()) {
+        } else {
           const invoiceDate = todayIso();
           const isInclusive = company.data?.priceMode === 'INCLUSIVE';
           const tenderedVal =
@@ -1380,13 +1459,27 @@ export function PosPage() {
                   lines,
                   invoiceDiscount,
                   additionalCharges,
+                  invoiceDiscountMode: discountModeForCustomer(Boolean(selectedCustomer.data?.gstin)),
+                  paymentTermsDays: extras?.paymentMode === 'CREDIT' ? (selectedCustomer.data?.creditDays ?? 0) : 0,
                 }),
+                owner_pin: ownerPin || undefined,
+                expired_lot_reason: expiredReason || undefined,
+                terminal_id: posTerminalId(),
+                terminal_label: posTerminalLabel(),
+                apply_advance: applyAdvanceNext ? 'all' : undefined,
+                pharmacy_patient: pharmacyPatient || undefined,
+                pharmacy_prescriber: pharmacyPrescriber || undefined,
+                pharmacy_registration: pharmacyRegistration || undefined,
+                pharmacy_prescription: pharmacyNote || undefined,
+                pharmacy_prescription_file: prescriptionFileId || undefined,
+                salesperson: /^\d+$/.test(salespersonId) ? salespersonId : undefined,
                 payment: {
                   mode: extras?.paymentMode ?? 'CASH',
                   tendered_amount: tenderedVal,
                   amount: extras?.shortCollectAmount,
                   expected_total: extras?.expectedTotal,
                   confirm_totals_mismatch: Boolean(extras?.confirmTotalsMismatch),
+                  reference: paymentRef || undefined,
                   cheque_number: extras?.cheque?.chequeNumber || undefined,
                   cheque_bank_name: extras?.cheque?.chequeBankName || undefined,
                   cheque_date: extras?.cheque?.chequeDate || undefined,
@@ -1402,6 +1495,7 @@ export function PosPage() {
             pointerCount.current = 0;
             completed = atomicRes?.invoice ?? atomicRes;
             await finishSale(completed, key);
+            setApplyAdvanceNext(false);
             return;
           } catch (err) {
             trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
@@ -1410,20 +1504,7 @@ export function PosPage() {
             });
             throw err;
           }
-        } else {
-          completed = await createCompletedInvoice(lines, customer, key, confirmBlankPos);
-          settlement = {
-            invoiceId: completed.id,
-            invoiceNumber: String(completed.number ?? completed.id),
-            customer,
-            amount: toNumber(completed.grandTotal),
-            key,
-          };
-          setCashPending(settlement);
-          persistCashPending(companyId, userId, settlement);
         }
-        const invoiceDate = todayIso();
-        const receiptKey = key ? `${key}-receipt` : undefined;
         const invoiceTotal = toNumber(completed.grandTotal);
         const collected =
           extras?.shortCollectAmount != null && extras.shortCollectAmount > 0
@@ -1435,24 +1516,12 @@ export function PosPage() {
           const changeVal = (tenderedVal - collected).toFixed(2);
           receiptNotes += ` · Tendered: ₹${tenderedVal.toFixed(2)}, Change: ₹${changeVal}`;
         }
-        const receipt = await createReceipt(
-          {
-            customer,
-            amount: collected,
-            mode: 'CASH',
-            receiptDate: invoiceDate,
-            notes: receiptNotes,
-          },
-          { idempotencyKey: receiptKey },
-        );
-        await createAllocation(
-          {
-            receipt: receipt.id,
-            salesInvoice: completed.id,
-            amount: collected,
-          },
-          { idempotencyKey: key ? `${key}-alloc` : undefined },
-        );
+        await collectPosPayment({
+          invoice: completed.id,
+          mode: 'CASH',
+          amount: collected,
+          notes: receiptNotes,
+        });
         await finishSale(completed, key);
       } catch (err) {
         if (settlement) {
@@ -1473,11 +1542,21 @@ export function PosPage() {
       cashTendered,
       company.data,
       companyId,
-      createCompletedInvoice,
       finishSale,
       handleCheckoutError,
       invoiceDiscount,
+      ownerPin,
+      expiredReason,
+      applyAdvanceNext,
+      pharmacyPatient,
+      pharmacyPrescriber,
+      pharmacyRegistration,
+      pharmacyNote,
+      salespersonId,
+      paymentRef,
       posInvoiceType,
+      prescriptionFileId,
+      selectedCustomer.data,
       taxEnabled,
       userId,
       warehouseId,
@@ -1526,25 +1605,13 @@ export function PosPage() {
     setCreditLimitBanner(null);
     try {
       if (upiPending.invoiceId) {
-        const receiptKey = upiPending.key ? `${upiPending.key}-receipt` : newIdempotencyKey();
-        const receipt = await createReceipt(
-          {
-            customer: upiPending.customer,
-            amount: upiPending.amount,
-            mode: 'UPI',
-            receiptDate: todayIso(),
-            notes: `POS UPI — ${upiPending.invoiceNumber}`,
-          },
-          { idempotencyKey: receiptKey },
-        );
-        await createAllocation(
-          {
-            receipt: receipt.id,
-            salesInvoice: upiPending.invoiceId,
-            amount: upiPending.amount,
-          },
-          { idempotencyKey: `${receiptKey}-alloc` },
-        );
+        await collectPosPayment({
+          invoice: upiPending.invoiceId,
+          mode: 'UPI',
+          amount: upiPending.amount,
+          reference: paymentRef || undefined,
+          notes: `POS UPI — ${upiPending.invoiceNumber}`,
+        });
         await finishSale(
           { id: upiPending.invoiceId, number: upiPending.invoiceNumber },
           upiPending.key,
@@ -1574,8 +1641,13 @@ export function PosPage() {
                 invoiceDiscount: upiPending.invoiceDiscount ?? invoiceDiscount,
                 additionalCharges: upiPending.additionalCharges ?? additionalCharges,
               }),
+              owner_pin: ownerPin || undefined,
+              expired_lot_reason: expiredReason || undefined,
+              terminal_id: posTerminalId(),
+              terminal_label: posTerminalLabel(),
               payment: {
                 mode: 'UPI',
+                reference: paymentRef || undefined,
                 amount: upiPending.amount,
                 // CR-111: re-verify the amount quoted when the QR was shown
                 // against the server's authoritative total at confirm time —
@@ -1588,6 +1660,11 @@ export function PosPage() {
           trackInvoiceComplete(Date.now() - started, pointerCount.current);
           pointerCount.current = 0;
           await finishSale(atomicRes.invoice, upiPending.key);
+          void postPosEvent({
+            kind: 'upi_received',
+            invoiceId: atomicRes.invoice.id,
+            detail: `UPI ${upiPending.amount}`,
+          });
         } catch (err) {
           trackJourneyFailed('invoice_complete', classifyCompleteFailure(err), {
             durationMs: Date.now() - started,
@@ -1610,7 +1687,10 @@ export function PosPage() {
     companyId,
     finishSale,
     handleCheckoutError,
+    expiredReason,
     invoiceDiscount,
+    ownerPin,
+    paymentRef,
     posInvoiceType,
     taxEnabled,
     unitPriceFor,
@@ -1626,6 +1706,27 @@ export function PosPage() {
     setIsFlushing(true);
     const thermalWarns: Array<{ invoiceId: number; number: string }> = [];
     try {
+      const queued = (await listDrafts(companyId, userId))
+        .filter((draft) => draft.kind === 'pos' && isFlushableDraft(draft) && Number(draft.customerId || draft.payload?.customer || 0) > 0)
+        .slice(0, 50);
+      if (queued.length > 1) {
+        // Bulk sync first. A bill it refuses is left in the outbox, and the one-by-one pass
+        // below retries it with the full error handling. A transport failure falls through too.
+        try {
+          const batch = await flushPosBatch(queued);
+          const failed = new Set(batch.errors.map((row) => row.index));
+          for (let index = 0; index < queued.length; index += 1) {
+            if (!failed.has(index)) await removeDraft(companyId, userId, queued[index].idempotencyKey);
+          }
+          for (const invoice of batch.invoices) {
+            if (!invoice.id) continue;
+            const warn = await printPosThermalOrWarn({ id: Number(invoice.id), number: invoice.number });
+            if (warn) thermalWarns.push(warn);
+          }
+        } catch {
+          /* the single-bill pass below will retry every draft */
+        }
+      }
       const result = await flushOutbox(
         companyId,
         userId,
@@ -1639,14 +1740,37 @@ export function PosPage() {
             if (warn) thermalWarns.push(warn);
           }
         },
-        (draft) => draft.kind === 'pos',
+        (draft) => draft.kind === 'pos' && isFlushableDraft(draft),
       );
       if (result.failed > 0) {
         trackShopFloor('offline_flush_fail');
+        const failedDraft = result.failedDrafts?.[0];
+        if (failedDraft?.lines?.length) {
+          const restored: CartLine[] = [];
+          for (const line of failedDraft.lines) {
+            try {
+              const product = await getProduct(line.productId);
+              restored.push({
+                key: `${product.id}-${restored.length}`,
+                product,
+                quantity: line.quantity,
+                discountPercent: line.discountPercent ?? 0,
+                unitName: line.unitName || product.unitName || 'PCS',
+                serialNumbers: line.serials,
+                batchNo: line.batchNo,
+                priceOverride: line.unitPrice,
+                priceAlreadyConverted: true,
+                syncError: result.errors[0] || t('pos.lineSyncFailed'),
+              });
+            } catch {
+              /* the line stays in the outbox */
+            }
+          }
+          if (restored.length) setCart(restored);
+        }
         setError(
-          t('pos.syncFailedDetail', {
-            failed: String(result.failed),
-            errors: result.errors.slice(0, 3).join(' · '),
+          t('pos.syncReopened', {
+            error: result.errors.slice(0, 2).join(' · '),
           }),
         );
       } else if (result.flushed > 0) {
@@ -1668,15 +1792,49 @@ export function PosPage() {
     } finally {
       flushGuard.current = false;
       setIsFlushing(false);
+      if ((typeof navigator === 'undefined' || navigator.onLine) && companyId && userId) {
+        const left = await listDrafts(companyId, userId);
+        if (!left.some((draft) => draft.kind === 'pos')) clearPosOutage();
+      }
     }
   }, [companyId, userId]);
+
+  // The catalogue follows the company, not the customer: switching customer must not re-download it.
+  useEffect(() => {
+    if (!companyId || (typeof navigator !== 'undefined' && navigator.onLine === false)) return undefined;
+    void syncPosCatalog(companyId).catch(() => undefined);
+    const timer = window.setInterval(() => {
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        void syncPosCatalog(companyId).catch(() => undefined);
+      }
+    }, 15 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [companyId]);
+
+  useEffect(() => {
+    if (!companyId || (typeof navigator !== 'undefined' && navigator.onLine === false)) return undefined;
+    const customers = customerId ? [Number(customerId)] : [];
+    void syncPosPriceLists(companyId, customers).catch(() => undefined);
+    if (customerId) {
+      localStorage.setItem(`bb_pos_credit_cached:${companyId}:${customerId}`, new Date().toISOString());
+    }
+    const timer = window.setInterval(() => {
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        void syncPosPriceLists(companyId, customers).catch(() => undefined);
+      }
+    }, 15 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [companyId, customerId]);
 
   useEffect(() => {
     const onOnline = () => {
       setOffline(false);
       void flushPendingDraft();
     };
-    const onOffline = () => setOffline(true);
+    const onOffline = () => {
+      posOutageId();
+      setOffline(true);
+    };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     // SR-34: the DOM online event is unreliable inside the Android WebView —
@@ -1721,6 +1879,25 @@ export function PosPage() {
       if (posMissingSerial) {
         setError(t('pos.serialRequired'));
         setSerialBatchError({ mode, message: t('pos.serialRequired') });
+        return;
+      }
+      if (posSettings.data?.periodBlocked) {
+        setError(posSettings.data.periodMessage || t('pos.periodClosed'));
+        return;
+      }
+      const pricedBelowCost = cart.some((line) => {
+        const price = line.priceOverride ?? unitPriceFor(line.product.id, line.quantity, line.product.sellingPrice);
+        const cost = toNumber(line.product.purchasePrice);
+        return cost > 0 && price + 1e-9 < cost;
+      });
+      const cap = toNumber(posSettings.data?.maxLineDiscount ?? 100);
+      const overCap = cart.some((line) => (line.discountPercent || 0) > cap + 1e-9);
+      if ((pricedBelowCost || overCap) && !ownerPin) {
+        if (!posSettings.data?.pinConfigured) {
+          setError(t('pos.pinNotSet'));
+          return;
+        }
+        setPinPrompt({ mode, opts });
         return;
       }
       // Confirm-dialog retries must not be blocked by the busy flag from the
@@ -1796,7 +1973,16 @@ export function PosPage() {
           setCustomerId(walkInCustomer.id);
         } else if (online) {
           try {
-            const created = await createCustomer({ name: t('pos.walkInCustomer'), status: 'ACTIVE' });
+            let created: { id: number };
+            try {
+              created = await createCustomer({ name: t('pos.walkInCustomer'), status: 'ACTIVE', isPosWalkIn: true });
+            } catch (createErr) {
+              // Another counter may have just created the one walk-in party.
+              const again = await listCustomersPage({ pageSize: 1, is_pos_walk_in: '1' });
+              const found = again.results?.[0];
+              if (!found) throw createErr;
+              created = found;
+            }
             effectiveCustomerId = created.id;
             setCustomerId(created.id);
           } catch {
@@ -1804,6 +1990,10 @@ export function PosPage() {
             return;
           }
         }
+      }
+      if (mode === 'CREDIT' && walkInCustomer && Number(effectiveCustomerId) === walkInCustomer.id) {
+        setError(t('pos.creditNeedsName'));
+        return;
       }
       if (cart.length === 0) {
         setError(t('pos.cartEmpty'));
@@ -1900,7 +2090,11 @@ export function PosPage() {
         taxEnabled &&
         !String(cust?.state || '').trim() &&
         !String((cust as { gstin?: string } | undefined)?.gstin || '').trim();
-      if (blankPos && !opts?.confirmBlankPos) {
+      const assumedWalkIn =
+        Boolean(company.data?.assumeLocalStateForBlankParty) &&
+        Boolean(walkInCustomer) &&
+        Number(effectiveCustomerId) === walkInCustomer?.id;
+      if (blankPos && !opts?.confirmBlankPos && !assumedWalkIn) {
         setBlankPosMode(mode);
         checkoutGuard.current = false;
         setBusy(false);
@@ -1910,6 +2104,49 @@ export function PosPage() {
       const lines = draftLinesFromCart(cart, taxEnabled, (id, qty) =>
         unitPriceFor(id, qty, cart.find((l) => l.product.id === id)?.product.sellingPrice),
       );
+
+      if (!navigator.onLine && (opts?.splitPayments || !offlineTenderAllowed(mode, {
+        offlineCredit: Boolean(posSettings.data?.offlineCredit),
+        namedCustomer: Boolean(effectiveCustomerId) && Number(effectiveCustomerId) !== walkInCustomer?.id,
+      }))) {
+        setError(t('pos.offlineCashOnly', { mode: opts?.splitPayments ? 'UPI' : mode }));
+        return;
+      }
+
+      if (!navigator.onLine && mode === 'CREDIT') {
+        const named = Boolean(effectiveCustomerId) && Number(effectiveCustomerId) !== walkInCustomer?.id;
+        const cacheRaw = companyId ? localStorage.getItem(`bb_pos_credit_cached:${companyId}:${effectiveCustomerId}`) : null;
+        const outageKey = posOutageId();
+        const priorRaw = companyId ? localStorage.getItem(`bb_pos_offline_credit:${companyId}:${posTerminalId()}:${outageKey}:${effectiveCustomerId}`) : null;
+        let prior: { total?: number; count?: number } = {};
+        try {
+          prior = priorRaw ? JSON.parse(priorRaw) as { total?: number; count?: number } : {};
+        } catch {
+          prior = {};
+        }
+        const billTotal = lines.reduce((sum, line) => sum + Number(line.unitPrice) * Number(line.quantity), 0);
+        const blocked = offlineCreditBlock({
+          enabled: Boolean(posSettings.data?.offlineCredit),
+          named,
+          stopCredit: selectedCustomer.data?.status === 'BLOCKED',
+          billTotal,
+          priorTotal: Number(prior.total || 0),
+          priorCount: Number(prior.count || 0),
+          cacheAgeMs: cacheRaw ? Date.now() - Date.parse(cacheRaw) : null,
+        });
+        if (blocked) {
+          setError(blocked);
+          return;
+        }
+      }
+
+      if (!navigator.onLine && companyId) {
+        const listId = Number((selectedCustomer.data as { priceList?: number } | undefined)?.priceList || 0);
+        if (priceListMissing(companyId, listId || null)) {
+          setError(t('pos.priceListMissing'));
+          return;
+        }
+      }
 
       if (!navigator.onLine) {
         const pendingName =
@@ -1923,6 +2160,11 @@ export function PosPage() {
               customer: Number(effectiveCustomerId) || 0,
               items: lines,
               paymentMode: mode,
+              offlineCredit: mode === 'CREDIT',
+              shiftId: tillShift?.id,
+              terminalId: posTerminalId(),
+              outageId: posOutageId(),
+              creditCachedAt: companyId ? localStorage.getItem(`bb_pos_credit_cached:${companyId}:${effectiveCustomerId}`) : undefined,
               pendingCustomerName: pendingName,
               warehouse: warehouseId ? Number(warehouseId) : undefined,
             },
@@ -1933,12 +2175,26 @@ export function PosPage() {
             lines,
           });
           trackShopFloor('offline_enqueue');
+          if (mode === 'CREDIT' && companyId && effectiveCustomerId) {
+            const billTotal = lines.reduce((sum, line) => sum + Number(line.unitPrice) * Number(line.quantity), 0);
+            const storeKey = `bb_pos_offline_credit:${companyId}:${posTerminalId()}:${posOutageId()}:${effectiveCustomerId}`;
+            let priorTotals = { total: 0, count: 0 };
+            try {
+              priorTotals = JSON.parse(localStorage.getItem(storeKey) || '') as { total: number; count: number };
+            } catch {
+              priorTotals = { total: 0, count: 0 };
+            }
+            localStorage.setItem(storeKey, JSON.stringify({
+              total: Number(priorTotals.total || 0) + billTotal,
+              count: Number(priorTotals.count || 0) + 1,
+            }));
+          }
           setIdempotencyKey(null);
           setCart([]);
           setCashTendered('');
           setWalkInName('');
           setCustomerId('');
-          setMessage(t('pos.savedOffline'));
+          setMessage(t('pos.savedOffline', { id: key.slice(0, 8) }));
           setError(null);
         } catch (err) {
           if (String((err as Error)?.message || err) === 'OUTBOX_STORAGE_FULL') {
@@ -2016,11 +2272,14 @@ export function PosPage() {
       selectedCustomer.data,
       startUpiCheckout,
       taxEnabled,
+      tillShift,
       tenderedAmount,
       totals.grandTotal,
       unitPriceFor,
       upiPending,
       userId,
+      ownerPin,
+      posSettings.data,
       walkInCustomer,
       walkInName,
       warehouseId,
@@ -2033,6 +2292,7 @@ export function PosPage() {
     busy ||
     isFlushing ||
     Boolean(upiPending) ||
+    cashNeedsOpenShift(Boolean(posSettings.data?.requireOpenShift), tillShift?.status) ||
     (cart.length === 0 && !cashPending) ||
     (cart.length > 0 && (posStockBlocked || posMissingBatch || posMissingSerial));
   const upiPayDisabled =
@@ -2103,7 +2363,7 @@ export function PosPage() {
         }
         return;
       }
-      if (e.key === 'F5' || e.key === 'F6') {
+      if (e.key === 'F6') {
         e.preventDefault();
         if (!upiPayDisabled && cart.length > 0) {
           rememberMethod('UPI');
@@ -2126,11 +2386,8 @@ export function PosPage() {
       }
       if (e.key === 'F9') {
         e.preventDefault();
-        if (sessionIds.length > 1) {
-          const idx = sessionIds.indexOf(activeSessionId);
-          const nextId = sessionIds[(idx + 1) % sessionIds.length];
-          switchSession(nextId);
-        }
+        const next = heldCarts[0];
+        if (next) recallHold(next);
         return;
       }
       if (e.key === 'F10') {
@@ -2171,7 +2428,9 @@ export function PosPage() {
     cashPending,
     checkout,
     clearCart,
+    heldCarts,
     holdAndCreateSession,
+    recallHold,
     rememberMethod,
     sessionIds,
     switchSession,
@@ -2186,13 +2445,42 @@ export function PosPage() {
     );
   }
 
-  if (company.isLoading || customers.isLoading) return <LoadingState />;
+  if (company.isLoading || walkInLookup.isLoading) return <LoadingState />;
 
   const upiIntent =
     upiPending?.upiQr?.intentUrl && isAllowedPaymentUrl(String(upiPending.upiQr.intentUrl))
       ? String(upiPending.upiQr.intentUrl)
       : '';
   const upiPng = upiPending?.upiQr?.qrPngBase64 || upiPending?.upiQr?.qr_png_base64;
+  const openWarehouses = (warehouses.data ?? []).filter((row) => row.isActive !== false);
+  const periodClosed = Boolean(posSettings.data?.periodBlocked);
+  const serverBills = (recentServer.data?.results ?? []).map((inv) => ({
+    id: inv.id,
+    number: String(inv.number ?? `#${inv.id}`),
+  }));
+  const reprintBills = [...recentBills, ...serverBills]
+    .filter((bill, index, all) => all.findIndex((row) => row.id === bill.id) === index)
+    .slice(0, 5);
+  const hsnGap = Boolean(selectedCustomer.data?.gstin && company.data?.einvoiceEnabled)
+    && cart.some((line) => !String(line.product.hsnCode || '').trim());
+  const creditCeiling = toNumber(selectedCustomer.data?.creditLimit);
+  const creditLeft = creditCeiling > 0
+    ? creditCeiling - toNumber(selectedCustomer.data?.outstanding)
+    : null;
+  const expiredOnCart = cart.some((line) => {
+    const expiry = expiryForChosenBatch(
+      availablePosBatches(stockBalances.data ?? [], line.product.id, warehouseId),
+      line.batchNo ?? '',
+    );
+    return Boolean(expiry && expiry < todayIso());
+  });
+  const expiredBlocksPay = expiredOnCart && (
+    posSettings.data?.expiredLotPolicy === 'BLOCK' || !expiredReason.trim()
+  );
+  const needsBank = (mode: string) => mode === 'UPI' || mode === 'CARD' || mode === 'BANK' || mode === 'CHEQUE';
+  const bankMissing = (mode: string) => Boolean(
+    posSettings.data && needsBank(mode) && !posSettings.data.tenderAccounts?.[mode],
+  );
 
   return (
     <PageShell title={t('pos.title')} subtitle={t('pos.subtitle')}>
@@ -2229,17 +2517,19 @@ export function PosPage() {
         {t('billing.threeStarts')}
       </Typography>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
-        <Tabs
-          value={activeSessionId}
-          onChange={(_, id) => switchSession(String(id))}
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          {sessionIds.map((id, idx) => (
-            <Tab key={id} value={id} label={t('pos.billN', { n: idx + 1 })} />
-          ))}
-        </Tabs>
-        <Button size="small" variant="outlined" endIcon={<HotkeyBadge text="F8" />} onClick={holdAndCreateSession}>
+        {sessionIds.length > 1 ? (
+          <Tabs
+            value={activeSessionId}
+            onChange={(_, id) => switchSession(String(id))}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            {sessionIds.map((id, idx) => (
+              <Tab key={id} value={id} label={t('pos.billN', { n: idx + 1 })} />
+            ))}
+          </Tabs>
+        ) : null}
+        <Button size="small" variant="outlined" endIcon={<HotkeyBadge text="F8" />} onClick={holdAndCreateSession} disabled={cart.length === 0}>
           {t('pos.holdBill')}
         </Button>
       </Stack>
@@ -2264,6 +2554,11 @@ export function PosPage() {
       {offline ? (
         <Alert severity="warning" sx={{ mb: 1 }}>
           {t('pos.offlineBanner')}
+        </Alert>
+      ) : null}
+      {companyId && (catalogAgeHours(companyId) ?? 0) >= (posSettings.data?.catalogWarnHours ?? 24) && catalogAgeHours(companyId) != null ? (
+        <Alert severity={catalogSellBlocked(catalogAgeHours(companyId), posSettings.data?.catalogBlockHours ?? 72) ? 'error' : 'warning'} sx={{ mb: 1 }}>
+          {t('pos.catalogueStale', { hours: String(Math.floor(catalogAgeHours(companyId) ?? 0)) })}
         </Alert>
       ) : null}
       {message ? (
@@ -2381,10 +2676,25 @@ export function PosPage() {
             <Button
               color="inherit"
               size="small"
-              component={RouterLink}
-              to={`/sales/history/${unpaidRecover.id}`}
+              disabled={busy || bankMissing('UPI')}
+              onClick={() => {
+                setBusy(true);
+                void (async () => {
+                  const invoice = await getSalesInvoice(unpaidRecover.id);
+                  const amount = toNumber(invoice.balance);
+                  await collectPosPayment({
+                    invoice: invoice.id,
+                    mode: 'UPI',
+                    amount,
+                    reference: paymentRef || undefined,
+                    notes: `POS collect ${invoice.number ?? invoice.id}`,
+                  });
+                  setUnpaidRecover(null);
+                  setMessage(t('pos.collectUpi'));
+                })().catch((err) => setError(getErrorMessage(err))).finally(() => setBusy(false));
+              }}
             >
-              {t('pos.recoverUnpaid', { number: unpaidRecover.number })}
+              {t('pos.collectUpi')}
             </Button>
           }
           onClose={() => setUnpaidRecover(null)}
@@ -2392,47 +2702,60 @@ export function PosPage() {
           {t('pos.leftUnpaid', { number: unpaidRecover.number })}
         </Alert>
       ) : null}
+      <PosTillStrip
+        onClosed={() => {
+          if (walkInCustomer?.id) setCustomerId(walkInCustomer.id);
+          setNameOnlySale(false);
+          setWalkInName('');
+        }}
+      />
+      {openWarehouses.length === 0 ? (
+        <Alert severity="info" sx={{ mb: 1 }} action={<Button component={RouterLink} to="/inventory/warehouses">{t('pos.setupGodown')}</Button>}>
+          {t('pos.noWarehouse')}
+        </Alert>
+      ) : null}
+      {catalogProbe.data?.count === 0 ? (
+        <Alert severity="info" sx={{ mb: 1 }} action={<Button component={RouterLink} to="/inventory/products">{t('pos.setupItems')}</Button>}>
+          {t('pos.catalogEmpty')}
+        </Alert>
+      ) : null}
+      {periodClosed ? (
+        <Alert severity="warning" sx={{ mb: 1 }}>
+          {posSettings.data?.periodMessage || t('pos.periodClosed')}
+        </Alert>
+      ) : null}
+      {!walkInCustomer ? (
+        <Alert severity="info" sx={{ mb: 1 }} action={<Button component={RouterLink} to="/sales/customers">{t('pos.setupWalkIn')}</Button>}>
+          {t('pos.noWalkIn')}
+        </Alert>
+      ) : null}
+      {hsnGap ? (
+        <Alert severity="warning" sx={{ mb: 1 }} action={<Button component={RouterLink} to="/inventory/products">{t('pos.setupItems')}</Button>}>
+          {t('pos.hsnMissing')}
+        </Alert>
+      ) : null}
+      {heldCarts.length > 0 ? (
       <Stack direction="row" spacing={1} sx={{ mb: 1 }} flexWrap="wrap">
-        <Button
-          size="small"
-          variant="outlined"
-          // Not while a sale is being paid: the held copy could be recalled and sold a second time.
-          disabled={cart.length === 0 || busy || Boolean(upiPending) || Boolean(cashPending)}
-          onClick={() => {
-            const row = { id: String(Date.now()), label: t('pos.holdCart'), cart, at: Date.now() };
-            rememberHolds([...heldCarts, row]);
-            setCart([]);
-            searchRef.current?.focus();
-          }}
-        >
-          {t('pos.holdCart')}
-        </Button>
         {heldCarts.map((row) => (
           <Button
             key={row.id}
             size="small"
-            onClick={() => {
-              // Recalling swaps carts: the bill on screen goes back on hold instead of being lost.
-              const rest = heldCarts.filter((item) => item.id !== row.id);
-              rememberHolds(
-                cart.length > 0
-                  ? [...rest, { id: String(Date.now()), label: t('pos.holdCart'), cart, at: Date.now() }]
-                  : rest,
-              );
-              setCart(row.cart);
-              searchRef.current?.focus();
-            }}
+            onClick={() => recallHold(row)}
           >
             {t('pos.recallCart')} {row.cart.length}
           </Button>
         ))}
       </Stack>
+      ) : null}
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ maxWidth: '100%', minWidth: 0 }}>
         <Paper variant="outlined" sx={{ flex: 1, p: { xs: 1.5, sm: 2 }, maxWidth: '100%', minWidth: 0, overflow: 'hidden' }}>
           <Stack spacing={2}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-              <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
+              <Button size="small" onClick={() => setShowFilters((open) => !open)}>{t('pos.showFilters')}</Button>
+              <Collapse in={showFilters} sx={{ width: '100%' }}>
+                <CustomFieldFilterBar defs={customDefs} value={cfFilters} onChange={setCfFilters} compact />
+              </Collapse>
               <Autocomplete<Product>
                 sx={{ flex: 1, minWidth: 220 }}
                 options={(products.data ?? []).filter((p) => p.status === 'ACTIVE')}
@@ -2477,6 +2800,11 @@ export function PosPage() {
                     size="small"
                     placeholder={t('pos.scanOrSearch')}
                     autoFocus
+                    inputProps={{
+                      ...params.inputProps,
+                      'aria-label': t('pos.scanOrSearch'),
+                      'aria-keyshortcuts': 'F2',
+                    }}
                     onKeyDown={(e) => {
                       const scanned = noteScanKey(e.key);
                       if (e.key !== 'Enter') return;
@@ -2531,14 +2859,65 @@ export function PosPage() {
                 <QrCodeScannerIcon />
               </IconButton>
             </Box>
-            <Typography variant="caption" color="text.secondary">{t('cog.networkPrint')}</Typography>
-            <Stack direction="row" spacing={1}>
-              <Button size="small" onClick={() => { void readScaleWeight(); }}>{t('cog.readScale')}</Button>
-              <Button size="small" onClick={() => { void printEscPos(DRAWER_KICK); }}>{t('cog.openDrawer')}</Button>
+            {debouncedQuery.trim() && products.data && products.data.filter((p) => p.status === 'ACTIVE').length === 0 ? (
+              <Alert
+                severity="info"
+                action={<Button component={RouterLink} to="/inventory/products">{t('pos.setupItems')}</Button>}
+              >
+                {t('pos.noProducts')}
+              </Alert>
+            ) : null}
+            {scaleReady || isNative() ? (
+              <Stack direction="row" spacing={1}>
+                {scaleReady ? (
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      void readScaleWeight().then((weight) => {
+                        if (weight == null || weight <= 0) return;
+                        setCart((prev) => {
+                          if (!prev.length) return prev;
+                          const last = prev[prev.length - 1];
+                          return prev.map((row, index) => index === prev.length - 1 ? { ...row, quantity: weight, key: last.key } : row);
+                        });
+                      });
+                    }}
+                  >
+                    {t('cog.readScale')}
+                  </Button>
+                ) : null}
+                {isNative() ? (
+                  <Button
+                    size="small"
+                    onClick={() => setDrawerAsk(true)}
+                  >
+                    {t('cog.openDrawer')}
+                  </Button>
+                ) : null}
+              </Stack>
+            ) : null}
+
+            <Stack component="fieldset" spacing={1} sx={{ border: 0, p: 0, m: 0 }}>
+              <Typography component="legend" variant="caption">{t('pos.prescription')}</Typography>
+              <TextField size="small" label={t('pos.prescription')} value={pharmacyPatient} onChange={(event) => setPharmacyPatient(event.target.value)} placeholder="Patient" />
+              <TextField size="small" value={pharmacyPrescriber} onChange={(event) => setPharmacyPrescriber(event.target.value)} placeholder="Prescriber" />
+              <TextField size="small" value={pharmacyRegistration} onChange={(event) => setPharmacyRegistration(event.target.value)} placeholder="Registration" />
+              <TextField size="small" value={pharmacyNote} onChange={(event) => setPharmacyNote(event.target.value)} placeholder="Prescription number" />
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                aria-label={t('pos.prescription')}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void uploadFile(file).then((asset) => setPrescriptionFileId(asset.id)).catch((err) => setError(getErrorMessage(err)));
+                }}
+              />
+              <TextField size="small" label="Salesperson" value={salespersonId} onChange={(event) => setSalespersonId(event.target.value)} />
             </Stack>
 
             <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-              <Table size="small">
+              <Table size="small" aria-label={t('pos.cart')}>
               <TableHead>
                 <TableRow>
                   <TableCell>{t('pos.item')}</TableCell>
@@ -2587,6 +2966,11 @@ export function PosPage() {
                       <TableRow key={line.key}>
                         <TableCell>
                           <Typography variant="body2">{line.product.name}</Typography>
+                          {line.syncError ? (
+                            <Typography variant="caption" color="error" display="block" role="alert">
+                              {line.syncError}
+                            </Typography>
+                          ) : null}
                           {(() => {
                             const onHand = availableByProduct.get(line.product.id) ?? 0;
                             const blocked =
@@ -2601,9 +2985,6 @@ export function PosPage() {
                               </>
                             );
                           })()}
-                          <Typography variant="caption" color="text.secondary">
-                            {line.product.sku}
-                          </Typography>
                           {listHit?.listName ? (
                             <Chip size="small" label={`List: ${listHit.listName}`} sx={{ ml: 0.5, height: 20 }} />
                           ) : null}
@@ -2785,7 +3166,24 @@ export function PosPage() {
                             sx={{ width: 64 }}
                           />
                         </TableCell>
-                        <TableCell align="right">{formatMoney(unitPrice)}</TableCell>
+                        <TableCell align="right">
+                          <NumericField
+                            value={line.priceOverride ?? unitPrice}
+                            onValueChange={(n) => {
+                              const list = posLineUnitPrice(line.product, line.quantity, line.unitName, unitPriceFor, line.priceAlreadyConverted);
+                              if (Math.abs(n - list) < 0.001) {
+                                setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, priceOverride: undefined } : row));
+                                return;
+                              }
+                              setPricePrompt({ key: line.key, price: n, reason: '' });
+                            }}
+                            min={0}
+                            emptyAs={unitPrice}
+                            fullWidth={false}
+                            inputProps={{ 'aria-label': t('pos.price') }}
+                            sx={{ width: 88 }}
+                          />
+                        </TableCell>
                         <TableCell align="right">{formatMoney(tax.lineTotal)}</TableCell>
                         <TableCell>
                           <IconButton size="small" onClick={() => updateQty(line.key, 0)} aria-label={t('common.remove')} sx={{ minWidth: { xs: 48, sm: 40 }, minHeight: { xs: 48, sm: 40 } }}>
@@ -2799,37 +3197,59 @@ export function PosPage() {
               </TableBody>
             </Table>
             </TableContainer>
-            <TextField
-              select
-              inputRef={customerSelectRef}
-              label={t('pos.customer')}
-              size="small"
-              value={customerId === '' ? '' : customerId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCustomerId(v === '' ? '' : Number(v));
-                if (v !== '') {
+            <Autocomplete
+              options={[...(walkInCustomer ? [walkInCustomer] : []), ...activeCustomers]}
+              getOptionLabel={(option) => option.id === walkInCustomer?.id
+                ? t('pos.walkInNamed', { name: option.name })
+                : option.name}
+              filterOptions={(options) => options}
+              inputValue={customerQuery}
+              onInputChange={(_, value, reason) => {
+                if (reason === 'input' || reason === 'clear') setCustomerQuery(value);
+              }}
+              value={
+                selectedCustomer.data?.id === customerId
+                  ? selectedCustomer.data
+                  : walkInCustomer?.id === customerId
+                    ? walkInCustomer
+                    : null
+              }
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              onChange={(_, option) => {
+                setCustomerId(option?.id ?? '');
+                setCustomerQuery('');
+                if (option) {
                   setWalkInName('');
                   setNameOnlySale(false);
                 }
               }}
-              fullWidth
-            >
-              <MenuItem value="">
-                <em>{t('pos.selectCustomerPlaceholder')}</em>
-              </MenuItem>
-              {walkInCustomer ? (
-                <MenuItem value={walkInCustomer.id}>{t('pos.walkInNamed', { name: walkInCustomer.name })}</MenuItem>
-              ) : null}
-              {activeCustomers
-                .filter((c) => c.id !== walkInCustomer?.id)
-                .map((c: Customer) => (
-                  <MenuItem key={c.id} value={c.id}>
-                    {c.name}
-                    {c.phone ? ` · ${c.phone}` : ''}
-                  </MenuItem>
-                ))}
-            </TextField>
+              renderOption={(props, option) => (
+                <li {...props} key={option.id}>
+                  <Box>
+                    <Typography variant="body2">
+                      {option.id === walkInCustomer?.id ? t('pos.walkInNamed', { name: option.name }) : option.name}
+                    </Typography>
+                    {option.phone && option.id !== walkInCustomer?.id ? (
+                      <Typography variant="caption" color="text.secondary">{option.phone}</Typography>
+                    ) : null}
+                  </Box>
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  inputRef={customerSelectRef}
+                  label={t('pos.customer')}
+                  size="small"
+                  placeholder={t('pos.selectCustomerPlaceholder')}
+                />
+              )}
+            />
+            {creditLeft != null ? (
+              <Typography variant="caption" color={creditLeft < gateTotal ? 'warning.main' : 'text.secondary'}>
+                {t('pos.creditLeft', { amount: formatMoney(creditLeft) })}
+              </Typography>
+            ) : null}
             {nameOnlySale ? (
               <TextField
                 size="small"
@@ -2851,6 +3271,7 @@ export function PosPage() {
                 {t('pos.nameOnlySale')}
               </Button>
             )}
+            {openWarehouses.length > 1 ? (
             <TextField
               select
               size="small"
@@ -2859,14 +3280,13 @@ export function PosPage() {
               onChange={(e) => setWarehouseId(e.target.value === '' ? '' : Number(e.target.value))}
               fullWidth
             >
-              {(warehouses.data ?? [])
-                .filter((row) => row.isActive !== false)
-                .map((row) => (
+              {openWarehouses.map((row) => (
                   <MenuItem key={row.id} value={row.id}>
                     {row.name}{row.isDefault ? ' (default)' : ''}
                   </MenuItem>
                 ))}
             </TextField>
+            ) : null}
             {serialsOpen || cart.some((line) => line.product.trackSerial) ? (
               <TextField
                 size="small"
@@ -2884,7 +3304,7 @@ export function PosPage() {
           </Stack>
         </Paper>
 
-        <Paper variant="outlined" sx={{ width: { xs: '100%', md: 320 }, maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', p: { xs: 1.5, sm: 2 } }}>
+        <Paper variant="outlined" sx={{ width: { xs: '100%', md: 320 }, maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', p: { xs: 1.5, sm: 2 }, position: { xs: 'sticky', md: 'sticky' }, bottom: 8, zIndex: 2, bgcolor: 'background.paper', maxHeight: { xs: '70vh', md: 'none' }, overflow: 'auto' }}>
           <Stack spacing={2}>
             <Typography variant="h6">{t('pos.tender')}</Typography>
             <Divider />
@@ -2892,22 +3312,16 @@ export function PosPage() {
               <Typography color="text.secondary">{t('pos.subtotal')}</Typography>
               <Typography>{formatMoney(totals.subtotal)}</Typography>
             </Stack>
-            {taxEnabled && (totals.cgstTotal > 0 || totals.sgstTotal > 0) ? (
-              <>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">{t('billing.cgst')}</Typography>
-                  <Typography>{formatMoney(totals.cgstTotal)}</Typography>
-                </Stack>
-                <Stack direction="row" justifyContent="space-between">
-                  <Typography color="text.secondary">{t('billing.sgst')}</Typography>
-                  <Typography>{formatMoney(totals.sgstTotal)}</Typography>
-                </Stack>
-              </>
-            ) : null}
-            {taxEnabled && totals.igstTotal > 0 ? (
+            {taxEnabled && (totals.cgstTotal > 0 || totals.sgstTotal > 0 || totals.igstTotal > 0) ? (
               <Stack direction="row" justifyContent="space-between">
-                <Typography color="text.secondary">{t('billing.igst')}</Typography>
-                <Typography>{formatMoney(totals.igstTotal)}</Typography>
+                <Typography color="text.secondary">{t('pos.tax')}</Typography>
+                <Typography>{formatMoney(totals.taxTotal || totals.cgstTotal + totals.sgstTotal + totals.igstTotal)}</Typography>
+              </Stack>
+            ) : null}
+            {totals.roundOff ? (
+              <Stack direction="row" justifyContent="space-between">
+                <Typography color="text.secondary">{t('pos.roundOff')}</Typography>
+                <Typography>{formatMoney(totals.roundOff)}</Typography>
               </Stack>
             ) : null}
             {taxEnabled && totals.cgstTotal <= 0 && totals.sgstTotal <= 0 && totals.igstTotal <= 0 ? (
@@ -2927,6 +3341,9 @@ export function PosPage() {
                 {formatMoney(gateTotal)}
               </Typography>
             </Stack>
+            <Button size="small" onClick={() => setShowAdjust((open) => !open)}>{t('pos.adjustBill')}</Button>
+            <Collapse in={showAdjust}>
+              <Stack spacing={1}>
             <NumericField
               label={t('pos.billDiscount')}
               value={invoiceDiscount}
@@ -2945,6 +3362,38 @@ export function PosPage() {
               size="small"
               fullWidth
             />
+              </Stack>
+            </Collapse>
+            {expiredOnCart && posSettings.data?.expiredLotPolicy !== 'BLOCK' ? (
+              <TextField
+                size="small"
+                label={t('pos.expiredReason')}
+                value={expiredReason}
+                onChange={(e) => setExpiredReason(e.target.value)}
+                fullWidth
+                required
+              />
+            ) : null}
+            {company.data?.requirePaymentReference ? (
+              <TextField
+                size="small"
+                label={t('pos.paymentRef')}
+                value={paymentRef}
+                onChange={(e) => setPaymentRef(e.target.value)}
+                fullWidth
+              />
+            ) : null}
+            {posSettings.data?.pinConfigured ? (
+              <TextField
+                size="small"
+                label={t('pos.ownerPin')}
+                type="password"
+                value={ownerPin}
+                onChange={(e) => setOwnerPin(e.target.value)}
+                fullWidth
+                autoComplete="off"
+              />
+            ) : null}
             <NumericField
               label={t('pos.cashTendered')}
               value={cashTendered === '' ? gateTotal : cashTendered}
@@ -3002,7 +3451,7 @@ export function PosPage() {
             <Button
               variant="outlined"
               size="large"
-              disabled={cashPayDisabled || !(splitCash > 0) || splitCash >= gateTotal - 0.01}
+              disabled={cashPayDisabled || offline || hsnGap || expiredBlocksPay || periodClosed || bankMissing('UPI') || !(splitCash > 0) || splitCash >= gateTotal - 0.01}
               onClick={() => {
                 const cash = roundMoney(splitCash);
                 const upi = roundMoney(gateTotal - cash);
@@ -3028,9 +3477,9 @@ export function PosPage() {
               variant={lastMethod === 'CASH' ? 'contained' : 'outlined'}
               autoFocus={lastMethod === 'CASH'}
               size="large"
-              disabled={cashPayDisabled}
+              disabled={cashPayDisabled || hsnGap || expiredBlocksPay || periodClosed}
               aria-describedby={cashPayDisabled && cashPayReason ? 'pos-tender-blocker' : undefined}
-              sx={{ minHeight: { xs: 48, sm: 42 } }}
+              sx={{ minHeight: 48, display: lastMethod === 'CASH' || showMoreTenders ? undefined : 'none' }}
               endIcon={<HotkeyBadge text="F1" />}
               onClick={() => {
                 rememberMethod('CASH');
@@ -3049,10 +3498,10 @@ export function PosPage() {
               variant={lastMethod === 'UPI' ? 'contained' : 'outlined'}
               autoFocus={lastMethod === 'UPI'}
               size="large"
-              disabled={upiPayDisabled}
+              disabled={upiPayDisabled || offline || hsnGap || expiredBlocksPay || periodClosed || bankMissing('UPI')}
               aria-describedby={upiPayDisabled && upiPayReason ? 'pos-tender-blocker' : undefined}
-              sx={{ minHeight: { xs: 48, sm: 42 } }}
-              endIcon={<HotkeyBadge text="F5" />}
+              sx={{ minHeight: 48, display: lastMethod === 'UPI' || showMoreTenders ? undefined : 'none' }}
+              endIcon={<HotkeyBadge text="F6" />}
               onClick={() => {
                 rememberMethod('UPI');
                 void checkout('UPI');
@@ -3063,12 +3512,17 @@ export function PosPage() {
               </span>
             </Tooltip>
             {lastMethod === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
+            <Button size="small" onClick={() => setShowMoreTenders((open) => !open)}>{t('pos.moreTenders')}</Button>
+            {bankMissing(lastMethod) ? (
+              <Alert severity="warning">{t('pos.bankMissing', { mode: lastMethod })}</Alert>
+            ) : null}
             {(['BANK', 'CARD', 'CREDIT', 'CHEQUE'] as PaymentMode[]).map((mode) => (
               <Button
                 key={mode}
                 variant={lastMethod === mode ? 'contained' : 'outlined'}
                 size="large"
-                disabled={cashPayDisabled}
+                sx={{ minHeight: 48, display: lastMethod === mode || showMoreTenders ? undefined : 'none' }}
+                disabled={cashPayDisabled || hsnGap || expiredBlocksPay || periodClosed || offline || bankMissing(mode) || (mode === 'CREDIT' && Boolean(walkInCustomer) && customerId === walkInCustomer?.id)}
                 endIcon={
                   mode === 'CARD' ? (
                     <HotkeyBadge text="F4" />
@@ -3077,6 +3531,10 @@ export function PosPage() {
                   ) : undefined
                 }
                 onClick={() => {
+                  if (mode === 'CHEQUE' && lastMethod !== 'CHEQUE') {
+                    rememberMethod(mode);
+                    return;
+                  }
                   rememberMethod(mode);
                   void checkout(mode);
                 }}
@@ -3090,6 +3548,78 @@ export function PosPage() {
                       : t('pos.chequePay', { amount: formatMoney(gateTotal) })}
               </Button>
             ))}
+            {reprintBills.length > 0 ? (
+              <Stack spacing={0.5}>
+                <Typography variant="caption">{t('pos.lastBills')}</Typography>
+                <label>
+                  {t('pos.refundMode')}
+                  <select value={refundMode} onChange={(event) => setRefundMode(event.target.value as 'CASH' | 'BANK' | 'ADVANCE' | 'SPLIT')}>
+                    <option value="CASH">{t('pos.refundCash')}</option>
+                    <option value="BANK">{t('pos.refundBank')}</option>
+                    <option value="ADVANCE">{t('pos.refundAdvance')}</option>
+                    <option value="SPLIT">{t('pos.refundSplit')}</option>
+                  </select>
+                </label>
+                {reprintBills.map((bill) => (
+                  <Stack key={bill.id} direction="row" spacing={1} alignItems="center">
+                    <Typography variant="body2">{bill.number}</Typography>
+                    <Button size="small" onClick={() => { void printPosThermalOrWarn(bill); }}>{t('pos.reprintBill')}</Button>
+                  </Stack>
+                ))}
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    size="small"
+                    disabled={busy}
+                    onClick={() => {
+                      const bill = reprintBills[0];
+                      if (!bill) return;
+                      setBusy(true);
+                      void getSalesInvoice(bill.id)
+                        .then((invoice) => {
+                          setReturnPick({
+                            invoice: bill.id,
+                            exchange: false,
+                            lines: (invoice.items ?? []).filter((item) => item.id).map((item) => ({
+                              id: Number(item.id),
+                              name: item.productName || item.description || String(item.id),
+                              take: String(item.quantity),
+                            })),
+                          });
+                        })
+                        .catch((err) => setError(getErrorMessage(err)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {t('pos.returnBill')}
+                  </Button>
+                  <Button
+                    size="small"
+                    disabled={busy}
+                    onClick={() => {
+                      const bill = reprintBills[0];
+                      if (!bill) return;
+                      setBusy(true);
+                      void getSalesInvoice(bill.id)
+                        .then((invoice) => {
+                          setReturnPick({
+                            invoice: bill.id,
+                            exchange: true,
+                            lines: (invoice.items ?? []).filter((item) => item.id).map((item) => ({
+                              id: Number(item.id),
+                              name: item.productName || item.description || String(item.id),
+                              take: String(item.quantity),
+                            })),
+                          });
+                        })
+                        .catch((err) => setError(getErrorMessage(err)))
+                        .finally(() => setBusy(false));
+                    }}
+                  >
+                    {t('pos.exchangeBill')}
+                  </Button>
+                </Stack>
+              </Stack>
+            ) : null}
             <Button
               variant="text"
               color="inherit"
@@ -3227,6 +3757,142 @@ export function PosPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <Dialog open={returnPick != null} onClose={() => setReturnPick(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{returnPick?.exchange ? t('pos.exchangeBill') : t('pos.returnBill')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1 }}>
+            {(returnPick?.lines ?? []).map((line) => (
+              <TextField
+                key={line.id}
+                size="small"
+                label={line.name}
+                value={line.take}
+                onChange={(event) => {
+                  const take = event.target.value;
+                  setReturnPick((prev) => prev && ({
+                    ...prev,
+                    lines: prev.lines.map((row) => row.id === line.id ? { ...row, take } : row),
+                  }));
+                }}
+              />
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReturnPick(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (!returnPick) return;
+              const lines = returnPick.lines
+                .filter((line) => Number(line.take) > 0)
+                .map((line) => ({ source_item: line.id, quantity: line.take }));
+              setBusy(true);
+              void returnPosBill({
+                invoice: returnPick.invoice,
+                exchange: returnPick.exchange,
+                reason: returnPick.exchange ? 'Counter exchange' : 'Counter return',
+                ownerPin,
+                refundMode,
+                lines,
+              })
+                .then((result) => {
+                  if (returnPick.exchange) {
+                    setApplyAdvanceNext(true);
+                    if (result.customerId) setCustomerId(result.customerId);
+                  }
+                  setMessage(returnPick.exchange ? t('pos.exchangeBill') : t('pos.returnBill'));
+                  setReturnPick(null);
+                  void queryClient.invalidateQueries({ queryKey: ['stock'] });
+                })
+                .catch((err) => setError(getErrorMessage(err)))
+                .finally(() => setBusy(false));
+            }}
+          >
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(pricePrompt)} onClose={() => setPricePrompt(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{t('pos.priceReason')}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            label={t('pos.priceReason')}
+            value={pricePrompt?.reason ?? ''}
+            onChange={(e) => setPricePrompt((prev) => prev ? { ...prev, reason: e.target.value } : prev)}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPricePrompt(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!pricePrompt?.reason.trim()}
+            onClick={() => {
+              if (!pricePrompt?.reason.trim()) return;
+              setCart((prev) => prev.map((row) => row.key === pricePrompt.key ? { ...row, priceOverride: pricePrompt.price } : row));
+              setPricePrompt(null);
+            }}
+          >
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(pinPrompt)} onClose={() => setPinPrompt(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>{t('pos.belowCostPin')}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            size="small"
+            type="password"
+            label={t('pos.ownerPin')}
+            value={ownerPin}
+            onChange={(e) => setOwnerPin(e.target.value)}
+            autoComplete="off"
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPinPrompt(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={!ownerPin.trim()}
+            onClick={() => {
+              const pending = pinPrompt;
+              setPinPrompt(null);
+              if (pending) void checkout(pending.mode, pending.opts);
+            }}
+          >
+            {t('pos.ownerPin')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={drawerAsk} onClose={() => setDrawerAsk(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{t('pos.drawerConfirm')}</DialogTitle>
+        <DialogContent>
+          <Typography>{t('pos.drawerConfirmBody')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDrawerAsk(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setDrawerAsk(false);
+              void printEscPos(DRAWER_KICK).then((mode) => {
+                if (mode === 'native') {
+                  void postPosEvent({ kind: 'drawer_open', detail: 'Drawer opened from the counter' });
+                }
+              });
+            }}
+          >
+            {t('pos.drawerConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <ConfirmDialog
         open={confirmClearCartOpen}
         title={t('pos.confirmClearCartTitle')}
@@ -3322,9 +3988,15 @@ export function PosPage() {
           >
             {upiPending?.invoiceId ? t('pos.collectLater') : t('common.cancel')}
           </Button>
-          <Button variant="contained" disabled={busy} onClick={() => void confirmUpiPayment()}>
-            {t('pos.paymentReceived')}
-          </Button>
+          {!upiArmed ? (
+            <Button variant="outlined" disabled={busy} onClick={() => setUpiArmed(true)}>
+              {t('pos.upiConfirmAmount', { amount: formatMoney(upiPending?.amount ?? 0) })}
+            </Button>
+          ) : (
+            <Button variant="contained" disabled={busy} onClick={() => void confirmUpiPayment()}>
+              {t('pos.paymentReceived')}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
     </PageShell>

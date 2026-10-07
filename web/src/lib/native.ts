@@ -1,5 +1,7 @@
 /** Native/WebView adapters. Web keeps working when Capacitor is absent. */
 
+import { parseScaleReading } from '@/pages/pos/scaleReading';
+
 export type NetworkStatus = { connected: boolean };
 
 type PushToken = { value: string };
@@ -307,29 +309,60 @@ export async function printEscPosNetwork(): Promise<'bridge'> {
   return 'bridge';
 }
 
+type SerialPortLike = {
+  open: (opts: { baudRate: number }) => Promise<void>;
+  readable: ReadableStream<Uint8Array> | null;
+  close: () => Promise<void>;
+};
+
 /** Web Serial scale read. No-ops when the browser has no serial port. */
 export async function readScaleWeight(): Promise<number | null> {
   const nav = navigator as Navigator & {
-    serial?: { requestPort?: () => Promise<{ open: (opts: { baudRate: number }) => Promise<void>; readable: ReadableStream<Uint8Array> | null; close: () => Promise<void> }> };
+    serial?: {
+      getPorts?: () => Promise<SerialPortLike[]>;
+      requestPort?: () => Promise<SerialPortLike>;
+    };
   };
   if (!nav.serial?.requestPort) return null;
+  let opened: SerialPortLike | null = null;
   try {
-    const port = await nav.serial.requestPort();
-    await port.open({ baudRate: 9600 });
-    const reader = port.readable?.getReader();
-    if (!reader) {
-      await port.close().catch(() => undefined);
-      return null;
+    const granted = await nav.serial.getPorts?.();
+    const chosen = granted?.[0] ?? (await nav.serial.requestPort());
+    await chosen.open({ baudRate: 9600 });
+    opened = chosen;
+    const reader = chosen.readable?.getReader();
+    if (!reader) return null;
+    // A scale sends one line at a time, and a read can return half of it.
+    // Collect until a line ends (or 1.5 s), then use the last complete line.
+    const decoder = new TextDecoder();
+    let text = '';
+    const deadline = Date.now() + 1500;
+    try {
+      while (Date.now() < deadline && !/[\r\n]$/.test(text)) {
+        const { value, done } = await Promise.race([
+          reader.read(),
+          new Promise<{ value: undefined; done: true }>((resolve) => {
+            setTimeout(() => resolve({ value: undefined, done: true }), Math.max(50, deadline - Date.now()));
+          }),
+        ]);
+        if (done) break;
+        if (value) text += decoder.decode(value, { stream: true });
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
     }
-    const { value } = await reader.read();
-    reader.releaseLock();
-    await port.close().catch(() => undefined);
-    if (!value) return null;
-    const text = new TextDecoder().decode(value);
-    const weight = Number(text.replace(/[^\d.]/g, ''));
-    return Number.isFinite(weight) ? weight : null;
+    const lines = text.split(/[\r\n]+/).map((line) => line.trim()).filter(Boolean);
+    const complete = /[\r\n]$/.test(text) ? lines : lines.slice(0, -1);
+    const line = complete[complete.length - 1];
+    if (!line) return null;
+    const parsed = parseScaleReading(line);
+    if (!parsed?.stable || !(parsed.weight > 0)) return null;
+    return parsed.weight;
   } catch {
     return null;
+  } finally {
+    await opened?.close().catch(() => undefined);
   }
 }
 
