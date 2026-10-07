@@ -793,3 +793,58 @@ def test_concurrent_policy_issue_creates_one_policy(tenant_a):
         thread.join()
     assert Policy.objects.filter(company=tenant_a.company, option=option).count() == 1
 
+
+def test_concurrent_pos_checkout_last_unit(tenant_a):
+    """Two counters selling the last unit: one invoice posts, the other is refused."""
+    _require_postgres()
+    from rest_framework.test import APIClient
+
+    tenant_a.company.negative_stock_policy = "BLOCK"
+    tenant_a.company.save(update_fields=["negative_stock_policy"])
+    product = make_product(tenant_a.company, sku="POS-RACE", gst_rate="0", selling_price="100")
+    add_stock(tenant_a, product, "1")
+    customer = make_customer(tenant_a.company, name="Race")
+    successes: list[int] = []
+    errors: list[object] = []
+    barrier = threading.Barrier(2, timeout=15)
+
+    def sell():
+        connection.close()
+        client = APIClient()
+        client.force_authenticate(user=tenant_a.owner)
+        try:
+            barrier.wait()
+            resp = client.post(
+                "/api/v1/sales/invoices/pos-checkout/",
+                {
+                    "invoice": {
+                        "customer": customer.id,
+                        "invoice_type": "NON_GST",
+                        "items": [{
+                            "product": product.id,
+                            "quantity": "1",
+                            "unit_price": "100.00",
+                            "gst_rate": "0",
+                        }],
+                    },
+                    "payment": {"mode": "CASH", "amount": "100.00"},
+                },
+                format="json",
+            )
+            if resp.status_code == 201:
+                successes.append(resp.status_code)
+            else:
+                errors.append(resp.status_code)
+        except Exception as exc:
+            errors.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=sell) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert len(successes) == 1, (successes, errors)
+    assert StockBalance.objects.get(company=tenant_a.company, product=product).on_hand == Decimal("0")
+

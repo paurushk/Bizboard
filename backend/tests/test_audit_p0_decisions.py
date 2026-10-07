@@ -9,7 +9,7 @@ from ledgers.services import LedgerService
 from masters.hsn_catalog import line_gst_decision, seed_starter_hsn_rates
 from masters.models import Product
 from sales.models import SalesInvoice
-from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product, map_pos_tender
 
 pytestmark = pytest.mark.django_db
 
@@ -156,6 +156,7 @@ def test_hsn_table_does_not_silently_re_rate(tenant_a):
 
 
 def test_pos_mismatch_message_is_human_and_split_tender_posts_both(tenant_a):
+    map_pos_tender(tenant_a.company, "UPI")
     product = make_product(tenant_a.company, sku="P0-POS", gst_rate="0")
     add_stock(tenant_a, product, "5")
     customer = make_customer(tenant_a.company, name="Till")

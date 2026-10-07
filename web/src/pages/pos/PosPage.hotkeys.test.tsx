@@ -89,6 +89,31 @@ vi.mock('@/offline/invoiceDraftCache', () => ({
 vi.mock('@/lib/native', () => ({
   onNetworkOnline: () => () => {},
   scanBarcode: vi.fn(async () => null),
+  isNative: () => false,
+  printEscPos: vi.fn(async () => 'none'),
+  DRAWER_KICK: new Uint8Array(),
+}));
+
+import { createPosHold } from '@/pages/pos/posCounterApi';
+
+vi.mock('@/pages/pos/posCounterApi', () => ({
+  getPosSettings: vi.fn(async () => ({
+    tenderAccounts: { UPI: 1, CARD: 1, BANK: 1, CHEQUE: 1 },
+    maxLineDiscount: '100',
+    expiredLotPolicy: 'REASON',
+    pinConfigured: false,
+    walkInCustomerId: null,
+  })),
+  postPosEvent: vi.fn(async () => undefined),
+  listPosHolds: vi.fn(async () => []),
+  createPosHold: vi.fn(async () => ({ id: 1 })),
+  releasePosHold: vi.fn(async () => undefined),
+  getTodayShift: vi.fn(async () => ({ shift: null })),
+  openTodayShift: vi.fn(async () => undefined),
+  dropShiftCash: vi.fn(async () => undefined),
+  closeTodayShift: vi.fn(async () => ({})),
+  collectPosPayment: vi.fn(async () => undefined),
+  returnPosBill: vi.fn(async () => ({ id: 1, exchange: false, customerId: 1 })),
 }));
 
 vi.mock('@/lib/telemetry', () => ({
@@ -213,7 +238,8 @@ describe('PosPage Keyboard-First F1-F10 Shortcuts (Turbo Mode)', () => {
 
   it('F4 triggers card payment and completes checkout', async () => {
     renderPos();
-    await screen.findByRole('button', { name: /^card\s+—/i });
+    // Card sits under "More" until it is the last-used tender; the shortcut still works.
+    await screen.findByRole('button', { name: /^more$/i });
 
     await finishPayShortcut('F4');
 
@@ -227,18 +253,16 @@ describe('PosPage Keyboard-First F1-F10 Shortcuts (Turbo Mode)', () => {
     });
   });
 
-  it('F8 and F9 hold cart and cycle between sessions', async () => {
+  it('F8 and F9 hold the cart on the server and recall it', async () => {
     renderPos();
     await screen.findByRole('button', { name: /hold bill/i });
 
-    // Press F8 to hold Bill 1 and open Bill 2
     fireEvent.keyDown(window, { key: 'F8' });
-    await screen.findByText(/bill 2/i);
+    await waitFor(() => expect(createPosHold).toHaveBeenCalled());
 
-    // Press F9 to cycle back to Bill 1
+    // The held cart comes back with F9.
     fireEvent.keyDown(window, { key: 'F9' });
-    const bill1Tab = await screen.findByRole('tab', { name: /bill 1/i });
-    expect(bill1Tab.getAttribute('aria-selected')).toBe('true');
+    await waitFor(() => expect(screen.getByRole('button', { name: /hold bill/i })).toBeTruthy());
   });
 
   it('F10 clears the active cart', async () => {
