@@ -388,7 +388,12 @@ class PosHoldView(_CompanyView):
 
         from .models import PosCartHold
 
-        rows = PosCartHold.objects.filter(company=self.company, released_at__isnull=True, expires_at__gt=timezone.now())
+        rows = PosCartHold.objects.filter(
+            company=self.company,
+            created_by=request.user,
+            released_at__isnull=True,
+            expires_at__gt=timezone.now(),
+        )
         return Response([{"id": r.pk, "label": r.label, "payload": r.payload} for r in rows])
 
     def post(self, request):
@@ -399,6 +404,22 @@ class PosHoldView(_CompanyView):
             user=request.user,
         )
         return Response({"id": row.pk, "expires_at": row.expires_at.isoformat()}, status=201)
+
+    def delete(self, request):
+        from django.utils import timezone
+
+        from .models import PosCartHold
+
+        row = PosCartHold.objects.filter(
+            company=self.company,
+            pk=request.query_params.get("id") or request.data.get("id"),
+            created_by=request.user,
+            released_at__isnull=True,
+        ).first()
+        if row is not None:
+            row.released_at = timezone.now()
+            row.save(update_fields=["released_at", "updated_at"])
+        return Response(status=204)
 
 
 class CatalogExportView(_CompanyView):

@@ -5,7 +5,7 @@ from django.core.files.base import ContentFile
 
 from payments.models import ChequeStatus, PaymentMode
 from payments.services import PaymentService
-from tests.conftest import add_stock, make_customer, make_product
+from tests.conftest import add_stock, make_customer, make_product, map_pos_tender
 
 
 @pytest.mark.django_db
@@ -131,6 +131,7 @@ def test_cheque_receipt_http_stores_image(tenant_a):
 
 @pytest.mark.django_db
 def test_pos_checkout_cheque_requires_details_and_stays_pending(tenant_a):
+    map_pos_tender(tenant_a.company, "CHEQUE")
     product = make_product(tenant_a.company, gst_rate="0", selling_price="100")
     add_stock(tenant_a, product, "10", unit_cost="40")
     customer = make_customer(tenant_a.company, state="Karnataka")
@@ -259,6 +260,7 @@ def test_record_invoice_payment_forwards_cheque_fields(tenant_a):
 
 @pytest.mark.django_db
 def test_pos_checkout_cheque_stores_image(tenant_a):
+    map_pos_tender(tenant_a.company, "CHEQUE")
     from core.models import FileAsset
     from payments.models import CustomerReceipt
 

@@ -32,7 +32,6 @@ export const features = {
    * sales complete + receipt money APIs stay callable when this flag is false.
    */
   pos: import.meta.env.VITE_ENABLE_POS === 'true',
-  atomicPosCheckout: import.meta.env.VITE_ENABLE_ATOMIC_POS_CHECKOUT === 'true',
   tds: import.meta.env.VITE_ENABLE_TDS === 'true',
   setupWizard: import.meta.env.VITE_ENABLE_SETUP_WIZARD === 'true',
   advancedPilot: pilotAdvanced,
@@ -136,15 +135,6 @@ export function isReferralsEnabled(): boolean {
 export function isPosEnabled(): boolean {
   // CR-115 / CR-008: UI/nav gate only for pilot — sales money APIs are not blocked when false.
   return resolveModuleFlag(features.pos, 'ENABLE_POS');
-}
-
-export function isAtomicPosCheckoutEnabled(): boolean {
-  if (features.advancedPilot) return true;
-  const cached = getCachedFeatureFlags();
-  if (cached && Object.prototype.hasOwnProperty.call(cached, 'ENABLE_ATOMIC_POS_CHECKOUT')) {
-    return Boolean(cached.ENABLE_ATOMIC_POS_CHECKOUT);
-  }
-  return features.atomicPosCheckout;
 }
 
 export function isTdsEnabled(): boolean {

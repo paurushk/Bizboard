@@ -75,13 +75,16 @@ def _month_end_back(day: date, steps: int) -> date:
 
 
 def test_bug_acc_001_cash_shift_close_is_per_cashier(books):
-    """Opening float plus this cashier's cash only; a locked register cannot change."""
+    """Opening float plus the cash taken from this till only; a locked register cannot change."""
     customer = make_customer(books.company, name="Till Customer")
     business_date = date(2026, 6, 15)
-    PaymentService.create_receipt(
+    taken = PaymentService.create_receipt(
         company=books.company, customer=customer, amount=Decimal("40.00"), mode="CASH",
         receipt_date=business_date, user=books.owner,
     )
+    # A payments-screen cash receipt counts toward the till only when it is marked as taken from it.
+    taken.paid_from_till = True
+    taken.save(update_fields=["paid_from_till"])
     PaymentService.create_receipt(
         company=books.company, customer=customer, amount=Decimal("25.00"), mode="CASH",
         receipt_date=business_date, user=books.staff,

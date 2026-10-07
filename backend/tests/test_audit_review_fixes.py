@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 
 from payments.models import CustomerReceipt
-from tests.conftest import add_stock, make_customer, make_product
+from tests.conftest import add_stock, make_customer, make_product, map_pos_tender
 
 pytestmark = pytest.mark.django_db
 
@@ -19,6 +19,8 @@ def _body(resp):
 
 
 def _pos(tenant, customer, product, *, payments, payment_extra=None):
+    if any(str((part or {}).get("mode") or "").upper() == "UPI" for part in payments):
+        map_pos_tender(tenant.company, "UPI")
     payment = {"mode": "CASH", "amount": "100.00", "expected_total": "100.00"}
     payment.update(payment_extra or {})
     return tenant.client.post(
@@ -91,7 +93,7 @@ def test_split_tender_never_collects_more_than_the_bill(tenant_a):
         payment_extra={"confirm_totals_mismatch": True},
     )
     assert resp.status_code == 400, resp.data
-    assert "more than the bill" in str(resp.data)
+    assert "still due" in str(resp.data)
     assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == 0
 
 

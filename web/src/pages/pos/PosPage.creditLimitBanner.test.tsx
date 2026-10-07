@@ -134,6 +134,9 @@ vi.mock('@/offline/invoiceDraftCache', () => ({
 vi.mock('@/lib/native', () => ({
   onNetworkOnline: () => () => {},
   scanBarcode: vi.fn(async () => null),
+  isNative: () => false,
+  printEscPos: vi.fn(async () => 'none'),
+  DRAWER_KICK: new Uint8Array(),
 }));
 
 vi.mock('@/lib/telemetry', () => ({

@@ -976,6 +976,152 @@
                 }
             }
         },
+        "/api/v1/accounting/cash-shifts/{id}/drop/": {
+            "post": {
+                "operationId": "accounting_cash_shifts_drop_create",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CashShiftRegister"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cash-shifts/{id}/summary/": {
+            "get": {
+                "operationId": "accounting_cash_shifts_summary_retrieve",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this cash shift register.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cash-shifts/history/": {
+            "get": {
+                "operationId": "accounting_cash_shifts_history_retrieve",
+                "description": "Daily till: opening float, note count, expected cash, and a day lock.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cash-shifts/today/": {
+            "get": {
+                "operationId": "accounting_cash_shifts_today_retrieve",
+                "description": "The caller's open shift for today. Does not require financial-report access.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CashShiftRegister"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/accounting/cost-centers/": {
             "get": {
                 "operationId": "accounting_cost_centers_list",
@@ -8530,6 +8676,98 @@
                         "required": true
                     }
                 ],
+                "tags": [
+                    "customers"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Customer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/pos-walk-in/": {
+            "post": {
+                "operationId": "customers_pos_walk_in_create",
+                "description": "Get or create the single walk-in party. Cashiers do not set the flag themselves.",
+                "tags": [
+                    "customers"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Customer"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Customer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/set-pos-walk-in/": {
+            "post": {
+                "operationId": "customers_set_pos_walk_in_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "tags": [
                     "customers"
                 ],
@@ -19771,6 +20009,22 @@
                         "description": "No response body"
                     }
                 }
+            },
+            "delete": {
+                "operationId": "plan_pos_holds_destroy",
+                "tags": [
+                    "plan"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
             }
         },
         "/api/v1/plan/print/": {
@@ -20301,6 +20555,58 @@
             "get": {
                 "operationId": "products_hsn_search_retrieve",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "products"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Product"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/products/pos-catalog/": {
+            "get": {
+                "operationId": "products_pos_catalog_retrieve",
+                "description": "Paged POS fields for the offline catalogue, plus ids removed since `updated_after`.",
+                "tags": [
+                    "products"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Product"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/products/pos-price-lists/": {
+            "get": {
+                "operationId": "products_pos_price_lists_retrieve",
+                "description": "Price lists for the named customers, plus a list named Default.",
                 "tags": [
                     "products"
                 ],
@@ -31531,6 +31837,96 @@
                 }
             }
         },
+        "/api/v1/sales/pos/collect/": {
+            "post": {
+                "operationId": "sales_pos_collect_create",
+                "description": "Take money against an invoice the counter already completed.\n\nUses the same bank mapping as checkout. Cash stays on ledger 1100.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/pos/events/": {
+            "post": {
+                "operationId": "sales_pos_events_create",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/pos/return/": {
+            "post": {
+                "operationId": "sales_pos_return_create",
+                "description": "Return the last counter bill. Cashiers complete it here.\n\nThe general return complete action stays limited to people who can cancel\ndocuments. Exchange starts the replacement sale on the same customer.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/pos/settings/": {
+            "get": {
+                "operationId": "sales_pos_settings_retrieve",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "sales_pos_settings_create",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/sales/quotations/": {
             "get": {
                 "operationId": "sales_quotations_list",
@@ -35519,6 +35915,12 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
                     },
+                    "cash_dropped": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
                     "denominations": {
                         "readOnly": true
                     },
@@ -35554,6 +35956,26 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "terminal_id": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "terminal_label": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -35567,13 +35989,16 @@
                 },
                 "required": [
                     "business_date",
+                    "cash_dropped",
                     "cashier",
+                    "closed_at",
                     "counted_cash",
                     "created_at",
                     "denominations",
                     "expected_cash",
                     "id",
                     "locked_at",
+                    "opened_at",
                     "status",
                     "updated_at",
                     "variance"
@@ -36287,6 +36712,10 @@
                         "minimum": 0,
                         "format": "int64"
                     },
+                    "is_pos_walk_in": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "notes": {
                         "type": "string"
                     },
@@ -36373,6 +36802,7 @@
                     "gstin_verification_status",
                     "gstin_verified_at",
                     "id",
+                    "is_pos_walk_in",
                     "name",
                     "outstanding",
                     "updated_at",
@@ -36496,6 +36926,14 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "paid_from_till": {
+                        "type": "boolean"
+                    },
+                    "shift": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "settlement_discount": {
                         "type": "string",
                         "format": "decimal",
@@ -36525,6 +36963,7 @@
                     "id",
                     "number",
                     "section_138_notice",
+                    "shift",
                     "source",
                     "status",
                     "unallocated",
@@ -42049,6 +42488,12 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
                     },
+                    "cash_dropped": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
                     "denominations": {
                         "readOnly": true
                     },
@@ -42079,6 +42524,26 @@
                         "readOnly": true
                     },
                     "locked_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "terminal_id": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "terminal_label": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "opened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "closed_at": {
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true,
@@ -42658,6 +43123,10 @@
                         "maximum": 9223372036854775807,
                         "minimum": 0,
                         "format": "int64"
+                    },
+                    "is_pos_walk_in": {
+                        "type": "boolean",
+                        "readOnly": true
                     },
                     "notes": {
                         "type": "string"
@@ -45839,6 +46308,21 @@
                         "nullable": true
                     },
                     "custom_fields": {},
+                    "salesperson": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "terminal_id": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "terminal_label": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "pos_offline": {
+                        "type": "boolean"
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -51009,6 +51493,21 @@
                         "nullable": true
                     },
                     "custom_fields": {},
+                    "salesperson": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "terminal_id": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "terminal_label": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "pos_offline": {
+                        "type": "boolean"
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -51485,6 +51984,11 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "price_override_by": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "taxable_amount": {
                         "type": "string",
                         "format": "decimal",
@@ -51532,6 +52036,7 @@
                     "igst",
                     "line_total",
                     "mrp",
+                    "price_override_by",
                     "product",
                     "product_name",
                     "quantity",
@@ -52998,6 +53503,14 @@
                     "cheque_image": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "paid_from_till": {
+                        "type": "boolean"
+                    },
+                    "shift": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -53007,6 +53520,7 @@
                     "created_at",
                     "id",
                     "number",
+                    "shift",
                     "source",
                     "status",
                     "supplier",

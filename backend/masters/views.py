@@ -169,9 +169,9 @@ class CustomerViewSet(CompanyScopedViewSet):
     serializer_class = CustomerSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) in _MUTATE_ACTIONS:
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "pos_walk_in"):
             return [IsAuthenticated(), HasCompany(), CanCreateSales()]
-        if getattr(self, "action", None) == "verify_gstin":
+        if getattr(self, "action", None) in ("verify_gstin", "set_pos_walk_in"):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         # BB-000422: VIEWER must not browse party masters.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
@@ -184,6 +184,8 @@ class CustomerViewSet(CompanyScopedViewSet):
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
         if q:
             qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))
+        if self.request.query_params.get("is_pos_walk_in") in ("1", "true", "True"):
+            qs = qs.filter(is_pos_walk_in=True)
         sort = (self.request.query_params.get("sort") or self.request.query_params.get("ordering") or "name").lower()
         if sort in ("recent", "recently_active", "-updated_at"):
             qs = qs.order_by("-updated_at", "name")
@@ -203,6 +205,74 @@ class CustomerViewSet(CompanyScopedViewSet):
         else:
             qs = qs.order_by("name")
         return qs
+
+    @action(detail=False, methods=["post"], url_path="pos-walk-in")
+    def pos_walk_in(self, request):
+        """Get or create the single walk-in party. Cashiers do not set the flag themselves."""
+        from django.db import IntegrityError
+
+        name = str(request.data.get("name") or "Walk-in").strip()[:255] or "Walk-in"
+        with transaction.atomic():
+            row = (
+                Customer.objects.select_for_update()
+                .filter(company=self.company, is_pos_walk_in=True)
+                .first()
+            )
+            if row is not None:
+                return Response(self.get_serializer(row).data)
+            try:
+                row = Customer.objects.create(
+                    company=self.company,
+                    name=name,
+                    status=Customer.Status.ACTIVE,
+                    is_pos_walk_in=True,
+                    created_by=request.user,
+                    updated_by=request.user,
+                )
+            except IntegrityError:
+                row = Customer.objects.filter(company=self.company, is_pos_walk_in=True).first()
+                if row is None:
+                    raise
+        return Response(self.get_serializer(row).data, status=201)
+
+    @action(detail=False, methods=["post"], url_path="set-pos-walk-in", permission_classes=[IsAuthenticated, HasCompany, IsOwner])
+    def set_pos_walk_in(self, request):
+        from decimal import Decimal
+
+        from core.services.audit import AuditService
+
+        target_id = request.data.get("customer")
+        with transaction.atomic():
+            target = (
+                Customer.objects.select_for_update()
+                .filter(company=self.company, pk=target_id)
+                .first()
+            )
+            if target is None:
+                raise BusinessRuleError("Choose a customer in this company.")
+            if (target.gstin or "").strip() or Decimal(str(target.credit_limit or 0)) > 0:
+                raise BusinessRuleError(
+                    "The walk-in party cannot have a GSTIN or a credit limit.",
+                    code="pos_walk_in_target",
+                )
+            # Lock the current walk-in rows first so two moves cannot race on the unique flag.
+            list(Customer.objects.select_for_update().filter(company=self.company, is_pos_walk_in=True))
+            Customer.objects.filter(company=self.company, is_pos_walk_in=True).exclude(pk=target.pk).update(
+                is_pos_walk_in=False,
+            )
+            if not target.is_pos_walk_in:
+                target.is_pos_walk_in = True
+                target.updated_by = request.user
+                target.save(update_fields=["is_pos_walk_in", "updated_by", "updated_at"])
+        AuditService.log(
+            company=self.company,
+            user=request.user,
+            action="UPDATE",
+            entity_type="Customer",
+            entity_id=str(target.pk),
+            description=f"POS walk-in party set to {target.name}",
+        )
+        return Response(self.get_serializer(target).data)
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.get("partial", False)
@@ -379,6 +449,91 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanManageInventory()]
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
+
+    @action(detail=False, methods=["get"], url_path="pos-catalog")
+    def pos_catalog(self, request):
+        """Paged POS fields for the offline catalogue, plus ids removed since `updated_after`."""
+        from django.utils.dateparse import parse_datetime
+
+        try:
+            limit = max(1, min(int(request.query_params.get("limit") or 500), 1000))
+        except (TypeError, ValueError):
+            limit = 500
+        try:
+            offset = max(0, int(request.query_params.get("cursor") or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        updated_after = parse_datetime(str(request.query_params.get("updated_after") or ""))
+        # Only sellable products go to the till. An inactive item must not be sold offline.
+        alive = Product.objects.filter(company=self.company, status=Product.Status.ACTIVE).select_related("unit")
+        deleted_ids = []
+        if updated_after is not None:
+            alive = alive.filter(updated_at__gt=updated_after)
+            gone = Product.all_objects.filter(company=self.company, updated_at__gt=updated_after).filter(
+                Q(is_deleted=True) | ~Q(status=Product.Status.ACTIVE)
+            )
+            deleted_ids = list(gone.values_list("id", flat=True)[:1000])
+        page = list(alive.order_by("id")[offset:offset + limit + 1])
+        more = len(page) > limit
+        page = page[:limit]
+        results = []
+        for product in page:
+            unit = getattr(product, "unit", None)
+            results.append({
+                "id": product.id,
+                "name": product.name,
+                "sku": product.sku,
+                "barcode": product.barcode,
+                "price": str(product.selling_price),
+                "gst": str(product.gst_rate),
+                "hsn": product.hsn_code,
+                "unit": getattr(unit, "name", "") or "",
+                "track_batch": bool(product.track_batch),
+                "track_serial": bool(product.track_serial),
+                "product_type": product.product_type,
+                "updated_at": product.updated_at,
+            })
+        return Response({
+            "results": results,
+            "deleted_ids": deleted_ids,
+            "next_cursor": offset + limit if more else None,
+        })
+
+    @action(detail=False, methods=["get"], url_path="pos-price-lists")
+    def pos_price_lists(self, request):
+        """Price lists for the named customers, plus a list named Default."""
+        from masters.models import Customer, PriceList
+
+        raw_ids = []
+        for part in str(request.query_params.get("customers") or "").split(","):
+            if part.strip().isdigit():
+                raw_ids.append(int(part))
+        customers = list(Customer.objects.filter(company=self.company, pk__in=raw_ids))
+        wanted = {row.price_list_id for row in customers if row.price_list_id}
+        default = PriceList.objects.filter(
+            company=self.company, is_active=True, name__iexact="Default",
+        ).first()
+        if default is not None:
+            wanted.add(default.id)
+        lists = []
+        for plist in PriceList.objects.filter(company=self.company, pk__in=wanted, is_active=True):
+            lists.append({
+                "id": plist.id,
+                "name": plist.name,
+                "items": [
+                    {
+                        "product": item.product_id,
+                        "unit_price": str(item.unit_price),
+                        "min_qty": str(item.min_qty),
+                        "max_qty": None if item.max_qty is None else str(item.max_qty),
+                    }
+                    for item in plist.items.all()[:2000]
+                ],
+            })
+        return Response({
+            "lists": lists,
+            "customers": [{"id": row.id, "price_list": row.price_list_id} for row in customers],
+        })
 
     def get_queryset(self):
         from django.db.models import Exists, OuterRef

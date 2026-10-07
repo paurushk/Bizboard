@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -110,6 +111,13 @@ class SalesInvoice(DocumentTotalsModel):
     cancelled_at = models.DateTimeField(null=True, blank=True)
     # CFT-120: optimistic concurrency token for completed-invoice amend.
     amend_revision = models.PositiveIntegerField(default=0)
+    salesperson = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="pos_sales",
+    )
+    terminal_id = models.CharField(max_length=64, blank=True, default="")
+    terminal_label = models.CharField(max_length=64, blank=True, default="")
+    pos_offline = models.BooleanField(default=False)
+    pos_outage_id = models.CharField(max_length=64, blank=True, default="")
 
     class EInvoiceStatus(models.TextChoices):
         NONE = "NONE"
@@ -245,6 +253,9 @@ class SalesItem(DocumentLineModel):
         max_length=12, choices=SupplyNature.choices, default=SupplyNature.TAXABLE
     )
     applied_price_list_name = models.CharField(max_length=100, blank=True, default="")
+    price_override_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
 
 class Quotation(DocumentTotalsModel):
@@ -957,3 +968,58 @@ class DeliveryChallanReturn(DocumentTotalsModel):
 class DeliveryChallanReturnItem(DocumentLineModel):
     challan_return = models.ForeignKey(DeliveryChallanReturn, on_delete=models.CASCADE, related_name="items")
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="delivery_challan_return_items")
+
+
+class PosApproverPin(CompanyScopedModel):
+    """A counter PIN belongs to one user. The row is the grant."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="pos_approver_pins",
+    )
+    pin_hash = models.CharField(max_length=128)
+    set_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company", "user"], name="uniq_pos_approver_pin"),
+        ]
+
+
+class PosCounterRefund(CompanyScopedModel):
+    """Cash or bank handed back after a counter return. The credit note stays the sales reversal."""
+
+    class Mode(models.TextChoices):
+        CASH = "CASH"
+        BANK = "BANK"
+        ADVANCE = "ADVANCE"
+
+    class Status(models.TextChoices):
+        ADVANCE = "ADVANCE"
+        POSTED = "POSTED"
+        PENDING_GATEWAY = "PENDING_GATEWAY"
+
+    customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="pos_refunds")
+    sales_return = models.ForeignKey(SalesReturn, on_delete=models.PROTECT, related_name="pos_refunds")
+    amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    mode = models.CharField(max_length=12, choices=Mode.choices)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.POSTED)
+    cashier = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="pos_refunds",
+    )
+    refund_date = models.DateField(default=timezone.localdate)
+    bank_account = models.ForeignKey(
+        "payments.BankAccount", null=True, blank=True, on_delete=models.SET_NULL, related_name="pos_refunds",
+    )
+    idempotency_key = models.CharField(max_length=64, blank=True, default="")
+    shift = models.ForeignKey(
+        "accounting.CashShiftRegister", null=True, blank=True, on_delete=models.SET_NULL, related_name="refunds",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "idempotency_key"],
+                condition=~models.Q(idempotency_key=""),
+                name="uniq_pos_refund_idempotency",
+            ),
+        ]

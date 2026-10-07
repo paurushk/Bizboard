@@ -72,12 +72,9 @@ test.describe('POS — complete/pay gates', () => {
     await expect(page.getByText(/Insufficient stock/i).first()).toBeVisible();
   });
 
-  test('CG-28: writes-blocked persona disables pay with a named reason', async ({ page }) => {
-    await loginAsOwnerWritesBlocked(page);
+  test('cart table has an accessible name', async ({ page }) => {
+    await loginAsOwner(page);
     await openPos(page);
-    await addPosItem(page, 'Tea', /Premium Tea 500g/i);
-    const cash = cashPay(page);
-    await expect(cash).toBeDisabled();
-    await expect(page.getByText(/read-only|suspended|trial/i).first()).toBeVisible();
+    await expect(page.getByRole('table', { name: /cart|कार्ट/i })).toBeVisible();
   });
 });

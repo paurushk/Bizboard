@@ -93,7 +93,13 @@ class PosBatchSyncView(APIView):
                 with transaction.atomic():
                     response = view.pos_checkout(view.request)
             except (BusinessRuleError, APIException) as exc:
-                errors.append({"index": index, "idempotency_key": key, "detail": _error_detail(exc)})
+                errors.append({
+                "index": index,
+                "idempotency_key": key,
+                "detail": _error_detail(exc),
+                "code": getattr(exc, "default_code", ""),
+                "extra": getattr(exc, "extra", None) or {},
+            })
                 continue
             if response.status_code >= 400:
                 errors.append({

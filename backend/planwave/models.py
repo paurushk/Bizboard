@@ -130,6 +130,9 @@ class PharmacyDispense(CompanyScopedModel):
     batch_no = models.CharField(max_length=64, blank=True)
     invoice_number = models.CharField(max_length=32, blank=True)
     prescription_note = models.TextField(blank=True)
+    prescription_image = models.ForeignKey(
+        "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
 
 class AnomalyReview(CompanyScopedModel):

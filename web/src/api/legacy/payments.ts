@@ -92,6 +92,7 @@ export async function createReceipt(
     chequeImage?: number;
     settlementDiscount?: number | string;
     allocateOldest?: boolean;
+    paidFromTill?: boolean;
   },
   options?: { idempotencyKey?: string },
 ): Promise<CustomerReceipt> {

@@ -1,30 +1,55 @@
 /**
  * CR-114: shared thermal print (or warn) after POS sale / offline flush.
  */
-import { downloadInvoiceThermalPdf } from '@/api/resources';
-import { DRAWER_KICK, printEscPos } from '@/lib/native';
+import { downloadInvoiceThermalPdf, getSalesInvoice } from '@/api/resources';
+import { DRAWER_KICK, isNative, printEscPos } from '@/lib/native';
 import { printBlob } from '@/utils/blob';
+import { encodeEscPosReceipt } from '@/pages/pos/escposReceipt';
 
 export { DRAWER_KICK };
 
+function hasNonAscii(text: string): boolean {
+  for (const ch of text) {
+    if (ch.charCodeAt(0) > 127) return true;
+  }
+  return false;
+}
+
 export type ThermalWarn = { invoiceId: number; number: string };
 
-/** Try thermal PDF; on failure return a warn payload for the caller to surface. */
+/** Native printers get a real ESC/POS bill. Every other screen gets the PDF. */
 export async function printPosThermalOrWarn(invoice: {
   id: number;
   number?: string | null;
 }): Promise<ThermalWarn | null> {
-  const receipt = `BizBoard\n${invoice.number ?? invoice.id}\n\n\n`;
-  const text = new Uint8Array(receipt.length);
-  for (let i = 0; i < receipt.length; i += 1) text[i] = receipt.charCodeAt(i);
-  const bytes = new Uint8Array(text.length + DRAWER_KICK.length);
-  bytes.set(text, 0);
-  bytes.set(DRAWER_KICK, text.length);
-  try {
-    const mode = await printEscPos(bytes);
-    if (mode === 'native') return null;
-  } catch {
-    // The Bluetooth plugin is missing or the printer refused the bytes.
+  if (isNative()) {
+    try {
+      const full = await getSalesInvoice(invoice.id);
+      const unicode = (full.items ?? [])
+        .map((item) => item.description || item.productName || '')
+        .filter(hasNonAscii);
+      const bytes = encodeEscPosReceipt({
+        rasterLines: unicode,
+        number: full.number ?? invoice.number,
+        customerName: full.customerName,
+        invoiceDate: full.invoiceDate,
+        grandTotal: full.grandTotal,
+        pulseDrawer: true,
+        items: (full.items ?? []).map((item) => ({
+          name: item.description || item.productName,
+          quantity: item.quantity,
+          lineTotal: item.lineTotal,
+          hsn: item.hsnCode,
+          gstRate: item.gstRate,
+          tax: Number(item.cgst || 0) + Number(item.sgst || 0) + Number(item.igst || 0),
+        })),
+        paperColumns: (typeof localStorage !== 'undefined' && localStorage.getItem('bb_pos_paper_mm') === '80') ? 48 : 32,
+      });
+      const mode = await printEscPos(bytes);
+      if (mode === 'native') return null;
+    } catch {
+      // The printer plugin is missing or refused the bill. The PDF is next.
+    }
   }
   try {
     const blob = await downloadInvoiceThermalPdf(invoice.id);

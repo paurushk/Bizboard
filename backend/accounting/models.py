@@ -262,6 +262,11 @@ class CashShiftRegister(CompanyScopedModel):
     )
     business_date = models.DateField()
     opening_float = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    cash_dropped = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    terminal_id = models.CharField(max_length=64, blank=True, default="")
+    terminal_label = models.CharField(max_length=64, blank=True, default="")
+    opened_at = models.DateTimeField(null=True, blank=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
     denominations = models.JSONField(default=dict, blank=True)
     expected_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     counted_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
@@ -273,10 +278,23 @@ class CashShiftRegister(CompanyScopedModel):
         ordering = ["-business_date", "-id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["company", "cashier", "business_date"],
-                name="uniq_cash_shift_per_cashier_day",
+                fields=["company", "terminal_id"],
+                condition=models.Q(status="OPEN") & ~models.Q(terminal_id=""),
+                name="uniq_open_cash_shift_per_terminal",
             ),
         ]
+
+
+class CashDrop(CompanyScopedModel):
+    """One removal of cash from an open drawer. `cash_dropped` on the shift is the cached sum."""
+
+    shift = models.ForeignKey(CashShiftRegister, on_delete=models.CASCADE, related_name="drops")
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    note = models.CharField(max_length=200, blank=True, default="")
+    dropped_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-dropped_at", "-id"]
 
 
 class Expense(CompanyScopedModel):

@@ -230,6 +230,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/cash-shifts/{id}/drop/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Daily till: opening float, note count, expected cash, and a day lock. */
+        post: operations["accounting_cash_shifts_drop_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/cash-shifts/{id}/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Daily till: opening float, note count, expected cash, and a day lock. */
+        get: operations["accounting_cash_shifts_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/cash-shifts/history/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Daily till: opening float, note count, expected cash, and a day lock. */
+        get: operations["accounting_cash_shifts_history_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/cash-shifts/today/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The caller's open shift for today. Does not require financial-report access. */
+        get: operations["accounting_cash_shifts_today_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/cost-centers/": {
         parameters: {
             query?: never;
@@ -2794,6 +2862,43 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["customers_verify_gstin_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/pos-walk-in/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Get or create the single walk-in party. Cashiers do not set the flag themselves. */
+        post: operations["customers_pos_walk_in_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/set-pos-walk-in/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["customers_set_pos_walk_in_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6724,7 +6829,7 @@ export interface paths {
         get: operations["plan_pos_holds_retrieve"];
         put?: never;
         post: operations["plan_pos_holds_create"];
-        delete?: never;
+        delete: operations["plan_pos_holds_destroy"];
         options?: never;
         head?: never;
         patch?: never;
@@ -6985,6 +7090,40 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         get: operations["products_hsn_search_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/pos-catalog/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Paged POS fields for the offline catalogue, plus ids removed since `updated_after`. */
+        get: operations["products_pos_catalog_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/pos-price-lists/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Price lists for the named customers, plus a list named Default. */
+        get: operations["products_pos_price_lists_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10628,6 +10767,81 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/pos/collect/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Take money against an invoice the counter already completed.
+         *
+         *     Uses the same bank mapping as checkout. Cash stays on ledger 1100.
+         */
+        post: operations["sales_pos_collect_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/pos/events/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["sales_pos_events_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/pos/return/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Return the last counter bill. Cashiers complete it here.
+         *
+         *     The general return complete action stays limited to people who can cancel
+         *     documents. Exchange starts the replacement sale on the same customer.
+         */
+        post: operations["sales_pos_return_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/pos/settings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["sales_pos_settings_retrieve"];
+        put?: never;
+        post: operations["sales_pos_settings_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/quotations/": {
         parameters: {
             query?: never;
@@ -11906,6 +12120,8 @@ export interface components {
             businessDate: string;
             /** Format: decimal */
             openingFloat?: string;
+            /** Format: decimal */
+            readonly cashDropped: string;
             readonly denominations: unknown;
             /** Format: decimal */
             readonly expectedCash: string;
@@ -11916,6 +12132,12 @@ export interface components {
             readonly status: components["schemas"]["StatusAa5Enum"];
             /** Format: date-time */
             readonly lockedAt: string | null;
+            terminalId?: string;
+            terminalLabel?: string;
+            /** Format: date-time */
+            readonly openedAt: string | null;
+            /** Format: date-time */
+            readonly closedAt: string | null;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -12148,6 +12370,7 @@ export interface components {
             creditLimit?: string;
             /** Format: int64 */
             creditDays?: number;
+            readonly isPosWalkIn: boolean;
             notes?: string;
             /** Format: date-time */
             readonly createdAt: string;
@@ -12204,6 +12427,8 @@ export interface components {
             chequeDate?: string | null;
             chequeStatus?: components["schemas"]["ChequeStatusEnum"] | components["schemas"]["BlankEnum"];
             chequeImage?: number | null;
+            paidFromTill?: boolean;
+            readonly shift: number | null;
             /** Format: decimal */
             settlementDiscount?: string;
             /** Format: decimal */
@@ -14435,6 +14660,8 @@ export interface components {
             businessDate?: string;
             /** Format: decimal */
             openingFloat?: string;
+            /** Format: decimal */
+            readonly cashDropped?: string;
             readonly denominations?: unknown;
             /** Format: decimal */
             readonly expectedCash?: string;
@@ -14445,6 +14672,12 @@ export interface components {
             readonly status?: components["schemas"]["StatusAa5Enum"];
             /** Format: date-time */
             readonly lockedAt?: string | null;
+            terminalId?: string;
+            terminalLabel?: string;
+            /** Format: date-time */
+            readonly openedAt?: string | null;
+            /** Format: date-time */
+            readonly closedAt?: string | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -14617,6 +14850,7 @@ export interface components {
             creditLimit?: string;
             /** Format: int64 */
             creditDays?: number;
+            readonly isPosWalkIn?: boolean;
             notes?: string;
             /** Format: date-time */
             readonly createdAt?: string;
@@ -15600,6 +15834,10 @@ export interface components {
             includeTerms?: boolean;
             signature?: number | null;
             customFields?: unknown;
+            salesperson?: number | null;
+            terminalId?: string;
+            terminalLabel?: string;
+            posOffline?: boolean;
             items?: components["schemas"]["SalesItem"][];
             readonly pdfStatus?: components["schemas"]["PdfStatusEnum"];
             readonly pdfFile?: number | null;
@@ -17168,6 +17406,10 @@ export interface components {
             includeTerms?: boolean;
             signature?: number | null;
             customFields?: unknown;
+            salesperson?: number | null;
+            terminalId?: string;
+            terminalLabel?: string;
+            posOffline?: boolean;
             items: components["schemas"]["SalesItem"][];
             readonly pdfStatus: components["schemas"]["PdfStatusEnum"];
             readonly pdfFile: number | null;
@@ -17291,6 +17533,7 @@ export interface components {
             rateOverride?: boolean;
             rateOverrideReason?: string;
             readonly appliedPriceListName: string;
+            readonly priceOverrideBy: number | null;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -17768,6 +18011,8 @@ export interface components {
             chequeDate?: string | null;
             chequeStatus?: components["schemas"]["ChequeStatusEnum"] | components["schemas"]["BlankEnum"];
             chequeImage?: number | null;
+            paidFromTill?: boolean;
+            readonly shift: number | null;
         };
         /**
          * @description * `POSTED` - Posted
@@ -18515,6 +18760,94 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["CashShiftRegister"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashShiftRegister"];
+                };
+            };
+        };
+    };
+    accounting_cash_shifts_drop_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this cash shift register. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CashShiftRegister"];
+                "multipart/form-data": components["schemas"]["CashShiftRegister"];
+                "application/x-www-form-urlencoded": components["schemas"]["CashShiftRegister"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashShiftRegister"];
+                };
+            };
+        };
+    };
+    accounting_cash_shifts_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this cash shift register. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashShiftRegister"];
+                };
+            };
+        };
+    };
+    accounting_cash_shifts_history_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CashShiftRegister"];
+                };
+            };
+        };
+    };
+    accounting_cash_shifts_today_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -23078,6 +23411,56 @@ export interface operations {
                 /** @description A unique integer value identifying this customer. */
                 id: number;
             };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Customer"];
+                "multipart/form-data": components["schemas"]["Customer"];
+                "application/x-www-form-urlencoded": components["schemas"]["Customer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+        };
+    };
+    customers_pos_walk_in_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Customer"];
+                "multipart/form-data": components["schemas"]["Customer"];
+                "application/x-www-form-urlencoded": components["schemas"]["Customer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Customer"];
+                };
+            };
+        };
+    };
+    customers_set_pos_walk_in_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody: {
@@ -29963,6 +30346,24 @@ export interface operations {
             };
         };
     };
+    plan_pos_holds_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     plan_print_create: {
         parameters: {
             query?: never;
@@ -30337,6 +30738,44 @@ export interface operations {
         };
     };
     products_hsn_search_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_pos_catalog_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_pos_price_lists_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -36685,6 +37124,96 @@ export interface operations {
         };
     };
     sales_pos_batch_sync_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_pos_collect_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_pos_events_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_pos_return_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_pos_settings_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    sales_pos_settings_create: {
         parameters: {
             query?: never;
             header?: never;

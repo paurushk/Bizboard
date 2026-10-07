@@ -4,7 +4,9 @@ import { dialogAmountDirty } from '@/pages/moneyFormDirty';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -62,6 +64,7 @@ export function SupplierPaymentsPage() {
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [amount, setAmount] = useState('');
   const [mode, setMode] = useState<PaymentMode>('BANK');
+  const [paidFromTill, setPaidFromTill] = useState(false);
   const [purchase, setPurchase] = useState<PurchaseInvoice | null>(null);
   const [allocAmount, setAllocAmount] = useState('');
   const [cheque, setCheque] = useState<ChequePaymentValues>({
@@ -116,6 +119,7 @@ export function SupplierPaymentsPage() {
           chequeBankName: mode === 'CHEQUE' ? cheque.chequeBankName.trim() : undefined,
           chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
           chequeImage: mode === 'CHEQUE' ? cheque.chequeImage || undefined : undefined,
+          paidFromTill: mode === 'CASH' ? paidFromTill : undefined,
         },
         { idempotencyKey: key },
       );
@@ -348,6 +352,12 @@ export function SupplierPaymentsPage() {
                 </MenuItem>
               ))}
             </TextField>
+            {mode === 'CASH' ? (
+              <FormControlLabel
+                control={<Checkbox checked={paidFromTill} onChange={(event) => setPaidFromTill(event.target.checked)} />}
+                label={t('phase1.paidFromTill')}
+              />
+            ) : null}
             {mode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
             <Autocomplete
               options={openPurchases}

@@ -1,32 +1,30 @@
 import {
-  completeSalesInvoice,
-  createAllocation,
   createCustomer,
-  createReceipt,
-  createSalesInvoice,
-  deleteSalesInvoice,
+  ensurePosWalkIn,
   getCompany,
-  getSalesInvoice,
+  posCheckout,
 } from '@/api/resources';
+import { buildAtomicPosInvoicePayload } from '@/pages/pos/posCheckoutPayload';
 import { todayIso } from '@/components/billing';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
-import { toNumber } from '@/utils/money';
 import {
-  enqueueDraft,
-  removeDraft,
   updateDraft,
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
 import type { SalesInvoice } from '@/types/domain';
 
-/** Flush a POS outbox draft: create+complete invoice, cash receipt, allocate.
- * CR-006: returns completed invoice so caller can trigger thermal receipt printing.
+/** Flush a POS outbox draft through the same atomic checkout the counter uses.
+ * Cash is the default. Named credit flushes only when the draft was accepted as offline credit.
+ * Card, UPI, bank, and cheque stay on the device until the cashier finishes them online.
  */
 export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
   const payload = draft.payload || {};
   const mode = draft.paymentMode ?? payload.paymentMode ?? 'CASH';
-  if (mode === 'UPI') {
-    throw new Error('UPI POS drafts must be finished on the POS screen while online.');
+  const offlineCredit = Boolean(payload.offlineCredit);
+  if (mode !== 'CASH' && !(mode === 'CREDIT' && offlineCredit)) {
+    throw new Error(
+      `Offline ${mode} sales cannot be synced. Take cash, or finish this tender while online. The sale was not posted as cash.`,
+    );
   }
   let customerId = Number(draft.customerId || payload.customer || 0);
   const pendingName = String(
@@ -37,16 +35,18 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
     // merge different people into one ledger and credit-limit balance.
     const created = await createCustomer({ name: pendingName, status: 'ACTIVE' });
     customerId = created.id;
-    // CR-004: bind the new party onto the draft before invoice create so a
-    // retry after customer-create / before durable invoice success does not
-    // mint a duplicate customer with the same pending name.
     await updateDraft(draft.companyId, draft.userId, draft.idempotencyKey, {
       customerId,
       payload: { ...payload, customer: customerId },
     });
   }
   if (!customerId) {
-    throw new Error('POS draft is missing a customer');
+    const walkIn = await ensurePosWalkIn();
+    customerId = walkIn.id;
+    await updateDraft(draft.companyId, draft.userId, draft.idempotencyKey, {
+      customerId,
+      payload: { ...payload, customer: customerId },
+    });
   }
   const lines = draft.lines ?? [];
   if (!lines.length) {
@@ -56,10 +56,8 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
   const taxEnabled = preferredInvoiceType(company.registrationType) !== 'NON_GST';
   const posInvoiceType = taxEnabled ? 'RETAIL' : 'NON_GST';
   const isInclusive = company.priceMode === 'INCLUSIVE';
-  // The create request is sent under draft.idempotencyKey on every retry, and the server now
-  // refuses a reused key whose body differs (422 idempotency_key_reused). `todayIso()` here would
-  // change after midnight, so a retry of an invoice that was already created would be refused
-  // instead of replayed. Pin the date on the draft at the first attempt; every retry reuses it.
+  // The request is sent under draft.idempotencyKey on every retry. Pin the date so a retry after
+  // midnight replays the same body instead of being refused as a reused key.
   let invoiceDate = typeof payload.invoiceDate === 'string' ? payload.invoiceDate : '';
   if (!invoiceDate) {
     invoiceDate = todayIso();
@@ -68,116 +66,75 @@ export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
     });
   }
   const warehouse = Number(payload.warehouse || 0) || undefined;
-  const invoice = await createSalesInvoice(
-    {
+  const body = {
+    idempotency_key: draft.idempotencyKey,
+    confirm_blank_pos: true,
+    invoice: buildAtomicPosInvoicePayload({
       customer: customerId,
       invoiceType: posInvoiceType,
-      priceMode: isInclusive ? 'INCLUSIVE' : 'EXCLUSIVE',
+      priceModeInclusive: isInclusive,
       invoiceDate,
-      dueDate: invoiceDate,
-      paymentTermsDays: 0,
-      autoRoundOff: true,
-      warehouse,
-      items: lines.map((line) => ({
-        product: line.productId,
-        description: line.productName,
-        quantity: line.quantity,
-        unitPrice: line.unitPrice,
-        unitPriceInclusive: isInclusive ? line.unitPrice : undefined,
-        gstRate: taxEnabled ? line.gstRate : 0,
-        cessRate: taxEnabled ? (line.cessRate ?? 0) : 0,
-        discountPercent: line.discountPercent ?? 0,
-        discountAmount: line.discountAmount,
-        serialNumbers: line.serials,
-        supplyType: line.supplyType,
-        unitName: line.unitName || undefined,
-      })),
-    },
-    { idempotencyKey: draft.idempotencyKey },
-  );
-  let completed;
-  try {
-    // F1-001: carry the same idempotency key `complete` sees on every retry
-    // of this draft. The backend's `sales_invoice_complete` scope is
-    // idempotent (core/idempotency.py) — a retry with this key replays the
-    // stored response from a completion that already happened server-side
-    // instead of re-running SalesService.complete() against an
-    // already-COMPLETED invoice.
-    completed = await completeSalesInvoice(invoice.id, {
-      confirmBlankPos: true,
-      idempotencyKey: `${draft.idempotencyKey}-complete`,
-    });
-  } catch (err) {
-    // F1-001: belt-and-suspenders for the case an idempotency record can't
-    // be found (key mismatch, record cleared) but the invoice genuinely
-    // did complete server-side before this process died — e.g. the create
-    // above returned the pre-existing invoice from *its* idempotency
-    // replay, so completeSalesInvoice's own key was never actually used
-    // for a first attempt. Fetch and check status before assuming failure;
-    // only delete (and only the still-DRAFT invoice this flush created)
-    // when it genuinely never completed.
-    let existing;
-    try {
-      existing = await getSalesInvoice(invoice.id);
-    } catch {
-      /* probe failed too — handled below, fall through without deleting */
-    }
-    if (existing?.status === 'COMPLETED') {
-      completed = existing;
-    } else if (existing) {
-      // Confirmed still DRAFT — genuinely failed, safe to clean up.
-      try {
-        await deleteSalesInvoice(invoice.id);
-      } catch {
-        /* leftover draft if delete is blocked */
-      }
-      // CR-001 / CR-004: Rotate the draft idempotencyKey and persist to storage so retry creates fresh doc
-      const oldKey = draft.idempotencyKey;
-      const newKey = `${oldKey}-${Date.now()}`;
-      draft.idempotencyKey = newKey;
-      try {
-        await removeDraft(draft.companyId, draft.userId, oldKey);
-        await enqueueDraft(draft.companyId, draft.userId, {
-          kind: draft.kind,
-          payload: draft.payload,
-          idempotencyKey: newKey,
-          invoiceId: null,
-          customerId: draft.customerId,
-          paymentMode: draft.paymentMode,
-          lines: draft.lines,
-          pendingCustomerName: draft.pendingCustomerName,
-          completeIntent: draft.completeIntent,
-        });
-      } catch {
-        /* ignore persistence error during failure handler */
-      }
-      throw err;
-    } else {
-      // Status truly unknown (the probe itself failed, e.g. still
-      // offline) — don't guess. Leave the invoice alone and rethrow so
-      // this draft stays queued as failed and gets retried (idempotently)
-      // on the next flush pass, instead of risking a delete of a real sale.
-      throw err;
-    }
+      warehouseId: warehouse,
+      taxEnabled,
+      lines,
+      invoiceDiscountMode: 'AFTER_TAX' as const,
+    }),
+    offline_credit: mode === 'CREDIT',
+    offline: true,
+    shift_id: typeof payload.shiftId === 'number' ? payload.shiftId : undefined,
+    credit_cached_at: typeof payload.creditCachedAt === 'string' ? payload.creditCachedAt : undefined,
+    terminal_id: typeof payload.terminalId === 'string' ? payload.terminalId : undefined,
+    outage_id: typeof payload.outageId === 'string' ? payload.outageId : undefined,
+    payment: { mode },
+  };
+  const result = await posCheckout(body, { idempotencyKey: draft.idempotencyKey });
+  const completed = result.invoice;
+  if (!completed?.id) {
+    throw new Error('POS checkout did not return an invoice');
   }
-  const invoiceTotal = toNumber(completed.grandTotal);
-  const receipt = await createReceipt(
-    {
-      customer: customerId,
-      amount: invoiceTotal,
-      mode: 'CASH',
-      receiptDate: invoiceDate,
-      notes: `POS — ${completed.number ?? completed.id}`,
-    },
-    { idempotencyKey: `${draft.idempotencyKey}-receipt` },
-  );
-  await createAllocation(
-    {
-      receipt: receipt.id,
-      salesInvoice: completed.id,
-      amount: invoiceTotal,
-    },
-    { idempotencyKey: `${draft.idempotencyKey}-alloc` },
-  );
   return completed;
+}
+
+export async function flushPosBatch(drafts: OutboxDraft[]): Promise<{
+  invoices: SalesInvoice[];
+  errors: Array<{ index: number; detail: string }>;
+}> {
+  const { apiClient, unwrapData } = await import('@/api/client');
+  const company = await getCompany();
+  const taxEnabled = preferredInvoiceType(company.registrationType) !== 'NON_GST';
+  const checkouts = [];
+  for (const draft of drafts.slice(0, 50)) {
+    const payload = draft.payload || {};
+    const mode = draft.paymentMode ?? payload.paymentMode ?? 'CASH';
+    checkouts.push({
+      idempotency_key: draft.idempotencyKey,
+      confirm_blank_pos: true,
+      offline: true,
+      offline_credit: mode === 'CREDIT' && Boolean(payload.offlineCredit),
+      shift_id: payload.shiftId,
+      terminal_id: payload.terminalId,
+      credit_cached_at: payload.creditCachedAt,
+      outage_id: payload.outageId,
+      invoice: buildAtomicPosInvoicePayload({
+        customer: Number(draft.customerId || payload.customer || 0),
+        invoiceType: taxEnabled ? 'RETAIL' : 'NON_GST',
+        priceModeInclusive: company.priceMode === 'INCLUSIVE',
+        invoiceDate: typeof payload.invoiceDate === 'string' ? payload.invoiceDate : todayIso(),
+        warehouseId: Number(payload.warehouse || 0) || undefined,
+        taxEnabled,
+        lines: draft.lines ?? [],
+        invoiceDiscountMode: 'AFTER_TAX',
+      }),
+      payment: { mode },
+    });
+  }
+  const response: { data: unknown } = await apiClient.post('/sales/pos/batch-sync/', { checkouts });
+  const body = unwrapData<{
+    results?: Array<{ invoice?: SalesInvoice }>;
+    errors?: Array<{ index?: number; detail?: string }>;
+  }>(response.data);
+  return {
+    invoices: (body.results ?? []).map((row) => row.invoice).filter((row): row is SalesInvoice => Boolean(row?.id)),
+    errors: (body.errors ?? []).map((row) => ({ index: Number(row.index ?? -1), detail: String(row.detail || '') })),
+  };
 }

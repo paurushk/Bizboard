@@ -14,6 +14,7 @@ export async function listCustomersPage(params?: {
   gstin?: string;
   status?: string;
   sort?: string;
+  is_pos_walk_in?: string;
 }): Promise<PageResult<Customer>> {
   return withMocks(
     async () => fetchPage<Customer>('/customers/', params),
@@ -39,6 +40,19 @@ export async function getCustomer(id: number | string): Promise<Customer> {
     const found = mockCustomers.find((c) => c.id === Number(id));
     if (!found) throw new Error('Customer not found');
     return found;
+  });
+}
+
+export async function ensurePosWalkIn(): Promise<Customer> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/customers/pos-walk-in/', {});
+    return unwrapData<Customer>(data);
+  }, () => {
+    const existing = mockCustomers.find((row) => row.name === 'Walk-in');
+    if (existing) return existing;
+    const created = { id: Date.now(), name: 'Walk-in', status: 'ACTIVE' } as Customer;
+    mockCustomers.push(created);
+    return created;
   });
 }
 
@@ -363,6 +377,7 @@ export async function createSupplierPayment(
     chequeBankName?: string;
     chequeDate?: string;
     chequeImage?: number;
+    paidFromTill?: boolean;
   },
   options?: { idempotencyKey?: string },
 ): Promise<SupplierPayment> {

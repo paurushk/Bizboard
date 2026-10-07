@@ -241,6 +241,20 @@ def make_customer(company, name="Ravi Kumar", state="Karnataka", **kwargs):
     return Customer.objects.create(company=company, name=name, state=state, **kwargs)
 
 
+def map_pos_tender(company, mode, name=None):
+    """Point a non-cash POS tender at a bank account of this company."""
+    from payments.models import BankAccount
+
+    bank = BankAccount.objects.create(company=company, name=name or f"POS {mode}")
+    flags = dict(company.feature_flags or {})
+    accounts = dict(flags.get("pos_tender_accounts") or {})
+    accounts[str(mode).upper()] = bank.id
+    flags["pos_tender_accounts"] = accounts
+    company.feature_flags = flags
+    company.save(update_fields=["feature_flags"])
+    return bank
+
+
 def make_supplier(company, name="Mega Suppliers", state="Karnataka", **kwargs):
     return Supplier.objects.create(company=company, name=name, state=state, **kwargs)
 

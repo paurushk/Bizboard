@@ -230,6 +230,11 @@ class CompanySerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        if isinstance(data.get("feature_flags"), dict):
+            # The POS owner PIN hash must never leave the server.
+            data["feature_flags"] = {
+                k: v for k, v in data["feature_flags"].items() if k != "pos_owner_pin_hash"
+            }
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
         data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
         data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))
@@ -465,6 +470,11 @@ class CompanySerializerStaff(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
+        if isinstance(data.get("feature_flags"), dict):
+            # The POS owner PIN hash must never leave the server.
+            data["feature_flags"] = {
+                k: v for k, v in data["feature_flags"].items() if k != "pos_owner_pin_hash"
+            }
         data["item_custom_field_defs"] = _item_custom_field_defs(data.get("item_custom_field_defs"))
         data["invoice_custom_field_defs"] = _item_custom_field_defs(data.get("invoice_custom_field_defs"))
         data["party_custom_field_defs"] = _item_custom_field_defs(data.get("party_custom_field_defs"))

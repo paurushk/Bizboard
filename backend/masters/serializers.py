@@ -141,7 +141,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "phone", "email", "gstin", "billing_address",
             "shipping_address", "state", "pincode", "latitude", "longitude", "status", "credit_limit",
-            "credit_days", "notes", "created_at", "updated_at",
+            "credit_days", "is_pos_walk_in", "notes", "created_at", "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "price_list", "taxpayer_type", "whatsapp_opt_in", "dunning_opt_out",
             "custom_fields", "pan", "party_bank_name", "party_bank_account", "party_bank_ifsc",
@@ -152,6 +152,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "version",
+            "is_pos_walk_in",
         ]
 
     def get_outstanding(self, obj):

@@ -8,7 +8,7 @@ from django.db.models import Sum
 from masters.models import HsnRate
 from payments.models import PaymentAllocation
 from sales.models import SalesInvoice
-from tests.conftest import add_stock, make_customer, make_product
+from tests.conftest import add_stock, make_customer, make_product, map_pos_tender
 
 
 def test_pos_checkout_rejects_stale_client_total_when_hsn_rate_differs(tenant_a):
@@ -111,6 +111,7 @@ def test_pos_checkout_upi_walk_in_mismatch_requires_confirm(tenant_a):
     customer = make_customer(
         tenant_a.company, name="Walk-in / Cash Customer", state="Karnataka",
     )
+    map_pos_tender(tenant_a.company, "UPI")
 
     preview = tenant_a.client.post(
         "/api/v1/sales/invoices/preview-totals/",

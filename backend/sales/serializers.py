@@ -80,10 +80,11 @@ class SalesItemSerializer(_BaseLineSerializer):
             "rate_override",
             "rate_override_reason",
             "applied_price_list_name",
+            "price_override_by",
         ] + LINE_READONLY
         read_only_fields = LINE_READONLY + [
             "hsn_code", "mrp", "uqc_code", "applied_rate", "rate_version",
-            "applied_price_list_name",
+            "applied_price_list_name", "price_override_by",
         ]
         extra_kwargs = {
             "unit_price": {"required": False},
@@ -116,6 +117,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "include_bank_details", "include_payment_qr", "include_terms",
             "signature",
             "custom_fields",
+            "salesperson", "terminal_id", "terminal_label", "pos_offline",
             "items", "pdf_status", "pdf_file",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",

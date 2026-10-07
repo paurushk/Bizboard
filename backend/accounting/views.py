@@ -934,7 +934,7 @@ class CashShiftRegisterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     serializer_class = CashShiftRegisterSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "close_shift"):
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "close_shift", "drop", "today", "history", "summary"):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
@@ -945,15 +945,20 @@ class CashShiftRegisterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         opening = Decimal(str(serializer.validated_data.get("opening_float") or 0)).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP,
         )
+        terminal_id = str(serializer.validated_data.get("terminal_id") or f"device-{self.request.user.pk}")[:64]
+        terminal_label = str(serializer.validated_data.get("terminal_label") or "")[:64]
         if CashShiftRegister.objects.filter(
-            company=self.company, cashier=self.request.user, business_date=business_date,
+            company=self.company, terminal_id=terminal_id, status=CashShiftRegister.Status.OPEN,
         ).exists():
-            raise BusinessRuleError("This cashier already has a cash register for that day.")
+            raise BusinessRuleError("This terminal already has an open shift.", code="pos_shift_open")
         serializer.save(
             company=self.company,
             cashier=self.request.user,
             business_date=business_date,
             opening_float=opening,
+            terminal_id=terminal_id,
+            terminal_label=terminal_label,
+            opened_at=timezone.now(),
             created_by=self.request.user,
             updated_by=self.request.user,
         )
@@ -981,6 +986,57 @@ class CashShiftRegisterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         if shift.cashier_id != request.user.pk and getattr(member, "role", "") not in ("OWNER", "MANAGER", "ACCOUNTANT"):
             raise BusinessRuleError("Only the cashier who opened this till, or a manager, can close it.")
         shift = close_cash_shift(shift, request.data.get("denominations") or {}, request.user)
+        return Response(self.get_serializer(shift).data)
+
+    @action(detail=False, methods=["get"], url_path="today")
+    def today(self, request):
+        """The caller's open shift for today. Does not require financial-report access."""
+        terminal_id = str(request.query_params.get("terminal_id") or "").strip()
+        qs = CashShiftRegister.objects.filter(company=self.company)
+        if terminal_id:
+            qs = qs.filter(terminal_id=terminal_id)
+        else:
+            qs = qs.filter(cashier=request.user)
+        shift = qs.filter(status=CashShiftRegister.Status.OPEN).order_by("-opened_at", "-id").first()
+        if shift is None:
+            shift = qs.order_by("-id").first()
+        if shift is None:
+            return Response({"shift": None})
+        from .cash_shifts import expected_system_cash
+
+        data = self.get_serializer(shift).data
+        if shift.status == CashShiftRegister.Status.OPEN:
+            data["expected_cash"] = str(expected_system_cash(
+                shift.company, shift.cashier, shift.business_date, shift.opening_float,
+                cash_dropped=shift.cash_dropped, shift=shift,
+            ))
+        return Response({"shift": data})
+
+    @action(detail=False, methods=["get"], url_path="history")
+    def history(self, request):
+        rows = CashShiftRegister.objects.filter(
+            company=self.company, cashier=request.user,
+        ).order_by("-opened_at", "-id")[:30]
+        return Response(self.get_serializer(rows, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="summary")
+    def summary(self, request, pk=None):
+        from django.http import HttpResponse
+
+        from .shift_summary import render_shift_summary
+
+        shift = self.get_object()
+        pdf = render_shift_summary(shift)
+        return HttpResponse(pdf, content_type="application/pdf")
+
+    @action(detail=True, methods=["post"], url_path="drop")
+    def drop(self, request, pk=None):
+        from .cash_shifts import drop_cash
+
+        shift = self.get_object()
+        if shift.cashier_id != request.user.pk:
+            raise BusinessRuleError("Only the cashier who opened this till can drop cash.")
+        shift = drop_cash(shift, request.data.get("amount"), request.user, note=str(request.data.get("note") or ""))
         return Response(self.get_serializer(shift).data)
 
 
