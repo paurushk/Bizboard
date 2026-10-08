@@ -121,7 +121,7 @@ export const PAYMENTS_HELP: ContextHelpPage[] = [
       'सिंक की प्रतीक्षा में POS/ऑफ़लाइन दस्तावेज़। सफल होने तक सर्वर और अन्य यूज़र बिल नहीं देख सकते।',
     ],
     howItWorks: [
-      ['Retry failed items after the network is back. Do not Complete the same sale again on another device.', 'नेटवर्क आने पर फेल आइटम फिर कोशिश। दूसरे डिवाइस पर वही बिक्री दोबारा Complete न करें।'],
+      ['Retry failed items after the network is back. Cash syncs. UPI, card, bank, and cheque must be finished online. Do not Complete the same sale again on another device.', 'नेटवर्क आने पर फेल आइटम फिर कोशिश। नकद सिंक होता है। UPI, कार्ड, बैंक और चेक ऑनलाइन पूरे करें। दूसरे डिवाइस पर वही बिक्री दोबारा Complete न करें।'],
     ],
     businessImpact: [
       ['Double-complete after a stuck outbox can double stock and GST.', 'अटके आउटबॉक्स बाद दोबारा Complete से स्टॉक और GST दुगने।'],

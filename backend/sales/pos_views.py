@@ -271,8 +271,15 @@ class PosReturnView(APIView):
                 idempotency_key__startswith=refund_key_prefix(replay_key),
             ).select_related("sales_return")
             if invoice is not None:
-                # The same key sent for a different bill is a new request, not a replay.
+                keyed_elsewhere = replay_qs.exclude(sales_return__sales_invoice=invoice).exists()
                 replay_qs = replay_qs.filter(sales_return__sales_invoice=invoice)
+                if keyed_elsewhere and not replay_qs.exists():
+                    # A key names one request. Sent for another bill it is a client mistake,
+                    # not a replay and not a new return.
+                    raise BusinessRuleError(
+                        "This idempotency key was already used for a different bill. Send a new key.",
+                        code="idempotency_key_reused",
+                    )
             existing = list(replay_qs)
             if existing:
                 retry_pending_gateway_refunds(existing, request.user)

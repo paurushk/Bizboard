@@ -299,31 +299,37 @@ export const INVENTORY_HELP: ContextHelpPage[] = [
   helpPage('pos', {
     title: ['Point of Sale', 'पॉइंट ऑफ सेल'],
     summary: [
-      'Counter billing. Completing a POS sale is still a sales Complete: stock, customer (or walk-in), GST type and payments follow the same books as New Invoice.',
-      'काउंटर बिलिंग। POS Complete भी बिक्री Complete है: स्टॉक, ग्राहक/वॉक-इन, GST और भुगतान नए इनवॉइस जैसी किताबों में जाते हैं।',
+      'Counter billing. Completing a sale posts the same invoice, stock, tax, and receipt as New Invoice. Open the till before cash when this company requires a shift.',
+      'काउंटर बिलिंग। बिक्री पूरी होने पर वही इनवॉइस, स्टॉक, टैक्स और रसीद बनती है। कंपनी माँगे तो नकद से पहले दराज खोलें।',
     ],
     howItWorks: [
       [
-        'Scan or search items, take payment, Complete. UPI QR (if configured) does not by itself mark the bill paid — record the mode or wait for a link capture.',
-        'स्कैन/खोज, भुगतान, Complete। UPI QR खुद Paid नहीं करता — मोड दर्ज करें या लिंक कैप्चर का इंतज़ार।',
+        'Scan or search, pick the walk-in or a named customer, then take cash, UPI, card, bank, cheque, credit, or a split. The UPI QR prints only while money is still due. Payment received records the UPI receipt.',
+        'स्कैन/खोज, वॉक-इन या नाम वाला ग्राहक, फिर नकद, UPI, कार्ड, बैंक, चेक, उधार, या बाँटकर। UPI QR तभी छपता है जब रकम बाकी हो। Payment received UPI रसीद लिखता है।',
+      ],
+      [
+        'One terminal, one open till. A drop lowers expected cash. Close by counting notes. Return from this screen: cash, bank, the original tenders, or an advance. The walk-in cannot keep an advance.',
+        'एक टर्मिनल, एक खुला दराज। ड्रॉप अपेक्षित नकद घटाता है। नोट गिनकर बंद करें। रिटर्न यहीं: नकद, बैंक, जैसे लिया था, या अग्रिम। वॉक-इन अग्रिम नहीं रख सकता।',
       ],
     ],
     businessImpact: [
-      ['Each completed sale hits the same stock, GST, receivables and reports as a back-office invoice.', 'हर पूर्ण बिक्री बैक-ऑफिस इनवॉइस जैसे स्टॉक, GST, प्राप्य और रिपोर्ट में जाती है।'],
+      ['Each completed sale hits the same stock, GST, receivables, and the till as a back-office invoice.', 'हर पूर्ण बिक्री बैक-ऑफिस इनवॉइस जैसे स्टॉक, GST, प्राप्य और दराज में जाती है।'],
     ],
     keyRules: [
-      ['Need POS enabled and POS permission. Offline outbox (if used) must sync before you assume the server has the bill.', 'POS चालू और अनुमति चाहिए। ऑफ़लाइन आउटबॉक्स सिंक हुए बिना सर्वर पर बिल न मानें।'],
+      ['New companies require an open till for cash. Offline cash syncs. Named credit syncs unless the owner turned it off, within ₹5,000 and 20 bills for that outage. UPI, card, bank, cheque, and batch or serial items wait until you are online.', 'नई कंपनी पर नकद के लिए दराज ज़रूरी। ऑफ़लाइन नकद सिंक होता है। नाम वाला उधार तभी जब Owner ने बंद न किया हो, उस आउटेज में ₹5,000 और 20 बिल तक। UPI, कार्ड, बैंक, चेक, बैच/सीरियल ऑनलाइन तक रुकते हैं।'],
     ],
     commonMistakes: [
-      ['Closing the drawer without Completing, leaving a draft with no stock movement.', 'Complete बिना दराज बंद — ड्राफ्ट पर स्टॉक नहीं कटता।'],
+      ['Recording drawer cash on Money in or Money out without Paid from the till, so the close does not match the notes.', 'दराज का नकद मनी इन/आउट पर बिना “दराज से नकद” लिखना — बंद दराज नोटों से नहीं मिलता।'],
+      ['Ringing the same offline bill again because the outbox has not synced.', 'आउटबॉक्स सिंक हुए बिना वही बिल दोबारा काटना।'],
     ],
     relatedPages: [
       { path: '/sales/history', labelKey: 'nav.salesHistory' },
       { path: '/sales/receipts', labelKey: 'nav.receipts' },
+      { path: '/purchases/payments', labelKey: 'nav.supplierPayments' },
       { path: '/offline-outbox', labelKey: 'nav.offlineOutbox' },
     ],
     nextActions: [
-      ['Complete the sale, then verify it in sales history if the customer needs a GST invoice copy.', 'बिक्री Complete करें; GST कॉपी चाहिए तो बिक्री इतिहास में देखें।'],
+      ['Open the till, complete the sale, then check sales history if the customer needs a copy.', 'दराज खोलें, बिक्री पूरी करें, कॉपी चाहिए तो बिक्री इतिहास देखें।'],
     ],
   }),
 ];

@@ -842,7 +842,7 @@ const MORE_FAQ: FaqItem[] = [
     ['galla', 'daily cash', 'cashflow forecast', 'cash book'],
     [
       'No. **t:nav.cashBook** is actual receipts and payments. Insights cashflow is a forecast and is not tax or bank truth.',
-      'Use Cash Book for the day’s drawer.',
+      'The day’s drawer is the counter till on **t:nav.pos**: opening float, sales, drops, and the counted close. Cash Book is the books, not that drawer.',
     ],
   ),
   faq(
@@ -851,8 +851,8 @@ const MORE_FAQ: FaqItem[] = [
     'Where does the UPI QR come from?',
     ['upi', 'qr', 'vpa', 'user@bank', 'payee'],
     [
-      'From the company UPI VPA (user@bank format) on **t:nav.settings** → **t:nav.company**. Point of Sale and invoice screens can show a QR for that VPA.',
-      'The QR does not by itself mark the invoice paid — still record a UPI receipt, or wait for a payment-link capture.',
+      'From the company UPI VPA (user@bank format) on **t:nav.settings** → **t:nav.company**. Invoice screens can show a QR for that VPA. On **t:nav.pos** the slip prints that QR only when money is still due.',
+      'The QR does not by itself mark the invoice paid. On the counter, press Payment received after the customer has paid. A payment link is a separate capture.',
     ],
   ),
   faq(
@@ -1095,7 +1095,7 @@ const MORE_FAQ: FaqItem[] = [
     'What is Original vs Duplicate on the PDF?',
     ['original', 'duplicate', 'rule 46', 'thermal', '58mm', '80mm'],
     [
-      'Tax invoices support Original and Duplicate copies. Point of Sale can also print a thermal 58/80 mm slip when the PDF is ready.',
+      'Tax invoices support Original and Duplicate copies. **t:nav.pos** can also print a 58 mm or 80 mm slip. Item names in Hindi print as an image on that slip.',
       'Purchase bills follow purchase-bill layout, not a sales tax invoice.',
     ],
   ),
@@ -1429,10 +1429,70 @@ const MORE_FAQ: FaqItem[] = [
     'pos-what',
     'POS & offline',
     'What does Point of Sale do?',
-    ['pos', 'counter', 'thermal', 'cash upi', 'barcode f2'],
+    ['pos', 'counter', 'thermal', 'cash upi', 'barcode f2', 'split', 'credit'],
     [
-      'A counter flow: pick items, take cash or UPI, complete a retail invoice, record the receipt, and print thermal PDF when ready. It is a simple checkout, not a full restaurant POS.',
-      'Walk-in / blank place-of-supply confirms still apply. Needs Point of Sale enabled and create-sales. Open **t:nav.pos**.',
+      '**t:nav.pos** is the counter: scan or search, pick the walk-in or a named customer, and take cash, UPI, card, bank, cheque, credit, or a split. Completing the sale posts the same invoice, stock, tax, and receipt as a back-office bill.',
+      'It is not a restaurant POS. There are no tables, kitchen tickets, loyalty points, coupons, or gift cards. Holds (F8 / F9) park a cart for the same user on another terminal.',
+    ],
+  ),
+  faq(
+    'pos-open-till',
+    'POS & offline',
+    'How do I open, drop cash from, and close the till?',
+    ['till', 'shift', 'opening float', 'cash drop', 'expected cash', 'close drawer', 'z report'],
+    [
+      'On **t:nav.pos**, press **t:pos.openTill** and enter the float. One terminal has one open till. A second cashier on that drawer closes it and opens a new one. Cash needs an open till when the company requires it — new companies do. UPI, card, bank, cheque, and credit do not need a drawer. If books are off, the till is not used.',
+      'A drop takes notes out during the shift and lowers expected cash. Close by counting the notes. Expected cash is the float, plus cash taken on that till, minus cash refunds, minus supplier cash marked **t:phase1.paidFromTill**, minus drops.',
+    ],
+  ),
+  faq(
+    'pos-return-or-exchange',
+    'POS & offline',
+    'How do I return or exchange a bill at the counter?',
+    ['return', 'exchange', 'refund', 'advance', 'original tenders', 'credit note'],
+    [
+      'On **t:nav.pos**, open the return, pick the lines and quantities, and choose **t:pos.refundMode**: cash, bank, the original tenders, or leave the money as a customer advance. The credit note reverses the sale and the tax. Cash handed back is a separate entry, so the till falls by that amount.',
+      'The walk-in cannot keep an advance — refund cash or bank. A credit sale has nothing paid to hand back, so only the advance (the credit note) applies. Past the company’s return window, an approver PIN is required. An exchange is that return, then a new bill that can use the advance.',
+    ],
+  ),
+  faq(
+    'pos-walk-in',
+    'POS & offline',
+    'Who is the walk-in customer?',
+    ['walk-in', 'cash customer', 'unnamed', 'counter party'],
+    [
+      'Each company has one **t:pos.walkInCustomer**, flagged by the owner. The counter and the offline flush use that party. A cashier cannot turn the flag on or off from the customer form.',
+      'The walk-in can take cash and other paid tenders. It cannot take credit, and a return cannot be left as an advance. A named customer is required for those.',
+    ],
+  ),
+  faq(
+    'pos-paid-from-till',
+    'POS & offline',
+    'A cash receipt or supplier payment did not change the till. Why?',
+    ['paid from the till', 'drawer short', 'money in', 'money out', 'expected cash'],
+    [
+      'Cash taken on **t:nav.pos** is already on the open till. Cash recorded on **t:nav.receipts** or **t:nav.supplierPayments** counts only when you tick **t:phase1.paidFromTill**.',
+      'With two tills open, that tick is refused until one till is closed, so the same notes are not subtracted twice. Unticked cash stays in the books and out of the drawer count.',
+    ],
+  ),
+  faq(
+    'pos-approver-pin',
+    'POS & offline',
+    'When does the counter ask for an approver PIN?',
+    ['owner pin', 'discount cap', 'below price', 'price floor', 'return window', 'lockout'],
+    [
+      'The owner sets a PIN for a named user. Sales staff have none until the owner adds one. The counter asks for it when a line discount is above the company cap, when a price is further under the list than the company allows, when a bill is outside the return window, or when someone without cancel rights returns a bill.',
+      'Five wrong tries lock that person for 15 minutes. A changed price also needs a reason, and the server stores who approved it.',
+    ],
+  ),
+  faq(
+    'pos-offline-tenders',
+    'POS & offline',
+    'What can I sell while the counter is offline?',
+    ['offline credit', 'upi offline', 'batch offline', 'catalogue stale', 'outage'],
+    [
+      'Cash bills queue and sync later. UPI, card, bank, and cheque stay on the device until you finish them online — they are not posted as cash. Named-customer credit can sync unless the owner turned it off. It is capped at ₹5,000 per customer and 20 credit bills per terminal for one outage, needs a credit check from the last 4 hours, and is refused for the walk-in, stop-credit, or severe overdue.',
+      'Batch and serial items cannot be sold offline. The item list warns after 24 hours offline and blocks the sale after 72. A customer whose price list is not on this device cannot be selected offline.',
     ],
   ),
   faq(
@@ -1441,8 +1501,8 @@ const MORE_FAQ: FaqItem[] = [
     'Offline drafts are not syncing.',
     ['offline', 'outbox', 'pwa', 'queue', 'sync'],
     [
-      'Open **t:offlineOutbox.title** on that same device. Drafts queue locally while the network is down, then sync when you are online.',
-      'If a row is stuck, read the error (often the same Complete gates: stock, GSTIN, blocked customer). Sign-out wipes the device queue.',
+      'Open **t:offlineOutbox.title** on that same device. Drafts queue locally while the network is down, then sync when you are online. Do not type the same sale again on another screen.',
+      'If a row is stuck, read the error (stock, GSTIN, blocked customer, closed till, or an offline credit cap). Card and UPI rows wait until you complete them online. Sign-out wipes the device queue.',
     ],
   ),
   faq(
