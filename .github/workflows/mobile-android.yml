@@ -42,7 +42,7 @@ jobs:
             web/package-lock.json
             mobile/package-lock.json
 
-      - uses: actions/setup-java@v4 # TODO(M1-006): pin to SHA before enabling
+      - uses: actions/setup-java@v6 # TODO(M1-006): pin to SHA before enabling
         with:
           distribution: temurin
           java-version: "21"
