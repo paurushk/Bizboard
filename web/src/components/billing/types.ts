@@ -17,6 +17,12 @@ export interface DraftLine {
   batch?: number | null;
   trackBatch?: boolean;
   trackSerial?: boolean;
+  productType?: 'GOODS' | 'SERVICE';
+  trackInventory?: boolean;
+  /** Item master purchase price. Not the weighted-average stock cost. */
+  purchasePrice?: number;
+  /** Paise the amount solver could not hit exactly. */
+  amountDrift?: number;
   /** Comma- or newline-separated serial numbers for trackSerial products. */
   serialNumbersText?: string;
   expDate: string;
@@ -32,6 +38,8 @@ export interface DraftLine {
   priceEdited?: boolean;
   discountPercent: number;
   discountAmount: number;
+  /** Last discount edit was a rupee amount, so the amount solver keeps that rupee figure. */
+  discountLockedToAmount?: boolean;
   gstRate: number;
   /** Shown when the HSN table changes the rate. */
   rateNotice?: string;

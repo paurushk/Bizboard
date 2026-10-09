@@ -203,8 +203,10 @@ class ReturnService:
             invoice.status = SalesInvoice.Status.RETURNED
             invoice.save(update_fields=["status"])
             from reporting.invoice_profit_service import InvoiceProfitService
+            from sales.public_links import revoke_invoice_public_links
 
             InvoiceProfitService.sync_status(invoice)
+            revoke_invoice_public_links(invoice)
 
         existing_linked = SalesCreditNote.objects.filter(
             sales_return=sales_return,

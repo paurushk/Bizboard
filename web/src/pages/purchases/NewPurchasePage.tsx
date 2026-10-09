@@ -1896,6 +1896,8 @@ export function NewPurchasePage() {
 
       <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
         <DraftLineTable
+          intraState={intraState}
+          priceInclusive={priceMode === 'INCLUSIVE'}
           lines={
             preview.totals?.items && preview.totals.items.length === lines.length
               ? lines.map((line, i) => ({

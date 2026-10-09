@@ -17,6 +17,7 @@ class GatedSwaggerView(SpectacularSwaggerView):
 
 
 from payments.urls import public_urlpatterns as payments_public_urlpatterns
+from sales.urls import public_urlpatterns as sales_public_urlpatterns
 
 api_v1_patterns = [
     path("health/", HealthView.as_view(), name="health"),
@@ -48,7 +49,7 @@ api_v1_patterns = [
     path("billing/", include("billing.urls")),
     path("", include("core.urls")),
     path("", include("planwave.urls")),
-] + payments_public_urlpatterns
+] + payments_public_urlpatterns + sales_public_urlpatterns
 
 if settings.ENABLE_API_DOCS:
     api_v1_patterns += [

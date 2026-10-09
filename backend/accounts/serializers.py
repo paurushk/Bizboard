@@ -317,14 +317,14 @@ class CompanySerializer(serializers.ModelSerializer):
         return validate_definitions(existing, value)
 
     def validate_party_custom_field_defs(self, value):
-        from masters.custom_fields import validate_definitions
+        from masters.custom_fields import validate_party_definitions
 
         if value is not None and not isinstance(value, list):
             raise serializers.ValidationError("Must be a list of key/label objects.")
         existing = []
         if self.instance is not None:
             existing = self.instance.party_custom_field_defs or []
-        return validate_definitions(existing, value)
+        return validate_party_definitions(existing, value)
 
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError

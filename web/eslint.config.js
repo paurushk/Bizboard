@@ -38,4 +38,36 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': 'off',
     },
   },
+  {
+    // ACT-21: invoice Share and POS Share must not grow a wa.me/{phone} or Cloud click-to-chat URL.
+    // Reminder screens (collections, ledgers, UPI, GSTR-2B) stay outside this override.
+    files: ['src/components/ShareInvoiceDialog.tsx', 'src/pages/pos/PosPage.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name="fetchAllPages"]',
+          message:
+            'fetchAllPages is banned. Use list*Page / fetchMoneyListFirstPage for money docs, or fetchAllPagesMasters in resources.ts for masters.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/wa\\.me\\/$/]',
+          message:
+            'Invoice and POS share must not target wa.me/{phone}. Use shareOnThisDevice (https://wa.me/?text=).',
+        },
+        {
+          selector: 'Literal[value=/wa\\.me\\/\\d/]',
+          message: 'Invoice and POS share must not target wa.me/{phone}. Use shareOnThisDevice.',
+        },
+        {
+          selector: 'Literal[value=/api\\.whatsapp\\.com/]',
+          message: 'Do not add api.whatsapp.com links on the invoice or POS share path.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/api\\.whatsapp\\.com/]',
+          message: 'Do not add api.whatsapp.com links on the invoice or POS share path.',
+        },
+      ],
+    },
+  },
 );

@@ -15,7 +15,8 @@ import { getErrorMessage } from '@/api/client';
 import { contractTimeline, issueReferralCode, listContractsPage, listTicketsPage } from '@/api/growth';
 import { customerNextAction } from '@/pages/sales/customer360Value';
 import { getCustomer360 } from '@/api/osPlan';
-import { createPaymentPromise, listPaymentPromises, repeatLastInvoice, resolvePaymentPromise } from '@/api/resources';
+import { createPaymentPromise, listPaymentPromises, listSalesInvoicesPage, repeatLastInvoice, resolvePaymentPromise } from '@/api/resources';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { isComplaintsEnabled, isContractsEnabled, isCrmEnabled, isReferralsEnabled, isSupportTicketsEnabled } from '@/config/features';
@@ -24,7 +25,7 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney } from '@/utils/money';
-import { canManagePaymentPromises } from '@/utils/permissions';
+import { canManagePaymentPromises, canViewFinancialReports } from '@/utils/permissions';
 import { isPastIso } from '@/utils/clock';
 
 function agingAmount(aging: Record<string, string> | null | undefined, keys: string[]): string | null {
@@ -70,6 +71,13 @@ export function Customer360Page() {
     onError: (err) => setRepeatError(getErrorMessage(err)),
   });
   const canPromise = canManagePaymentPromises(user);
+  const canSeeProfit = canViewFinancialReports(user);
+  const [profitInvoiceId, setProfitInvoiceId] = useState<number | null>(null);
+  const customerInvoices = useQuery({
+    queryKey: ['sales-invoices', 'customer', customerId],
+    queryFn: () => listSalesInvoicesPage({ page: 1, pageSize: 8, customer: customerId }),
+    enabled: customerIdValid,
+  });
   const [promiseOpen, setPromiseOpen] = useState(false);
   const [promiseDate, setPromiseDate] = useState(() => defaultPromiseDate());
   const [promiseNote, setPromiseNote] = useState('');
@@ -154,6 +162,21 @@ export function Customer360Page() {
               {t('osPlan.invoiceCount', { count: body.sales.invoices })}
               {body.sales.amount != null ? ` · ${formatMoney(body.sales.amount)}` : ''}
             </Typography>
+            <Stack spacing={0.5} sx={{ mt: 1 }}>
+              {(customerInvoices.data?.results ?? []).map((invoice) => (
+                <Stack key={invoice.id} direction="row" spacing={1} alignItems="center">
+                  <Button component={RouterLink} to={`/sales/history/${invoice.id}`} size="small">
+                    {invoice.number || `#${invoice.id}`}
+                  </Button>
+                  <Typography variant="body2">{formatMoney(invoice.grandTotal)}</Typography>
+                  {canSeeProfit ? (
+                    <Button size="small" onClick={() => setProfitInvoiceId(invoice.id)}>
+                      {t('invoiceDetail.profitDetails')}
+                    </Button>
+                  ) : null}
+                </Stack>
+              ))}
+            </Stack>
             <Typography variant="body2" color="text.secondary">
               {body.pattern || t('osPlan.noPattern')}
             </Typography>
@@ -405,6 +428,11 @@ export function Customer360Page() {
           </Dialog>
         </Stack>
       ) : null}
+      <ProfitDetailsDialog
+        invoiceId={profitInvoiceId}
+        open={profitInvoiceId != null}
+        onClose={() => setProfitInvoiceId(null)}
+      />
     </Stack>
   );
 }

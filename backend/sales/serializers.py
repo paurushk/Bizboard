@@ -480,6 +480,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                     from reporting.gst_periods import mark_period_dirty_if_snapshotted
 
                     mark_period_dirty_if_snapshotted(instance.company, instance.invoice_date)
+                    # The shared link is kept on amend: the page reads the live invoice.
                 return _flush_money_audit(instance)
             return _flush_money_audit(instance)
 

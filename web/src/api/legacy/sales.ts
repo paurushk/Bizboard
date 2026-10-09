@@ -217,6 +217,14 @@ export type PreviewTotals = {
   estimatedMargin?: number;
   estimatedMarginPercent?: number;
   marginEstimatePartial?: boolean;
+  marginLines?: Array<{
+    productId: number;
+    name: string;
+    unitCost: number | null;
+    quantity: number;
+    lineCost: number | null;
+    missing: boolean;
+  }>;
   items?: Array<{
     taxableAmount: number;
     cgst: number;
@@ -291,17 +299,34 @@ function mapPreviewItems(raw: Record<string, unknown>): PreviewTotals['items'] {
  * `n()` helper's 0-default, which would look like "zero margin" in the UI. */
 function mapMarginEstimate(raw: Record<string, unknown>): Pick<
   PreviewTotals,
-  'estimatedCogs' | 'estimatedMargin' | 'estimatedMarginPercent' | 'marginEstimatePartial'
+  'estimatedCogs' | 'estimatedMargin' | 'estimatedMarginPercent' | 'marginEstimatePartial' | 'marginLines'
 > {
   const cogs = raw.estimatedCogs ?? raw.estimated_cogs;
   const margin = raw.estimatedMargin ?? raw.estimated_margin;
   const marginPercent = raw.estimatedMarginPercent ?? raw.estimated_margin_percent;
-  if (margin == null && cogs == null) return {};
+  const rawLines = raw.marginLines ?? raw.margin_lines;
+  const marginLines = Array.isArray(rawLines)
+    ? rawLines.map((row) => {
+        const line = row && typeof row === 'object' ? (row as Record<string, unknown>) : {};
+        const unit = line.unitCost ?? line.unit_cost;
+        const lineCost = line.lineCost ?? line.line_cost;
+        return {
+          productId: Number(line.productId ?? line.product_id ?? 0),
+          name: String(line.name ?? ''),
+          unitCost: unit == null || unit === '' ? null : Number(unit),
+          quantity: Number(line.quantity ?? 0),
+          lineCost: lineCost == null || lineCost === '' ? null : Number(lineCost),
+          missing: Boolean(line.missing) || unit == null || unit === '',
+        };
+      })
+    : undefined;
+  if (margin == null && cogs == null && !marginLines?.length) return {};
   return {
     estimatedCogs: cogs != null ? Number(cogs) : undefined,
     estimatedMargin: margin != null ? Number(margin) : undefined,
     estimatedMarginPercent: marginPercent != null ? Number(marginPercent) : undefined,
     marginEstimatePartial: Boolean(raw.marginEstimatePartial ?? raw.margin_estimate_partial ?? false),
+    marginLines,
   };
 }
 
@@ -353,6 +378,13 @@ export async function completeSalesInvoice(
     gstGuardOverrideReason?: string;
     /** Owner only: why this bill is priced under purchase cost. */
     belowCostOverrideReason?: string;
+    /** Collected on this save. The server posts the receipt in the same transaction. */
+    amountReceived?: number;
+    paymentMode?: string;
+    chequeNumber?: string;
+    chequeBankName?: string;
+    chequeDate?: string;
+    chequeImage?: number | null;
     idempotencyKey?: string;
   },
 ): Promise<SalesInvoice> {
@@ -368,6 +400,16 @@ export async function completeSalesInvoice(
           : {}),
         ...(options?.belowCostOverrideReason
           ? { belowCostOverrideReason: options.belowCostOverrideReason }
+          : {}),
+        ...(options?.amountReceived && options.amountReceived > 0
+          ? {
+              amountReceived: options.amountReceived,
+              paymentMode: options.paymentMode || 'CASH',
+              ...(options.chequeNumber ? { chequeNumber: options.chequeNumber } : {}),
+              ...(options.chequeBankName ? { chequeBankName: options.chequeBankName } : {}),
+              ...(options.chequeDate ? { chequeDate: options.chequeDate } : {}),
+              ...(options.chequeImage ? { chequeImage: options.chequeImage } : {}),
+            }
           : {}),
       },
       { headers: idempotencyHeaders(options?.idempotencyKey) },
@@ -522,9 +564,16 @@ export async function regenerateInvoicePdf(
   }, { pdfStatus: 'QUEUED', pdfFile: null });
 }
 
+export async function downloadInvoicePreviewPdf(payload: Record<string, unknown>): Promise<Blob> {
+  const { data } = await apiClient.post('/sales/invoices/preview-pdf/', payload, {
+    responseType: 'blob',
+  });
+  return data as Blob;
+}
+
 export async function downloadInvoicePdf(
   id: number | string,
-  options?: { copy?: 'ORIGINAL' | 'DUPLICATE' },
+  options?: { copy?: 'ORIGINAL' | 'DUPLICATE' | 'TRIPLICATE' },
 ): Promise<Blob> {
   if (shouldUseMocks()) {
     return new Blob(['mock-pdf'], { type: 'application/pdf' });
@@ -630,7 +679,7 @@ export async function regenerateSalesDocumentPdf(
 export async function downloadSalesDocumentPdf(
   docType: SalesPdfDocType,
   id: number | string,
-  options?: { copy?: 'ORIGINAL' | 'DUPLICATE' },
+  options?: { copy?: 'ORIGINAL' | 'DUPLICATE' | 'TRIPLICATE' },
 ): Promise<Blob> {
   if (docType === 'invoice') return downloadInvoicePdf(id, options);
   const base = SALES_PDF_BASE[docType];
@@ -651,24 +700,133 @@ export async function downloadInvoiceThermalPdf(
   return data as Blob;
 }
 
-export async function shareInvoice(
-  id: number,
-  payload: { channel: 'EMAIL' | 'WHATSAPP'; recipient: string; message?: string },
-): Promise<{
+export type InvoiceShareResult = {
   status: string;
   shareLink?: string;
-  mode?: 'cloud' | 'link';
+  mode?: 'cloud' | 'link' | 'device';
   error?: string;
   whatsappSendStatus?: string;
-}> {
+  text?: string;
+  documentUrl?: string;
+};
+
+export async function shareInvoice(
+  id: number,
+  payload: {
+    channel: 'EMAIL' | 'WHATSAPP';
+    recipient: string;
+    message?: string;
+    /** Cloud send from the company number. The default device share omits this. */
+    sendFromBusinessNumber?: boolean;
+  },
+): Promise<InvoiceShareResult> {
+  const device =
+    payload.channel === 'WHATSAPP' && !payload.recipient && !payload.sendFromBusinessNumber;
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/invoices/${id}/share/`, payload);
-    return unwrapData(data);
-  }, {
-    status: 'LINK_READY',
-    shareLink: `https://wa.me/${payload.recipient}`,
-    mode: 'link' as const,
-  });
+    return unwrapData<InvoiceShareResult>(data);
+  }, device
+    ? { status: 'OPENED', mode: 'device' as const, text: 'Invoice', documentUrl: '' }
+    : {
+        status: 'LINK_READY',
+        shareLink: payload.recipient
+          ? `https://wa.me/${payload.recipient}`
+          : 'https://wa.me/?text=Invoice',
+        mode: 'link' as const,
+      });
+}
+
+export async function createInvoicePublicLink(id: number): Promise<{ url: string }> {
+  const { data } = await apiClient.post(`/sales/invoices/${id}/public-link/`);
+  const body = unwrapData<{ url?: string }>(data);
+  return { url: String(body?.url ?? '') };
+}
+
+export async function revokeInvoicePublicLink(id: number): Promise<void> {
+  await apiClient.post(`/sales/invoices/${id}/public-link/revoke/`);
+}
+
+const publicApiBase =
+  (import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '');
+
+/** Anonymous read. No Authorization header and no session cookie. */
+export async function getPublicInvoice(token: string): Promise<Record<string, unknown>> {
+  const { data } = await axios.get(
+    `${publicApiBase}/public/invoices/${encodeURIComponent(token)}/`,
+    { headers: { Accept: 'application/json' } },
+  );
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function payPublicInvoice(token: string): Promise<{ path: string }> {
+  const { data } = await axios.post(
+    `${publicApiBase}/public/invoices/${encodeURIComponent(token)}/pay/`,
+    {},
+    { headers: { Accept: 'application/json' } },
+  );
+  const body = unwrapData<{ path?: string }>(data);
+  return { path: String(body?.path ?? '') };
+}
+
+export async function downloadPublicInvoicePdf(token: string): Promise<Blob> {
+  const { data } = await axios.get(
+    `${publicApiBase}/public/invoices/${encodeURIComponent(token)}/pdf/`,
+    { responseType: 'blob', headers: { Accept: 'application/pdf' } },
+  );
+  return data as Blob;
+}
+
+export type ProfitDetailsLine = {
+  name: string;
+  quantity: string | number;
+  unitName: string;
+  unitCost: string | number | null;
+  lineCost: string | number | null;
+  fellBackToPurchasePrice: boolean;
+  /** Draft estimate had no stock cost for this line. */
+  costMissing: boolean;
+};
+
+export type ProfitDetails = {
+  lines: ProfitDetailsLine[];
+  salesAmount: string | number;
+  totalCost: string | number;
+  taxPayable: string | number;
+  profit: string | number;
+  estimated: boolean;
+  /** At least one stocked line has no cost, so profit is overstated. */
+  costIncomplete: boolean;
+  formula: string;
+};
+
+function profitField(row: Record<string, unknown>, camel: string, snake: string): unknown {
+  return row[camel] ?? row[snake];
+}
+
+export async function getInvoiceProfitDetails(id: number): Promise<ProfitDetails> {
+  const { data } = await apiClient.get(`/sales/invoices/${id}/profit-details/`);
+  const body = unwrapData<Record<string, unknown>>(data) ?? {};
+  const rawLines = (body.lines ?? []) as Array<Record<string, unknown>>;
+  return {
+    lines: rawLines.map((row) => ({
+      name: String(row.name ?? ''),
+      quantity: (row.quantity ?? '') as string | number,
+      unitName: String(profitField(row, 'unitName', 'unit_name') ?? ''),
+      unitCost: (profitField(row, 'unitCost', 'unit_cost') ?? null) as string | number | null,
+      lineCost: (profitField(row, 'lineCost', 'line_cost') ?? null) as string | number | null,
+      fellBackToPurchasePrice: Boolean(
+        profitField(row, 'fellBackToPurchasePrice', 'fell_back_to_purchase_price'),
+      ),
+      costMissing: Boolean(profitField(row, 'costMissing', 'cost_missing')),
+    })),
+    salesAmount: (profitField(body, 'salesAmount', 'sales_amount') ?? 0) as string | number,
+    totalCost: (profitField(body, 'totalCost', 'total_cost') ?? 0) as string | number,
+    taxPayable: (profitField(body, 'taxPayable', 'tax_payable') ?? 0) as string | number,
+    profit: (body.profit ?? 0) as string | number,
+    estimated: Boolean(body.estimated),
+    costIncomplete: Boolean(profitField(body, 'costIncomplete', 'cost_incomplete')),
+    formula: String(body.formula ?? ''),
+  };
 }
 
 export async function listQuotations(params?: Record<string, string>): Promise<Quotation[]> {

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, type ReactNode } from 'react';
 import IconButton from '@mui/material/IconButton';
 import InputAdornment from '@mui/material/InputAdornment';
 import MenuItem from '@mui/material/MenuItem';
@@ -18,6 +18,7 @@ import { CompactField, NumericField } from './NumericField';
 import type { DraftLine } from './types';
 import { t } from '@/i18n';
 import { formatMoney, roundMoney } from '@/utils/money';
+import { priceForLineAmount } from '@/utils/lineAmountSolver';
 import { formatUnitLabel } from '@/constants/unitLabels';
 import type { LineTaxResult } from '@/utils/tax';
 import { unitSwitchPatch } from './lineHelpers';
@@ -46,6 +47,10 @@ interface DraftLineTableProps {
   /** Small, unobtrusive informational text under the rate field (e.g. a
    * price-jump note) — never blocking, never a judgment call. */
   renderPriceHint?: (line: DraftLine) => ReactNode;
+  intraState?: boolean | null;
+  /** Rates on the lines already include GST, so the amount solves without tax. */
+  priceInclusive?: boolean;
+  showItemPurchasePrice?: boolean;
 }
 
 export function DraftLineTable({
@@ -67,7 +72,12 @@ export function DraftLineTable({
   renderBatchSlot,
   renderSerialSlot,
   renderPriceHint,
+  intraState = null,
+  priceInclusive = false,
+  showItemPurchasePrice = false,
 }: DraftLineTableProps) {
+  // Lines whose amount box the operator actually typed in since the last blur.
+  const amountTyped = useRef(new Set<string>());
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'auto', width: '100%', maxWidth: '100%' }}>
       <Table size="small" stickyHeader>
@@ -147,6 +157,11 @@ export function DraftLineTable({
                   {blockNegativeStock && availableByProduct?.has(line.product) && line.quantity > (availableByProduct.get(line.product) ?? 0) ? (
                     <Typography variant="caption" color="error" display="block">
                       {t('pos.warehouseQtyBlock', { n: availableByProduct.get(line.product) ?? 0 })}
+                    </Typography>
+                  ) : null}
+                  {showItemPurchasePrice && line.purchasePrice != null ? (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {t('billing.itemPurchasePrice')} {formatMoney(line.purchasePrice)}
                     </Typography>
                   ) : null}
                   {line.expDate ? (
@@ -330,7 +345,46 @@ export function DraftLineTable({
                 </TableCell>
               ) : null}
               <TableCell align="right">
-                <Typography fontWeight={600}>{formatMoney(tax?.lineTotal ?? 0)}</Typography>
+                <NumericField
+                  value={tax?.lineTotal ?? line.lineTotal ?? 0}
+                  min={0}
+                  decimals={2}
+                  disabled={moneyDisabled || !(line.quantity > 0)}
+                  onValueChange={() => undefined}
+                  onBlur={(e) => {
+                    if (moneyDisabled || !(line.quantity > 0)) return;
+                    const typed = Number((e.target as HTMLInputElement).value);
+                    if (!Number.isFinite(typed)) return;
+                    // A tab-through must not touch the price or freeze it against list refresh.
+                    if (!amountTyped.current.delete(line.key)) return;
+                    const solved = priceForLineAmount({
+                      amount: typed,
+                      quantity: line.quantity,
+                      discountPercent: line.discountLockedToAmount ? undefined : line.discountPercent,
+                      discountAmount: line.discountLockedToAmount ? line.discountAmount : undefined,
+                      keepUnitPrice: line.unitPrice,
+                      gstRate: line.gstRate,
+                      cessRate: line.cessRate,
+                      intraState,
+                      inclusive: priceInclusive,
+                    });
+                    onUpdate(line.key, {
+                      unitPrice: solved.unitPrice,
+                      priceEdited: true,
+                      amountDrift: solved.difference,
+                    });
+                  }}
+                  inputProps={{
+                    'aria-label': t('billing.totalAmount'),
+                    onInput: () => amountTyped.current.add(line.key),
+                  }}
+                  sx={{ width: 120 }}
+                />
+                {line.amountDrift ? (
+                  <Typography variant="caption" color="text.secondary" display="block">
+                    {t('billing.amountDrift', { diff: formatMoney(line.amountDrift) })}
+                  </Typography>
+                ) : null}
               </TableCell>
               <TableCell
                 sx={{

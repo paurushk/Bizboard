@@ -616,3 +616,38 @@ def test_shopify_pending_apply_is_isolated(tenant_a, tenant_b):
     conn_b.refresh_from_db()
     assert "gid-1" in conn_b.metadata["shopify_pending"]
     assert Product.objects.get(pk=product.pk).pk == product.pk
+
+
+def test_public_invoice_link_never_crosses_tenants(tenant_a, tenant_b):
+    """A public invoice token opens only its own invoice, and tenant B cannot mint or revoke A's link."""
+    from rest_framework.test import APIClient
+
+    from sales.models import InvoicePublicLink
+    from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+
+    product = make_product(tenant_a.company, sku="ISO-PUB", hsn_code="3004", gst_rate="18")
+    add_stock(tenant_a, product, "3")
+    customer = make_customer(tenant_a.company, name="Iso Buyer", state="Karnataka")
+    draft = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/").status_code == 200
+    minted = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/public-link/")
+    assert minted.status_code == 200, minted.data
+    token = minted.data["url"].rsplit("/", 1)[-1]
+
+    # Tenant B has no route to A's invoice, either to mint or to revoke.
+    assert tenant_b.client.post(f"/api/v1/sales/invoices/{draft['id']}/public-link/").status_code == 404
+    assert tenant_b.client.post(f"/api/v1/sales/invoices/{draft['id']}/public-link/revoke/").status_code == 404
+    assert InvoicePublicLink.objects.get(token=token).revoked_at is None
+
+    anon = APIClient()
+    page = anon.get(f"/api/v1/public/invoices/{token}/")
+    assert page.status_code == 200
+    assert page.data["bill_to"]["name"] == "Iso Buyer"
+    # A guessed or foreign-looking token reveals nothing, and does not say whether it existed.
+    for bad in ("x" * 43, token[:-1] + ("A" if token[-1] != "A" else "B")):
+        for suffix in ("", "pdf/", "pay/"):
+            call = anon.post if suffix == "pay/" else anon.get
+            res = call(f"/api/v1/public/invoices/{bad}/{suffix}")
+            assert res.status_code == 404, (bad, suffix, res.status_code)

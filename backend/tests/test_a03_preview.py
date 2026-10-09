@@ -205,6 +205,13 @@ def test_preview_totals_includes_margin_estimate_for_owner(tenant_a):
     assert Decimal(str(preview.data["estimated_margin"])) == Decimal("1840.00")
     assert Decimal(str(preview.data["estimated_margin_percent"])) == Decimal("92.00")
     assert preview.data["margin_estimate_partial"] is False
+    margin_lines = preview.data["margin_lines"]
+    assert len(margin_lines) == 1
+    row = margin_lines[0]
+    assert Decimal(str(row["unit_cost"])) == Decimal("80")
+    assert Decimal(str(row["quantity"])) == Decimal("2")
+    assert Decimal(str(row["line_cost"])) == Decimal("160")
+    assert row["missing"] is False
 
 
 def test_preview_totals_excludes_service_lines_from_margin_cogs(tenant_a):

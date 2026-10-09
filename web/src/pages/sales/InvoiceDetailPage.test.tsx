@@ -131,6 +131,10 @@ const resolvePaymentPromise = vi.fn(async (id: number) => ({ id, resolved: true 
 vi.mock('@/api/resources', () => ({
   getSalesInvoice: (id: number | string) => getSalesInvoice(id),
   getCustomer: async () => ({ id: 3, name: 'Cash' }),
+  getCompany: async () => ({ id: 9, einvoiceEnabled: true }),
+  createInvoicePublicLink: vi.fn(async () => ({ url: 'https://example.test/i/tok' })),
+  revokeInvoicePublicLink: vi.fn(),
+  getInvoiceProfitDetails: vi.fn(),
   getInvoiceAudit: async () => [],
   listAllocationsPage: async () => ({ results: [], count: 0, next: null, previous: null }),
   listPaymentLinksPage: async () => ({ results: [], count: 0, next: null, previous: null }),
@@ -208,7 +212,9 @@ describe('InvoiceDetailPage status — G-17', () => {
   it('opens the shared ShareInvoiceDialog from the detail share button', async () => {
     wrap(<InvoiceDetailPage />, '/sales/history/1');
     await screen.findByText('INV-0001');
+    expect(screen.queryByRole('button', { name: /generate e-invoice/i })).toBeNull();
     await userEvent.click(screen.getByRole('button', { name: /^share$/i }));
+    await userEvent.click(await screen.findByRole('menuitem', { name: /^whatsapp$/i }));
     expect(await screen.findByRole('dialog', { name: /share invoice/i })).toBeTruthy();
   });
 });

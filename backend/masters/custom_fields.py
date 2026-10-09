@@ -30,19 +30,34 @@ def normalize_header(value: Any) -> str:
     return _SEP_RE.sub(" ", raw).strip()
 
 
+# Django JSONField lookup / transform names — unsafe as stored keys.
+_JSON_LOOKUP_NAMES = {
+    "exact", "iexact", "contains", "icontains", "in", "gt", "gte", "lt", "lte",
+    "startswith", "istartswith", "endswith", "iendswith", "range", "isnull",
+    "regex", "iregex", "contained_by", "has_key", "has_keys", "has_any_keys",
+}
+
+
 def _reserved_normalized() -> set[str]:
     from imports.services import MASTER_COLUMN_ALIASES, PRODUCTS_ITEM_COLUMNS
 
     names = set(PRODUCTS_ITEM_COLUMNS) | {
         "id", "status", "created_at", "updated_at", "brand", "category_name",
         "hsn", "quantity", "custom_fields", "customfields",
-        # Django JSONField lookup / transform names — unsafe as stored keys.
-        "exact", "iexact", "contains", "icontains", "in", "gt", "gte", "lt", "lte",
-        "startswith", "istartswith", "endswith", "iendswith", "range", "isnull",
-        "regex", "iregex", "contained_by", "has_key", "has_keys", "has_any_keys",
-    }
+    } | _JSON_LOOKUP_NAMES
     for aliases in MASTER_COLUMN_ALIASES.values():
         names.update(aliases)
+    return {normalize_header(name) for name in names if name}
+
+
+def _party_reserved_normalized() -> set[str]:
+    """Built-in party columns plus JSON lookup names. Not the item column list."""
+    names = {
+        "name", "phone", "email", "gstin", "address", "state", "city", "pincode",
+        "pan", "credit limit", "credit_limit", "price list", "price_list", "notes",
+        "billing address", "shipping address", "shipping_addresses", "outstanding",
+        "party bank name", "party bank account", "party bank ifsc", "version",
+    } | _JSON_LOOKUP_NAMES
     return {normalize_header(name) for name in names if name}
 
 
@@ -176,7 +191,27 @@ def _assert_active_tokens_unique(parsed: list[dict]) -> None:
             owner[token] = row["key"]
 
 
-def validate_definitions(existing: list | None, incoming: list | None) -> list[dict]:
+def validate_party_definitions(existing: list | None, incoming: list | None) -> list[dict]:
+    """Party custom fields. Reserved names are party columns, not item columns."""
+    return validate_definitions(
+        existing,
+        incoming,
+        reserved=_party_reserved_normalized(),
+        reserved_error="This name is a built-in party field.",
+    )
+
+
+def party_defs_for_company(company) -> list[dict]:
+    return normalize_stored_defs(getattr(company, "party_custom_field_defs", None))
+
+
+def validate_definitions(
+    existing: list | None,
+    incoming: list | None,
+    *,
+    reserved: set[str] | None = None,
+    reserved_error: str | None = None,
+) -> list[dict]:
     if incoming is None:
         incoming = []
     if not isinstance(incoming, list):
@@ -184,7 +219,8 @@ def validate_definitions(existing: list | None, incoming: list | None) -> list[d
 
     existing_norm = normalize_stored_defs(existing)
     existing_by_fold = {row["key"].casefold(): row for row in existing_norm}
-    reserved = _reserved_normalized()
+    if reserved is None:
+        reserved = _reserved_normalized()
 
     parsed: list[dict] = []
     seen_keys: set[str] = set()
@@ -207,10 +243,16 @@ def validate_definitions(existing: list | None, incoming: list | None) -> list[d
             raise ValidationError(
                 "Custom field key must start with a letter and contain only letters and digits."
             )
-        if normalize_header(key) in reserved:
-            raise ValidationError(f"Custom field key '{key}' collides with a reserved item column.")
-        if normalize_header(label) in reserved:
-            raise ValidationError(f"Custom field label '{label}' collides with a reserved item column.")
+        # A definition saved before a name was reserved stays editable.
+        grandfathered = key.casefold() in existing_by_fold
+        if not grandfathered and (normalize_header(key) in reserved or normalize_header(label) in reserved):
+            if reserved_error:
+                raise ValidationError(reserved_error)
+            which = "key" if normalize_header(key) in reserved else "label"
+            raw_name = key if which == "key" else label
+            raise ValidationError(
+                f"Custom field {which} '{raw_name}' collides with a reserved item column."
+            )
         folded = key.casefold()
         if folded in seen_keys:
             raise ValidationError("Custom field keys must be unique.")

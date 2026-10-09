@@ -208,7 +208,7 @@ describe('NewPurchasePage price-jump note', () => {
     });
 
     await screen.findByText('Widget A');
-    expect(await screen.findByDisplayValue('15')).toBeTruthy();
+    expect((await screen.findAllByDisplayValue('15')).length).toBeGreaterThan(0);
     await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText(/last bill was/)).toBeNull();
   });

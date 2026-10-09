@@ -2,32 +2,30 @@ import type { ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
 
-const { flagState, shareInvoice, openShare } = vi.hoisted(() => ({
-  flagState: { cloud: false },
-  shareInvoice: vi.fn(async () => ({
-    status: 'QUEUED',
-    mode: 'cloud' as const,
-    shareLink: 'https://wa.me/919812345678',
-    whatsappSendStatus: 'QUEUED',
-  })),
-  openShare: vi.fn(),
+const { shareInvoice } = vi.hoisted(() => ({
+  shareInvoice: vi.fn(async (_id: number, payload: { channel: string; recipient: string; sendFromBusinessNumber?: boolean }) => {
+    if (payload.channel === 'WHATSAPP' && !payload.recipient && !payload.sendFromBusinessNumber) {
+      return { status: 'OPENED', mode: 'device' as const, text: 'Hello' };
+    }
+    return {
+      status: 'SENT',
+      mode: 'cloud' as const,
+      shareLink: 'https://wa.me/919812345678',
+      whatsappSendStatus: 'SENT',
+    };
+  }),
 }));
 
 vi.mock('@/api/resources', () => ({
   shareInvoice: (...args: unknown[]) => shareInvoice(...(args as [number, { channel: string; recipient: string }])),
+  createInvoicePublicLink: vi.fn(async () => ({ url: '' })),
+  downloadInvoicePdf: vi.fn(async () => new Blob(['pdf'])),
 }));
 
-vi.mock('@/config/featureFlags', () => ({
-  isRuntimeFlagEnabled: (key: string) => key === 'ENABLE_WHATSAPP_CLOUD' && flagState.cloud,
-}));
-
-vi.mock('@/utils/safeUrl', () => ({
-  isAllowedShareUrl: () => true,
-  openShareUrl: (...args: unknown[]) => openShare(...args),
-}));
+let openWindow: ReturnType<typeof vi.spyOn>;
 
 function wrap(ui: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -36,9 +34,12 @@ function wrap(ui: ReactElement) {
 
 describe('ShareInvoiceDialog', () => {
   beforeEach(() => {
-    flagState.cloud = false;
     shareInvoice.mockClear();
-    openShare.mockClear();
+    openWindow = vi.spyOn(window, 'open').mockImplementation(() => null);
+  });
+
+  afterEach(() => {
+    openWindow.mockRestore();
   });
 
   it('sends the invoice PDF via email using shareInvoice', async () => {
@@ -56,7 +57,7 @@ describe('ShareInvoiceDialog', () => {
     expect(shareInvoice).toHaveBeenCalledWith(42, { channel: 'EMAIL', recipient: 'a@b.test' });
   });
 
-  it('sends WhatsApp share with the default phone', async () => {
+  it('INV-DET-04 WhatsApp opens this device with no phone number in the link', async () => {
     wrap(
       <ShareInvoiceDialog
         open
@@ -66,26 +67,32 @@ describe('ShareInvoiceDialog', () => {
       />,
     );
     await userEvent.click(screen.getByRole('button', { name: /^whatsapp$/i }));
-    const share = screen.getByRole('button', { name: /share on whatsapp/i });
-    expect(share.textContent ?? '').not.toMatch(/send on whatsapp/i);
+    const share = screen.getByRole('button', { name: /you choose the chat/i });
     await userEvent.click(share);
-    expect(shareInvoice).toHaveBeenCalledWith(7, { channel: 'WHATSAPP', recipient: '919812345678' });
+    expect(shareInvoice).toHaveBeenCalledWith(7, { channel: 'WHATSAPP', recipient: '' });
+    expect(openWindow).toHaveBeenCalled();
+    const url = String(openWindow.mock.calls[0]?.[0] ?? '');
+    expect(url.startsWith('https://wa.me/?text=')).toBe(true);
+    expect(url).not.toMatch(/wa\.me\/\d/);
   });
 
-  it('sends on WhatsApp through the share endpoint when cloud is on and does not open a share sheet', async () => {
-    flagState.cloud = true;
+  it('posts the phone only for send from business number and does not open a share sheet', async () => {
     wrap(
       <ShareInvoiceDialog
         open
         invoiceId={9}
         defaultPhone="919812345678"
+        allowBusinessWhatsApp
         onClose={() => undefined}
       />,
     );
-    const send = screen.getByRole('button', { name: /send on whatsapp/i });
-    await userEvent.click(send);
-    expect(shareInvoice).toHaveBeenCalledWith(9, { channel: 'WHATSAPP', recipient: '919812345678' });
-    expect(openShare).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: /send from business number/i }));
+    expect(shareInvoice).toHaveBeenCalledWith(9, {
+      channel: 'WHATSAPP',
+      recipient: '919812345678',
+      sendFromBusinessNumber: true,
+    });
+    expect(openWindow).not.toHaveBeenCalled();
   });
 
   describe('starting values', () => {
@@ -137,7 +144,8 @@ describe('ShareInvoiceDialog', () => {
 
     it('opens on WhatsApp when only a phone is known, and on email otherwise', () => {
       const { unmount } = render(dialog(true, '', '919812345678'));
-      expect(screen.getByRole('textbox', { name: /whatsapp/i })).toBeTruthy();
+      expect(screen.getByRole('button', { name: /^whatsapp$/i, pressed: true })).toBeTruthy();
+      expect(screen.queryByRole('textbox', { name: /whatsapp/i })).toBeNull();
       unmount();
       render(dialog(true, 'a@b.test', ''));
       expect(emailBox()).toBeTruthy();

@@ -1,8 +1,6 @@
 import { useEffect } from 'react';
 import {
   completeSalesInvoice,
-  createAllocation,
-  createReceipt,
   createSalesInvoice,
   updateSalesInvoice,
 } from '@/api/resources';
@@ -25,6 +23,11 @@ function takeInvoiceMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
         : 0,
   );
   const paymentMode = String(raw._paymentMode ?? raw.paymentMode ?? draft.paymentMode ?? 'CASH') as PaymentMode;
+  const chequeNumber = String(raw._chequeNumber ?? raw.chequeNumber ?? '');
+  const chequeBankName = String(raw._chequeBankName ?? raw.chequeBankName ?? '');
+  const chequeDate = String(raw._chequeDate ?? raw.chequeDate ?? '');
+  const chequeImageRaw = raw._chequeImage ?? raw.chequeImage;
+  const chequeImage = typeof chequeImageRaw === 'number' ? chequeImageRaw : null;
   const customerId = Number(raw._customerId ?? raw.customerId ?? draft.customerId ?? raw.customer ?? 0);
   const invoiceDate = String(raw.invoiceDate ?? '');
   const status = String(raw.status ?? '').toUpperCase();
@@ -37,6 +40,10 @@ function takeInvoiceMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
   delete payload.amountReceived;
   delete payload._paymentMode;
   delete payload.paymentMode;
+  delete payload._chequeNumber;
+  delete payload._chequeBankName;
+  delete payload._chequeDate;
+  delete payload._chequeImage;
   delete payload._customerId;
   delete payload.customerId;
   delete payload.status;
@@ -49,45 +56,14 @@ function takeInvoiceMeta(raw: Record<string, unknown>, draft: OutboxDraft) {
     confirmAmend,
     amountReceived,
     paymentMode,
+    chequeNumber,
+    chequeBankName,
+    chequeDate,
+    chequeImage,
     customerId,
     invoiceDate,
     status,
   };
-}
-
-async function allocateInvoicePayment(
-  invoice: SalesInvoice,
-  opts: {
-    amountReceived: number;
-    paymentMode: PaymentMode;
-    customerId: number;
-    invoiceDate: string;
-    idempotencyKey?: string;
-  },
-): Promise<void> {
-  if (!(opts.amountReceived > 0) || invoice.status !== 'COMPLETED' || !opts.customerId) return;
-  const already = toNumber(invoice.received);
-  const toAllocate = Math.max(0, opts.amountReceived - already);
-  if (toAllocate <= 0) return;
-  const keyBase = opts.idempotencyKey || '';
-  const receipt = await createReceipt(
-    {
-      customer: opts.customerId,
-      amount: toAllocate,
-      mode: opts.paymentMode,
-      receiptDate: opts.invoiceDate || undefined,
-      notes: `Against ${invoice.number ?? invoice.id}`,
-    },
-    keyBase ? { idempotencyKey: `${keyBase}-receipt` } : undefined,
-  );
-  await createAllocation(
-    {
-      receipt: receipt.id,
-      salesInvoice: invoice.id,
-      amount: toAllocate,
-    },
-    keyBase ? { idempotencyKey: `${keyBase}-alloc` } : undefined,
-  );
 }
 
 /** Flush one queued invoice draft — shared with OfflineOutboxPage. */
@@ -114,13 +90,28 @@ export async function flushInvoiceDraft(draft: OutboxDraft): Promise<void> {
     });
   }
   if (meta.completeIntent && invoice.status === 'DRAFT') {
+    const collects = meta.amountReceived > 0 && meta.paymentMode !== 'CREDIT';
     invoice = await completeSalesInvoice(invoice.id, {
       confirmSalesRcm: meta.confirmSalesRcm,
       confirmBlankPos: meta.confirmBlankPos,
       confirmGstinTotalChange: meta.confirmGstinTotalChange,
+      idempotencyKey: draft.idempotencyKey,
+      ...(collects
+        ? {
+            amountReceived: meta.amountReceived,
+            paymentMode: meta.paymentMode,
+            ...(meta.paymentMode === 'CHEQUE'
+              ? {
+                  chequeNumber: meta.chequeNumber,
+                  chequeBankName: meta.chequeBankName,
+                  chequeDate: meta.chequeDate || undefined,
+                  chequeImage: meta.chequeImage,
+                }
+              : {}),
+          }
+        : {}),
     });
   }
-  await allocateInvoicePayment(invoice, { ...meta, idempotencyKey: draft.idempotencyKey });
 }
 
 /**

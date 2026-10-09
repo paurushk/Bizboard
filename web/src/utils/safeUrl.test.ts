@@ -1,10 +1,49 @@
-import { describe, expect, it } from 'vitest';
-import { isAllowedPaymentUrl, isAllowedShareUrl } from '@/utils/safeUrl';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isAllowedPaymentUrl, isAllowedShareUrl, shareOnThisDevice } from '@/utils/safeUrl';
 
 describe('safeUrl', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
   it('allows WhatsApp share hosts', () => {
     expect(isAllowedShareUrl('https://wa.me/919999999999')).toBe(true);
+    expect(isAllowedShareUrl('https://wa.me/?text=Hello')).toBe(true);
     expect(isAllowedShareUrl('https://api.whatsapp.com/send?phone=91')).toBe(true);
+  });
+
+  it('opens a phone-less wa.me link on desktop and does not call navigator.share', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const share = vi.fn();
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      share,
+      canShare: () => true,
+    });
+    await shareOnThisDevice({ text: 'Hello' });
+    expect(share).not.toHaveBeenCalled();
+    expect(open).toHaveBeenCalledWith(
+      'https://wa.me/?text=Hello',
+      '_blank',
+      'noopener,noreferrer',
+    );
+    open.mockRestore();
+  });
+
+  it('shares the already-fetched PDF on a phone, and treats dismiss as success', async () => {
+    const file = new File(['%PDF'], 'inv.pdf', { type: 'application/pdf' });
+    const share = vi.fn(async () => undefined);
+    const canShare = vi.fn((data?: ShareData) => Boolean(data?.files?.length));
+    vi.stubGlobal('navigator', {
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile',
+      share,
+      canShare,
+    });
+    await shareOnThisDevice({ text: 'Hello', file });
+    expect(share).toHaveBeenCalledWith({ files: [file], text: 'Hello' });
+
+    share.mockRejectedValueOnce(Object.assign(new Error('dismissed'), { name: 'AbortError' }));
+    await expect(shareOnThisDevice({ text: 'Hello', file })).resolves.toBeUndefined();
   });
 
   it('blocks javascript share URLs', () => {

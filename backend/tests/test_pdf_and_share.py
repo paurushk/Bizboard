@@ -5,6 +5,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 import pytest
+from django.test import TestCase
 from kombu.exceptions import OperationalError
 from pypdf import PdfReader
 from reportlab.lib.units import mm
@@ -52,7 +53,10 @@ def _complete(tenant, *, product_kwargs=None, lines=None, customer_kwargs=None):
     )
     items = lines or [{"product": product.id, "quantity": "2", "unit_price": "100"}]
     inv = create_draft_invoice(tenant, customer, items)
-    resp = tenant.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    # Eager PDF waits for commit. The test transaction never commits, so run
+    # the callback here. A rolled-back complete still drops it.
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        resp = tenant.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     assert resp.status_code == 200
     return resp.data, product
 
@@ -99,11 +103,39 @@ def test_pdf_generated_after_complete(tenant_a):
     content = b"".join(download.streaming_content)
     assert content.startswith(b"%PDF")
     text = _pdf_text(content)
+    flat = text.replace("\n", " ")
     assert "TAX INVOICE" in text
-    assert "ORIGINAL" in text
+    assert "ORIGINAL FOR RECIPIENT" in flat
+    assert "CGST@" in flat
+    assert "HSN" in flat
+    assert "Rupees" in text
     assert tenant_a.company.gstin in text
     assert "3004" in text  # HSN snapshot
-    assert "Rupees" in text
+    triplicate = render_gst_tax_invoice(
+        SalesInvoice.objects.get(pk=data["id"]), copy="TRIPLICATE",
+    )
+    assert "TRIPLICATE FOR SUPPLIER" in _pdf_text(triplicate).replace("\n", " ")
+
+
+def test_non_gst_pdf_is_a_bill_of_supply_without_hsn_summary(tenant_a):
+    product = make_product(tenant_a.company, sku="NG-1", hsn_code="3004", gst_rate="0")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(
+        tenant_a,
+        customer,
+        [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "0"}],
+        invoice_type="NON_GST",
+    )
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert done.status_code == 200, done.data
+    invoice = SalesInvoice.objects.get(pk=inv["id"])
+    text = _pdf_text(render_gst_tax_invoice(invoice, copy="ORIGINAL"))
+    flat = text.replace("\n", " ")
+    assert "Bill of Supply" in flat
+    assert "HSN summary" not in flat
+    assert "HSN/SAC" not in flat
+    assert "ORIGINAL FOR RECIPIENT" in flat
 
 
 def test_pdf_download_requires_auth(tenant_a):
@@ -237,6 +269,14 @@ def test_pdf_duplicate_copy_stamp(tenant_a):
     assert "DUPLICATE" in text
     assert "TAX INVOICE" in text
 
+    triplicate = tenant_a.client.get(
+        f"/api/v1/sales/invoices/{data['id']}/pdf/",
+        {"copy": "TRIPLICATE"},
+    )
+    assert triplicate.status_code == 200
+    tri_text = _pdf_text(b"".join(triplicate.streaming_content)).replace("\n", " ")
+    assert "TRIPLICATE FOR SUPPLIER" in tri_text
+
 
 def test_pdf_line_snapshots_stable(tenant_a):
     data, product = _complete(tenant_a)
@@ -343,7 +383,8 @@ def test_complete_survives_pdf_failure(mock_pdf, tenant_a):
     inv = create_draft_invoice(tenant_a, customer, [
         {"product": product.id, "quantity": "1", "unit_price": "100"},
     ])
-    resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        resp = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     assert resp.status_code == 200, resp.data
     assert resp.data["status"] == "COMPLETED"
     assert resp.data["number"].startswith("INV-")
@@ -817,3 +858,59 @@ def test_quotation_pdf_includes_valid_until(tenant_a):
     assert "Valid until" in text
     assert "2026-12-31" in text or "31" in text
     assert date(2026, 12, 31).isoformat()[:4] in text
+
+
+def test_inv_prev_02_preview_pdf_contains_tax_invoice_party_and_total(tenant_a):
+    """Download and print share this PDF: tax invoice, party, and the preview total."""
+    tenant_a.company.gstin = "29ABCDE1234F1ZW"
+    tenant_a.company.save(update_fields=["gstin"])
+    product = make_product(tenant_a.company, sku="PREV-1", hsn_code="3004", gst_rate="18")
+    customer = make_customer(tenant_a.company, name="Preview Stores", state="Karnataka")
+    resp = tenant_a.client.post(
+        "/api/v1/sales/invoices/preview-pdf/",
+        {
+            "customer": customer.id,
+            "invoice_type": "GST",
+            "invoice_date": "2026-10-08",
+            "items": [{
+                "product": product.id,
+                "description": "Nirma Soap",
+                "quantity": "1",
+                "unit_price": "100.00",
+                "gst_rate": "18",
+                "discount_percent": "0",
+            }],
+        },
+        format="json",
+    )
+    assert resp.status_code == 200, getattr(resp, "data", resp.content[:200])
+    content = b"".join(resp.streaming_content)
+    assert content.startswith(b"%PDF")
+    flat = _pdf_text(content).replace("\n", " ")
+    assert "TAX INVOICE" in flat
+    assert "ORIGINAL FOR RECIPIENT" in flat
+    assert "Preview Stores" in flat
+    assert "Nirma Soap" in flat
+    # HSN 3004 resolves to 5%, so the preview total is 105, and the PDF prints that same total.
+    assert "105.00" in flat
+    assert "One Hundred Five" in flat
+    totals = tenant_a.client.post(
+        "/api/v1/sales/invoices/preview-totals/",
+        {
+            "customer": customer.id,
+            "invoice_type": "GST",
+            "invoice_date": "2026-10-08",
+            "items": [{
+                "product": product.id,
+                "description": "Nirma Soap",
+                "quantity": "1",
+                "unit_price": "100.00",
+                "gst_rate": "18",
+                "discount_percent": "0",
+            }],
+        },
+        format="json",
+    )
+    assert totals.status_code == 200, totals.data
+    grand = str(totals.data.get("grand_total") or totals.data.get("grandTotal"))
+    assert grand.split(".")[0] in flat

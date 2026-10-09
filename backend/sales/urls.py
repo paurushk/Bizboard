@@ -11,6 +11,7 @@ from .route_combine import RouteCombineView
 from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet, PodSlipView
 from .pos_batch import PosBatchSyncView
 from .pos_views import PosCollectView, PosCounterEventView, PosReturnView, PosSettingsView
+from .public_invoice_views import PublicInvoicePayView, PublicInvoicePdfView, PublicInvoiceView
 from .views import QuotationViewSet, RecurringInvoiceScheduleViewSet, SalesInvoiceViewSet, SalesReturnViewSet
 
 router = DefaultRouter()
@@ -24,6 +25,12 @@ router.register("delivery-challans", DeliveryChallanViewSet, basename="delivery-
 router.register("delivery-routes", DeliveryRouteViewSet, basename="delivery-routes")
 router.register("challan-returns", DeliveryChallanReturnViewSet, basename="challan-returns")
 router.register("recurring-schedules", RecurringInvoiceScheduleViewSet, basename="recurring-schedules")
+
+public_urlpatterns = [
+    path("public/invoices/<str:token>/pdf/", PublicInvoicePdfView.as_view(), name="public-invoice-pdf"),
+    path("public/invoices/<str:token>/pay/", PublicInvoicePayView.as_view(), name="public-invoice-pay"),
+    path("public/invoices/<str:token>/", PublicInvoiceView.as_view(), name="public-invoice"),
+]
 
 urlpatterns = [
     path("pos/batch-sync/", PosBatchSyncView.as_view(), name="pos-batch-sync"),

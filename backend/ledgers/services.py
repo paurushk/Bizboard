@@ -440,11 +440,13 @@ class LedgerService:
         return _floor_outstanding(raw, kind="customer", ref=getattr(customer, "pk", customer))
 
     @staticmethod
-    def bulk_customer_outstanding(company, *, floor: bool = True) -> dict:
+    def bulk_customer_outstanding(company, *, floor: bool = True, documents_only: bool = False) -> dict:
         # B1-027: `floor=False` returns the raw per-party net (can be negative
         # for a customer in credit) — used by reconciliation surfaces that need
         # a company total that actually ties to the 1200 control account.
-        if LedgerService._use_gl_outstanding(company):
+        # `documents_only` keeps the invoice formula even when the books supply
+        # the displayed outstanding, so the credit-limit cross-check can see both.
+        if not documents_only and LedgerService._use_gl_outstanding(company):
             from accounting.models import JournalEntry, JournalLine
             from collections import defaultdict
 
@@ -515,6 +517,85 @@ class LedgerService:
         if not floor:
             return nets
         return {cid: max(Decimal("0"), v) for cid, v in nets.items()}
+
+    @staticmethod
+    def bulk_customer_unallocated_advances(company) -> dict:
+        """Posted receipt amount not yet allocated, per customer. One pass for the list.
+
+        Each receipt is floored on its own, matching customer_unallocated_receipts.
+        """
+        from django.db.models import Q
+        from django.db.models.functions import Coalesce
+
+        rows = (
+            CustomerReceipt.objects.filter(company=company, status=ReceiptStatus.POSTED)
+            .annotate(
+                allocated=Coalesce(
+                    Sum(
+                        "allocations__amount",
+                        filter=Q(allocations__reversed_at__isnull=True),
+                    ),
+                    Value(Decimal("0")),
+                    output_field=DecimalField(max_digits=14, decimal_places=2),
+                )
+            )
+            # Group by receipt. Grouping only by customer and amount would merge
+            # two equal receipts and count the amount once.
+            .values_list("pk", "customer_id", "amount", "allocated")
+        )
+        totals: dict = {}
+        for _receipt_id, customer_id, amount, allocated in rows:
+            spare = max(Decimal("0"), (amount or Decimal("0")) - (allocated or Decimal("0")))
+            totals[customer_id] = totals.get(customer_id, Decimal("0")) + spare
+        return totals
+
+    @staticmethod
+    def _bulk_gl_customer_net(company, account_codes: tuple[str, ...]) -> dict:
+        from collections import defaultdict
+
+        from accounting.models import JournalEntry, JournalLine
+
+        nets: dict = defaultdict(lambda: Decimal("0"))
+        rows = (
+            JournalLine.objects.filter(
+                company=company,
+                account__code__in=account_codes,
+                entry__status=JournalEntry.Status.POSTED,
+                customer_id__isnull=False,
+            )
+            .values("customer_id")
+            .annotate(d=Sum("debit"), c=Sum("credit"))
+        )
+        for row in rows:
+            nets[row["customer_id"]] += (row["d"] or Decimal("0")) - (row["c"] or Decimal("0"))
+        return dict(nets)
+
+    @staticmethod
+    def bulk_customer_credit_exposure(company) -> dict:
+        """Same figure as customer_exposure_for_credit_limit, for every customer on the list.
+
+        Books off: document outstanding minus each receipt's unallocated amount.
+        Books on: the higher of the GL balance and document outstanding minus the
+        2300 advance, which is the limit check on the customer page.
+        """
+        documents = LedgerService.bulk_customer_outstanding(company, documents_only=True)
+        if not getattr(company, "accounting_enabled", False):
+            advances = LedgerService.bulk_customer_unallocated_advances(company)
+            ids = set(documents) | set(advances)
+            return {
+                cid: (documents.get(cid) or Decimal("0")) - (advances.get(cid) or Decimal("0"))
+                for cid in ids
+            }
+        gl = LedgerService._bulk_gl_customer_net(company, ("1200", "2300"))
+        advance_net = LedgerService._bulk_gl_customer_net(company, ("2300",))
+        advances = {cid: max(Decimal("0"), -net) for cid, net in advance_net.items()}
+        ids = set(documents) | set(gl) | set(advances)
+        exposure: dict = {}
+        for cid in ids:
+            docs_exposure = (documents.get(cid) or Decimal("0")) - (advances.get(cid) or Decimal("0"))
+            gl_outstanding = max(Decimal("0"), gl.get(cid) or Decimal("0"))
+            exposure[cid] = max(gl_outstanding, docs_exposure)
+        return exposure
 
     @staticmethod
     def company_receivables(company) -> Decimal:

@@ -32,13 +32,19 @@ from .helpers import (
     tax_breakup_by_rate,
 )
 from .styles import (
-    COL_WIDTHS_SIMPLE,
+    COL_WIDTHS_SUPPLY,
     COL_WIDTHS_TAX,
     GREY_HEADER,
     GREY_TOTAL,
     LINE,
     build_styles,
 )
+
+_COPY_LABELS = {
+    "ORIGINAL": "ORIGINAL FOR RECIPIENT",
+    "DUPLICATE": "DUPLICATE FOR TRANSPORTER",
+    "TRIPLICATE": "TRIPLICATE FOR SUPPLIER",
+}
 
 logger = logging.getLogger("bizboard.pdf")
 
@@ -96,11 +102,49 @@ def _party_block(styles, title: str, name: str, address: str, gstin: str, phone:
     return inner
 
 
+def _copy_label(copy: str) -> str:
+    return _COPY_LABELS.get((copy or "ORIGINAL").upper(), _COPY_LABELS["ORIGINAL"])
+
+
+def _is_bill_of_supply(invoice, items) -> bool:
+    """Composition, fully exempt, and non-GST bills are a Bill of Supply."""
+    if getattr(invoice, "invoice_type", "") == "NON_GST":
+        return True
+    if str(getattr(invoice.company, "registration_type", "") or "").upper() == "COMPOSITION":
+        return True
+    natures = [(getattr(item, "supply_nature", None) or "TAXABLE").upper() for item in items]
+    return bool(natures) and all(nature in ("EXEMPT", "NIL", "NON_GST") for nature in natures)
+
+
+def _rate_cell(styles, item):
+    cell = [Paragraph(format_money(item.unit_price), styles["td_right"])]
+    discount = Decimal(str(getattr(item, "discount_percent", 0) or 0))
+    if discount != 0:
+        shown = format_money(discount).rstrip("0").rstrip(".")
+        cell.append(Paragraph(f"{shown}%", styles["body_small"]))
+    return cell
+
+
+def _item_bits(styles, item):
+    cell = [Paragraph(pdf_esc(item.description or item.product.name), styles["td"])]
+    sku = getattr(item.product, "sku", "") or ""
+    if sku:
+        cell.append(Paragraph(f"Code: {pdf_esc(sku)}", styles["body_small"]))
+    if item.description and item.description != item.product.name:
+        cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
+    batch_bits = []
+    if item.batch_no:
+        batch_bits.append(f"Batch: {pdf_esc(item.batch_no)}")
+    if item.exp_date:
+        batch_bits.append(f"Exp: {item.exp_date.strftime('%m/%Y')}")
+    if batch_bits:
+        cell.append(Paragraph(" | ".join(batch_bits), styles["body_small"]))
+    return cell
+
+
 def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
-    """Render a complete GST Tax Invoice PDF. `copy` is ORIGINAL or DUPLICATE."""
-    copy = (copy or "ORIGINAL").upper()
-    if copy not in ("ORIGINAL", "DUPLICATE"):
-        copy = "ORIGINAL"
+    """Render a GST tax invoice or a Bill of Supply. `copy` is ORIGINAL, DUPLICATE, or TRIPLICATE."""
+    copy_text = _copy_label(copy)
 
     company = invoice.company
     customer = invoice.customer
@@ -108,22 +152,31 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     seller_gstin = (getattr(stamp, "gstin", None) or "") if stamp is not None else (company.gstin or "")
     seller_name = (getattr(stamp, "legal_name", None) or "") if stamp is not None else ""
     seller_name = seller_name or company.name
-    items = list(invoice.items.select_related("product", "product__unit").all())
+    preview_items = getattr(invoice, "_preview_items", None)
+    if preview_items is not None:
+        items = list(preview_items)
+    else:
+        items = list(invoice.items.select_related("product", "product__unit").all())
     styles = build_styles()
-    show_tax = invoice.invoice_type != invoice.InvoiceType.NON_GST
+    bill_of_supply = _is_bill_of_supply(invoice, items)
+    show_tax = not bill_of_supply
 
-    allocated = (
-        PaymentAllocation.objects.filter(sales_invoice=invoice, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
-        or Decimal("0")
-    )
-    # Prefer ledger outstanding math for balance (accounts for returns).
-    try:
-        balance = LedgerService.sales_invoice_outstanding(invoice)
-        received = max(invoice.grand_total - balance, Decimal("0"))
-    except (TypeError, ValueError, ArithmeticError) as exc:
-        logger.warning("Invoice %s ledger outstanding failed: %s", invoice.pk, exc)
-        received = allocated
-        balance = max(invoice.grand_total - received, Decimal("0"))
+    if getattr(invoice, "pk", None):
+        allocated = (
+            PaymentAllocation.objects.filter(sales_invoice=invoice, reversed_at__isnull=True).aggregate(t=Sum("amount"))["t"]
+            or Decimal("0")
+        )
+        # Prefer ledger outstanding math for balance (accounts for returns).
+        try:
+            balance = LedgerService.sales_invoice_outstanding(invoice)
+            received = max(invoice.grand_total - balance, Decimal("0"))
+        except (TypeError, ValueError, ArithmeticError) as exc:
+            logger.warning("Invoice %s ledger outstanding failed: %s", invoice.pk, exc)
+            received = allocated
+            balance = max(invoice.grand_total - received, Decimal("0"))
+    else:
+        received = Decimal(str(getattr(invoice, "amount_received", 0) or 0))
+        balance = max(Decimal(str(invoice.grand_total or 0)) - received, Decimal("0"))
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -177,9 +230,9 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         for line in addr.split("\n"):
             seller_bits.append(Paragraph(line, styles["meta"]))
 
-    title_label = "TAX INVOICE" if show_tax else invoice.get_invoice_type_display().upper()
+    title_label = "Bill of Supply" if bill_of_supply else "TAX INVOICE"
     # B2-011: don't rebind `stamp` (the CompanyGstin used above) to the copy box.
-    copy_stamp_tbl = Table([[Paragraph(copy, styles["copy_stamp"])]], colWidths=[28 * mm])
+    copy_stamp_tbl = Table([[Paragraph(copy_text, styles["copy_stamp"])]], colWidths=[58 * mm])
     copy_stamp_tbl.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 1, colors.black),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
@@ -199,7 +252,14 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     ]
     pos = (getattr(invoice, "filing_place_of_supply", None) or "").strip()
     if pos:
-        right_col.append(Paragraph(f"<b>Place of Supply</b> {pdf_esc(pos)}", styles["meta"]))
+        from core.services.billing import extract_state_code
+
+        state_code = extract_state_code(pos) or extract_state_code(getattr(customer, "state", "") or "")
+        pos_label = pos if not state_code or state_code in pos else f"{pos} ({state_code})"
+        right_col.append(Paragraph(f"<b>Place of Supply</b> {pdf_esc(pos_label)}", styles["meta"]))
+    irn = (getattr(invoice, "irn", None) or "").strip()
+    if irn:
+        right_col.append(Paragraph(f"<b>IRN</b> {pdf_esc(irn)}", styles["meta"]))
     if getattr(invoice, "due_date", None):
         right_col.append(
             Paragraph(
@@ -246,120 +306,50 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
     story.append(parties)
     story.append(Spacer(1, 4 * mm))
 
-    # ---- Line items ----
+    # ---- Line items (no separate TAX column; rate-wise tax follows the grid) ----
+    headers = [
+        Paragraph("S.NO.", styles["th"]),
+        Paragraph("ITEMS", styles["th"]),
+    ]
     if show_tax:
-        data = [[
-            Paragraph("S.NO.", styles["th"]),
-            Paragraph("ITEMS", styles["th"]),
-            Paragraph("HSN", styles["th"]),
-            Paragraph("QTY.", styles["th"]),
-            Paragraph("MRP", styles["th"]),
-            Paragraph("RATE", styles["th"]),
-            Paragraph("TAX", styles["th"]),
-            Paragraph("AMOUNT", styles["th"]),
-        ]]
-        total_qty = Decimal("0")
-        total_tax = Decimal("0")
-        total_amount = Decimal("0")
-        for idx, item in enumerate(items, start=1):
-            total_qty += Decimal(item.quantity)
-            line_tax = (
-                Decimal(item.cgst or 0)
-                + Decimal(item.sgst or 0)
-                + Decimal(item.igst or 0)
-                + Decimal(getattr(item, "cess", 0) or 0)
-            )
-            total_tax += line_tax
-            total_amount += Decimal(item.line_total or 0)
-            unit = (item.unit_name or "PCS").upper()
-            sku = getattr(item.product, "sku", "") or ""
-            item_cell = [
-                Paragraph(pdf_esc(item.description or item.product.name), styles["td"]),
-            ]
-            if sku:
-                item_cell.append(Paragraph(f"Code: {pdf_esc(sku)}", styles["body_small"]))
-            # Subtle second line with product name if description differs
-            if item.description and item.description != item.product.name:
-                item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
-            # D15 / QOS-0027: batch-traceable invoice — print the batch/expiry
-            # snapshot already captured on the line (regulated ARCH-05 lines
-            # in particular need this), same subtle-sub-line treatment as SKU.
-            batch_bits = []
-            if item.batch_no:
-                batch_bits.append(f"Batch: {pdf_esc(item.batch_no)}")
-            if item.exp_date:
-                batch_bits.append(f"Exp: {item.exp_date.strftime('%m/%Y')}")
-            if batch_bits:
-                item_cell.append(Paragraph(" | ".join(batch_bits), styles["body_small"]))
-            data.append([
-                Paragraph(str(idx), styles["td_center"]),
-                item_cell,
-                Paragraph(item.hsn_code or item.product.hsn_code or "—", styles["td_center"]),
-                Paragraph(f"{format_qty(item.quantity)} {unit}", styles["td_center"]),
-                Paragraph(format_money(item.mrp), styles["td_right"]),
-                Paragraph(format_money(item.unit_price), styles["td_right"]),
-                [
-                    Paragraph(format_money(line_tax), styles["td_right"]),
-                    Paragraph(f"({format_money(item.gst_rate).rstrip('0').rstrip('.')}%)", styles["body_small"]),
-                ],
-                Paragraph(format_money(item.line_total), styles["td_right"]),
-            ])
-        # Totals row
-        data.append([
-            "",
-            Paragraph("<b>TOTAL</b>", styles["td"]),
-            "",
-            Paragraph(f"<b>{format_qty(total_qty)}</b>", styles["td_center"]),
-            "",
-            "",
-            Paragraph(f"<b>{format_money(total_tax)}</b>", styles["td_right"]),
-            Paragraph(f"<b>{format_money(total_amount)}</b>", styles["td_right"]),
+        headers.append(Paragraph("HSN", styles["th"]))
+    headers.extend([
+        Paragraph("QTY.", styles["th"]),
+        Paragraph("MRP", styles["th"]),
+        Paragraph("RATE", styles["th"]),
+        Paragraph("AMOUNT", styles["th"]),
+    ])
+    data = [headers]
+    total_qty = Decimal("0")
+    total_amount = Decimal("0")
+    for idx, item in enumerate(items, start=1):
+        total_qty += Decimal(item.quantity)
+        total_amount += Decimal(item.line_total or 0)
+        unit = (item.unit_name or "PCS").upper()
+        row = [
+            Paragraph(str(idx), styles["td_center"]),
+            _item_bits(styles, item),
+        ]
+        if show_tax:
+            row.append(Paragraph(item.hsn_code or item.product.hsn_code or "—", styles["td_center"]))
+        row.extend([
+            Paragraph(f"{format_qty(item.quantity)} {unit}", styles["td_center"]),
+            Paragraph(format_money(item.mrp), styles["td_right"]),
+            _rate_cell(styles, item),
+            Paragraph(format_money(item.line_total), styles["td_right"]),
         ])
-        col_widths = COL_WIDTHS_TAX
-    else:
-        data = [[
-            Paragraph("S.NO.", styles["th"]),
-            Paragraph("ITEMS", styles["th"]),
-            Paragraph("QTY.", styles["th"]),
-            Paragraph("RATE", styles["th"]),
-            Paragraph("DISC%", styles["th"]),
-            Paragraph("AMOUNT", styles["th"]),
-        ]]
-        total_qty = Decimal("0")
-        total_amount = Decimal("0")
-        for idx, item in enumerate(items, start=1):
-            total_qty += Decimal(item.quantity)
-            total_amount += Decimal(item.line_total or 0)
-            unit = (item.unit_name or "PCS").upper()
-            sku = getattr(item.product, "sku", "") or ""
-            item_name = item.description or item.product.name
-            if sku:
-                item_name = f"{item_name} ({sku})"
-            item_cell = [Paragraph(pdf_esc(item_name), styles["td"])]
-            batch_bits = []
-            if item.batch_no:
-                batch_bits.append(f"Batch: {pdf_esc(item.batch_no)}")
-            if item.exp_date:
-                batch_bits.append(f"Exp: {item.exp_date.strftime('%m/%Y')}")
-            if batch_bits:
-                item_cell.append(Paragraph(" | ".join(batch_bits), styles["body_small"]))
-            data.append([
-                Paragraph(str(idx), styles["td_center"]),
-                item_cell,
-                Paragraph(f"{format_qty(item.quantity)} {unit}", styles["td_center"]),
-                Paragraph(format_money(item.unit_price), styles["td_right"]),
-                Paragraph(format_money(item.discount_percent), styles["td_right"]),
-                Paragraph(format_money(item.line_total), styles["td_right"]),
-            ])
-        data.append([
-            "",
-            Paragraph("<b>TOTAL</b>", styles["td"]),
-            Paragraph(f"<b>{format_qty(total_qty)}</b>", styles["td_center"]),
-            "",
-            "",
-            Paragraph(f"<b>{format_money(total_amount)}</b>", styles["td_right"]),
-        ])
-        col_widths = COL_WIDTHS_SIMPLE
+        data.append(row)
+    total_row = ["", Paragraph("<b>TOTAL</b>", styles["td"])]
+    if show_tax:
+        total_row.append("")
+    total_row.extend([
+        Paragraph(f"<b>{format_qty(total_qty)}</b>", styles["td_center"]),
+        "",
+        "",
+        Paragraph(f"<b>{format_money(total_amount)}</b>", styles["td_right"]),
+    ])
+    data.append(total_row)
+    col_widths = COL_WIDTHS_TAX if show_tax else COL_WIDTHS_SUPPLY
 
     items_table = Table(data, colWidths=col_widths, repeatRows=1)
     style_cmds = [
@@ -445,7 +435,11 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         # LedgerService is imported at module scope; a second local import here
         # would shadow it and make the earlier use (line ~117) an UnboundLocalError.
         try:
-            qr_amount = LedgerService.sales_invoice_outstanding(invoice)
+            qr_amount = (
+                LedgerService.sales_invoice_outstanding(invoice)
+                if getattr(invoice, "pk", None)
+                else invoice.grand_total
+            )
         except Exception:
             qr_amount = invoice.grand_total
         if qr_amount is None or qr_amount < 0:
@@ -580,6 +574,12 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         f"<b>Invoice Amount In Words:</b> {amount_in_words(invoice.grand_total)}",
         styles["words"],
     ))
+    if getattr(invoice, "is_reverse_charge", False):
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph(
+            "Tax is payable on reverse charge basis. The recipient is liable to pay the GST.",
+            styles["body"],
+        ))
     story.append(Spacer(1, 8 * mm))
 
     sign_flow = [

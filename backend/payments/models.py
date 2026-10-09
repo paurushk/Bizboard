@@ -82,6 +82,10 @@ class CustomerReceipt(CompanyScopedModel):
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="receipts")
     number = models.CharField(max_length=32, blank=True, db_index=True)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
+    # What the customer handed over, and the cash returned. Reports read these.
+    # `amount` is what was applied to the invoice.
+    tendered = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    change_given = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     mode = models.CharField(max_length=8, choices=PaymentMode.choices, default=PaymentMode.CASH)
     receipt_date = models.DateField(default=timezone.localdate)
     reference = models.CharField(max_length=100, blank=True)

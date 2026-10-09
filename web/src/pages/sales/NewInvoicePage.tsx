@@ -30,9 +30,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   completeSalesInvoice,
-  createAllocation,
   createProduct,
-  createReceipt,
   createSalesInvoice,
   getCompany,
   getCustomer,
@@ -50,8 +48,11 @@ import {
   listStock,
   listWarehouses,
   searchProducts,
+  updateCustomer,
   updateSalesInvoice,
   uploadFile,
+  downloadInvoicePdf,
+  downloadInvoicePreviewPdf,
 } from '@/api/resources';
 import { getErrorMessage, isNetworkError, userGestureIdempotencyKey } from '@/api/client';
 import { classifyCompleteFailure, runInvoiceCompleteJourney, trackShopFloor } from '@/lib/telemetry';
@@ -64,7 +65,7 @@ import {
 import { isValidHsnSac } from '@/utils/gst';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
-import { canCreateSales, canViewFinancialReports } from '@/utils/permissions';
+import { canAccessPos, canCreatePayments, canCreateSales, canImport, canViewFinancialReports } from '@/utils/permissions';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -76,6 +77,7 @@ import { preferredInvoiceType, companyStepIncompleteNeedsGst, resolvedSeriesGsti
 import { jsonSnapshot, useEditorBaseline } from '@/pages/sales/invoice/editorDirty';
 import { creditLineView } from '@/pages/sales/creditLine';
 import { decidePlaceOfSupply, invoiceTypeChipKey, showGodownSelect, statutoryChipIds, statutoryChipLabel } from '@/cognitive/loadHelpers';
+import { lineSkipsStockGate } from '@/pages/pos/posRules';
 import { chooseInvoiceDefaults, inferInvoiceTypeFromParty } from '@/pages/sales/invoiceDefaults';
 import { readDraft, removeDraft as removeDeviceDraft, writeDraft } from '@/lib/deviceDraft';
 import {
@@ -84,6 +86,8 @@ import {
   serialCountMatchesQty,
 } from '@/completeGates/completeBlockers';
 import type { InvoiceType, PaymentMode, PriceMode, Product, SalesInvoice } from '@/types/domain';
+import { creditLimitExceeded as billExceedsCreditLimit } from '@/utils/creditExposure';
+import { amountInWords } from '@/utils/amountInWords';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { isCollectionHoldStatus } from '@/utils/collectionHold';
 import { hasLiveIrn } from '@/utils/einvoiceLock';
@@ -104,6 +108,7 @@ import {
   DraftLineTable,
   formatSerialNumbersText,
   NumericField,
+  parseSerialInput,
   parseSerialNumbersText,
   primarySaveAction,
   recomputeLine,
@@ -122,14 +127,27 @@ import {
 } from '@/components/InvoiceQuickSettingsDialog';
 import { activeCustomFieldDefs } from '@/pages/inventory/itemCustomFieldDefaults';
 import { makeInvoiceLine } from '@/pages/sales/invoice/makeInvoiceLine';
-import { useInvoiceOffline } from '@/pages/sales/invoice/useInvoiceOffline';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
+import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 
 const COL_PREFS_KEY = 'bizboard.billing.batchCols';
 
+/** Thrown to stop a save while the owner answers the amend dialog. Not an error to show. */
+class AmendPending extends Error {}
+
 async function completeInvoiceWithConfirms(
   id: number,
-  base: { confirmSalesRcm?: boolean },
+  base: {
+    confirmSalesRcm?: boolean;
+    amountReceived?: number;
+    paymentMode?: PaymentMode;
+    chequeNumber?: string;
+    chequeBankName?: string;
+    chequeDate?: string;
+    chequeImage?: number | null;
+    idempotencyKey?: string;
+  },
 ): Promise<SalesInvoice> {
   // F2-035: delegate to the shared completeWithConfirms loop instead of a
   // hand-nested try/catch that only recovered one confirm code per level —
@@ -151,8 +169,9 @@ export function NewInvoicePage() {
     (location.state as { fromBillUpload?: boolean } | null)?.fromBillUpload,
   );
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, login } = useAuth();
   const canSeeMargin = canViewFinancialReports(user);
+  const canTakePayment = canCreatePayments(user);
   const isOwner = user?.role === 'OWNER';
   const companyId = user?.companyId ?? 0;
   const userId = user?.id ?? 0;
@@ -165,6 +184,33 @@ export function NewInvoicePage() {
     lines: DraftLine[];
     customerId: number | '';
   } | null>(null);
+  const [priceDrift, setPriceDrift] = useState<{
+    lines: DraftLine[];
+    updated: DraftLine[];
+    drifts: { name: string; from: string; to: string }[];
+    customerId: number | '';
+  } | null>(null);
+  const [reauthEmail, setReauthEmail] = useState('');
+  const [reauthPassword, setReauthPassword] = useState('');
+  const completeKeyRef = useRef<string | null>(null);
+  // Signature of the body the key was minted for. A changed body needs a new key.
+  const completeSigRef = useRef('');
+  const amendConfirmedRef = useRef(false);
+  const [amendConfirm, setAmendConfirm] = useState<'draft' | 'complete' | 'complete_new' | 'draft_new' | 'save' | null>(null);
+  const lostCompleteRef = useRef(false);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const [profitOpen, setProfitOpen] = useState(false);
+  const [savedForShare, setSavedForShare] = useState<{ id: number; number: string } | null>(null);
+  const [shareAfterSave, setShareAfterSave] = useState(false);
+  const [autoPrint, setAutoPrint] = useState(() => {
+    try {
+      return localStorage.getItem('bizboard.invoiceAutoPrint') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [previewMode, setPreviewMode] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [draftChecked, setDraftChecked] = useState(false);
   const [productQuery, setProductQuery] = useState('');
   const [cfFilters, setCfFilters] = useState<Record<string, string[]>>({});
@@ -289,13 +335,18 @@ export function NewInvoicePage() {
     unitName: 'PCS',
     hsnCode: '',
     sellingPrice: '',
+    purchasePrice: '',
     mrp: '',
     gstRate: '18',
   });
   const [signatureUrl, setSignatureUrl] = useState<string | null>(null);
   const [signatureId, setSignatureId] = useState<number | null>(null);
 
-  useInvoiceOffline(companyId, userId, setOutboxBanner);
+  useEffect(() => {
+    const onReauth = () => setReauthOpen(true);
+    window.addEventListener('bizboard:invoice-reauth', onReauth);
+    return () => window.removeEventListener('bizboard:invoice-reauth', onReauth);
+  }, []);
 
   useEffect(() => {
     const onOnline = () => setOffline(false);
@@ -341,7 +392,8 @@ export function NewInvoicePage() {
       return;
     }
     writeDraft(companyId, userId, 'sales-invoice', {
-      lines: lines.map((line) => (line.priceEdited ? line : { ...line, unitPrice: 0 })),
+      // Cost is not part of the bill. Keep it out of browser storage.
+      lines: lines.map((line) => ({ ...line, purchasePrice: undefined })),
       customerId,
     });
   }, [draftChecked, isEdit, companyId, userId, deviceDraft, lines, customerId]);
@@ -431,6 +483,7 @@ export function NewInvoicePage() {
     if (company.data?.negativeStockPolicy !== 'BLOCK') return [];
     const needed = new Map<number, { name: string; qty: number }>();
     for (const l of lines) {
+      if (lineSkipsStockGate(l)) continue;
       const prev = needed.get(l.product);
       needed.set(l.product, {
         name: l.productName,
@@ -578,6 +631,9 @@ export function NewInvoicePage() {
           (products.data ?? []).find((p) => p.id === item.product)?.trackSerial
             ?? (item as { serialNumbers?: string[] }).serialNumbers?.length,
         ),
+        productType: (products.data ?? []).find((p) => p.id === item.product)?.productType,
+        trackInventory: (products.data ?? []).find((p) => p.id === item.product)?.trackInventory,
+        purchasePrice: toNumber((products.data ?? []).find((p) => p.id === item.product)?.purchasePrice),
         serialNumbersText: formatSerialNumbersText((item as { serialNumbers?: string[] }).serialNumbers),
         expDate: item.expDate ?? '',
         mfgDate: item.mfgDate ?? '',
@@ -769,13 +825,28 @@ export function NewInvoicePage() {
     setInvoiceDiscountMode('BEFORE_TAX');
   }
 
+  const alreadyPostedOnThisBill =
+    editingStatus === 'COMPLETED'
+      ? toNumber(existingInvoice.data?.balance ?? existingInvoice.data?.grandTotal ?? 0)
+      : 0;
+  const ledgerExposure =
+    selectedCustomer?.creditExposure != null
+      ? toNumber(selectedCustomer.creditExposure)
+      : toNumber(selectedCustomer?.outstanding ?? 0);
+  const projectedCreditBase = Math.max(0, ledgerExposure - alreadyPostedOnThisBill);
+  const creditLimitExceeded = billExceedsCreditLimit({
+    limit: toNumber(selectedCustomer?.creditLimit),
+    outstanding: ledgerExposure,
+    draftTotal: totals.grandTotal,
+    alreadyPosted: alreadyPostedOnThisBill,
+  });
   const creditLimitBanner = useMemo(() => {
     if (!selectedCustomer) return null;
     const limit = toNumber(selectedCustomer.creditLimit);
     if (limit <= 0) return null;
     const view = creditLineView({
       limit,
-      outstanding: toNumber(selectedCustomer.outstanding ?? 0),
+      outstanding: projectedCreditBase,
       billTotal: totals.grandTotal,
     });
     if (!view) return null;
@@ -788,7 +859,7 @@ export function NewInvoicePage() {
         })}
       </Alert>
     );
-  }, [selectedCustomer, totals.grandTotal]);
+  }, [selectedCustomer, totals.grandTotal, projectedCreditBase]);
 
   const creditHold = Boolean(
     customerId &&
@@ -796,13 +867,6 @@ export function NewInvoicePage() {
         (collectionRisk.data ?? []).find((r) => r.customerId === Number(customerId))?.status,
       ),
   );
-  const creditLimitExceeded = (() => {
-    if (!selectedCustomer) return false;
-    const limit = toNumber(selectedCustomer.creditLimit);
-    if (limit <= 0) return false;
-    const outstanding = toNumber(selectedCustomer.outstanding ?? 0);
-    return outstanding + totals.grandTotal > limit + 1e-9;
-  })();
   const collectionHoldBanner = useMemo(() => {
     if (!creditHold) return null;
     return (
@@ -817,6 +881,9 @@ export function NewInvoicePage() {
     // success flash then resets fields in the same tick; wiping feedback would
     //     batch-erase the message before paint. Use useBillingSaveFeedback.
     rearmEditorBaseline();
+    completeKeyRef.current = null;
+    completeSigRef.current = '';
+    lostCompleteRef.current = false;
     setLines([]);
     setManualName('');
     setSkipLeaveGuard(false);
@@ -935,6 +1002,35 @@ export function NewInvoicePage() {
       : null,
   );
 
+  const previewPayloadKey = JSON.stringify(previewPayload);
+  useEffect(() => {
+    const savedCopy = editingStatus === 'COMPLETED' && editId;
+    const canPreviewDraft = Boolean(customerId) && lines.some((line) => line.product);
+    if (!previewMode || (!savedCopy && !canPreviewDraft)) return;
+    let revoke = '';
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const run = savedCopy
+        ? downloadInvoicePdf(editId!)
+        : downloadInvoicePreviewPdf(previewPayload as Record<string, unknown>);
+      void run
+        .then((blob) => {
+          if (cancelled) return;
+          revoke = URL.createObjectURL(blob);
+          setPdfPreviewUrl(revoke);
+        })
+        .catch(() => {
+          if (!cancelled) setPdfPreviewUrl(null);
+        });
+    }, savedCopy ? 0 : 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (revoke) URL.revokeObjectURL(revoke);
+      setPdfPreviewUrl(null);
+    };
+  }, [previewMode, editingStatus, editId, previewPayloadKey, customerId, lines, previewPayload]);
+
   const saveMutation = useMutation({
     mutationFn: async (mode: 'draft' | 'complete' | 'complete_new' | 'draft_new' | 'save') => {
       if (!customerId) throw new Error(t('billing.customerRequired'));
@@ -970,9 +1066,62 @@ export function NewInvoicePage() {
       const payload = buildPayload();
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
       // reuses the request header; an offline queue+flush reuses draft.idempotencyKey.
-      const key = userGestureIdempotencyKey();
+      const sig = JSON.stringify([mode, payload, paymentMode, amountReceived, cheque]);
+      if (completeKeyRef.current && completeSigRef.current !== sig) completeKeyRef.current = null;
+      const key = completeKeyRef.current ?? userGestureIdempotencyKey();
+      completeKeyRef.current = key;
+      completeSigRef.current = sig;
       let invoice: SalesInvoice;
       let completeWarning: string | null = null;
+      const paymentOnComplete =
+        shouldComplete && canTakePayment && paymentMode !== 'CREDIT' && amountReceived > 0
+          ? {
+              amountReceived,
+              paymentMode,
+              ...(paymentMode === 'CHEQUE'
+                ? {
+                    chequeNumber: cheque.chequeNumber,
+                    chequeBankName: cheque.chequeBankName,
+                    chequeDate: cheque.chequeDate || undefined,
+                    chequeImage: cheque.chequeImage ?? undefined,
+                  }
+                : {}),
+            }
+          : {};
+      // Complete can fail in two ways. If the server answered, that answer is final for
+      // this key, so a fixed retry needs a new one. If the response was lost, the server
+      // may have committed: look before reporting a failure, and keep the key so a retry
+      // replays instead of posting twice.
+      const completeOrWarn = async (current: SalesInvoice): Promise<SalesInvoice> => {
+        try {
+          const done = await completeInvoiceWithConfirms(current.id, {
+            confirmSalesRcm: isReverseCharge && confirmSalesRcm,
+            idempotencyKey: key,
+            ...paymentOnComplete,
+          });
+          lostCompleteRef.current = false;
+          return done;
+        } catch (err) {
+          if ((err as { response?: { status?: number } }).response?.status === 401) throw err;
+          if (isNetworkError(err) || !navigator.onLine) {
+            try {
+              const fresh = await getSalesInvoice(current.id);
+              if (fresh.status === 'COMPLETED') {
+                lostCompleteRef.current = false;
+                return fresh;
+              }
+            } catch {
+              /* still unreachable */
+            }
+            lostCompleteRef.current = true;
+            completeWarning = t('billing.completeResponseLost');
+            return current;
+          }
+          completeKeyRef.current = null;
+          completeWarning = getErrorMessage(err);
+          return current;
+        }
+      };
       const queueOffline = async () => {
         if (!companyId || !userId) return;
         await enqueueDraft(companyId, userId, {
@@ -987,6 +1136,10 @@ export function NewInvoicePage() {
             _confirmSalesRcm: isReverseCharge && confirmSalesRcm,
             _amountReceived: amountReceived,
             _paymentMode: paymentMode,
+            _chequeNumber: cheque.chequeNumber,
+            _chequeBankName: cheque.chequeBankName,
+            _chequeDate: cheque.chequeDate,
+            _chequeImage: cheque.chequeImage ?? null,
             _customerId: Number(customerId),
           },
           idempotencyKey: key,
@@ -1006,9 +1159,12 @@ export function NewInvoicePage() {
                 'Only an Owner can amend a completed invoice. Use a return for stock corrections, not price fixes.',
               );
             }
-            if (!window.confirm(t('billing.confirmAmendCompleted'))) {
-              throw new Error('Amend cancelled');
+            if (!amendConfirmedRef.current) {
+              // Ask in a dialog; its Confirm button runs this save again.
+              setAmendConfirm(mode);
+              throw new AmendPending();
             }
+            amendConfirmedRef.current = false;
             if (hasLiveIrn(existingInvoice.data ?? {})) {
               throw new Error(t('einvoice.lineAmendBlocked'));
             }
@@ -1018,31 +1174,26 @@ export function NewInvoicePage() {
               expectedAmendRevision: existingInvoice.data?.amendRevision ?? 0,
             });
           } else {
-            invoice = await updateSalesInvoice(editId, payload);
+            const settled = lostCompleteRef.current ? await getSalesInvoice(editId) : null;
+            if (settled?.status === 'COMPLETED') {
+              lostCompleteRef.current = false;
+              invoice = settled;
+            } else {
+              invoice = await updateSalesInvoice(editId, payload);
+            }
           }
           // mode 'save' (completed edit) persists without completing — same path as draft.
           if (shouldComplete && invoice.status === 'DRAFT') {
-            try {
-              invoice = await completeInvoiceWithConfirms(invoice.id, {
-                confirmSalesRcm: isReverseCharge && confirmSalesRcm,
-              });
-            } catch (err) {
-              completeWarning = getErrorMessage(err);
-            }
+            invoice = await completeOrWarn(invoice);
           }
         } else {
           invoice = await createSalesInvoice(payload, { idempotencyKey: key });
           if (shouldComplete) {
-            try {
-              invoice = await completeInvoiceWithConfirms(invoice.id, {
-                confirmSalesRcm: isReverseCharge && confirmSalesRcm,
-              });
-            } catch (err) {
-              completeWarning = getErrorMessage(err);
-            }
+            invoice = await completeOrWarn(invoice);
           }
         }
       } catch (err) {
+        if (err instanceof AmendPending) throw err;
         if (isNetworkError(err) || !navigator.onLine) {
           await queueOffline();
           throw new Error(t('billing.savedOffline'));
@@ -1054,49 +1205,37 @@ export function NewInvoicePage() {
       if (invoice.warnings?.length) {
         paymentWarning = [paymentWarning, ...invoice.warnings].filter(Boolean).join(' ');
       }
-      if (shouldComplete && amountReceived > 0 && invoice.status === 'COMPLETED') {
-        const already = toNumber(invoice.received);
-        const toAllocate = Math.max(0, amountReceived - already);
-        if (toAllocate > 0) {
-          try {
-            const receipt = await createReceipt(
-              {
-                customer: Number(customerId),
-                amount: toAllocate,
-                mode: paymentMode,
-                receiptDate: invoiceDate,
-                notes: `Against ${invoice.number ?? invoice.id}`,
-                chequeNumber: cheque.chequeNumber,
-                chequeBankName: cheque.chequeBankName,
-                chequeDate: cheque.chequeDate || undefined,
-                chequeImage: cheque.chequeImage || undefined,
-              },
-              { idempotencyKey: `${key}-receipt` },
-            );
-            await createAllocation(
-              {
-                receipt: receipt.id,
-                salesInvoice: invoice.id,
-                amount: toAllocate,
-              },
-              { idempotencyKey: `${key}-alloc` },
-            );
-          } catch (err) {
-            paymentWarning = [paymentWarning, getErrorMessage(err)].filter(Boolean).join(' ');
-          }
-        }
-      }
-      return { invoice, mode, paymentWarning };
+      return { invoice, mode, paymentWarning, completeWarning };
     },
-    onSuccess: async ({ invoice, mode, paymentWarning }) => {
-      flushSync(() => setSkipLeaveGuard(true));
+    onSuccess: async ({ invoice, mode, paymentWarning, completeWarning }) => {
+      const stayOnForm =
+        (mode === 'complete' || mode === 'complete_new') && Boolean(completeWarning) && invoice.status !== 'COMPLETED';
+      if (!stayOnForm) flushSync(() => setSkipLeaveGuard(true));
       flashWarning(paymentWarning ?? null);
       void qc.invalidateQueries({ queryKey: ['sales-invoice-number-series'] });
       void qc.invalidateQueries({ queryKey: ['sales-invoice', invoice.id] });
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
+        completeKeyRef.current = null;
+        setSavedForShare({ id: invoice.id, number: label });
         flashSaveAndNew(t('billing.invoiceSavedNext', { label }), paymentWarning);
+        if (autoPrint) {
+          void downloadInvoicePdf(invoice.id).then((blob) => {
+            const url = URL.createObjectURL(blob);
+            const frame = document.createElement('iframe');
+            frame.style.display = 'none';
+            frame.src = url;
+            document.body.appendChild(frame);
+            frame.onload = () => {
+              frame.contentWindow?.print();
+              window.setTimeout(() => {
+                frame.remove();
+                URL.revokeObjectURL(url);
+              }, 60_000);
+            };
+          }).catch(() => undefined);
+        }
         resetForm();
         navigate('/sales/new', { replace: true });
         return;
@@ -1117,14 +1256,29 @@ export function NewInvoicePage() {
       // Warm list cache before SPA navigate so history isn't blank until hard
       // refresh. F2-026: the history page keys on ['sales-invoices', page] with
       // page 1 and pageSize 50 — warm that exact key, not the bare one.
-      try {
-        await qc.fetchQuery({
+      void qc
+        .prefetchQuery({
           queryKey: ['sales-invoices', 1],
           queryFn: () => listSalesInvoicesPage({ page: 1, pageSize: 50 }),
           staleTime: 0,
+        })
+        .catch(() => qc.invalidateQueries({ queryKey: ['sales-invoices'] }));
+
+      if (mode === 'complete' && invoice.status === 'COMPLETED') {
+        completeKeyRef.current = null;
+        navigate(`/sales/history/${invoice.id}`, {
+          replace: true,
+          state: { message: flash },
         });
-      } catch {
-        void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
+        return;
+      }
+
+      if ((mode === 'complete' || mode === 'complete_new') && completeWarning && invoice.status !== 'COMPLETED') {
+        setError(completeWarning);
+        if (!isEdit && invoice.id) {
+          navigate(`/sales/history/${invoice.id}/edit`, { replace: true });
+        }
+        return;
       }
 
       navigate('/sales/history', {
@@ -1135,6 +1289,13 @@ export function NewInvoicePage() {
       });
     },
     onError: (err) => {
+      if (err instanceof AmendPending) return;
+      amendConfirmedRef.current = false;
+      const status = (err as { response?: { status?: number } }).response?.status;
+      if (status === 401) {
+        setReauthOpen(true);
+        return;
+      }
       const msg = getErrorMessage(err);
       if (msg === t('billing.savedOffline')) return;
       if (classifyCompleteFailure(err) === 'validation') trackShopFloor('form_validation_failed', { feature: 'form' });
@@ -1152,7 +1313,7 @@ export function NewInvoicePage() {
         sellingPrice: Number(itemForm.sellingPrice) || 0,
         mrp: Number(itemForm.mrp) || 0,
         gstRate: Number(itemForm.gstRate) || 0,
-        purchasePrice: 0,
+        purchasePrice: showPurchasePrice && canSeeMargin ? Number(itemForm.purchasePrice) || 0 : 0,
         reorderLevel: 0,
         status: 'ACTIVE',
       }),
@@ -1168,6 +1329,7 @@ export function NewInvoicePage() {
         unitName: 'PCS',
         hsnCode: '',
         sellingPrice: '',
+        purchasePrice: '',
         mrp: '',
         gstRate: '18',
       });
@@ -1212,6 +1374,7 @@ export function NewInvoicePage() {
   };
 
   const lastScan = useRef('');
+  const scanChain = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     const query = productQuery.trim();
     if (!query) {
@@ -1244,6 +1407,11 @@ export function NewInvoicePage() {
         // later qty change doesn't clobber the override (F2-007).
         if (patch.unitPrice != null) {
           nextPatch = { ...patch, priceEdited: true };
+        }
+        if (opts?.fromDiscountAmount && nextPatch.discountAmount != null) {
+          nextPatch = { ...nextPatch, discountLockedToAmount: true };
+        } else if (patch.discountPercent != null) {
+          nextPatch = { ...nextPatch, discountLockedToAmount: false };
         }
         if (patch.quantity != null && patch.unitPrice == null && !l.priceEdited) {
           const resolved = resolveListUnitPrice(
@@ -1424,7 +1592,13 @@ export function NewInvoicePage() {
   }, [isReverseCharge, invoiceType, preview.totals, shownTotals]);
 
   const shownAmountDue = 'amountDue' in shownTotals ? (shownTotals as { amountDue?: number }).amountDue : shownTotals.grandTotal;
-  const balance = roundMoney(Math.max(0, (shownAmountDue ?? shownTotals.grandTotal) - amountReceived));
+  const amountDueNow = shownAmountDue ?? shownTotals.grandTotal;
+  const tenderCounts = canTakePayment && paymentMode !== 'CREDIT';
+  const cashChange =
+    tenderCounts && paymentMode === 'CASH' && amountReceived > amountDueNow
+      ? roundMoney(amountReceived - amountDueNow)
+      : 0;
+  const balance = cashChange > 0 ? 0 : roundMoney(Math.max(0, amountDueNow - (tenderCounts ? amountReceived : 0)));
 
   if (markFullyPaid) {
     const paid = shownAmountDue ?? shownTotals.grandTotal;
@@ -1443,6 +1617,7 @@ export function NewInvoicePage() {
     primaryMode: primarySave.mode,
     isPending: saveMutation.isPending,
     mutate: saveMutation.mutate,
+    markPaid: () => undefined as void,
   });
   useLayoutEffect(() => {
     kbdRef.current = {
@@ -1451,6 +1626,11 @@ export function NewInvoicePage() {
       primaryMode: primarySave.mode,
       isPending: saveMutation.isPending,
       mutate: saveMutation.mutate,
+      markPaid: () => {
+        if (!canTakePayment) return;
+        setMarkFullyPaid(true);
+        setAmountReceived(amountDueNow);
+      },
     };
   });
   const kbdSubmittingRef = useRef(false);
@@ -1501,6 +1681,11 @@ export function NewInvoicePage() {
       if (meta && e.shiftKey && e.key.toLowerCase() === 'l') {
         e.preventDefault();
         barcodeRef.current?.focus();
+        return;
+      }
+      if (e.altKey && !meta && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        kbd.markPaid();
         return;
       }
       if (e.key === 'F2') {
@@ -1557,7 +1742,13 @@ export function NewInvoicePage() {
   return (
     <DocumentEditorShell
       partyRole="customer"
-      title={isEdit ? t('billing.editTitle') : t('billing.title')}
+      title={
+        editingStatus === 'COMPLETED'
+          ? t('billing.amendTitle')
+          : isEdit || deviceDraft
+            ? t('billing.draftEditTitle')
+            : t('billing.title')
+      }
       primarySave={primarySave}
       canSave={canSave}
       canComplete={canComplete}
@@ -1567,9 +1758,48 @@ export function NewInvoicePage() {
         document.getElementById(customerId ? 'billing-item-input' : 'billing-party-input')?.focus();
       }}
       isEdit={isEdit}
+      extraActions={
+        <>
+          {isEdit && canSeeMargin ? (
+            <Button variant="outlined" size="small" onClick={() => setProfitOpen(true)}>
+              {t('invoiceDetail.profitDetails')}
+            </Button>
+          ) : null}
+          {canImport(user) ? (
+            <Button component={RouterLink} to="/sales/bill-upload" variant="outlined" size="small">
+              {t('nav.uploadSalesBill')}
+            </Button>
+          ) : null}
+        </>
+      }
       showDraftButton={!isEdit || editingStatus === 'DRAFT'}
       backTo={isEdit ? `/sales/history/${editId}` : null}
       message={message ?? outboxBanner}
+      messageAction={
+        savedForShare ? (
+          <Stack direction="row" spacing={1}>
+            <Button
+              color="inherit"
+              size="small"
+              onClick={() => {
+                void downloadInvoicePdf(savedForShare.id).then((blob) => {
+                  const url = URL.createObjectURL(blob);
+                  const frame = document.createElement('iframe');
+                  frame.style.display = 'none';
+                  frame.src = url;
+                  document.body.appendChild(frame);
+                  frame.onload = () => frame.contentWindow?.print();
+                }).catch((err) => setError(getErrorMessage(err)));
+              }}
+            >
+              {t('invoiceDetail.printPdf')}
+            </Button>
+            <Button color="inherit" size="small" onClick={() => setShareAfterSave(true)}>
+              {t('common.share')}
+            </Button>
+          </Stack>
+        ) : undefined
+      }
       error={error || preview.error}
       errorSource={errorSource}
       onDismissError={() => setError(null)}
@@ -1591,6 +1821,12 @@ export function NewInvoicePage() {
       infoBanner={
         <Stack spacing={1}>
           <Typography variant="body2">{t('billing.threeStarts')}</Typography>
+          {canAccessPos(user) ? (
+            <Typography variant="body2">
+              {t('billing.taxInvoiceNotTill')}{' '}
+              <Link component={RouterLink} to="/pos">{t('nav.pos')}</Link>
+            </Typography>
+          ) : null}
           {deviceDraft ? (
             <Alert
               severity="info"
@@ -1619,14 +1855,68 @@ export function NewInvoicePage() {
                         }
                         rearmEditorBaseline();
                         const next: DraftLine[] = [];
+                        const updated: DraftLine[] = [];
+                        const drifts: { name: string; from: string; to: string }[] = [];
+                        // The draft's party may not be on the first page of the party list, and its
+                        // price list decides what "today's price" means.
+                        let customer = (customers.data?.results ?? []).find(
+                          (c) => c.id === Number(deviceDraft.customerId),
+                        );
+                        if (!customer && deviceDraft.customerId) {
+                          try {
+                            customer = await getCustomer(Number(deviceDraft.customerId));
+                          } catch {
+                            customer = undefined;
+                          }
+                        }
                         for (const { line, product } of fetched) {
                           if (!product) continue;
+                          const listed = resolveListUnitPrice(
+                            priceLists.data as import('@/utils/priceList').PriceListRow[] | undefined,
+                            customer?.priceList,
+                            product.id,
+                            toNumber(line.quantity) || 1,
+                          );
+                          const currentPrice = listed?.unitPrice ?? toNumber(product.sellingPrice);
+                          const draftPrice = toNumber(line.unitPrice);
+                          if (!line.priceEdited && draftPrice > 0 && Math.abs(draftPrice - currentPrice) > 0.01) {
+                            drifts.push({
+                              name: product.name,
+                              from: formatMoney(draftPrice),
+                              to: formatMoney(currentPrice),
+                            });
+                          }
+                          if ((line.hsnCode || '') !== (product.hsnCode || '') || Math.abs(toNumber(line.gstRate) - toNumber(product.gstRate)) > 0.01) {
+                            drifts.push({
+                              name: `${product.name} HSN/GST`,
+                              from: `${line.hsnCode || '—'} @ ${line.gstRate}%`,
+                              to: `${product.hsnCode || '—'} @ ${product.gstRate}%`,
+                            });
+                          }
                           next.push({
                             ...line,
-                            unitPrice: line.priceEdited ? line.unitPrice : toNumber(product.sellingPrice),
+                            unitPrice: line.priceEdited ? line.unitPrice : (draftPrice > 0 ? draftPrice : currentPrice),
                             productName: product.name,
                             sku: product.sku,
+                            productType: product.productType,
+                            trackInventory: product.trackInventory,
+                            purchasePrice: toNumber(product.purchasePrice),
                           });
+                          updated.push({
+                            ...line,
+                            unitPrice: line.priceEdited ? line.unitPrice : currentPrice,
+                            gstRate: toNumber(product.gstRate),
+                            hsnCode: product.hsnCode ?? line.hsnCode,
+                            productName: product.name,
+                            sku: product.sku,
+                            productType: product.productType,
+                            trackInventory: product.trackInventory,
+                            purchasePrice: toNumber(product.purchasePrice),
+                          });
+                        }
+                        if (drifts.length) {
+                          setPriceDrift({ lines: next, updated, drifts, customerId: deviceDraft.customerId });
+                          return;
                         }
                         setLines(next);
                         if (deviceDraft.customerId) setCustomerId(deviceDraft.customerId);
@@ -1666,6 +1956,38 @@ export function NewInvoicePage() {
     >
       <Stack spacing={2}>
       <UnsavedChangesGuard when={!skipLeaveGuard && editorDirty} />
+      <Stack direction="row" spacing={1}>
+        <Button size="small" variant={previewMode ? 'outlined' : 'contained'} onClick={() => setPreviewMode(false)}>
+          {t('billing.editMode')}
+        </Button>
+        <Button size="small" variant={previewMode ? 'contained' : 'outlined'} onClick={() => setPreviewMode(true)}>
+          {t('billing.previewMode')}
+        </Button>
+      </Stack>
+      {previewMode ? (
+        <Stack spacing={1} aria-label={t('billing.previewMode')}>
+          {preview.totals ? (
+            <>
+              <Typography>{selectedCustomer?.name}</Typography>
+              <Typography>{formatMoney(preview.totals.grandTotal)}</Typography>
+              <Typography>{amountInWords(preview.totals.grandTotal ?? 0)}</Typography>
+            </>
+          ) : null}
+          {pdfPreviewUrl ? (
+            <iframe
+              title={t('billing.previewMode')}
+              src={pdfPreviewUrl}
+              style={{ width: '100%', minHeight: 720, border: 0 }}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">
+              {t('billing.previewPreparing')}
+            </Typography>
+          )}
+        </Stack>
+      ) : null}
+      {previewMode ? null : (
+      <>
       {gstinRequiredForGst ? (
         <Alert
           severity="warning"
@@ -1727,6 +2049,23 @@ export function NewInvoicePage() {
             manualName={manualName}
             onManualNameChange={setManualName}
           />
+          {selectedCustomer
+            ? activeCustomFieldDefs(company.data?.partyCustomFieldDefs).map((def) => (
+                <TextField
+                  key={`${selectedCustomer.id}-${def.key}`}
+                  size="small"
+                  label={def.label}
+                  defaultValue={selectedCustomer.customFields?.[def.key] ?? ''}
+                  onBlur={(e) => {
+                    const value = e.target.value;
+                    const next = { ...(selectedCustomer.customFields ?? {}), [def.key]: value };
+                    void updateCustomer(selectedCustomer.id, { customFields: next }).catch((err) =>
+                      setError(getErrorMessage(err)),
+                    );
+                  }}
+                />
+              ))
+            : null}
 
           <Stack spacing={1.5} sx={{ flex: 1, minWidth: 280 }}>
             <Typography variant="body2" color="text.secondary">
@@ -1840,10 +2179,10 @@ export function NewInvoicePage() {
                 {t('cog.posConflict', { gstinState: posGstinCode ?? '', addressState: posAddressCode ?? '' })}
                 <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                   <Button size="small" variant={posPick === 'gstin' ? 'contained' : 'outlined'} onClick={() => setPosPick('gstin')}>
-                    {t('cog.useGstinState')}
+                    {t('cog.useGstinState')} — {isIntraState(company.data?.state || company.data?.gstin, posGstinCode) ? t('billing.taxIntraStateHint') : t('billing.taxInterStateHint')}
                   </Button>
                   <Button size="small" variant={posPick === 'address' ? 'contained' : 'outlined'} onClick={() => setPosPick('address')}>
-                    {t('cog.useAddressState')}
+                    {t('cog.useAddressState')} — {isIntraState(company.data?.state || company.data?.gstin, posAddressCode) ? t('billing.taxIntraStateHint') : t('billing.taxInterStateHint')}
                   </Button>
                 </Stack>
               </Alert>
@@ -2057,6 +2396,9 @@ export function NewInvoicePage() {
         <DraftLineTable
           availableByProduct={availableByProduct}
           blockNegativeStock={company.data?.negativeStockPolicy === 'BLOCK'}
+          intraState={intraState}
+          priceInclusive={priceMode === 'INCLUSIVE'}
+          showItemPurchasePrice={showPurchasePrice && canSeeMargin}
           lines={
             preview.totals?.items && preview.totals.items.length === lines.length
               ? lines.map((line, i) => ({
@@ -2152,7 +2494,14 @@ export function NewInvoicePage() {
                   helperText={
                     serialMismatch
                       ? t('billing.completeDisabledMissingSerial', { name: line.productName })
-                      : `${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`
+                      : [
+                          `${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`,
+                          parseSerialInput(line.serialNumbersText ?? '').duplicates.length
+                            ? t('erp.serialDuplicatesDropped', {
+                                count: parseSerialInput(line.serialNumbersText ?? '').duplicates.length,
+                              })
+                            : '',
+                        ].filter(Boolean).join(' · ')
                   }
                 />
               ) : null}
@@ -2188,7 +2537,7 @@ export function NewInvoicePage() {
               sx={{ flex: 1 }}
               options={(
                 (debouncedProductQuery.length >= 1 ? products.data : productCatalog.data?.results) ?? []
-              ).filter((p) => p.status === 'ACTIVE')}
+              )}
               filterOptions={(options, state) => filterProductsForPicker(options, state.inputValue)}
               loading={products.isFetching || productCatalog.isFetching}
               noOptionsText={t('common.noResults')}
@@ -2199,7 +2548,11 @@ export function NewInvoicePage() {
               onChange={(_, v) => addProduct(v)}
               disabled={isCompletedEdit}
               getOptionLabel={(o) =>
-                formatProductOptionLabel(o, availableByProduct.get(Number(o.id)))
+                `${formatProductOptionLabel(o, availableByProduct.get(Number(o.id)))}${
+                  showPurchasePrice && canSeeMargin
+                    ? ` · ${t('billing.itemPurchasePrice')} ${formatMoney(toNumber(o.purchasePrice))}`
+                    : ''
+                }`
               }
               renderInput={(params) => (
                 <TextField
@@ -2208,6 +2561,36 @@ export function NewInvoicePage() {
                   placeholder={`+ ${t('billing.addItem')} / ${t('billing.searchProduct')}`}
                   autoFocus
                   disabled={isCompletedEdit}
+                  helperText={t('billing.scanEnterHint')}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter') return;
+                    // Enter on a highlighted search row picks that item. A bare Enter is a barcode scan.
+                    if ((e.target as HTMLInputElement).getAttribute('aria-activedescendant')) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const code = productQuery.trim();
+                    if (!code) return;
+                    // Clear now so the next scan starts on an empty box. Every scan keeps its
+                    // own lookup; results are applied in scan order, none is dropped.
+                    setProductQuery('');
+                    const lookup = searchProducts(code).catch(() => null);
+                    scanChain.current = scanChain.current.then(async () => {
+                      const rows = await lookup;
+                      if (rows == null) {
+                        setError(t('billing.barcodeNotFound'));
+                        return;
+                      }
+                      const q = code.toLowerCase();
+                      const exact = rows.filter(
+                        (p) =>
+                          p.status === 'ACTIVE' &&
+                          ((p.barcode ?? '').toLowerCase() === q || (p.sku ?? '').toLowerCase() === q),
+                      );
+                      if (exact.length === 1) addProduct(exact[0]);
+                      else if (exact.length === 0) setError(t('billing.barcodeNotFound'));
+                      else setError(t('billing.barcodeAmbiguous', { code }));
+                    });
+                  }}
                 />
               )}
             />
@@ -2269,9 +2652,21 @@ export function NewInvoicePage() {
           {canSeeMargin && preview.totals?.estimatedMargin != null ? (
             <Tooltip
               title={
-                preview.totals.marginEstimatePartial
-                  ? t('billing.estimatedMarginPartialHint')
-                  : t('billing.estimatedMarginHint')
+                <Stack spacing={0.5}>
+                  <span>
+                    {preview.totals.marginEstimatePartial
+                      ? t('billing.estimatedMarginPartialHint')
+                      : t('billing.estimatedMarginHint')}
+                  </span>
+                  {(preview.totals.marginLines ?? []).map((line) => (
+                    <span key={`${line.productId}-${line.name}`}>
+                      {line.name}
+                      {line.missing || line.unitCost == null
+                        ? `: ${t('billing.noCostYet')}`
+                        : `: ${formatMoney(line.unitCost)} × ${line.quantity} = ${formatMoney(line.lineCost ?? 0)}`}
+                    </span>
+                  ))}
+                </Stack>
               }
             >
               <Typography color="text.secondary">
@@ -2280,126 +2675,118 @@ export function NewInvoicePage() {
                 {preview.totals.estimatedMarginPercent != null
                   ? ` (${preview.totals.estimatedMarginPercent.toFixed(1)}%)`
                   : ''}
+                {preview.totals.estimatedCogs != null
+                  ? ` ${t('billing.estimatedMarginOnCost', { cost: formatMoney(preview.totals.estimatedCogs) })}`
+                  : ''}
               </Typography>
             </Tooltip>
+          ) : null}
+          {isEdit && canSeeMargin ? (
+            <Button size="small" variant="text" onClick={() => setProfitOpen(true)}>
+              {t('invoiceDetail.profitDetails')}
+            </Button>
           ) : null}
         </Box>
       </Paper>
 
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} alignItems="flex-start">
         <Stack spacing={1} sx={{ flex: 1, minWidth: 220 }}>
-          {!showNotes ? (
-            <Link
-              component="button"
-              type="button"
-              underline="hover"
-              onClick={() => setShowNotes(true)}
+          {!(showNotes || showTerms) ? (
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setShowNotes(true);
+                setShowTerms(true);
+              }}
+              sx={{ minHeight: 44, justifyContent: 'flex-start' }}
             >
-              + {t('billing.addNotes')}
-            </Link>
-          ) : null}
-          <Collapse in={showNotes}>
-            <CompactField
-              label={t('billing.addNotes')}
-              multiline
-              minRows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </Collapse>
-
-          {!showTerms ? (
-            <Link
-              component="button"
-              type="button"
-              underline="hover"
-              onClick={() => setShowTerms(true)}
-            >
-              + {t('billing.addTerms')}
-            </Link>
-          ) : null}
-          <Collapse in={showTerms}>
-            <CompactField
-              label={t('billing.addTerms')}
-              multiline
-              minRows={3}
-              value={termsText}
-              onChange={(e) => setTermsText(e.target.value)}
-            />
-          </Collapse>
-
-          {invoiceType !== 'NON_GST' ? (
-            <>
-              {!showTcs ? (
-                <Link component="button" type="button" underline="hover" onClick={() => setShowTcs(true)}>
-                  {t('billing.tcsShow')}
-                </Link>
-              ) : (
-                <Paper variant="outlined" sx={{ p: 1.5 }}>
-                  <Typography variant="subtitle2">{t('billing.tcsCollected')}</Typography>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
-                    <TextField size="small" label={t('billing.tdsSection')} value={tcsSection} onChange={(e) => setTcsSection(e.target.value)} placeholder="206C" />
-                    <TextField size="small" type="number" label={t('billing.tdsRate')} inputProps={{ min: 0, max: 100, step: 0.01 }} value={tcsRate || ''} onChange={(e) => setTcsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
-                    <TextField size="small" type="number" label={t('billing.tcsAmount')} inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => { setTcsAmountManual(true); setTcsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
-                  </Stack>
-                </Paper>
-              )}
-            </>
-          ) : null}
-
-          {!showBank ? (
-            <Link
-              component="button"
-              type="button"
-              underline="hover"
-              onClick={() => setShowBank(true)}
-            >
-              + {t('billing.addBank')}
-            </Link>
+              {t('billing.notesAndTerms')}
+            </Button>
           ) : (
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Typography variant="subtitle2">{t('billing.bankDetails')}</Typography>
-              {company.data?.bankName || company.data?.bankAccount ? (
-                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
-                  {[
-                    company.data.bankName,
-                    company.data.bankAccount ? `A/C ${company.data.bankAccount}` : null,
-                    company.data.bankIfsc ? `IFSC ${company.data.bankIfsc}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join('\n')}
-                </Typography>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  {t('billing.noBankConfigured')}{' '}
-                  <Link component={RouterLink} to="/settings/company">
-                    {t('sweep2.company')}
-                  </Link>
-                </Typography>
-              )}
-            </Paper>
+            <Stack spacing={1}>
+              <CompactField
+                label={t('billing.addNotes')}
+                multiline
+                minRows={2}
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <CompactField
+                label={t('billing.addTerms')}
+                multiline
+                minRows={3}
+                value={termsText}
+                onChange={(e) => setTermsText(e.target.value)}
+              />
+            </Stack>
           )}
 
-          {!showQr ? (
-            <Link
-              component="button"
-              type="button"
-              underline="hover"
-              onClick={() => setShowQr(true)}
+          {invoiceType !== 'NON_GST' ? (
+            !showTcs ? (
+              <Button
+                variant="outlined"
+                onClick={() => setShowTcs(true)}
+                sx={{ minHeight: 44, justifyContent: 'flex-start' }}
+              >
+                {t('billing.tcsShow')}
+              </Button>
+            ) : (
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2">{t('billing.tcsCollected')}</Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1 }}>
+                  <TextField size="small" label={t('billing.tdsSection')} value={tcsSection} onChange={(e) => setTcsSection(e.target.value)} placeholder="206C" />
+                  <TextField size="small" type="number" label={t('billing.tdsRate')} inputProps={{ min: 0, max: 100, step: 0.01 }} value={tcsRate || ''} onChange={(e) => setTcsRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
+                  <TextField size="small" type="number" label={t('billing.tcsAmount')} inputProps={{ min: 0 }} value={tcsAmount || ''} onChange={(e) => { setTcsAmountManual(true); setTcsAmount(Math.max(0, Number(e.target.value) || 0)); }} />
+                </Stack>
+              </Paper>
+            )
+          ) : null}
+
+          {!(showBank || showQr) ? (
+            <Button
+              variant="outlined"
+              onClick={() => {
+                setShowBank(true);
+                setShowQr(true);
+              }}
+              sx={{ minHeight: 44, justifyContent: 'flex-start' }}
             >
-              + {t('billing.addPaymentQr')}
-            </Link>
+              {t('billing.bankAndUpi')}
+            </Button>
           ) : (
-            <Paper variant="outlined" sx={{ p: 1.5 }}>
-              <Typography variant="subtitle2">{t('billing.paymentQr')}</Typography>
-              {company.data?.upiId ? (
-                <Typography variant="body2">UPI: {company.data.upiId}</Typography>
-              ) : (
-                <Typography variant="body2" color="text.secondary">
-                  {t('billing.noUpiConfigured')}
-                </Typography>
-              )}
-            </Paper>
+            <Stack spacing={1}>
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2">{t('billing.bankDetails')}</Typography>
+                {company.data?.bankName || company.data?.bankAccount ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'pre-line' }}>
+                    {[
+                      company.data.bankName,
+                      company.data.bankAccount ? `A/C ${company.data.bankAccount}` : null,
+                      company.data.bankIfsc ? `IFSC ${company.data.bankIfsc}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join('\n')}
+                  </Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {t('billing.noBankConfigured')}{' '}
+                    <Link component={RouterLink} to="/settings/company">
+                      {t('sweep2.company')}
+                    </Link>
+                  </Typography>
+                )}
+              </Paper>
+              <Paper variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="subtitle2">{t('billing.paymentQr')}</Typography>
+                {company.data?.upiId ? (
+                  <Typography variant="body2">UPI: {company.data.upiId}</Typography>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {t('billing.noUpiConfigured')}
+                  </Typography>
+                )}
+              </Paper>
+            </Stack>
           )}
         </Stack>
 
@@ -2444,6 +2831,8 @@ export function NewInvoicePage() {
             ) : null
           }
         >
+            {canTakePayment ? (
+            <>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Typography>{t('billing.amountReceived')}</Typography>
               <FormControlLabel
@@ -2452,7 +2841,7 @@ export function NewInvoicePage() {
                     checked={markFullyPaid}
                     onChange={(e) => {
                       setMarkFullyPaid(e.target.checked);
-                      if (e.target.checked) setAmountReceived(shownTotals.grandTotal);
+                      if (e.target.checked) setAmountReceived(amountDueNow);
                     }}
                     size="small"
                   />
@@ -2460,6 +2849,23 @@ export function NewInvoicePage() {
                 label={t('billing.markFullyPaid')}
               />
             </Stack>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={autoPrint}
+                  onChange={(e) => {
+                    setAutoPrint(e.target.checked);
+                    try {
+                      localStorage.setItem('bizboard.invoiceAutoPrint', e.target.checked ? '1' : '0');
+                    } catch {
+                      // The choice still applies for this visit.
+                    }
+                  }}
+                  size="small"
+                />
+              }
+              label={t('billing.autoPrint')}
+            />
             <Stack direction="row" spacing={1}>
               <NumericField
                 value={amountReceived}
@@ -2468,8 +2874,9 @@ export function NewInvoicePage() {
                   setAmountReceived(n);
                 }}
                 min={0}
-                // F2-006: an overpayment receipt must not be auto-created by a typo.
-                max={shownTotals.grandTotal}
+                // Cash may be more than the bill; the difference is change.
+                // Card, UPI, bank, and cheque cannot exceed the amount due.
+                max={paymentMode === 'CASH' ? undefined : amountDueNow}
                 decimals={2}
                 placeholder={t('billing.enterPaymentAmount')}
                 inputProps={{ 'aria-label': t('billing.amountReceived') }}
@@ -2480,7 +2887,13 @@ export function NewInvoicePage() {
               <CompactField
                 select
                 value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+                onChange={(e) => {
+                  const next = e.target.value as PaymentMode;
+                  setPaymentMode(next);
+                  if (next !== 'CASH' && amountReceived > amountDueNow) {
+                    setAmountReceived(amountDueNow);
+                  }
+                }}
                 sx={{ maxWidth: 120 }}
                 SelectProps={{ SelectDisplayProps: { 'aria-label': t('billing.paymentMode') } as HTMLAttributes<HTMLDivElement> }}
               >
@@ -2493,6 +2906,22 @@ export function NewInvoicePage() {
               </CompactField>
             </Stack>
             {paymentMode === 'CHEQUE' ? <ChequePaymentFields value={cheque} onChange={setCheque} /> : null}
+            {cashChange > 0 ? (
+              <>
+                <Typography sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{t('billing.cashTendered')}</span>
+                  <span>{formatMoney(amountReceived)}</span>
+                </Typography>
+                <Typography sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{t('billing.amountApplied')}</span>
+                  <span>{formatMoney(Math.min(amountReceived, amountDueNow))}</span>
+                </Typography>
+                <Typography sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>{t('billing.changeGiven')}</span>
+                  <span>{formatMoney(cashChange)}</span>
+                </Typography>
+              </>
+            ) : null}
             <Typography
               fontWeight={700}
               color={balance <= 0 ? 'success.main' : 'text.primary'}
@@ -2501,6 +2930,16 @@ export function NewInvoicePage() {
               <span>{t('billing.balanceAmount')}</span>
               <span>{formatMoney(balance)}</span>
             </Typography>
+            </>
+            ) : (
+            <Typography
+              fontWeight={700}
+              sx={{ display: 'flex', justifyContent: 'space-between' }}
+            >
+              <span>{t('billing.balanceAmount')}</span>
+              <span>{formatMoney(amountDueNow)}</span>
+            </Typography>
+            )}
 
             <Divider />
             <Typography variant="body2" color="text.secondary">
@@ -2544,6 +2983,18 @@ export function NewInvoicePage() {
         </DocumentTaxSummary>
       </Stack>
 
+      </>
+      )}
+      <ProfitDetailsDialog
+        invoiceId={isEdit && editId ? editId : null}
+        open={profitOpen}
+        onClose={() => setProfitOpen(false)}
+      />
+      <ShareInvoiceDialog
+        open={shareAfterSave}
+        invoiceId={savedForShare?.id ?? null}
+        onClose={() => setShareAfterSave(false)}
+      />
       <Dialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle>{t('billing.shortcutsTitle')}</DialogTitle>
         <DialogContent>
@@ -2653,6 +3104,15 @@ export function NewInvoicePage() {
                 value={itemForm.sellingPrice}
                 onChange={(e) => setItemForm((f) => ({ ...f, sellingPrice: e.target.value }))}
               />
+              {showPurchasePrice && canSeeMargin ? (
+                <TextField
+                  label={t('billing.itemPurchasePrice')}
+                  type="number"
+                  fullWidth
+                  value={itemForm.purchasePrice}
+                  onChange={(e) => setItemForm((f) => ({ ...f, purchasePrice: e.target.value }))}
+                />
+              ) : null}
               <TextField
                 label={t('items.mrp')}
                 type="number"
@@ -2695,6 +3155,88 @@ export function NewInvoicePage() {
             }}
           >
             {t('common.create')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(priceDrift)} onClose={() => setPriceDrift(null)}>
+        <DialogTitle>{t('billing.priceDriftTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={0.5} sx={{ mt: 1 }}>
+            {priceDrift?.drifts.map((row) => (
+              <Typography key={`${row.name}-${row.from}`} variant="body2">
+                {row.name}: {row.from} → {row.to}
+              </Typography>
+            ))}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              if (!priceDrift) return;
+              setLines(priceDrift.lines);
+              if (priceDrift.customerId) setCustomerId(priceDrift.customerId);
+              setDeviceDraft(null);
+              setPriceDrift(null);
+            }}
+          >
+            {t('billing.keepDraftPrices')}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (!priceDrift) return;
+              setLines(priceDrift.updated.map((line) => recomputeLine(line, intraState)));
+              if (priceDrift.customerId) setCustomerId(priceDrift.customerId);
+              setDeviceDraft(null);
+              setPriceDrift(null);
+            }}
+          >
+            {t('billing.updateCurrentPrices')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={amendConfirm != null} onClose={() => setAmendConfirm(null)} aria-labelledby="amend-confirm-title">
+        <DialogTitle id="amend-confirm-title">{t('billing.amendCompletedTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography>{t('billing.confirmAmendCompleted')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAmendConfirm(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            autoFocus
+            onClick={() => {
+              const mode = amendConfirm;
+              setAmendConfirm(null);
+              if (!mode) return;
+              amendConfirmedRef.current = true;
+              saveMutation.mutate(mode);
+            }}
+          >
+            {t('billing.amendCompletedConfirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={reauthOpen} onClose={() => setReauthOpen(false)}>
+        <DialogTitle>{t('billing.signInToContinue')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1} sx={{ mt: 1, minWidth: 280 }}>
+            <TextField label={t('auth.email')} value={reauthEmail} onChange={(e) => setReauthEmail(e.target.value)} />
+            <TextField label={t('auth.password')} type="password" value={reauthPassword} onChange={(e) => setReauthPassword(e.target.value)} />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setReauthOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              void login(reauthEmail, reauthPassword).then(() => {
+                setReauthOpen(false);
+                setReauthPassword('');
+              }).catch((err) => setError(getErrorMessage(err)));
+            }}
+          >
+            {t('auth.login')}
           </Button>
         </DialogActions>
       </Dialog>

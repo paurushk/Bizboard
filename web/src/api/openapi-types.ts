@@ -7378,6 +7378,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/invoices/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_invoices_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/invoices/{token}/pay/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mint or reuse /pay/:token for the balance on this public invoice. */
+        post: operations["public_invoices_pay_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/invoices/{token}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_invoices_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/pay/{token}/": {
         parameters: {
             query?: never;
@@ -10326,6 +10375,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/{id}/profit-details/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        get: operations["sales_invoices_profit_details_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/{id}/public-link/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        post: operations["sales_invoices_public_link_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/{id}/public-link/revoke/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        post: operations["sales_invoices_public_link_revoke_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/{id}/record-payment/": {
         parameters: {
             query?: never;
@@ -10528,6 +10628,23 @@ export interface paths {
          *     Creates draft invoice, completes invoice, creates receipt, and allocates.
          */
         post: operations["sales_invoices_pos_checkout_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/preview-pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Sample A4 PDF of an unsaved draft, from the same renderer as the saved file. */
+        post: operations["sales_invoices_preview_pdf_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -12393,6 +12510,7 @@ export interface components {
             partyBankIfsc?: string;
             shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding: string;
+            readonly creditExposure: string;
             readonly version: number;
         };
         CustomerReceipt: {
@@ -12402,6 +12520,10 @@ export interface components {
             readonly customerName: string;
             /** Format: decimal */
             amount: string;
+            /** Format: decimal */
+            readonly tendered: string;
+            /** Format: decimal */
+            readonly changeGiven: string;
             mode?: components["schemas"]["ModeEnum"];
             /** Format: date */
             receiptDate?: string;
@@ -14873,6 +14995,7 @@ export interface components {
             partyBankIfsc?: string;
             shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding?: string;
+            readonly creditExposure?: string;
             readonly version?: number;
         };
         PatchedDeliveryChallan: {
@@ -31157,6 +31280,66 @@ export interface operations {
             };
         };
     };
+    public_invoices_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_invoices_pay_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    public_invoices_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     public_pay_retrieve: {
         parameters: {
             query?: never;
@@ -36410,6 +36593,84 @@ export interface operations {
             };
         };
     };
+    sales_invoices_profit_details_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_public_link_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_public_link_revoke_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
     sales_invoices_record_payment_create: {
         parameters: {
             query?: never;
@@ -36717,6 +36978,31 @@ export interface operations {
         };
     };
     sales_invoices_pos_checkout_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesInvoice"];
+                "multipart/form-data": components["schemas"]["SalesInvoice"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_preview_pdf_create: {
         parameters: {
             query?: never;
             header?: never;

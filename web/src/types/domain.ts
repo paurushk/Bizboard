@@ -271,6 +271,8 @@ export interface Customer {
   isPosWalkIn?: boolean;
   notes?: string;
   outstanding?: string | number;
+  /** Ledger exposure for the credit limit: outstanding minus unallocated advances. */
+  creditExposure?: string | number;
   gstinVerificationStatus?: GstinVerificationStatus;
   gstinLegalName?: string;
   priceList?: number | null;

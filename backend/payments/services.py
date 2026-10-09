@@ -282,6 +282,8 @@ class PaymentService:
         cheque_date=None,
         cheque_image=None,
         settlement_discount=Decimal("0"),
+        tendered=None,
+        change_given=None,
     ):
         # B4-035: normalise once — an internal caller may pass a float.
         amount = Decimal(str(amount)).quantize(Decimal("0.01"))
@@ -330,6 +332,8 @@ class PaymentService:
             cheque_image=cheque_image,
             cheque_status=ChequeStatus.PENDING_CLEARANCE if str(mode).upper() == PaymentMode.CHEQUE else "",
             settlement_discount=Decimal(str(settlement_discount or 0)),
+            tendered=Decimal(str(tendered if tendered is not None else amount)).quantize(Decimal("0.01")),
+            change_given=Decimal(str(change_given or 0)).quantize(Decimal("0.01")),
             number=DocumentNumberService.next_number(
                 company,
                 "CUSTOMER_RECEIPT",
@@ -346,6 +350,7 @@ class PaymentService:
             PostingService.post_receipt(receipt, user)
         record_document_event(document=receipt, user=user, event="customer_receipt.created")
         emit("document.completed", document=receipt, user=user, event="customer_receipt.created")
+        logger.info("customer_receipt.created id=%s", receipt.pk)
         receipt._utr_warning = warn  # transient for API
         return receipt
 
@@ -543,6 +548,67 @@ class PaymentService:
             metadata={"amount": str(amount), "sales_invoice_id": sales_invoice.pk},
         )
         return alloc
+
+    @staticmethod
+    def settle_completed_invoice_payment(
+        *,
+        invoice,
+        user,
+        tendered,
+        mode,
+        cheque_fields=None,
+    ):
+        """Collect what the invoice screen took, inside the caller's transaction.
+
+        Cash above the amount still due is change. Card, UPI, bank, and cheque
+        cannot exceed that amount. Credit records no receipt.
+        """
+        from ledgers.services import LedgerService
+
+        tendered = Decimal(str(tendered or 0)).quantize(Decimal("0.01"))
+        if tendered < 0:
+            raise BusinessRuleError("Amount received cannot be negative.")
+        if tendered == 0:
+            return None
+        mode = str(mode or PaymentMode.CASH).upper()
+        if mode == "CREDIT":
+            return None
+        allowed = {
+            PaymentMode.CASH, PaymentMode.UPI, PaymentMode.BANK,
+            PaymentMode.CARD, PaymentMode.CHEQUE,
+        }
+        if mode not in allowed:
+            raise BusinessRuleError("Choose cash, UPI, bank, card, or cheque.")
+        still_open = Decimal(
+            str(LedgerService.sales_invoice_outstanding(invoice) or 0)
+        ).quantize(Decimal("0.01"))
+        if still_open <= 0:
+            # Nothing is due (a zero bill, or an advance already covered it). The sale
+            # stands; recording a receipt for money not owed would be the error.
+            return None
+        if mode != PaymentMode.CASH and tendered > still_open:
+            raise BusinessRuleError("Only cash can be more than the amount due.")
+        amount = min(tendered, still_open)
+        change = (tendered - amount) if mode == PaymentMode.CASH else Decimal("0.00")
+        receipt = PaymentService.create_receipt(
+            company=invoice.company,
+            customer=invoice.customer,
+            amount=amount,
+            mode=mode,
+            receipt_date=timezone.localdate(),
+            user=user,
+            tendered=tendered,
+            change_given=change,
+            notes=f"Tendered {tendered}, change {change}." if change > 0 else "",
+            **(cheque_fields or {}),
+        )
+        PaymentService.allocate_receipt(
+            receipt=receipt,
+            sales_invoice=invoice,
+            amount=amount,
+            user=user,
+        )
+        return receipt
 
     @staticmethod
     def allocate_receipt_oldest_first(*, receipt, user=None):

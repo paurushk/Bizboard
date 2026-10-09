@@ -21,6 +21,15 @@ describe('posRules', () => {
     expect(availableInWarehouse([{ product: 1, warehouse: 10, available: 4 }], '').size).toBe(0);
   });
 
+  it('INV-MAIN-15 a service or an item that does not track stock skips the stock gate', () => {
+    expect(lineSkipsStockGate({ productType: 'SERVICE', trackInventory: true })).toBe(true);
+    expect(lineSkipsStockGate({ productType: 'GOODS', trackInventory: false })).toBe(true);
+  });
+
+  it('INV-MAIN-16 a tracked goods line stays on the stock gate when policy is BLOCK', () => {
+    expect(lineSkipsStockGate({ productType: 'GOODS', trackInventory: true })).toBe(false);
+  });
+
   it('does not stock-gate services', () => {
     expect(lineSkipsStockGate({ productType: 'SERVICE', trackInventory: true })).toBe(true);
     expect(lineSkipsStockGate({ productType: 'GOODS', trackInventory: false })).toBe(true);

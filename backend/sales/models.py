@@ -1023,3 +1023,24 @@ class PosCounterRefund(CompanyScopedModel):
                 name="uniq_pos_refund_idempotency",
             ),
         ]
+
+
+class InvoicePublicLink(CompanyScopedModel):
+    """Unguessable link for a completed invoice. One active row per invoice."""
+
+    invoice = models.ForeignKey(
+        SalesInvoice, on_delete=models.CASCADE, related_name="public_links",
+    )
+    token = models.CharField(max_length=64, unique=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    view_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_invoice_public_link",
+            ),
+        ]

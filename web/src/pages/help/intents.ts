@@ -136,8 +136,8 @@ export const HELP_INTENTS: HelpIntent[] = [
       'credit hold complete',
     ],
     answer: {
-      en: '**t:common.complete** (this marks the bill final — you cannot change it after) needs a customer, at least one item with quantity greater than 0, and a known place of supply on GST bills. Stock, credit limit, collection hold, registration type, a closed period, missing company GSTIN in **t:nav.gst**, an unticked reverse-charge box, a purchase batch number, or serials that do not match quantity can also block it.',
-      hi: '**t:common.complete** बिल को फाइनल करता है — बाद में लाइन नहीं बदल सकते। ग्राहक, मात्रा > 0 वाली कम से कम एक पंक्ति, और GST बिल पर जगह (place of supply) चाहिए। स्टॉक, क्रेडिट लिमिट, कलेक्शन होल्ड, रजिस्ट्रेशन टाइप, बंद पीरियड, **t:nav.gst** में कंपनी GSTIN न होना, बिना टिक reverse-charge, खरीद बैच, या मात्रा से कम सीरियल भी रोक सकता है।',
+      en: '**t:billing.saveAndComplete** marks the bill final — you cannot change lines after. It needs a customer or walk-in, at least one item with quantity greater than 0, and a place of supply on GST bills. Goods that track inventory need stock in this **t:inventory.godown**. Services, and goods with tracking off, are not stopped for zero stock. Credit exposure after advances, collection hold, registration type, a closed period, missing company GSTIN in **t:nav.gst**, an unticked reverse-charge box, or serials that do not match quantity can also block it. Only cash may be more than the amount due.',
+      hi: '**t:billing.saveAndComplete** बिल को फाइनल करता है — बाद में लाइन नहीं बदल सकते। ग्राहक या वॉक-इन, मात्रा > 0 वाली कम से कम एक पंक्ति, और GST बिल पर place of supply चाहिए। इन्वेंटरी ट्रैक करने वाले माल को इस **t:inventory.godown** में स्टॉक चाहिए। सर्विस और ट्रैकिंग बंद माल शून्य स्टॉक पर नहीं रुकते। अग्रिम के बाद क्रेडिट एक्सपोज़र, कलेक्शन होल्ड, रजिस्ट्रेशन, बंद पीरियड, **t:nav.gst** में कंपनी GSTIN न होना, बिना टिक reverse-charge, या मात्रा से कम सीरियल भी रोक सकता है। बकाया से ज्यादा सिर्फ नकद हो सकता है।',
     },
     action: {
       en: 'Read the red message on the bill. Use **t:help.why** for the exact fix. Common: add the customer **t:auth.state** or GSTIN, save company GSTIN in **t:nav.gst**, pick a **t:inventory.godown** that has stock, enter batch or serials, or switch to a non-GST bill type if you are Unregistered.',
@@ -181,9 +181,9 @@ export const HELP_INTENTS: HelpIntent[] = [
       {
         id: 'credit',
         symptom: 'It says credit limit exceeded',
-        answer: 'This customer already owes enough that this bill would go over the limit the Owner set.',
-        action: 'Take a receipt, ask the Owner to raise the limit, or reduce the bill.',
-        resolution: 'Receipts match money to old bills and free up the limit.',
+        answer: 'Open exposure plus this bill is over the limit the Owner set. With the books off, an unallocated receipt lowers it. With the books on, only a ledger advance does.',
+        action: 'Allocate a receipt to an open bill, ask the Owner to raise the limit, or reduce this bill.',
+        resolution: 'Paying down an open bill frees the limit. A receipt that never reached the books does not, once accounting is on.',
       },
       {
         id: 'rcm',
@@ -255,7 +255,7 @@ export const HELP_INTENTS: HelpIntent[] = [
       },
     ],
     relatedIntents: ['stock-in-another-godown', 'registration-type', 'edit-completed-invoice', 'add-gstin'],
-    citedKeys: ['common.complete', 'inventory.godown', 'help.why', 'auth.state', 'nav.gst'],
+    citedKeys: ['billing.saveAndComplete', 'common.complete', 'inventory.godown', 'help.why', 'auth.state', 'nav.gst'],
     lastReviewed: REVIEWED,
   },
   {
@@ -657,8 +657,8 @@ export const HELP_INTENTS: HelpIntent[] = [
       'pdf generating',
     ],
     answer: {
-      en: 'PDF and **t:common.share** work after the bill is **t:common.complete**. The PDF can take a few seconds to build. Share also needs an email or mobile, including **t:common.whatsapp**.',
-      hi: 'PDF और शेयर **t:common.complete** के बाद चलते हैं। PDF बनने में कुछ सेकंड लग सकते हैं। शेयर के लिए ग्राहक पर ईमेल या मोबाइल भी चाहिए।',
+      en: 'Download, print, and **t:common.share** work after the bill is **t:common.complete**. A draft uses Preview Mode instead of the numbered PDF. **t:common.whatsapp** opens WhatsApp on this device so you choose the chat. Copy link does not need a phone or email.',
+      hi: 'डाउनलोड, प्रिंट और **t:common.share** **t:common.complete** के बाद चलते हैं। ड्राफ्ट पर नंबर वाला PDF नहीं, Preview Mode है। **t:common.whatsapp** इस डिवाइस पर खुलता है, चैट आप चुनते हैं। Copy link के लिए फोन या ईमेल नहीं चाहिए।',
     },
     action: {
       en: '**t:common.complete** the bill first. Wait for PDF status to finish. Add phone or email on the customer, then share again.',
@@ -687,9 +687,9 @@ export const HELP_INTENTS: HelpIntent[] = [
       {
         id: 'contact',
         symptom: 'No phone or email to send to',
-        answer: 'WhatsApp needs a mobile number. Email needs an address on the customer.',
-        action: 'Add phone or email on the customer, then share.',
-        resolution: 'Customers → the party → phone / email.',
+        answer: 'A Cloud WhatsApp send needs a mobile number. Email needs an address. Copy link and WhatsApp on this device do not.',
+        action: 'Add phone or email on the customer for Cloud or email, or use Copy link.',
+        resolution: 'Customers → the party → phone / email, or Share → Copy link.',
       },
     ],
     nextStep: {
@@ -919,12 +919,12 @@ export const HELP_INTENTS: HelpIntent[] = [
       'gst portal e invoice nahi jata',
     ],
     answer: {
-      en: '**t:einvoice.payloadOnlyHelp** Use Prepare payload on the invoice in **t:nav.salesHistory** to download JSON for the GST portal. This app does not call the live IRP.',
-      hi: '**t:einvoice.payloadOnlyHelp** **t:nav.salesHistory** में इनवॉइस पर Prepare payload से JSON डाउनलोड करें। यह ऐप लाइव IRP नहीं बुलाता।',
+      en: '**t:einvoice.payloadOnlyHelp** On a completed B2B GST or TAX bill, Generate e-Invoice downloads JSON. Open that bill from **t:nav.salesHistory**. A sandbox acknowledgement is not an IRN on the NIC portal.',
+      hi: '**t:einvoice.payloadOnlyHelp** पूर्ण B2B GST/TAX बिल पर Generate e-Invoice JSON डाउनलोड करता है। बिल **t:nav.salesHistory** से खोलें। सैंडबॉक्स पावती NIC पोर्टल का IRN नहीं है।',
     },
     action: {
-      en: 'Open the completed invoice, use Prepare payload, then file on the GST portal if you are in the e-invoice scheme.',
-      hi: 'पूर्ण इनवॉइस खोलें, Prepare payload लें, और यदि आप ई-इनवॉइस स्कीम में हैं तो GST पोर्टल पर फाइल करें।',
+      en: 'Open the completed invoice and use Generate e-Invoice. File on the GST portal yourself unless live GSP is actually on for this company.',
+      hi: 'पूर्ण इनवॉइस खोलें और Generate e-Invoice दबाएँ। जब तक इस कंपनी पर लाइव GSP सच में चालू न हो, GST पोर्टल पर खुद फाइल करें।',
     },
     resolution: {
       en: 'You have a JSON file ready. Portal filing is outside this app.',

@@ -21,3 +21,6 @@
 /api/v1/plan/approvals/{id}/decide/   # covered by test_approval_decide_is_isolated
 /api/v1/projects/{id}/milestones/{milestone_id}/delete/   # covered by test_milestone_edit_and_delete_are_isolated
 /api/v1/projects/{id}/milestones/{milestone_id}/edit/   # covered by test_milestone_edit_and_delete_are_isolated
+/api/v1/public/invoices/{token}/   # covered by test_public_invoice_link_never_crosses_tenants
+/api/v1/public/invoices/{token}/pay/   # covered by test_public_invoice_link_never_crosses_tenants
+/api/v1/public/invoices/{token}/pdf/   # covered by test_public_invoice_link_never_crosses_tenants

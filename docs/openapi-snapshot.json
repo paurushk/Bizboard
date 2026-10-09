@@ -21314,6 +21314,85 @@
                 }
             }
         },
+        "/api/v1/public/invoices/{token}/": {
+            "get": {
+                "operationId": "public_invoices_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/public/invoices/{token}/pay/": {
+            "post": {
+                "operationId": "public_invoices_pay_create",
+                "description": "Mint or reuse /pay/:token for the balance on this public invoice.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/public/invoices/{token}/pdf/": {
+            "get": {
+                "operationId": "public_invoices_pdf_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/public/pay/{token}/": {
             "get": {
                 "operationId": "public_pay_retrieve",
@@ -30486,6 +30565,157 @@
                 }
             }
         },
+        "/api/v1/sales/invoices/{id}/profit-details/": {
+            "get": {
+                "operationId": "sales_invoices_profit_details_retrieve",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/public-link/": {
+            "post": {
+                "operationId": "sales_invoices_public_link_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/public-link/revoke/": {
+            "post": {
+                "operationId": "sales_invoices_public_link_revoke_create",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/invoices/{id}/record-payment/": {
             "post": {
                 "operationId": "sales_invoices_record_payment_create",
@@ -31067,6 +31297,52 @@
             "post": {
                 "operationId": "sales_invoices_pos_checkout_create",
                 "description": "CR-003: Atomic POS checkout in a single database transaction.\nCreates draft invoice, completes invoice, creates receipt, and allocates.",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesInvoice"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/preview-pdf/": {
+            "post": {
+                "operationId": "sales_invoices_preview_pdf_create",
+                "description": "Sample A4 PDF of an unsaved draft, from the same renderer as the saved file.",
                 "tags": [
                     "sales"
                 ],
@@ -36791,6 +37067,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "credit_exposure": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "version": {
                         "type": "integer",
                         "readOnly": true
@@ -36798,6 +37078,7 @@
                 },
                 "required": [
                     "created_at",
+                    "credit_exposure",
                     "gstin_legal_name",
                     "gstin_verification_status",
                     "gstin_verified_at",
@@ -36831,6 +37112,18 @@
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tendered": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "change_given": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
                     },
                     "mode": {
                         "$ref": "#/components/schemas/ModeEnum"
@@ -36955,6 +37248,7 @@
                     "allocated",
                     "amount",
                     "bank_account_name",
+                    "change_given",
                     "created_at",
                     "customer",
                     "customer_name",
@@ -36966,6 +37260,7 @@
                     "shift",
                     "source",
                     "status",
+                    "tendered",
                     "unallocated",
                     "utr_warning"
                 ]
@@ -43200,6 +43495,10 @@
                         }
                     },
                     "outstanding": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_exposure": {
                         "type": "string",
                         "readOnly": true
                     },

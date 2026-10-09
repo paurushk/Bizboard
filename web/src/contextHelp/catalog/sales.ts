@@ -86,118 +86,131 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('sales-invoice', {
     title: ['Sales invoice', 'बिक्री इनवॉइस'],
     summary: [
-      'Create or edit a sales bill. **t:common.complete** makes it final: stock leaves the bill’s **t:inventory.godown**, the customer owes the amount, and GST worksheets can pick it up. Save as draft does none of that.',
-      'बिक्री बिल बनाएँ या बदलें। **t:common.complete** इसे अंतिम करता है: स्टॉक बिल वाले **t:inventory.godown** से निकलता है, ग्राहक पर बकाया लगता है, GST वर्कशीट इसे ले सकती हैं। ड्राफ्ट सेव इससे कुछ नहीं करता।',
+      'Create Sales Invoice. **t:common.draft** keeps a draft. **t:billing.saveAndComplete** assigns the number, moves stock from this **t:inventory.godown**, and posts what the customer owes. A draft does neither.',
+      'बिक्री बिल बनाएँ। **t:common.draft** ड्राफ्ट रखता है। **t:billing.saveAndComplete** नंबर देता है, इस **t:inventory.godown** से स्टॉक काटता है, और ग्राहक पर बकाया लगाता है। ड्राफ्ट दोनों नहीं करता।',
     ],
     howItWorks: [
       [
-        'Pick a customer (or walk-in), **t:inventory.godown**, invoice type, lines, then **t:common.complete**. Ctrl/Cmd+S saves a draft; Ctrl/Cmd+Enter completes on this editor.',
-        'ग्राहक (या वॉक-इन), **t:inventory.godown**, बिल प्रकार, लाइनें चुनें, फिर **t:common.complete**। इस एडिटर पर Ctrl/Cmd+S ड्राफ्ट सेव करता है; Ctrl/Cmd+Enter Complete करता है।',
+        'Pick a customer or walk-in, place of supply, invoice type, godown, and lines. Same-state sales show **t:billing.cgst**+**t:billing.sgst**; other-state sales show **t:billing.igst**. Place of supply comes from the customer state or GSTIN versus the company.',
+        'ग्राहक या वॉक-इन, place of supply, बिल प्रकार, गोदाम और लाइनें चुनें। एक राज्य में **t:billing.cgst**+**t:billing.sgst**, दूसरे राज्य में **t:billing.igst**। Place of supply ग्राहक राज्य/GSTIN बनाम कंपनी से आता है।',
       ],
       [
-        'The legal invoice number is assigned on **t:common.complete**, not on draft save.',
-        'कानूनी बिल नंबर **t:common.complete** पर मिलता है, ड्राफ्ट सेव पर नहीं।',
+        'Preview Mode shows the party, the total, the amount in words, and the same tax-invoice PDF you will print. It does not complete the bill. Typing a line amount recalculates the unit price. A line discount you typed stays.',
+        'Preview Mode पार्टी, कुल, शब्दों में राशि, और वही टैक्स-इनवॉइस PDF दिखाता है जो छपेगा। इससे बिल Complete नहीं होता। लाइन राशि बदलने पर इकाई मूल्य फिर बनता है। टाइप की छूट रहती है।',
       ],
       [
-        'Same-state sales show **t:billing.cgst**+**t:billing.sgst**; different-state sales show **t:billing.igst**. Place of supply comes from the customer state/GSTIN versus the company (or GSTIN on the bill).',
-        'एक राज्य में **t:billing.cgst**+**t:billing.sgst**, दूसरे राज्य में **t:billing.igst**। Place of supply ग्राहक राज्य/GSTIN बनाम कंपनी (या बिल का GSTIN) से आता है।',
+        'Cash may be more than the bill; the extra is change and the receipt is the bill amount. Card, UPI, bank, and cheque cannot be more than the amount due. Credit posts no receipt. Alt+M fills Amount Received as fully paid.',
+        'नकद बिल से ज्यादा हो सकता है; अतिरिक्त बदलाव है और रसीद बिल की राशि की होती है। कार्ड, UPI, बैंक और चेक बकाया से ज्यादा नहीं हो सकते। उधार पर रसीद नहीं बनती। Alt+M पूरी रकम भर देता है।',
+      ],
+      [
+        'Ctrl/Cmd+S saves a draft. Ctrl/Cmd+Enter completes, but not while the cursor is in a field. Ctrl/Cmd+Shift+L and F2 focus item search. **t:nav.uploadSalesBill** on this page starts a photo or PDF draft. Quick settings cover purchase price on the line, party fields, and trading fields such as PO and vehicle.',
+        'Ctrl/Cmd+S ड्राफ्ट सेव करता है। Ctrl/Cmd+Enter Complete करता है, पर कर्सर फ़ील्ड में हो तो नहीं। Ctrl/Cmd+Shift+L और F2 आइटम खोज पर जाते हैं। इस पेज का **t:nav.uploadSalesBill** फोटो/PDF ड्राफ्ट शुरू करता है। क्विक सेटिंग में खरीद मूल्य, पार्टी फ़ील्ड, और PO/वाहन जैसे ट्रेडिंग फ़ील्ड हैं।',
       ],
     ],
     businessImpact: [
       [
-        'Complete fans out: stock (that godown) → customer outstanding → GST worksheets → dashboard/reports → Needs Attention if something is held.',
-        'Complete का असर: स्टॉक (वही गोदाम) → ग्राहक बकाया → GST वर्कशीट → डैशबोर्ड/रिपोर्ट → अटकने पर Needs Attention।',
+        'Save & Complete posts stock in this godown, customer outstanding, GST worksheets, and reports. Est. Margin uses the item purchase price or average cost and is a guide. Profit Details after completion is sales amount minus cost minus GST collected — those three stay separate.',
+        'Save & Complete इस गोदाम का स्टॉक, ग्राहक बकाया, GST वर्कशीट और रिपोर्ट पोस्ट करता है। Est. Margin आइटम खरीद मूल्य या औसत लागत है, अनुमान है। पूरा होने के बाद Profit Details = बिक्री − लागत − वसूला GST; ये तीन अलग रहते हैं।',
       ],
       [
-        'A later receipt must be allocated to this bill before outstanding falls. A sales return or credit note is how you reverse quantity or tax after Complete.',
-        'बकाया घटाने के लिए रसीद इस बिल पर आवंटित होनी चाहिए। Complete के बाद मात्रा/टैक्स बदलने के लिए रिटर्न या क्रेडिट नोट।',
-      ],
-      [
-        'e-Invoice here is payload-prep only. **t:einvoice.payloadOnlyHelp** Prepare JSON from **t:nav.salesHistory**; this app does not submit to the government IRP.',
-        'यहाँ e-Invoice केवल पेलोड तैयारी है। **t:einvoice.payloadOnlyHelp** **t:nav.salesHistory** से JSON तैयार करें; यह ऐप सरकारी IRP पर सबमिट नहीं करता।',
+        'A receipt must be allocated before outstanding falls. With the books off, an unallocated receipt lowers credit exposure. With the books on, only the ledger advance does. After completion, reverse quantity or tax with a return or credit note.',
+        'बकाया घटाने के लिए रसीद आवंटित होनी चाहिए। खाते बंद हों तो बिना आवंटन रसीद क्रेडिट एक्सपोज़र घटाती है। खाते चालू हों तो सिर्फ लेजर का अग्रिम घटता है। पूरा होने के बाद मात्रा/टैक्स रिटर्न या क्रेडिट नोट से बदलें।',
       ],
     ],
     keyRules: [
       [
-        '**t:common.complete** needs a customer or walk-in rules, at least one line with quantity > 0, place of supply on GST bills, stock in this godown, an active product and an unblocked customer.',
-        '**t:common.complete** के लिए ग्राहक/वॉक-इन नियम, मात्रा > 0 वाली कम से कम एक लाइन, GST बिल पर place of supply, इस गोदाम में स्टॉक, सक्रिय आइटम और अनब्लॉक ग्राहक चाहिए।',
+        '**t:billing.saveAndComplete** needs at least one line with quantity greater than 0, place of supply on a GST bill, an active product, and an unblocked customer. Goods that track inventory need stock in this godown. Services, and goods with inventory tracking off, are not stopped for zero stock.',
+        '**t:billing.saveAndComplete** के लिए मात्रा > 0 वाली कम से कम एक लाइन, GST बिल पर place of supply, सक्रिय आइटम और अनब्लॉक ग्राहक चाहिए। इन्वेंटरी ट्रैक करने वाले माल को इस गोदाम में स्टॉक चाहिए। सर्विस, और ट्रैकिंग बंद माल, शून्य स्टॉक पर नहीं रुकते।',
       ],
       [
-        'Credit limit, collection hold, closed GST/accounts period, missing company GSTIN on Regular GST sales and purchases, unconfirmed sales reverse charge, purchase batch numbers, serial count ≠ qty, or after-tax discount on a B2B GST bill can also block Complete.',
-        'क्रेडिट लिमिट, कलेक्शन होल्ड, बंद GST/खाता पीरियड, Regular GST बिक्री/खरीद पर कंपनी GSTIN न होना, बिना पुष्टि sales RCM, खरीद बैच, सीरियल संख्या ≠ मात्रा, या B2B GST पर after-tax छूट भी Complete रोक सकती है।',
+        'A credit limit above zero blocks Complete when open exposure plus this bill exceeds it. Exposure is what is still owed after advances. With accounting books on, the check uses the higher of the ledger and that document figure. A zero or blank limit means no check.',
+        'लिमिट > 0 हो और खुला एक्सपोज़र + यह बिल लिमिट से ऊपर हो तो Complete रुकता है। एक्सपोज़र अग्रिम के बाद बची रकम है। खाते चालू हों तो जाँच लेजर और दस्तावेज़ में से बड़ी रकम लेती है। 0 या खाली लिमिट = जाँच नहीं।',
       ],
       [
-        'Composition and Unregistered companies should not complete GST or TAX invoices. Use RETAIL or NON_GST as allowed for the registration.',
-        'Composition और Unregistered कंपनी GST/TAX बिल Complete न करें। रजिस्ट्रेशन के अनुसार RETAIL या NON_GST लें।',
+        'Collection hold, a closed period, a missing company GSTIN on Regular GST sales, unconfirmed sales reverse charge, serials that do not match quantity, or an after-tax discount on a B2B GST bill can also block Complete. Composition and Unregistered companies should use RETAIL or NON_GST, not GST or TAX.',
+        'कलेक्शन होल्ड, बंद पीरियड, Regular GST बिक्री पर कंपनी GSTIN न होना, बिना पुष्टि sales RCM, सीरियल संख्या ≠ मात्रा, या B2B GST पर after-tax छूट भी रोक सकती है। Composition और Unregistered कंपनी GST/TAX न लें — RETAIL या NON_GST लें।',
       ],
       [
-        'After Complete you cannot rewrite lines as a normal edit. Use a credit note or debit note, or **t:common.cancel** if the bill should never have existed and nothing is allocated. A live IRN also blocks line edit.',
-        'Complete के बाद लाइनें सामान्य एडिट से नहीं बदलतीं। क्रेडिट/डेबिट नोट लें, या बिल कभी बनना ही नहीं चाहिए था और आवंटन न हो तो **t:common.cancel**। लाइव IRN लाइन एडिट रोकता है।',
+        'The legal number is assigned on Save & Complete, not on Save draft. After that you cannot rewrite lines. Use a credit note or debit note, or **t:common.cancel** when the bill should never have existed and nothing is allocated. A live IRN also blocks line edit.',
+        'कानूनी नंबर Save & Complete पर मिलता है, Save draft पर नहीं। उसके बाद लाइनें नहीं बदलतीं। क्रेडिट/डेबिट नोट लें, या बिल बनना ही नहीं चाहिए था और आवंटन न हो तो **t:common.cancel**। लाइव IRN लाइन एडिट रोकता है।',
       ],
     ],
     commonMistakes: [
       [
-        'Completing while the Products list shows stock, but this bill’s godown is empty. Company-wide available is not the same as this godown.',
-        'प्रोडक्ट लिस्ट में स्टॉक दिखे और इस बिल का गोदाम खाली हो — कुल उपलब्ध ≠ इस गोदाम का स्टॉक।',
+        'Completing while Products shows stock, but this bill’s godown is empty. Company-wide available is not this godown.',
+        'प्रोडक्ट में स्टॉक दिखे और इस बिल का गोदाम खाली हो — कुल उपलब्ध ≠ इस गोदाम का स्टॉक।',
       ],
       [
-        'Editing a completed bill instead of a credit note once the customer already has the invoice or it is in GSTR worksheets.',
-        'ग्राहक के पास बिल पहुँचने या GSTR में आने के बाद Complete बिल एडिट करना — क्रेडिट नोट लें।',
+        'Reading Est. Margin as final profit, or expecting the public link to show cost. Profit Details is on the signed-in bill only.',
+        'Est. Margin को अंतिम लाभ समझना, या पब्लिक लिंक पर लागत की उम्मीद। Profit Details केवल साइन-इन बिल पर है।',
       ],
       [
-        'Assuming Save draft reserved stock or issued a number. Drafts do neither.',
-        'ड्राफ्ट सेव को स्टॉक रिज़र्व या नंबर जारी समझना — ड्राफ्ट दोनों नहीं करता।',
+        'Entering card, UPI, bank, or cheque above the amount due. Only cash can be more, and that extra is change.',
+        'कार्ड, UPI, बैंक या चेक बकाया से ज्यादा लिखना। सिर्फ नकद ज्यादा हो सकता है, और वह बदलाव है।',
       ],
     ],
     relatedPages: [
       { path: '/sales/history', labelKey: 'nav.salesHistory' },
       { path: '/sales/receipts', labelKey: 'nav.receipts' },
       { path: '/sales/credit-notes', labelKey: 'nav.creditNotes' },
+      { path: '/sales/bill-upload', labelKey: 'nav.uploadSalesBill' },
       { path: '/inventory/stock', labelKey: 'nav.currentStock' },
       { path: '/settings/gst', labelKey: 'nav.gst' },
     ],
     nextActions: [
-      ['Read any red message before pressing Complete. Field **t:help.why** (when Help v2 is on) names the rule.', 'Complete से पहले लाल संदेश पढ़ें। **t:help.why** (Help v2 हो तो) नियम बताता है।'],
-      ['After Complete, take a receipt if money arrived, or share/print the bill. Do not re-complete.', 'Complete के बाद पैसा आया हो तो रसीद लें, या बिल शेयर/प्रिंट करें। दोबारा Complete न करें।'],
+      ['Read any red message before Save & Complete. **t:help.why** names the rule when Help v2 is on.', 'Save & Complete से पहले लाल संदेश पढ़ें। Help v2 हो तो **t:help.why** नियम बताता है।'],
+      ['After it completes you open that invoice: print, share, or record the rest of the payment. Do not complete it again.', 'पूरा होने पर वही बिल खुलता है: प्रिंट, शेयर, या बची रकम दर्ज करें। दोबारा Complete न करें।'],
     ],
   }),
 
   helpPage('sales-invoice-detail', {
     title: ['Sales invoice detail', 'बिक्री इनवॉइस विवरण'],
     summary: [
-      'View one bill: status, tax, outstanding, e-Invoice/e-Way when it applies, payments, and actions such as print, share, cancel, or credit note. Opening this page does not change the bill.',
-      'एक बिल देखें: स्थिति, टैक्स, बकाया, लागू हो तो e-Invoice/e-Way, भुगतान, और प्रिंट/शेयर/रद्द/क्रेडिट नोट। यह पेज खोलने से बिल नहीं बदलता।',
+      'One bill: status, tax, outstanding, and the actions on a completed invoice — Download PDF, Print, Share, Generate e-Invoice, Generate E-Way Bill, Record Payment, and Profit Details. Opening this page does not change the bill.',
+      'एक बिल: स्थिति, टैक्स, बकाया, और पूर्ण बिल की क्रियाएँ — PDF, प्रिंट, शेयर, e-Invoice, E-Way, भुगतान, Profit Details। पेज खोलने से बिल नहीं बदलता।',
     ],
     howItWorks: [
       [
-        'Status is DRAFT, COMPLETED, CANCELLED or RETURNED. Payment and return badges are computed (for example a fully returned bill must not be treated as a live sale).',
-        'स्थिति DRAFT, COMPLETED, CANCELLED या RETURNED है। भुगतान/रिटर्न बैज गणना से आते हैं (पूरी वापसी वाले बिल को चालू बिक्री न मानें)।',
+        'Share → WhatsApp opens WhatsApp on this device so you pick the chat. Copy link makes a public page with the customer name, GSTIN, address, and amounts, plus download. It does not show purchase price, margin, or profit. Revoke link stops that page.',
+        'शेयर → WhatsApp इस डिवाइस पर खुलता है, चैट आप चुनते हैं। Copy link पब्लिक पेज बनाता है: नाम, GSTIN, पता, राशि, और डाउनलोड। खरीद मूल्य, मार्जिन या लाभ नहीं दिखता। Revoke link वह पेज बंद करता है।',
       ],
       [
-        'A partial return leaves the invoice COMPLETED on purpose — the customer kept some lines.',
-        'आंशिक रिटर्न पर बिल COMPLETED रहता है — ग्राहक ने कुछ लाइनें रखीं।',
+        'Generate e-Invoice on a completed B2B GST or TAX bill prepares JSON. **t:einvoice.payloadOnlyHelp** When live submit is on, only the Owner can send it, and a sandbox acknowledgement is not an IRN on the NIC portal.',
+        'पूर्ण B2B GST/TAX बिल पर Generate e-Invoice JSON तैयार करता है। **t:einvoice.payloadOnlyHelp** लाइव सबमिट चालू हो तो सिर्फ Owner भेज सकता है, और सैंडबॉक्स पावती NIC पोर्टल का IRN नहीं है।',
+      ],
+      [
+        'Generate E-Way Bill appears when the completed bill is over the company threshold, is not Non-GST, and is not service-only. Distance in kilometres is required. Record Payment applies up to the open balance; a larger amount is refused.',
+        'Generate E-Way Bill तब दिखता है जब पूर्ण बिल कंपनी की सीमा से ऊपर हो, Non-GST न हो, और सिर्फ सर्विस न हो। दूरी किलोमीटर में ज़रूरी है। Record Payment खुले बैलेंस तक लगता है; उससे ज्यादा रकम रुक जाती है।',
       ],
     ],
     businessImpact: [
       [
-        'Allocate receipts here or on **t:nav.receipts** to drop outstanding. GST, stock and reports already moved on Complete; this screen is the follow-up.',
-        'बकाया घटाने के लिए यहाँ या **t:nav.receipts** पर रसीद आवंटित करें। स्टॉक/GST/रिपोर्ट Complete पर चल चुके; यह स्क्रीन आगे का काम है।',
+        'Stock, GST, and reports already moved on Save & Complete. This screen collects money, shares the bill, and shows Profit Details: sales amount minus total cost minus GST collected. Item purchase price, estimated cost, and GST collected stay named separately.',
+        'स्टॉक, GST और रिपोर्ट Save & Complete पर चल चुके। यह स्क्रीन पैसा लेती है, बिल शेयर करती है, और Profit Details दिखाती है: बिक्री − कुल लागत − वसूला GST। आइटम खरीद मूल्य, अनुमानित लागत और वसूला GST अलग नाम से रहते हैं।',
+      ],
+      [
+        'A partial return leaves the invoice COMPLETED — the customer kept some lines. A full return must not be read as a live sale.',
+        'आंशिक रिटर्न पर बिल COMPLETED रहता है — ग्राहक ने कुछ लाइनें रखीं। पूरी वापसी को चालू बिक्री न पढ़ें।',
       ],
     ],
     keyRules: [
       [
-        '**t:common.cancel** needs cancel permission, no allocated receipts, and no completed sales return.',
-        '**t:common.cancel** के लिए रद्द अनुमति, बिना आवंटित रसीद, और बिना पूर्ण बिक्री रिटर्न चाहिए।',
+        '**t:common.cancel** needs cancel permission, no allocated receipts, and no completed sales return or credit/debit note. Cancel also cancels an open payment link. The public page stays up and can show Cancelled until you Revoke link. A full return removes the public link.',
+        '**t:common.cancel** के लिए रद्द अनुमति, बिना आवंटित रसीद, और बिना पूर्ण रिटर्न या क्रेडिट/डेबिट नोट चाहिए। रद्द करने से खुला पेमेंट लिंक रद्द होता है। पब्लिक पेज तब तक रहता है और Cancelled दिखा सकता है जब तक Revoke link न करें। पूरी वापसी पब्लिक लिंक हटा देती है।',
       ],
       [
-        'Payment links are created only on a completed invoice. Cancelling the invoice cancels an open link.',
-        'पेमेंट लिंक केवल पूर्ण बिल पर बनता है। बिल रद्द करने से खुला लिंक रद्द होता है।',
+        'Drafts cannot be downloaded, shared, or paid from this bar. e-Invoice and live e-Way submit are Owner-only when those live switches are on.',
+        'ड्राफ्ट इस बार से डाउनलोड, शेयर या भुगतान नहीं हो सकते। लाइव स्विच चालू हों तो e-Invoice और लाइव e-Way सिर्फ Owner भेज सकता है।',
       ],
     ],
     commonMistakes: [
       [
-        'Reading “Paid” on a fully returned invoice as money still collected for goods the customer kept. Check return state together with payment state.',
-        'पूरी वापसी वाले बिल पर “Paid” को रखे माल का भुगतान न समझें। रिटर्न और भुगतान दोनों देखें।',
+        'Treating a copied link as private. Anyone with the link can see the party and the amounts. Revoke it when you no longer want that.',
+        'कॉपी किए लिंक को निजी समझना। लिंक वाला व्यक्ति पार्टी और राशि देख सकता है। ज़रूरत खत्म हो तो Revoke करें।',
+      ],
+      [
+        'Reading Paid on a fully returned invoice as money still collected for goods the customer kept.',
+        'पूरी वापसी वाले बिल पर Paid को रखे माल का भुगतान न समझें।',
       ],
     ],
     relatedPages: [
@@ -205,20 +218,21 @@ export const SALES_HELP: ContextHelpPage[] = [
       { path: '/sales/receipts', labelKey: 'nav.receipts' },
       { path: '/sales/returns', labelKey: 'nav.salesReturns' },
       { path: '/sales/credit-notes', labelKey: 'nav.creditNotes' },
+      { path: '/settings/gst', labelKey: 'nav.gst' },
     ],
     nextActions: [
-      ['If the customer paid, record or allocate a receipt. If goods came back, use a sales return.', 'ग्राहक ने पैसे दिए हों तो रसीद दर्ज/आवंटित करें। माल वापस हो तो बिक्री रिटर्न।'],
+      ['If money is still due, Record Payment. If goods came back, use a sales return. Share only after you have checked the PDF.', 'रकम बाकी हो तो Record Payment। माल वापस हो तो बिक्री रिटर्न। PDF जाँचकर ही शेयर करें।'],
     ],
   }),
 
   helpPage('sales-history', {
     title: ['Sales history', 'बिक्री इतिहास'],
     summary: [
-      'All sales invoices for this company. Open a row to view or continue a draft. Completing, cancelling or printing from the list uses the same rules as the invoice itself.',
-      'कंपनी के सभी बिक्री बिल। पंक्ति खोलकर देखें या ड्राफ्ट जारी रखें। सूची से Complete/रद्द/प्रिंट उन्हीं नियमों से होता है।',
+      'Every sales invoice for this company. Open a draft to keep editing. Open a completed row for the PDF, share link, e-Invoice, e-Way, payment, and Profit Details. The list does not skip the invoice rules.',
+      'कंपनी के सभी बिक्री बिल। ड्राफ्ट खोलकर जारी रखें। पूर्ण पंक्ति पर PDF, शेयर लिंक, e-Invoice, e-Way, भुगतान और Profit Details। सूची इनवॉइस के नियम नहीं छोड़ती।',
     ],
     howItWorks: [
-      ['Filter by status, date and party. Drafts have no legal number until Complete.', 'स्थिति, तारीख और पार्टी से फ़िल्टर करें। ड्राफ्ट का कानूनी नंबर Complete तक नहीं बनता।'],
+      ['Filter by status, payment, date, and party. Drafts have no legal number until Save & Complete. Payment and return badges are calculated from allocations and returns.', 'स्थिति, भुगतान, तारीख और पार्टी से फ़िल्टर करें। ड्राफ्ट का कानूनी नंबर Save & Complete तक नहीं। भुगतान और रिटर्न बैज आवंटन और रिटर्न से बनते हैं।'],
     ],
     businessImpact: [
       [
@@ -238,7 +252,7 @@ export const SALES_HELP: ContextHelpPage[] = [
       { path: '/reports/sales', labelKey: 'nav.salesReports' },
     ],
     nextActions: [
-      ['Open drafts that should be billed today and press Complete after checking godown and GST.', 'आज के ड्राफ्ट खोलें, गोदाम और GST जाँचकर Complete दबाएँ।'],
+      ['Open drafts that should be billed today and press Save & Complete after checking godown and GST.', 'आज के ड्राफ्ट खोलें, गोदाम और GST जाँचकर Save & Complete दबाएँ।'],
     ],
   }),
 
@@ -353,8 +367,8 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('receipts', {
     title: ['Customer payments', 'ग्राहक भुगतान'],
     summary: [
-      'Record money in (cash, UPI, bank, card) and **allocate** it to completed (or returned) invoices. A receipt that is not allocated sits as an advance and does not clear outstanding.',
-      'आने वाला पैसा दर्ज करें और पूर्ण (या लौटे) बिलों पर **आवंटित** करें। बिना आवंटन रसीद एडवांस रहती है और बकाया नहीं घटाती।',
+      'Record money in (cash, UPI, bank, card, cheque) and **allocate** it to completed or returned invoices. An unallocated receipt does not clear a bill. With the books off it lowers credit exposure; with the books on, only the ledger advance does. On the invoice itself, only cash may be more than the amount due.',
+      'आने वाला पैसा (नकद, UPI, बैंक, कार्ड, चेक) पूर्ण या लौटे बिलों पर **आवंटित** करें। बिना आवंटन रसीद बिल नहीं घटाती। खाते बंद हों तो क्रेडिट एक्सपोज़र घटता है; खाते चालू हों तो सिर्फ लेजर का अग्रिम। बिल पर सिर्फ नकद बकाया से ज्यादा हो सकता है।',
     ],
     howItWorks: [
       [
@@ -402,8 +416,8 @@ export const SALES_HELP: ContextHelpPage[] = [
         'राज्य/GSTIN से GST बिल का place of supply आता है। उसी कंपनी में डुप्लिकेट GSTIN नहीं चलता।',
       ],
       [
-        'A limit greater than zero blocks Complete when open exposure plus the new bill exceeds it. Zero or blank means no check.',
-        'लिमिट > 0 हो और बकाया + नया बिल लिमिट से ऊपर हो तो Complete रुकता है। 0 या खाली = जाँच नहीं।',
+        'A limit greater than zero blocks Save & Complete when open exposure plus the new bill exceeds it. Exposure is outstanding after advances. With books on, the check uses the higher of the ledger and the document figure. Zero or blank means no check.',
+        'लिमिट > 0 हो और खुला एक्सपोज़र + नया बिल लिमिट से ऊपर हो तो Save & Complete रुकता है। एक्सपोज़र अग्रिम के बाद बकाया है। खाते चालू हों तो जाँच लेजर और दस्तावेज़ में से बड़ी रकम लेती है। 0 या खाली = जाँच नहीं।',
       ],
     ],
     businessImpact: [
@@ -577,11 +591,11 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('sales-bill-upload', {
     title: ['Upload sales bill', 'बिक्री बिल अपलोड'],
     summary: [
-      'Photo or PDF assist that creates a **draft** invoice for you to check. It does not invent GST rate or quantity and does not Complete the bill.',
-      'फोटो/PDF से **ड्राफ्ट** इनवॉइस बनता है। यह GST दर या मात्रा गढ़ता नहीं और Complete नहीं करता।',
+      'Photo or PDF assist that creates a **draft** invoice for you to check. Open it from Sales or from the link on Create Sales Invoice. It does not invent GST rate or quantity and does not complete the bill.',
+      'फोटो/PDF से **ड्राफ्ट** इनवॉइस बनता है। सेल्स से या Create Sales Invoice के लिंक से खोलें। यह GST दर या मात्रा गढ़ता नहीं और बिल पूरा नहीं करता।',
     ],
     howItWorks: [
-      ['You need the import capability. After extract, review every line, then Complete on the invoice editor.', 'इम्पोर्ट अनुमति चाहिए। निकालने के बाद हर लाइन जाँचें, फिर इनवॉइस एडिटर पर Complete करें।'],
+      ['You need the import capability. After extract, review every line, godown, and GSTIN, then Save & Complete on the invoice editor.', 'इम्पोर्ट अनुमति चाहिए। निकालने के बाद हर लाइन, गोदाम और GSTIN जाँचें, फिर इनवॉइस एडिटर पर Save & Complete करें।'],
     ],
     businessImpact: [
       ['No stock, GST or outstanding until you Complete the resulting draft.', 'ड्राफ्ट Complete होने तक स्टॉक/GST/बकाया नहीं।'],

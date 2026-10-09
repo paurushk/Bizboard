@@ -50,8 +50,10 @@ import {
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EinvoiceEwayPanel } from '@/components/EinvoiceEwayPanel';
+import { InvoicePostedActionBar } from '@/components/InvoicePostedActionBar';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { RecordInvoicePaymentDialog } from '@/components/RecordInvoicePaymentDialog';
-import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
+import { ShareInvoiceDialog, type ShareChannel } from '@/components/ShareInvoiceDialog';
 import { primaryPostedAction } from '@/cognitive/loadHelpers';
 import { safePaymentHref } from '@/utils/safeUrl';
 import { DetailSkeleton, EmptyState, ErrorState } from '@/components/PageState';
@@ -91,6 +93,8 @@ export function InvoiceDetailPage() {
   const invoiceIdValid = Number.isFinite(invoiceId) && invoiceId > 0;
   const qc = useQueryClient();
   const [shareOpen, setShareOpen] = useState(false);
+  const [shareChannel, setShareChannel] = useState<ShareChannel>('WHATSAPP');
+  const [profitOpen, setProfitOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
@@ -428,7 +432,7 @@ export function InvoiceDetailPage() {
   });
 
   const downloadCopy = useCallback(
-    async (copy: 'ORIGINAL' | 'DUPLICATE') => {
+    async (copy: 'ORIGINAL' | 'DUPLICATE' | 'TRIPLICATE') => {
       try {
         const blob = await downloadInvoicePdf(invoiceId, { copy });
         const base = query.data?.number ?? `invoice-${invoiceId}`;
@@ -508,9 +512,16 @@ export function InvoiceDetailPage() {
           </Stack>
           <Typography sx={{ mt: 1 }}>{inv.customerName}</Typography>
         </Box>
-        <Button component={RouterLink} to="/sales/history">
-          {t('common.back')}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          {showAudit ? (
+            <Button variant="outlined" onClick={() => setProfitOpen(true)}>
+              {t('invoiceDetail.profitDetails')}
+            </Button>
+          ) : null}
+          <Button component={RouterLink} to="/sales/history">
+            {t('common.back')}
+          </Button>
+        </Stack>
       </Stack>
 
       {message ? (
@@ -579,19 +590,22 @@ export function InvoiceDetailPage() {
         }}
       >
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          {primaryPostedAction({
-            status: inv.status,
-            balance: toNumber(inv.balance),
-            canPay: canCreatePayments(user),
-          }) === 'pay' ? (
-            <Button variant="contained" onClick={() => setPayOpen(true)}>{t('history.recordPayment')}</Button>
-          ) : null}
-          {primaryPostedAction({
-            status: inv.status,
-            balance: toNumber(inv.balance),
-            canPay: canCreatePayments(user),
-          }) === 'share' && inv.status === 'COMPLETED' ? (
-            <Button variant="contained" onClick={() => setShareOpen(true)}>{t('common.share')}</Button>
+          {inv.status === 'COMPLETED' || inv.status === 'RETURNED' ? (
+            <InvoicePostedActionBar
+              invoice={inv}
+              customerGstin={customerQuery.data?.gstin}
+              onShareWhatsApp={() => {
+                setShareChannel('WHATSAPP');
+                setShareOpen(true);
+              }}
+              onShareEmail={() => {
+                setShareChannel('EMAIL');
+                setShareOpen(true);
+              }}
+              onRecordPayment={() => setPayOpen(true)}
+              onMessage={setMessage}
+              onError={captureError}
+            />
           ) : null}
           <Button ref={moreBtnRef} variant="outlined" onClick={(e) => setMoreAnchor(e.currentTarget)}>{t('cog.moreActions')}</Button>
           {inv.status === 'DRAFT' && canCreateSales(user) ? (
@@ -635,6 +649,7 @@ export function InvoiceDetailPage() {
             ) : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('ORIGINAL'); }}>{t('billing.downloadOriginal')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('DUPLICATE'); }}>{t('billing.downloadDuplicate')}</MenuItem> : null}
+            {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('TRIPLICATE'); }}>{t('billing.downloadTriplicate')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handlePrint(); }}>{t('billing.print')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handleThermalPrint(80); }}>{t('sweep2.printReceipt80')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void handleThermalPrint(58); }}>{t('sweep2.printReceipt58')}</MenuItem> : null}
@@ -1236,9 +1251,9 @@ export function InvoiceDetailPage() {
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {whatsappButtonHint}
           </Typography>
-          <Button variant="outlined" onClick={() => setShareOpen(true)}>
-            {t('common.share')}
-          </Button>
+          <Typography variant="body2" color="text.secondary">
+            {t('common.publicLinkStaffWarning')}
+          </Typography>
           {shareLink && isAllowedShareUrl(shareLink) ? (
             <Typography variant="body2" sx={{ mt: 1 }}>
               <a href={shareLink} target="_blank" rel="noopener noreferrer">
@@ -1262,9 +1277,15 @@ export function InvoiceDetailPage() {
           }
         }}
       />
+      <ProfitDetailsDialog
+        invoiceId={invoiceIdValid ? invoiceId : null}
+        open={profitOpen}
+        onClose={() => setProfitOpen(false)}
+      />
       <ShareInvoiceDialog
         open={shareOpen}
         invoiceId={invoiceIdValid ? invoiceId : null}
+        initialChannel={shareChannel}
         defaultPhone={inv.whatsappOffer?.phone || customerQuery.data?.phone || ''}
         defaultEmail={customerQuery.data?.email || ''}
         onClose={() => setShareOpen(false)}

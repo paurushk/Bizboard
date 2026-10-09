@@ -965,16 +965,37 @@ def build_totals_preview(
         cost_items = [i for i in items if tracks_inventory(i.product)]
         estimated_cogs = Decimal("0")
         margin_estimate_partial = False
+        margin_lines = []
         if cost_items:
             cost_map = InventoryValuationService.bulk_unit_cost(
                 company, [i.product for i in cost_items], warehouse=warehouse,
             )
             for i in cost_items:
                 unit_cost = cost_map.get(i.product.pk)
+                qty = Decimal(str(i.quantity or 0))
+                name = (getattr(i, "description", None) or "").strip() or i.product.name
                 if not unit_cost:
+                    # A missing cost stays null. Do not invent a zero price.
                     margin_estimate_partial = True
+                    margin_lines.append({
+                        "product_id": i.product.pk,
+                        "name": name,
+                        "unit_cost": None,
+                        "quantity": qty,
+                        "line_cost": None,
+                        "missing": True,
+                    })
                     continue
-                estimated_cogs += Decimal(str(unit_cost)) * Decimal(str(i.quantity or 0))
+                line_cost = Decimal(str(unit_cost)) * qty
+                estimated_cogs += line_cost
+                margin_lines.append({
+                    "product_id": i.product.pk,
+                    "name": name,
+                    "unit_cost": q2(unit_cost),
+                    "quantity": qty,
+                    "line_cost": q2(line_cost),
+                    "missing": False,
+                })
         revenue_pre_discount = Decimal(str(doc.subtotal or 0))
         estimated_margin = revenue_pre_discount - estimated_cogs
         margin_fields = {
@@ -984,6 +1005,7 @@ def build_totals_preview(
                 q2(estimated_margin / revenue_pre_discount * 100) if revenue_pre_discount else None
             ),
             "margin_estimate_partial": margin_estimate_partial,
+            "margin_lines": margin_lines,
         }
 
     return {

@@ -63,6 +63,8 @@ vi.mock('@/api/resources', () => ({
   createSalesInvoice: vi.fn(),
   updateSalesInvoice: vi.fn(),
   completeSalesInvoice: vi.fn(),
+  downloadInvoicePdf: vi.fn(async () => new Blob(['%PDF'])),
+  downloadInvoicePreviewPdf: vi.fn(async () => new Blob(['%PDF'])),
 }));
 
 const line = (id: number, name: string, extra: Record<string, unknown> = {}) => ({
@@ -103,10 +105,10 @@ const product = (id: number, name: string, sellingPrice: number) => ({
   gstRate: 0,
 });
 
-function seedDraft(lines: unknown[]) {
+function seedDraft(lines: unknown[], customerId: number | '' = '') {
   localStorage.setItem(
     draftKey(COMPANY_ID, USER_ID, 'sales-invoice'),
-    JSON.stringify({ version: 1, savedAt: new Date().toISOString(), payload: { lines, customerId: '' } }),
+    JSON.stringify({ version: 1, savedAt: new Date().toISOString(), payload: { lines, customerId } }),
   );
 }
 
@@ -160,6 +162,16 @@ describe('NewInvoicePage restoring a saved draft', () => {
     expect(screen.getByText('Shampoo')).toBeTruthy();
     expect(api.getProduct).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('button', { name: /^restore$/i })).toBeNull();
+  });
+
+  it('INV-MAIN-17 restores the party and a price the user typed', async () => {
+    seedDraft([line(5, 'Soap', { unitPrice: 33, priceEdited: true })], 10);
+    api.getProduct.mockResolvedValue(product(5, 'Soap', 40));
+    renderPage();
+    await userEvent.click(await restoreButton());
+    expect(await screen.findByText('Soap')).toBeTruthy();
+    expect(await screen.findByText('Anil Store')).toBeTruthy();
+    expect(await screen.findByDisplayValue('33')).toBeTruthy();
   });
 
   it('keeps a price the user typed instead of replacing it with the catalogue price', async () => {

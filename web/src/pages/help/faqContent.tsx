@@ -384,8 +384,8 @@ const MORE_FAQ: FaqItem[] = [
     'Why is Complete greyed out or failing?',
     ['complete failed', 'cannot complete', 'greyed', 'blocked complete', 'invoice error'],
     [
-      '**t:common.complete** needs at least one line, quantity greater than 0, a resolved place of supply, an allowed invoice type for your registration, stock in the bill’s **t:inventory.godown**, an active product and an unblocked customer.',
-      'Credit limit, collection hold, a closed period, missing company GSTIN (Regular GST sales and purchases), unconfirmed sales reverse charge, a purchase batch number, serials that do not match quantity, or an after-tax discount on a B2B GST bill can also stop it. Read the error — it names the rule.',
+      '**t:billing.saveAndComplete** needs at least one line, quantity greater than 0, a place of supply on a GST bill, an invoice type your registration allows, an active product, and an unblocked customer. Goods that track inventory need stock in the bill’s **t:inventory.godown**. Services, and goods with inventory tracking off, are not stopped for zero stock.',
+      'A credit limit, collection hold, closed period, missing company GSTIN on Regular GST sales, unconfirmed sales reverse charge, serials that do not match quantity, or an after-tax discount on a B2B GST bill can also stop it. Card, UPI, bank, and cheque above the amount due are refused; only cash can be more, and that extra is change. Read the error — it names the rule.',
     ],
   ),
   faq(
@@ -404,8 +404,8 @@ const MORE_FAQ: FaqItem[] = [
     'How do I cancel an invoice?',
     ['cancel bill', 'void invoice', 'unallocate', 'payment link cancel', 'can cancel documents'],
     [
-      'Open the invoice → **t:common.cancel**. You need cancel permission, or be the Owner. If receipts are allocated, remove those allocations first.',
-      'A completed sales return blocks cancel; clear draft returns first if those exist. Cancelling also cancels any open payment link on that bill.',
+      'Open the invoice → **t:common.cancel**. You need cancel permission, or be the Owner. Remove receipt allocations first, and clear any draft return or draft credit/debit note. A completed return or note blocks cancel.',
+      'Cancel also cancels an open payment link. The public invoice page stays available and can show Cancelled until you choose Revoke link. A full return removes that public link.',
     ],
   ),
   faq(
@@ -444,8 +444,8 @@ const MORE_FAQ: FaqItem[] = [
     'Complete says credit limit exceeded. What now?',
     ['credit limit', 'exposure', 'outstanding', 'cannot bill customer'],
     [
-      'The customer’s open exposure plus this bill is over the limit set on the customer. Take a receipt and allocate it, ask the Owner to raise the limit, or bill a smaller amount.',
-      'A zero or blank limit means no check.',
+      'Open exposure plus this bill is over the limit on the customer. With the books off, an unallocated receipt lowers exposure. With the books on, the check uses the higher of the ledger balance and the document balance after the advance account. A receipt that never reached the books does not lower it.',
+      'Allocate a receipt to an open bill, ask the Owner to raise the limit, or bill a smaller amount. A zero or blank limit means no check.',
     ],
   ),
   faq(
@@ -484,8 +484,8 @@ const MORE_FAQ: FaqItem[] = [
     'What keyboard shortcuts work on a new invoice?',
     ['ctrl s', 'ctrl enter', 'f2', 'barcode', 'shortcut', 'hotkey'],
     [
-      'Ctrl/Cmd+S saves a draft. Ctrl/Cmd+Enter completes. Ctrl/Cmd+Shift+L focuses product search. F2 is barcode.',
-      'These are on the invoice editor, not on every screen.',
+      'Ctrl/Cmd+S saves a draft. Ctrl/Cmd+Enter runs **t:billing.saveAndComplete**, but not while the cursor is in a field. Ctrl/Cmd+Shift+L and F2 focus item search. Alt+M fills Amount Received as fully paid.',
+      'These are on the invoice editor, not on every screen. Enter on a highlighted item adds that item. Enter on an empty search treats the text as a barcode or SKU.',
     ],
   ),
   faq(
@@ -524,8 +524,48 @@ const MORE_FAQ: FaqItem[] = [
     'What does Upload Sales Bill do?',
     ['ocr', 'photo bill', 'scan invoice', 'ai extract', 'upload sales'],
     [
-      'It is an assist: photo or PDF → a draft invoice for you to check. It does not invent GST rate or quantity.',
-      'You still **t:common.complete** the draft. You need the import capability. Open **t:nav.sales** → **t:nav.uploadSalesBill**.',
+      'It is an assist: photo or PDF → a draft invoice for you to check. It does not invent GST rate or quantity, and it does not complete the bill.',
+      'You still **t:billing.saveAndComplete** the draft after checking lines, godown, and GSTIN. You need the import capability. Open it from **t:nav.sales** → **t:nav.uploadSalesBill**, or from the same link on Create Sales Invoice.',
+    ],
+  ),
+  faq(
+    'invoice-preview-amounts',
+    'Sales invoices',
+    'What does Preview Mode show, and can I type the line amount?',
+    ['preview mode', 'amount in words', 'line amount', 'back calculate', 'unit price', 'discount stays'],
+    [
+      'Preview Mode shows the party, the total, the amount in words, and the same tax-invoice PDF you will print. It does not assign a number or move stock. The words use the same rounding as the printed bill.',
+      'Typing a line amount recalculates the unit price. A discount percent you typed stays. Changing the bill total adds an after-tax header discount; taxable value and GST stay the same.',
+    ],
+  ),
+  faq(
+    'public-invoice-link',
+    'PDF, share & WhatsApp',
+    'What does Copy link send to the customer?',
+    ['public link', 'copy link', 'share link', 'revoke link', 'anyone with link'],
+    [
+      'On a completed invoice, Share → Copy link copies a public page. The recipient can see the customer name, GSTIN, address, and amounts, and can download the PDF. The page does not show purchase price, margin, or Profit Details.',
+      'Anyone with the link can open it, so revoke it when you no longer want that. Cancel leaves the page up and it can show Cancelled. A full return removes the link. Pay now shows while a balance remains. It opens a payment page only when a gateway is set up; otherwise the page says payment gateway credentials are required.',
+    ],
+  ),
+  faq(
+    'invoice-profit-details',
+    'Sales invoices',
+    'What is Profit Details, and how is it different from Est. Margin?',
+    ['profit details', 'est margin', 'purchase price', 'gst collected', 'margin'],
+    [
+      'Est. Margin on the draft uses the item purchase price or the current average cost. It is a guide while you are still pricing the bill.',
+      'Profit Details on the invoice is Profit = sales amount − total cost − GST collected. Those three stay named separately. It is not shown on the public link or to the customer.',
+    ],
+  ),
+  faq(
+    'invoice-quick-settings',
+    'Sales invoices',
+    'Where are purchase price, party fields, and PO number on a new invoice?',
+    ['quick settings', 'show purchase price', 'party custom fields', 'po number', 'vehicle number', 'signature box'],
+    [
+      'Open Quick settings on Create Sales Invoice. Show purchase price while adding items puts the item purchase price on the line. Party custom fields are extra labels on the customer, not GST math.',
+      'Trading can show PO number, e-way bill number, and vehicle number. You can also print an empty signature box when no signature is uploaded. These choices stay with the company settings you save.',
     ],
   ),
 
@@ -597,8 +637,8 @@ const MORE_FAQ: FaqItem[] = [
     'How do customer credit limits work?',
     ['credit limit', 'party limit', 'exposure', 'outstanding limit'],
     [
-      'Set a limit greater than zero on the customer. **t:common.complete** is blocked when open exposure plus this invoice exceeds the limit.',
-      'Exposure follows customer outstanding (bills minus credit notes plus debit notes minus allocated receipts). A zero or blank limit means no check.',
+      'Set a limit greater than zero on the customer. **t:billing.saveAndComplete** is blocked when open exposure plus this invoice exceeds the limit.',
+      'With the books off, exposure is bills minus credit notes plus debit notes minus allocated receipts minus unallocated receipts. With the books on, it is the higher of the ledger balance and the document balance after the advance account. A zero or blank limit means no check.',
     ],
   ),
   faq(
@@ -871,8 +911,8 @@ const MORE_FAQ: FaqItem[] = [
     'Which payment modes can I record?',
     ['cash', 'upi', 'bank', 'card', 'credit', 'razorpay', 'cashfree', 'payu'],
     [
-      'Cash, UPI, Bank, Card, and Credit (bill now, pay later). Credit invoices show in receivables until receipts are allocated.',
-      'Payment-link captures follow the configured gateway (Razorpay primary; Cashfree or PayU when that option is on).',
+      'Cash, UPI, bank, card, cheque, and credit (bill now, pay later). On Create Sales Invoice, cash may be more than the bill and the extra is change. Card, UPI, bank, and cheque cannot be more than the amount due. Cheque asks for its number, bank, and date only when that mode is selected.',
+      'Credit posts no receipt and stays in receivables until you allocate one. A later Record Payment on the invoice cannot exceed the open balance. Payment-link captures follow the configured gateway (Razorpay primary; Cashfree or PayU when that option is on).',
     ],
   ),
   faq(
@@ -1085,8 +1125,8 @@ const MORE_FAQ: FaqItem[] = [
     'Why can’t I download PDF or share this invoice?',
     ['pdf', 'share', 'draft pdf', 'generating', 'queued', 'whatsapp grey'],
     [
-      'Only completed (or returned) invoices can PDF or share. Drafts are blocked. Wait until **t:common.complete** succeeds, then open the invoice in **t:nav.salesHistory**.',
-      'PDF is built in the background: queued → ready. If you download too soon you get “PDF is generating, retry shortly”. Failed PDFs can be regenerated.',
+      'Download, print, and share are on a completed or returned invoice. A draft has Preview Mode instead: the party, the total, the amount in words, and the same tax-invoice PDF, without a legal number.',
+      'After **t:billing.saveAndComplete**, open the invoice in **t:nav.salesHistory**. If the file is still being built you get “PDF is generating, retry shortly”. A failed PDF can be regenerated.',
     ],
   ),
   faq(
@@ -1105,8 +1145,8 @@ const MORE_FAQ: FaqItem[] = [
     'I clicked WhatsApp. Did the customer get the invoice?',
     ['whatsapp', 'wa.me', 'cloud api', 'not delivered', 'opt in'],
     [
-      'Not necessarily. If WhatsApp Cloud is not connected (or the customer has not opted in), Bizboard opens a chat link. That message is not delivered by Bizboard — you still send it in WhatsApp.',
-      'Cloud send exists only when the Owner configured WhatsApp connection and templates are approved.',
+      'Not necessarily. Share → WhatsApp opens WhatsApp on this device so you pick the contact or group. If WhatsApp Cloud is not connected, or the customer has not opted in, Bizboard does not deliver the message.',
+      'Copy link is separate: it copies a public invoice page. Cloud send exists only when the Owner configured WhatsApp and the templates are approved.',
     ],
   ),
   faq(
@@ -1125,8 +1165,8 @@ const MORE_FAQ: FaqItem[] = [
     'Share asks for phone or email.',
     ['mobile', 'customer email', 'recipient', 'share invoice'],
     [
-      'WhatsApp needs a customer mobile; email needs an email on the customer (or you type a recipient).',
-      'Add it on **t:nav.customers**, then share again. Payment-link share uses the same channels.',
+      'WhatsApp on this device lets you pick any chat. A Cloud send needs the customer mobile. Email needs an email on the customer, or a recipient you type.',
+      'Copy link does not need a phone or email. Add missing contact details on **t:nav.customers**, then share again.',
     ],
   ),
 
@@ -1237,8 +1277,8 @@ const MORE_FAQ: FaqItem[] = [
     'Is e-Invoice / e-Way live on NIC?',
     ['gsp', 'sandbox', 'irp', 'nic', 'live einvoice', 'certified'],
     [
-      'Live NIC is fail-closed until the GSP is certified and live HTTP is enabled. Pilots use sandbox or preview. Empty live credentials fail; placeholder secrets are rejected.',
-      'Do not promise customers that IRN is filed until live GSP is actually on for this company. Toggles live under **t:nav.settings** → **t:nav.gst**.',
+      'Generate e-Invoice on a completed B2B GST or TAX bill prepares the JSON. **t:einvoice.payloadOnlyHelp** Live NIC stays off until the GSP is certified and live HTTP is enabled. A sandbox acknowledgement is not an IRN on the NIC portal. Empty live credentials fail; placeholder secrets are rejected.',
+      'Do not tell the customer the IRN is filed until live GSP is actually on for this company. The Owner turns the switches on under **t:nav.settings** → **t:nav.gst**. Live submit is Owner-only.',
     ],
   ),
   faq(
@@ -1257,8 +1297,8 @@ const MORE_FAQ: FaqItem[] = [
     'When is e-Way suggested?',
     ['e-way', '50000', '50,000', 'aato', '5 crore', 'einvoice threshold'],
     [
-      'Company default e-Way threshold is ₹50,000 under **t:nav.settings** → **t:nav.gst**. Completing a bill over that without e-Way can warn.',
-      'The AATO e-Invoice alert default is ₹5 crore. E-Invoice and e-Way toggles live on the same GST settings page.',
+      'The company default is ₹50,000 under **t:nav.settings** → **t:nav.gst**. On a completed bill over that threshold, Generate E-Way Bill asks for distance in kilometres. It is hidden on a Non-GST bill and on a bill that is only services.',
+      'Completing over the threshold without an e-Way can warn; it does not by itself file on the NIC portal. The AATO e-Invoice alert default is ₹5 crore. Both switches live on the same GST settings page.',
     ],
   ),
   faq(

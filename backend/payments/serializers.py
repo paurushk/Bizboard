@@ -55,6 +55,8 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
             "customer",
             "customer_name",
             "amount",
+            "tendered",
+            "change_given",
             "mode",
             "receipt_date",
             "reference",
@@ -82,6 +84,7 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "number", "source", "gateway_payment", "status", "shift",
+            "tendered", "change_given",
             "dishonour_fee", "section_138_notice",
         ]
 

@@ -77,6 +77,7 @@ class CustomerSerializer(serializers.ModelSerializer):
         queryset=PriceList.objects.all(), allow_null=True, required=False
     )
     outstanding = serializers.SerializerMethodField()
+    credit_exposure = serializers.SerializerMethodField()
     shipping_addresses = CustomerShippingAddressSerializer(many=True, required=False)
 
     def validate(self, attrs):
@@ -111,6 +112,19 @@ class CustomerSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
         return attrs
 
+    def validate_custom_fields(self, value):
+        from core.permissions import get_company_user
+        from masters.custom_fields import coerce_values, omit_empty, party_defs_for_company
+
+        request = self.context.get("request")
+        if not request:
+            return omit_empty(value)
+        membership = get_company_user(request)
+        if membership is None:
+            return omit_empty(value)
+        existing = getattr(self.instance, "custom_fields", None) if self.instance else {}
+        return coerce_values(value, party_defs_for_company(membership.company), existing)
+
     def validate_party_bank_account(self, value):
         # A masked echo ("****1234") sent back by a role that only sees the last digits must not
         # overwrite the real number.
@@ -119,9 +133,16 @@ class CustomerSerializer(serializers.ModelSerializer):
         return value
 
     def to_representation(self, instance):
+        from masters.custom_fields import party_defs_for_company, surface_values
         from planwave.crypto import reveal_bank_account
 
         data = super().to_representation(instance)
+        # Definitions belong to the company, so read them once per serializer, not per row.
+        cache = self.__dict__.setdefault("_party_defs_cache", {})
+        defs = cache.get(instance.company_id)
+        if defs is None:
+            defs = cache[instance.company_id] = party_defs_for_company(instance.company)
+        data["custom_fields"] = surface_values(getattr(instance, "custom_fields", None), defs)
         number = reveal_bank_account(data.get("party_bank_account") or "")
         request = self.context.get("request")
         role = ""
@@ -147,6 +168,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "custom_fields", "pan", "party_bank_name", "party_bank_account", "party_bank_ifsc",
             "shipping_addresses",
             "outstanding",
+            "credit_exposure",
             "version",
         ]
         read_only_fields = [
@@ -162,6 +184,21 @@ class CustomerSerializer(serializers.ModelSerializer):
         if outstanding_by_id is not None:
             return str(outstanding_by_id.get(obj.id, 0))
         return str(LedgerService.customer_outstanding(obj.company, obj))
+
+    def get_credit_exposure(self, obj):
+        """Limit check figure: outstanding minus unallocated advances (and the GL cross-check).
+
+        The customer list keeps the bulk outstanding map and does not run this per row.
+        The invoice loads the customer detail, which is this figure.
+        """
+        from ledgers.services import LedgerService
+
+        by_id = self.context.get("credit_exposure_by_id")
+        if by_id is not None:
+            return str(by_id.get(obj.id, 0))
+        if self.context.get("outstanding_by_id") is not None:
+            return self.get_outstanding(obj)
+        return str(LedgerService.customer_exposure_for_credit_limit(obj.company, obj))
 
     def create(self, validated_data):
         addresses = validated_data.pop("shipping_addresses", None) or []
@@ -231,6 +268,20 @@ class ProductSerializer(serializers.ModelSerializer):
     def get_gst_rate_notice(self, obj) -> str:
         return getattr(self, "_hsn_notice", "") or ""
 
+    def _may_see_cost(self) -> bool:
+        request = self.context.get("request")
+        if request is None:
+            return True  # internal callers (imports, services) have no request
+        from core.permissions import can_see_product_cost
+
+        return can_see_product_cost(request)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not self._may_see_cost():
+            data["purchase_price"] = None
+        return data
+
     class Meta:
         model = Product
         fields = [
@@ -263,6 +314,13 @@ class ProductSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return attrs
+        if not self._may_see_cost():
+            # A masked client echoes null. It must not overwrite the real cost, and a
+            # new item made by someone who cannot see cost starts at zero.
+            if self.instance is not None:
+                attrs.pop("purchase_price", None)
+            else:
+                attrs["purchase_price"] = 0
         from core.exceptions import BusinessRuleError
         from core.permissions import get_company_user
         from inventory.item_stock import apply_product_type_matrix, assert_tracking_unlocked

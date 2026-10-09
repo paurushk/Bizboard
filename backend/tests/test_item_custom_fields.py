@@ -12,6 +12,7 @@ from masters.custom_fields import (
     normalize_header,
     resolve_import_columns,
     validate_definitions,
+    validate_party_definitions,
 )
 from masters.models import Product
 from tests.conftest import make_product
@@ -572,3 +573,48 @@ def test_b3_012_commit_products_custom_field_check_query_count_is_flat(tenant_a)
     )
     for i in range(10):
         assert Product.objects.get(company=tenant_a.company, sku=f"SKU-{100+i}").custom_fields.get("color") == "Red"
+
+
+def test_party_defs_accept_route_and_reject_address(tenant_a):
+    from rest_framework.exceptions import ValidationError
+
+    saved = validate_party_definitions([], [
+        {"key": "route", "label": "Route", "type": "text", "active": True},
+    ])
+    assert saved[0]["key"] == "route"
+    assert saved[0]["label"] == "Route"
+    with pytest.raises(ValidationError) as party_exc:
+        validate_party_definitions([], [
+            {"key": "route", "label": "Route", "type": "text", "active": True},
+            {"key": "addr", "label": "Address", "type": "text", "active": True},
+        ])
+    assert "This name is a built-in party field." in str(party_exc.value)
+    assert "reserved item column" not in str(party_exc.value)
+    with pytest.raises(ValidationError) as item_exc:
+        validate_definitions([], [
+            {"key": "qty", "label": "Quantity", "type": "text", "active": True},
+        ])
+    assert "reserved item column" in str(item_exc.value)
+
+    patched = tenant_a.client.patch("/api/v1/company/", {
+        "party_custom_field_defs": [
+            {"key": "route", "label": "Route", "type": "text", "active": True},
+        ],
+    }, format="json")
+    assert patched.status_code == 200, patched.data
+    rejected = tenant_a.client.patch("/api/v1/company/", {
+        "party_custom_field_defs": [
+            {"key": "route", "label": "Route", "type": "text", "active": True},
+            {"key": "addr", "label": "Address", "type": "text", "active": True},
+        ],
+    }, format="json")
+    assert rejected.status_code == 400
+    assert "This name is a built-in party field." in str(rejected.data)
+    assert "reserved item column" not in str(rejected.data)
+
+    created = tenant_a.client.post("/api/v1/customers/", {
+        "name": "Route Buyer",
+        "custom_fields": {"route": "North"},
+    }, format="json")
+    assert created.status_code == 201, created.data
+    assert created.data["custom_fields"]["route"] == "North"

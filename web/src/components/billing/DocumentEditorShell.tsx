@@ -30,6 +30,7 @@ export interface DocumentEditorShellProps {
   showDraftButton?: boolean;
   backTo?: string | null;
   message?: string | null;
+  messageAction?: ReactNode;
   error?: string | null;
   errorSource?: unknown;
   onDismissError?: () => void;
@@ -91,6 +92,7 @@ export function DocumentEditorShell({
   showDraftButton = true,
   backTo,
   message,
+  messageAction,
   error,
   errorSource,
   onDismissError,
@@ -195,7 +197,7 @@ export function DocumentEditorShell({
       </Stack>
 
       {message ? (
-        <Alert severity="success" sx={{ transition: 'opacity 200ms ease' }}>
+        <Alert severity="success" action={messageAction} sx={{ transition: 'opacity 200ms ease' }}>
           {message}
         </Alert>
       ) : null}

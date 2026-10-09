@@ -303,6 +303,12 @@ function isInvalidRefreshTokenError(err: unknown): boolean {
 
 function expireSessionOnInvalidRefresh(opts?: { notifyOnFailure?: boolean }): void {
   clearTokens();
+  const path = window.location.pathname;
+  const invoiceEditor = path === '/sales/new' || /\/sales\/history\/\d+\/edit\/?$/.test(path);
+  if (invoiceEditor) {
+    window.dispatchEvent(new Event('bizboard:invoice-reauth'));
+    return;
+  }
   if (opts?.notifyOnFailure !== false || activeRefreshNotifyOnFailure) {
     window.dispatchEvent(new Event('bizboard:session-expired'));
   }

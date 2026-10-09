@@ -224,14 +224,16 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             ]
         if action == "record_payment":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
+        if action == "profit_details":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
-            "bulk_pdf_zip", "repeat_last",
+            "bulk_pdf_zip", "repeat_last", "public_link", "revoke_public_link",
         ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in (
             "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
-            "preview_totals", "payment_stats", "hsn_summary",
+            "preview_totals", "preview_pdf", "payment_stats", "hsn_summary",
         ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
@@ -676,6 +678,10 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     # now" choice — leave the invoice fully unpaid rather than
                     # creating a ₹0 receipt (which PaymentService itself
                     # rejects: "Receipt amount must be greater than zero").
+                    # Cash handed over above the amount kept is change, not an advance.
+                    change_given = Decimal("0")
+                    if mode == PaymentMode.CASH:
+                        change_given = max(tendered_dec - amount, Decimal("0"))
                     if amount > 0:
                         receipt = PaymentService.create_receipt(
                             company=self.company,
@@ -687,6 +693,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                             notes=notes,
                             user=request.user,
                             bank_account=bank_account,
+                            tendered=tendered_dec,
+                            change_given=change_given,
                             **cheque_fields_from_payload(payment_data, company=self.company),
                         )
                         PaymentService.allocate_receipt(
@@ -724,10 +732,10 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             build=_execute,
         )
 
-    @action(detail=False, methods=["post"], url_path="preview-totals")
-    def preview_totals(self, request):
-        """Authoritative totals preview without persisting (Phase 1 / A-03)."""
+    def _preview_bundle(self, request):
+        """Authoritative totals for a draft that has not been saved."""
         company = self.company
+        customer = None
         customer_id = request.data.get("customer")
         party_state = company.state or ""
         party_gstin = ""
@@ -745,6 +753,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
 
         seller_state = company.state or ""
         seller_gstin = company.gstin or ""
+        stamp = None
         gstin_id = request.data.get("company_gstin")
         if gstin_id:
             stamp = CompanyGstin.objects.filter(pk=gstin_id, company=company, is_active=True).first()
@@ -761,10 +770,6 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         products_by_id = {
             p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
         }
-        # Estimated margin is sales-only, read-only reference data for the
-        # draft editor -- gated server-side (not just hidden in the UI) so a
-        # role without financial-reports access can't read cost/margin off
-        # this response even though preview itself only needs CanViewSalesSurfaces.
         include_margin = CanViewFinancialReports().has_permission(request, self)
         warehouse = None
         warehouse_id = request.data.get("warehouse")
@@ -772,7 +777,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             from inventory.models import Warehouse
 
             warehouse = Warehouse.objects.filter(pk=warehouse_id, company=company).first()
-        return Response(build_totals_preview(
+        preview = build_totals_preview(
             company=company,
             party_state=party_state,
             party_gstin=party_gstin,
@@ -784,11 +789,148 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             seller_gstin=seller_gstin,
             include_margin=include_margin,
             warehouse=warehouse,
-        ))
+        )
+        return {
+            "company": company,
+            "customer": customer,
+            "products_by_id": products_by_id,
+            "preview": preview,
+            "invoice_type": invoice_type,
+            "stamp": stamp,
+        }
+
+    @action(detail=False, methods=["post"], url_path="preview-totals")
+    def preview_totals(self, request):
+        """Authoritative totals preview without persisting (Phase 1 / A-03)."""
+        return Response(self._preview_bundle(request)["preview"])
+
+    @action(detail=False, methods=["post"], url_path="preview-pdf")
+    def preview_pdf(self, request):
+        """Sample A4 PDF of an unsaved draft, from the same renderer as the saved file."""
+        import io
+        from datetime import datetime
+        from decimal import Decimal
+        from types import SimpleNamespace
+
+        from django.http import FileResponse
+        from django.utils import timezone
+
+        from .pdf.gst_tax_invoice import render_gst_tax_invoice
+
+        raw_items = [r for r in (request.data.get("items") or []) if isinstance(r, dict)]
+        if len(raw_items) > 300:
+            raise BusinessRuleError("A preview can show at most 300 lines.")
+        bundle = self._preview_bundle(request)
+        preview = bundle["preview"]
+        products_by_id = bundle["products_by_id"]
+        tax_items = list(preview.get("items") or [])
+        # Tax rows are matched to lines by position. If the tax engine dropped a row,
+        # the taxes would land on the wrong line, so refuse rather than guess.
+        if len(tax_items) != len(raw_items):
+            raise BusinessRuleError("Some lines could not be previewed. Check each item.")
+
+        def _num(value, default="0"):
+            try:
+                number = Decimal(str(value if value not in (None, "") else default))
+            except Exception:  # noqa: BLE001
+                raise BusinessRuleError("A quantity or price is not a number.") from None
+            if not number.is_finite():
+                raise BusinessRuleError("A quantity or price is not a number.")
+            return number
+
+        lines = []
+        for raw, tax in zip(raw_items, tax_items):
+            try:
+                product = products_by_id.get(int(raw.get("product")))
+            except (TypeError, ValueError):
+                product = None
+            if product is None:
+                continue
+            unit = getattr(product, "unit", None)
+            unit_price = raw.get("unit_price")
+            if unit_price is None:
+                unit_price = raw.get("unit_price_inclusive") or getattr(product, "selling_price", 0)
+            lines.append(SimpleNamespace(
+                product=product,
+                description=raw.get("description") or product.name,
+                quantity=_num(raw.get("quantity")),
+                unit_price=_num(unit_price),
+                unit_name=getattr(unit, "name", None) or "PCS",
+                mrp=_num(raw.get("mrp") or getattr(product, "mrp", 0) or 0),
+                hsn_code=raw.get("hsn_code") or getattr(product, "hsn_code", "") or "",
+                discount_percent=_num(raw.get("discount_percent")),
+                line_total=tax.get("line_total") or 0,
+                taxable_amount=tax.get("taxable_amount") or 0,
+                cgst=tax.get("cgst") or 0,
+                sgst=tax.get("sgst") or 0,
+                igst=tax.get("igst") or 0,
+                cess=tax.get("cess") or 0,
+                gst_rate=tax.get("gst_rate") or 0,
+                supply_nature=raw.get("supply_nature") or "TAXABLE",
+                batch_no=raw.get("batch_no") or "",
+                exp_date=None,
+            ))
+        raw_date = request.data.get("invoice_date")
+        if hasattr(raw_date, "year"):
+            invoice_date = raw_date
+        elif raw_date:
+            try:
+                invoice_date = datetime.strptime(str(raw_date)[:10], "%Y-%m-%d").date()
+            except ValueError as exc:
+                raise BusinessRuleError("Invoice date must be YYYY-MM-DD.") from exc
+        else:
+            invoice_date = timezone.localdate()
+        customer = bundle["customer"]
+        if customer is None:
+            customer = SimpleNamespace(
+                name="—", billing_address="", shipping_address="", gstin="", phone="", state="",
+            )
+        invoice = SimpleNamespace(
+            pk=None,
+            company=bundle["company"],
+            customer=customer,
+            company_gstin=bundle["stamp"],
+            invoice_type=bundle["invoice_type"],
+            number="",
+            invoice_date=invoice_date,
+            due_date=None,
+            grand_total=preview.get("grand_total") or 0,
+            taxable_total=preview.get("taxable_total") or 0,
+            round_off=preview.get("round_off") or 0,
+            additional_charges=request.data.get("additional_charges") or 0,
+            invoice_discount=request.data.get("invoice_discount") or 0,
+            invoice_discount_mode=preview.get("invoice_discount_mode") or "AFTER_TAX",
+            custom_fields=request.data.get("custom_fields") or {},
+            include_payment_qr=bool(request.data.get("include_payment_qr")),
+            include_bank_details=bool(request.data.get("include_bank_details")),
+            include_terms=bool(request.data.get("include_terms")),
+            terms_text=request.data.get("terms_text") or "",
+            irn="",
+            einvoice_qr="",
+            einvoice_status="",
+            filing_place_of_supply="",
+            tcs_amount=preview.get("tcs_amount") or 0,
+            amount_received=Decimal("0"),
+            _preview_items=lines,
+        )
+        content = render_gst_tax_invoice(invoice, copy="ORIGINAL")
+        return FileResponse(
+            io.BytesIO(content),
+            as_attachment=False,
+            filename="invoice-preview.pdf",
+            content_type="application/pdf",
+        )
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         def _run():
+            from decimal import Decimal, InvalidOperation
+
+            from django.db import transaction
+
+            from core.permissions import get_company_user
+            from payments.services import PaymentService, cheque_fields_from_payload
+
             confirm_rcm = str(request.data.get("confirm_sales_rcm") or "").lower() in (
                 "1", "true", "yes",
             )
@@ -808,21 +950,65 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             pharmacy_prescriber = request.data.get("prescriber_name") or ""
             pharmacy_registration = request.data.get("prescriber_registration") or ""
             pharmacy_prescription = request.data.get("prescription_note") or ""
-            invoice, warnings = SalesService.complete(
-                self.get_object(),
-                request.user,
-                confirm_sales_rcm=confirm_rcm,
-                confirm_blank_pos=confirm_blank_pos,
-                confirm_gstin_total_change=confirm_gstin_total,
-                confirm_missing_licence=confirm_missing_licence,
-                gst_guard_override_reason=gst_guard_override_reason,
-                unlock_code=unlock_code,
-                below_cost_override_reason=below_cost_reason,
-                pharmacy_patient=pharmacy_patient,
-                pharmacy_prescriber=pharmacy_prescriber,
-                pharmacy_registration=pharmacy_registration,
-                pharmacy_prescription=pharmacy_prescription,
-            )
+            raw_received = request.data.get("amount_received")
+            try:
+                tendered = Decimal(str(raw_received if raw_received not in (None, "") else 0))
+            except InvalidOperation as exc:
+                raise BusinessRuleError("Amount received is not a number.") from exc
+            if not tendered.is_finite():
+                raise BusinessRuleError("Amount received is not a number.")
+            if tendered < 0:
+                raise BusinessRuleError("Amount received cannot be negative.")
+            mode = str(request.data.get("payment_mode") or "CASH").upper()
+            # Credit is not a receipt. A tender on any other mode needs payments permission
+            # before the invoice commits, so a sales-only user cannot leave it unpaid.
+            collects = tendered > 0 and mode != "CREDIT"
+            if collects:
+                membership = get_company_user(request)
+                allowed = (
+                    membership is not None
+                    and membership.role != "VIEWER"
+                    and (membership.role == "OWNER" or membership.can_create_payments)
+                )
+                if not allowed:
+                    # Retryable: the same offline draft must still be able to
+                    # collect once this user is allowed to take payments.
+                    raise BusinessRuleError(
+                        "Payments create permission required.",
+                        code="try_again",
+                    )
+            cheque_fields = cheque_fields_from_payload(request.data, company=self.company)
+            with transaction.atomic():
+                invoice, warnings = SalesService.complete(
+                    self.get_object(),
+                    request.user,
+                    confirm_sales_rcm=confirm_rcm,
+                    confirm_blank_pos=confirm_blank_pos,
+                    confirm_gstin_total_change=confirm_gstin_total,
+                    confirm_missing_licence=confirm_missing_licence,
+                    gst_guard_override_reason=gst_guard_override_reason,
+                    unlock_code=unlock_code,
+                    below_cost_override_reason=below_cost_reason,
+                    pharmacy_patient=pharmacy_patient,
+                    pharmacy_prescriber=pharmacy_prescriber,
+                    pharmacy_registration=pharmacy_registration,
+                    pharmacy_prescription=pharmacy_prescription,
+                )
+                if collects:
+                    try:
+                        PaymentService.settle_completed_invoice_payment(
+                            invoice=invoice,
+                            user=request.user,
+                            tendered=tendered,
+                            mode=mode,
+                            cheque_fields=cheque_fields,
+                        )
+                    except BusinessRuleError as exc:
+                        # The invoice, stock, journals, and series number roll back
+                        # with this savepoint. Release the idempotency key so the
+                        # same gesture can be retried. Pass a plain string: an
+                        # ErrorDetail keeps its original code and would be stored.
+                        raise BusinessRuleError(str(exc.detail), code="try_again") from exc
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings
             data["gst_guard_warnings"] = getattr(invoice, "_gst_guard_warnings", [])
@@ -1097,7 +1283,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             )
 
         copy = (request.query_params.get("copy") or "ORIGINAL").upper()
-        if copy not in ("ORIGINAL", "DUPLICATE"):
+        if copy not in ("ORIGINAL", "DUPLICATE", "TRIPLICATE"):
             copy = "ORIGINAL"
 
         # P0-404: never sync-hang generate_invoice_pdf on download. Clients
@@ -1139,13 +1325,13 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             metadata={"copy": copy},
         )
 
-        # DUPLICATE is rendered in-memory so the stored file stays ORIGINAL.
-        if copy == "DUPLICATE":
-            content = render_gst_tax_invoice(invoice, copy="DUPLICATE")
+        # Extra copies are rendered in memory so the stored file stays ORIGINAL.
+        if copy in ("DUPLICATE", "TRIPLICATE"):
+            content = render_gst_tax_invoice(invoice, copy=copy)
             return FileResponse(
                 io.BytesIO(content),
                 as_attachment=True,
-                filename=f"{invoice.number or invoice.pk}_duplicate.pdf",
+                filename=f"{invoice.number or invoice.pk}_{copy.lower()}.pdf",
                 content_type="application/pdf",
             )
 
@@ -1181,6 +1367,31 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             content_type="application/pdf",
         )
 
+    @action(detail=True, methods=["get"], url_path="profit-details")
+    def profit_details(self, request, pk=None):
+        from sales.profit_details import invoice_profit_details
+
+        return Response(invoice_profit_details(self.get_object()))
+
+    @action(detail=True, methods=["post"], url_path="public-link")
+    def public_link(self, request, pk=None):
+        from sales.public_links import mint_public_link, public_invoice_url
+
+        link = mint_public_link(self.get_object(), request.user)
+        return Response({"url": public_invoice_url(link.token)})
+
+    @action(detail=True, methods=["post"], url_path="public-link/revoke")
+    def revoke_public_link(self, request, pk=None):
+        from django.utils import timezone
+
+        from sales.models import InvoicePublicLink
+
+        invoice = self.get_object()
+        updated = InvoicePublicLink.objects.filter(
+            invoice=invoice, revoked_at__isnull=True,
+        ).update(revoked_at=timezone.now())
+        return Response({"revoked": bool(updated)})
+
     @action(detail=True, methods=["post"])
     def share(self, request, pk=None):
         """Share via Notification Service — email or whatsapp (E4.10)."""
@@ -1193,6 +1404,39 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         channel = (request.data.get("channel") or "").upper()
         if channel not in (Notification.Channel.EMAIL, Notification.Channel.WHATSAPP):
             raise BusinessRuleError("channel must be 'email' or 'whatsapp'.")
+        send_from_business = request.data.get("send_from_business_number") in (
+            True,
+            "true",
+            "True",
+            "1",
+            1,
+        )
+        # ACT-21: an explicit empty recipient is device share (the user picks the
+        # chat). Omitting the key still uses the customer phone so existing
+        # Cloud and link callers keep working. sendFromBusinessNumber keeps Cloud.
+        if (
+            channel == Notification.Channel.WHATSAPP
+            and not send_from_business
+            and "recipient" in request.data
+            and not str(request.data.get("recipient") or "").strip()
+        ):
+            from sales.public_links import mint_public_link, public_invoice_url
+            # The recipient has no login: the text must carry the public page.
+            public_url = public_invoice_url(mint_public_link(invoice, request.user).token)
+            text = (
+                f"Invoice {invoice.number} dated {invoice.invoice_date} from {invoice.company.name}. "
+                f"Amount: INR {invoice.grand_total}."
+            )
+            text = f"{text} View invoice: {public_url}"
+            # Not SENT: the picker opening is not delivery. Do not persist WhatsApp status.
+            return Response(
+                {
+                    "mode": "device",
+                    "text": text,
+                    "document_url": public_url,
+                    "status": "OPENED",
+                }
+            )
         recipient = request.data.get("recipient") or (
             invoice.customer.email if channel == Notification.Channel.EMAIL else invoice.customer.phone
         )
@@ -1209,10 +1453,9 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             subject = "invoice_ready"
             allow_cloud = cloud_allowed_for_recipient(invoice.customer, recipient)
         else:
-            from django.conf import settings as dj_settings
+            from sales.public_links import mint_public_link, public_invoice_url
 
-            base = (getattr(dj_settings, "FRONTEND_URL", "") or "").rstrip("/")
-            view_url = f"{base}/sales/history/{invoice.pk}" if base else f"/sales/history/{invoice.pk}"
+            view_url = public_invoice_url(mint_public_link(invoice, request.user).token)
             body = (
                 f"Invoice {invoice.number} dated {invoice.invoice_date} from {invoice.company.name}. "
                 f"Amount: INR {invoice.grand_total}. "

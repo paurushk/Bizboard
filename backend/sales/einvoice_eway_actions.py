@@ -793,6 +793,9 @@ class InvoiceEinvoiceEwayActionsMixin:
                 "filing_place_of_supply": invoice.filing_place_of_supply,
             }, "reason": reason},
         )
+        from sales.public_links import revoke_invoice_public_links
+
+        revoke_invoice_public_links(invoice)
         return Response(self.get_serializer(invoice).data)
 
 

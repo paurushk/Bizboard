@@ -85,6 +85,7 @@ import {
   posCheckout,
   searchProducts,
   shareInvoice,
+  downloadInvoicePdf,
   uploadFile,
 } from '@/api/resources';
 import {
@@ -114,7 +115,9 @@ import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
 import { filledCustomFieldPreview } from '@/pages/inventory/itemCustomFieldDefaults';
 import { PageShell } from '@/pages/phase/phaseShared';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { t, useLocale } from '@/i18n';
+import { canViewFinancialReports } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   enqueueDraft,
@@ -131,7 +134,7 @@ import type { PaymentMode, Product } from '@/types/domain';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { preferredInvoiceType } from '@/onboarding/taxHints';
 import { posPayDisabledReason } from '@/completeGates/completeBlockers';
-import { isAllowedPaymentUrl, openShareUrl } from '@/utils/safeUrl';
+import { isAllowedPaymentUrl, isPhoneDevice, shareOnThisDevice } from '@/utils/safeUrl';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatUnitLabel } from '@/constants/unitLabels';
 import { resolveListUnitPrice } from '@/utils/priceList';
@@ -432,7 +435,27 @@ export function PosPage() {
   const sessionStore = useRef<Record<string, PosBillSession>>({});
   const [upiPending, setUpiPending] = useState<UpiPending | null>(null);
   const [cashPending, setCashPending] = useState<CashPending | null>(null);
-  const [waOffer, setWaOffer] = useState<{ invoiceId: number; phone: string } | null>(null);
+  const [waOffer, setWaOffer] = useState<{ invoiceId: number } | null>(null);
+  const waPdf = useRef<{ id: number; file: File } | null>(null);
+  useEffect(() => {
+    waPdf.current = null;
+    if (!waOffer || !isPhoneDevice()) return;
+    let cancelled = false;
+    void downloadInvoicePdf(waOffer.invoiceId)
+      .then((blob) => {
+        if (cancelled) return;
+        waPdf.current = {
+          id: waOffer.invoiceId,
+          file: new File([blob], `invoice-${waOffer.invoiceId}.pdf`, { type: 'application/pdf' }),
+        };
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [waOffer]);
+  const [profitInvoiceId, setProfitInvoiceId] = useState<number | null>(null);
+  const [profitOpen, setProfitOpen] = useState(false);
   const [blankPosMode, setBlankPosMode] = useState<PaymentMode | null>(null);
   const [unpaidRecover, setUnpaidRecover] = useState<{ id: number; number: string } | null>(null);
   const [walkInConfirmMode, setWalkInConfirmMode] = useState<PaymentMode | null>(null);
@@ -1367,39 +1390,25 @@ export function PosPage() {
       setMessage(t('pos.saleComplete', { number: completed.number ?? `#${completed.id}` }));
       setSaleJustCompleted(true);
       searchRef.current?.focus();
-      const phone = (
-        completed.whatsappOffer?.phone ||
-        selectedCustomer.data?.phone ||
-        ''
-      ).replace(/\D/g, '');
-      if (phone.length >= 10) {
-        setWaOffer({ invoiceId: completed.id, phone });
-      } else {
-        setWaOffer(null);
-      }
+      setWaOffer({ invoiceId: completed.id });
+      setProfitInvoiceId(completed.id);
     },
-    [companyId, queryClient, selectedCustomer.data?.phone, userId, walkInCustomer],
+    [companyId, queryClient, userId, walkInCustomer],
   );
 
   const sendWaMutation = useMutation({
-    mutationFn: (offer: { invoiceId: number; phone: string }) =>
-      shareInvoice(offer.invoiceId, { channel: 'WHATSAPP', recipient: offer.phone }),
-    onSuccess: (res) => {
-      const mode = res.mode ?? (res.status === 'SENT' ? 'cloud' : 'link');
-      if (mode === 'cloud' && res.status === 'SENT') {
-        setMessage(t('common.whatsappCloudSent'));
-      } else if (res.error) {
-        setMessage(t('common.whatsappFallbackWarn'));
-      } else {
-        setMessage(t('common.whatsappLinkHint'));
-      }
-      if (res.shareLink && mode !== 'cloud') {
-        try {
-          openShareUrl(res.shareLink);
-        } catch {
-          /* clickable recovery is the invoice share page */
-        }
-      }
+    mutationFn: async (offer: { invoiceId: number }) => {
+      // Phones only allow the share sheet right after a tap, so the PDF is fetched when
+      // the offer appears, not here. The server already puts the public link in the text.
+      const file = waPdf.current?.id === offer.invoiceId ? waPdf.current.file : undefined;
+      const res = await shareInvoice(offer.invoiceId, { channel: 'WHATSAPP', recipient: '' });
+      let text = (res.text || '').trim();
+      if (!text) text = t('pos.sendWhatsAppBill');
+      await shareOnThisDevice({ text, file });
+      return res;
+    },
+    onSuccess: () => {
+      setMessage(t('common.whatsappLinkHint'));
       setWaOffer(null);
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -2570,21 +2579,35 @@ export function PosPage() {
           }}
           sx={{ mb: 1 }}
           action={
-            waOffer ? (
-              <Button
-                color="inherit"
-                size="small"
-                disabled={sendWaMutation.isPending}
-                onClick={() => sendWaMutation.mutate(waOffer)}
-              >
-                {t('pos.sendWhatsAppBill')}
-              </Button>
+            waOffer || (profitInvoiceId && canViewFinancialReports(user)) ? (
+              <Stack direction="row" spacing={1}>
+                {waOffer ? (
+                  <Button
+                    color="inherit"
+                    size="small"
+                    disabled={sendWaMutation.isPending}
+                    onClick={() => sendWaMutation.mutate(waOffer)}
+                  >
+                    {t('pos.sendWhatsAppBill')}
+                  </Button>
+                ) : null}
+                {profitInvoiceId && canViewFinancialReports(user) ? (
+                  <Button color="inherit" size="small" onClick={() => setProfitOpen(true)}>
+                    {t('invoiceDetail.profitDetails')}
+                  </Button>
+                ) : null}
+              </Stack>
             ) : undefined
           }
         >
           {message}
         </Alert>
       ) : null}
+      <ProfitDetailsDialog
+        open={profitOpen}
+        invoiceId={profitInvoiceId}
+        onClose={() => setProfitOpen(false)}
+      />
       {error ? (
         <HelpErrorAlert message={error} onClose={() => setError(null)} sx={{ mb: 1 }} />
       ) : null}

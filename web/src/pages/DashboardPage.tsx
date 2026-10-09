@@ -18,6 +18,7 @@ import { getErrorMessage } from '@/api/client';
 import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
 import { getShopFloorSummary, funnelCount, funnelReasons } from '@/lib/telemetry';
 import { canCreateSales, canViewAiInsights, canViewFinancialReports, isOwner } from '@/utils/permissions';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
 import { OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -48,6 +49,7 @@ export function DashboardPage() {
     () => localStorage.getItem('bb_invite_cta_dismissed') === '1',
   );
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [profitInvoiceId, setProfitInvoiceId] = useState<number | null>(null);
   const showInsights = canViewAiInsights(user);
   const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
@@ -358,6 +360,7 @@ export function DashboardPage() {
                 <TableCell>{t('billing.customer')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('common.total')}</TableCell>
+                {canViewFinancialReports(user) ? <TableCell /> : null}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -388,6 +391,13 @@ export function DashboardPage() {
                   <TableCell align="right">
                     <MoneyText value={inv.grandTotal} />
                   </TableCell>
+                  {canViewFinancialReports(user) ? (
+                    <TableCell align="right">
+                      <Button size="small" onClick={() => setProfitInvoiceId(inv.id)}>
+                        {t('invoiceDetail.profitDetails')}
+                      </Button>
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               ))}
             </TableBody>
@@ -420,6 +430,11 @@ export function DashboardPage() {
           </Stack>
         )}
       </Stack>
+      <ProfitDetailsDialog
+        open={profitInvoiceId != null}
+        invoiceId={profitInvoiceId}
+        onClose={() => setProfitInvoiceId(null)}
+      />
     </Stack>
   );
 }

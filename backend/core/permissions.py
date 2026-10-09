@@ -151,6 +151,20 @@ class CanCancelDocuments(BasePermission):
         return cu is not None and (cu.role == "OWNER" or cu.can_cancel_documents)
 
 
+def can_see_product_cost(request) -> bool:
+    """Item purchase cost is for people who buy, stock, or read the books.
+
+    A counter user who only sells does not need it, and a customer standing at the
+    counter can see that screen. Owners always can.
+    """
+    cu = get_company_user(request)
+    if cu is None:
+        return False
+    return cu.role == "OWNER" or bool(
+        cu.can_view_financial_reports or cu.can_create_purchases or cu.can_manage_inventory
+    )
+
+
 class CanViewFinancialReports(BasePermission):
     """Dashboard financial KPIs, ledgers, and registers."""
 

@@ -80,6 +80,54 @@ export function openShareUrl(url: string) {
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
+/** Phone browsers can attach a PDF. Desktop Chrome/Edge/Safari must not use the OS share sheet. */
+export function isPhoneDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+}
+
+export type DeviceShareInput = {
+  text: string;
+  /** Already fetched by the caller. Do not fetch inside this function. */
+  file?: File | null;
+};
+
+function isShareDismissed(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  return (err as { name?: string }).name === 'AbortError';
+}
+
+/**
+ * ACT-21: open WhatsApp on this device so the user picks the chat.
+ * Phone with file share attaches the PDF. Phone without it shares text.
+ * Desktop opens https://wa.me/?text= with no phone. Dismiss is not an error.
+ */
+export async function shareOnThisDevice(input: DeviceShareInput): Promise<void> {
+  const text = input.text || '';
+  const file = input.file ?? undefined;
+  if (isPhoneDevice()) {
+    const nav = navigator as Navigator & {
+      canShare?: (data: ShareData) => boolean;
+      share?: (data: ShareData) => Promise<void>;
+    };
+    try {
+      if (file && typeof nav.canShare === 'function' && nav.canShare({ files: [file] }) && nav.share) {
+        await nav.share({ files: [file], text });
+        return;
+      }
+      if (nav.share) {
+        await nav.share({ text });
+        return;
+      }
+    } catch (err) {
+      if (isShareDismissed(err)) return;
+      throw err;
+    }
+  }
+  openShareUrl(`https://wa.me/?text=${encodeURIComponent(text)}`);
+}
+
 export function openPaymentUrl(url: string) {
   if (!isAllowedPaymentUrl(url)) throw new Error('Blocked payment URL');
   window.open(url, '_blank', 'noopener,noreferrer');

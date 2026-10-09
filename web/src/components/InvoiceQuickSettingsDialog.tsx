@@ -49,14 +49,46 @@ type Props = {
   onShowPurchasePriceChange: (next: boolean) => void;
 };
 
+const PARTY_RESERVED = new Set([
+  'name', 'phone', 'email', 'gstin', 'address', 'state', 'city', 'pincode',
+]);
+
 function DefEditor({
   defs,
   onChange,
+  reserved = false,
+  onReject,
 }: {
   defs: ItemCustomFieldDef[];
   onChange: (next: ItemCustomFieldDef[]) => void;
+  reserved?: boolean;
+  onReject?: (message: string) => void;
 }) {
   const [label, setLabel] = useState('');
+  const add = () => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const fold = trimmed.toLowerCase();
+    if (defs.some((row) => row.active !== false && row.label.trim().toLowerCase() === fold)) {
+      onReject?.(t('billing.duplicateFieldLabel'));
+      return;
+    }
+    if (reserved && (PARTY_RESERVED.has(fold) || PARTY_RESERVED.has(suggestCustomFieldKey(trimmed).toLowerCase()))) {
+      onReject?.(t('billing.builtInPartyField'));
+      return;
+    }
+    const key = suggestCustomFieldKey(trimmed);
+    if (!key) return;
+    const used = new Set(defs.map((d) => d.key.toLowerCase()));
+    let n = 2;
+    let unique = key;
+    while (used.has(unique.toLowerCase())) {
+      unique = `${key}${n}`;
+      n += 1;
+    }
+    onChange([...defs, { key: unique, label: trimmed, type: 'text', active: true }]);
+    setLabel('');
+  };
   return (
     <Stack spacing={1}>
       {defs.filter((d) => d.active !== false).map((def) => (
@@ -83,19 +115,7 @@ function DefEditor({
           size="small"
           variant="outlined"
           disabled={!label.trim()}
-          onClick={() => {
-            const key = suggestCustomFieldKey(label);
-            if (!key) return;
-            const used = new Set(defs.map((d) => d.key.toLowerCase()));
-            let n = 2;
-            let unique = key;
-            while (used.has(unique.toLowerCase())) {
-              unique = `${key}${n}`;
-              n += 1;
-            }
-            onChange([...defs, { key: unique, label: label.trim(), type: 'text', active: true }]);
-            setLabel('');
-          }}
+          onClick={add}
         >
           {t('common.add')}
         </Button>
@@ -145,12 +165,19 @@ export function InvoiceQuickSettingsDialog({
   }
 
   const save = useMutation({
-    mutationFn: () =>
-      updateCompany({
+    mutationFn: () => {
+      const blocked = partyDefs.find(
+        (row) => row.active !== false && PARTY_RESERVED.has(row.label.trim().toLowerCase()),
+      );
+      if (blocked) {
+        return Promise.reject(new Error(t('billing.builtInPartyField')));
+      }
+      return updateCompany({
         invoiceCustomFieldDefs: invoiceDefs,
         partyCustomFieldDefs: partyDefs,
         showEmptySignatureBox,
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['company'] });
       onClose();
@@ -211,7 +238,7 @@ export function InvoiceQuickSettingsDialog({
               {t('nav.invoiceTemplates')}
             </Button>
             <Typography variant="subtitle2">{t('billing.invoiceCustomFields')}</Typography>
-            <DefEditor defs={invoiceDefs} onChange={setInvoiceDefs} />
+            <DefEditor defs={invoiceDefs} onChange={setInvoiceDefs} onReject={(message) => setError(message)} />
             <FormControlLabel
               control={
                 <Checkbox
@@ -231,7 +258,12 @@ export function InvoiceQuickSettingsDialog({
         {tab === 1 ? (
           <Stack spacing={2}>
             <Typography variant="subtitle2">{t('billing.partyCustomFields')}</Typography>
-            <DefEditor defs={partyDefs} onChange={setPartyDefs} />
+            <DefEditor
+              defs={partyDefs}
+              onChange={setPartyDefs}
+              reserved
+              onReject={(message) => setError(message)}
+            />
           </Stack>
         ) : null}
         {tab === 2 ? (

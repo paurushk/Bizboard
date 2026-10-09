@@ -15,7 +15,7 @@ import { ChequePaymentFields, type ChequePaymentValues } from '@/components/Cheq
 import { t } from '@/i18n';
 import type { PaymentMode, SalesInvoice } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
-import { todayIso } from '@/components/billing';
+import { todayIso } from '@/components/billing/lineHelpers';
 
 type Props = {
   invoice: SalesInvoice | null;
@@ -86,6 +86,7 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
 
   const chequeIncomplete =
     mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim());
+  const exceedsBalance = Number(amount) > due + 0.009;
 
   return (
     <Dialog
@@ -120,7 +121,9 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
             label={t('billing.amountReceived')}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            inputProps={{ min: 0.01, step: '0.01' }}
+            error={exceedsBalance}
+            helperText={exceedsBalance ? t('billing.paymentExceedsBalance') : undefined}
+            inputProps={{ min: 0.01, step: '0.01', max: due }}
           />
           <TextField
             size="small"
@@ -167,7 +170,7 @@ export function RecordInvoicePaymentDialog({ invoice, open, onClose, onSuccess }
         <Button onClick={onClose}>{t('common.cancel')}</Button>
         <Button
           variant="contained"
-          disabled={!invoice || !(Number(amount) > 0) || chequeIncomplete || mutation.isPending}
+          disabled={!invoice || !(Number(amount) > 0) || exceedsBalance || chequeIncomplete || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
           {t('history.recordPayment')}

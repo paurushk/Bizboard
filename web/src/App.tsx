@@ -176,6 +176,7 @@ const DayBookPage = lazy(() => import('@/pages/reports/DayBookPage').then((m) =>
 const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage').then((m) => ({ default: m.ExpensesPage })));
 const TdsTcsReportsPage = lazy(() => import('@/pages/reports/TdsTcsReportsPage').then((m) => ({ default: m.TdsTcsReportsPage })));
 const PublicPayPage = lazy(() => import('@/pages/public/PublicPayPage').then((m) => ({ default: m.PublicPayPage })));
+const PublicInvoicePage = lazy(() => import('@/pages/public/PublicInvoicePage').then((m) => ({ default: m.PublicInvoicePage })));
 const CustomerPortalRequestPage = lazy(() => import('@/pages/public/CustomerPortalRequestPage').then((m) => ({ default: m.CustomerPortalRequestPage })));
 const CustomerPortalPage = lazy(() => import('@/pages/public/CustomerPortalPage').then((m) => ({ default: m.CustomerPortalPage })));
 const BomsPage = lazy(() =>
@@ -401,6 +402,7 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/pay/:token" element={<PublicPayPage />} />
+        <Route path="/i/:token" element={<PublicInvoicePage />} />
         <Route path="/portal" element={<CustomerPortalRequestPage />} />
         <Route path="/portal/:token" element={<CustomerPortalPage />} />
         <Route path="/lead-form/:token" element={<LeadFormPage />} />

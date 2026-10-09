@@ -142,23 +142,25 @@ def build_styles():
     }
 
 
-# Column widths for item table (sum ≈ 170mm usable width on A4 with 20mm margins)
+# Column widths for the GST line grid (no separate tax column). Sum ≈ 186mm.
 COL_WIDTHS_TAX = [
-    10 * mm,   # S.No
-    52 * mm,   # Items
-    18 * mm,   # HSN
-    18 * mm,   # Qty
-    16 * mm,   # MRP
-    16 * mm,   # Rate
-    20 * mm,   # Tax
-    20 * mm,   # Amount
+    12 * mm,   # S.No
+    70 * mm,   # Items
+    22 * mm,   # HSN
+    20 * mm,   # Qty
+    18 * mm,   # MRP
+    22 * mm,   # Rate
+    22 * mm,   # Amount
 ]
 
-COL_WIDTHS_SIMPLE = [
-    10 * mm,
-    70 * mm,
+# Bill of Supply: same grid without the HSN column.
+COL_WIDTHS_SUPPLY = [
+    12 * mm,
+    92 * mm,
     20 * mm,
+    18 * mm,
     22 * mm,
-    24 * mm,
-    24 * mm,
+    22 * mm,
 ]
+
+COL_WIDTHS_SIMPLE = COL_WIDTHS_SUPPLY

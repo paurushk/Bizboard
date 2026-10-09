@@ -339,6 +339,7 @@ class CustomerViewSet(CompanyScopedViewSet):
             from ledgers.services import LedgerService
 
             context["outstanding_by_id"] = LedgerService.bulk_customer_outstanding(self.company)
+            context["credit_exposure_by_id"] = LedgerService.bulk_customer_credit_exposure(self.company)
         return context
 
     def destroy(self, request, *args, **kwargs):
@@ -443,6 +444,8 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
     def _bust_list_cache(self):
         super()._bust_list_cache()
         cache.delete(f"masters:hsn:{self.company.pk}")
+        for variant in ("cost", "nocost"):
+            cache.delete(f"masters:products:{self.company.pk}:{variant}")
 
     def get_permissions(self):
         if getattr(self, "action", None) in _MUTATE_ACTIONS:
@@ -567,7 +570,10 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         # Cache the unfiltered catalog; filtered lists stay live.
         if request.query_params:
             return super().list(request, *args, **kwargs)
-        key = f"masters:products:{self.company.pk}"
+        # The cached rows carry item cost only for people allowed to see it.
+        from core.permissions import can_see_product_cost
+
+        key = f"masters:products:{self.company.pk}:{'cost' if can_see_product_cost(request) else 'nocost'}"
         cached = cache.get(key)
         if cached is not None:
             return Response(cached)

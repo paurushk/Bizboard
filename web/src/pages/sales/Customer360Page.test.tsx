@@ -29,6 +29,7 @@ const resolvePaymentPromise = vi.fn(async (id: number) => ({ id, resolved: true 
 
 vi.mock('@/api/resources', () => ({
   repeatLastInvoice: vi.fn(),
+  listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
   listPaymentPromises: () => listPaymentPromises(),
   createPaymentPromise: (payload: Record<string, unknown>) => createPaymentPromise(payload),
   resolvePaymentPromise: (id: number) => resolvePaymentPromise(id),

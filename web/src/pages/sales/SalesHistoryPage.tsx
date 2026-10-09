@@ -62,7 +62,8 @@ import { t } from '@/i18n';
 import type { SalesInvoice } from '@/types/domain';
 import { printBlob, triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canCreateSales, canCancelDocuments } from '@/utils/permissions';
+import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
+import { canCreateSales, canCancelDocuments, canViewFinancialReports } from '@/utils/permissions';
 import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
 import { documentSearchQuery, shortDocumentNumber } from '@/utils/documentNumber';
 
@@ -86,6 +87,7 @@ export function SalesHistoryPage() {
   const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [active, setActive] = useState<SalesInvoice | null>(null);
   const [shareTarget, setShareTarget] = useState<SalesInvoice | null>(null);
+  const [profitTarget, setProfitTarget] = useState<SalesInvoice | null>(null);
   const [payTarget, setPayTarget] = useState<SalesInvoice | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [message, setMessage] = useState<string | null>(() => {
@@ -563,6 +565,16 @@ export function SalesHistoryPage() {
               </ListItemIcon>
               <ListItemText>{t('sweep2.printReceipt58')}</ListItemText>
             </MenuItem>
+            {canViewFinancialReports(user) ? (
+              <MenuItem
+                onClick={() => {
+                  if (active) setProfitTarget(active);
+                  closeMenu();
+                }}
+              >
+                <ListItemText>{t('invoiceDetail.profitDetails')}</ListItemText>
+              </MenuItem>
+            ) : null}
             <MenuItem
               onClick={() => {
                 if (active) setShareTarget(active);
@@ -637,6 +649,11 @@ export function SalesHistoryPage() {
           </MenuItem>
         ) : null}
       </Menu>
+      <ProfitDetailsDialog
+        open={Boolean(profitTarget)}
+        invoiceId={profitTarget?.id ?? null}
+        onClose={() => setProfitTarget(null)}
+      />
       <ShareInvoiceDialog
         open={Boolean(shareTarget)}
         invoiceId={shareTarget?.id ?? null}

@@ -3,7 +3,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { fillLineQty } from '../complete-gates/assertCompleteGate';
-import { loginAsOwner, loginAsOwnerStockBlock, loginAsOwnerWritesBlocked } from '../helpers/auth';
+import { loginAsOwner, loginAsOwnerStockBlock } from '../helpers/auth';
 
 /** The full-amount cash button. The split-tender button also matches /cash/ and stays disabled at ₹0. */
 function cashPay(page: Page) {
