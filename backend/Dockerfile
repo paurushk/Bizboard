@@ -1,7 +1,7 @@
 # R5-010/M1-030: pin the Debian release (bookworm) AND the digest for
 # reproducible base images — Dependabot's docker ecosystem (.github/dependabot.yml)
 # is configured to bump this digest as python:3.13-slim-bookworm moves.
-FROM python:3.13-slim-bookworm@sha256:5024f48ba9441d4b13a95d3945abc6365538e3a31109833367a1923523c6efed
+FROM python:3.14-slim-bookworm@sha256:48b13b003dda20b16f9442b8475aa05fe21bf6579a8c881db92ffb4d8fd20f83
 
 # BB-000521: uploaded media (PDF/images) are stored as-is — no antivirus/clamav scan
 # in this image. For production, run a separate AV pipeline or optional clamav profile.
