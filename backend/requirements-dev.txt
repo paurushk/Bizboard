@@ -10,6 +10,6 @@ pytest-django>=4.8
 pytest-cov>=7.1.0          # diff coverage + absolute coverage reporting
 pytest-randomly>=3.15    # randomised test order — surfaces inter-test state leakage
 pytest-socket>=0.7       # opt-in network ban (TESTS_NO_SOCKET=1)
-freezegun>=1.5           # opt-in frozen clock (TESTS_FREEZE_CLOCK=1)
+freezegun>=1.5.5           # opt-in frozen clock (TESTS_FREEZE_CLOCK=1)
 hypothesis>=6.168.3        # property-based tests (Phase 2 pure-function cores)
 diff-cover>=9.0          # "changed lines are not less covered than before" gate
