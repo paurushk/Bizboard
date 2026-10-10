@@ -192,7 +192,9 @@ export async function createInvoiceFromOpportunity(
   return unwrapData(data);
 }
 
-export async function createQuotationFromOpportunity(id: number): Promise<{ id: number; customer: number; opportunity: number }> {
+export async function createQuotationFromOpportunity(
+  id: number,
+): Promise<{ id: number; number?: string; customer: number; opportunity: number; grandTotal?: string; alreadyExists?: boolean }> {
   const { data } = await apiClient.post(`${BASE}/opportunities/${id}/quotation/`, {}, {
     headers: idempotencyHeaders(),
   });

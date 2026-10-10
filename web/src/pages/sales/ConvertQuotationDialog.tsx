@@ -47,7 +47,9 @@ export function ConvertQuotationDialog({
   const [qtyById, setQtyById] = useState<Record<number, number>>({});
   const [confirmExpired, setConfirmExpired] = useState(false);
 
-  const isExpired = Boolean(quotation?.validUntil && quotation.validUntil < todayIso());
+  const isExpired = quotation
+    ? (quotation.isExpired ?? Boolean(quotation.validUntil && quotation.validUntil < todayIso()))
+    : false;
 
   // Computed once per quotation change instead of re-deriving
   // remainingQuotationQty(line) at every call site (initial qty, canSubmit,
@@ -116,7 +118,7 @@ export function ConvertQuotationDialog({
                     onChange={(e) => setConfirmExpired(e.target.checked)}
                   />
                 }
-                label={`Quotation validity expired on ${quotation?.validUntil}. Confirm conversion at quoted prices.`}
+                label={t('phase1.quotationExpiredConfirm', { date: quotation?.validUntil ?? '' })}
               />
             </Alert>
           ) : null}

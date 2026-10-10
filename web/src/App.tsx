@@ -62,6 +62,7 @@ const SalesBillUploadPage = lazy(() => import('@/pages/sales/SalesBillUploadPage
 const SalesHistoryPage = lazy(() => import('@/pages/sales/SalesHistoryPage').then((m) => ({ default: m.SalesHistoryPage })));
 const InvoiceDetailPage = lazy(() => import('@/pages/sales/InvoiceDetailPage').then((m) => ({ default: m.InvoiceDetailPage })));
 const QuotationsPage = lazy(() => import('@/pages/sales/QuotationsPage').then((m) => ({ default: m.QuotationsPage })));
+const QuotationEditorPage = lazy(() => import('@/pages/sales/QuotationEditorPage').then((m) => ({ default: m.QuotationEditorPage })));
 const ReceiptsPage = lazy(() => import('@/pages/sales/ReceiptsPage').then((m) => ({ default: m.ReceiptsPage })));
 const CustomersPage = lazy(() => import('@/pages/sales/CustomersPage').then((m) => ({ default: m.CustomersPage })));
 const SalesReturnsPage = lazy(() => import('@/pages/sales/SalesReturnsPage').then((m) => ({ default: m.SalesReturnsPage })));
@@ -177,6 +178,7 @@ const ExpensesPage = lazy(() => import('@/pages/accounting/ExpensesPage').then((
 const TdsTcsReportsPage = lazy(() => import('@/pages/reports/TdsTcsReportsPage').then((m) => ({ default: m.TdsTcsReportsPage })));
 const PublicPayPage = lazy(() => import('@/pages/public/PublicPayPage').then((m) => ({ default: m.PublicPayPage })));
 const PublicInvoicePage = lazy(() => import('@/pages/public/PublicInvoicePage').then((m) => ({ default: m.PublicInvoicePage })));
+const PublicQuotationPage = lazy(() => import('@/pages/public/PublicQuotationPage').then((m) => ({ default: m.PublicQuotationPage })));
 const CustomerPortalRequestPage = lazy(() => import('@/pages/public/CustomerPortalRequestPage').then((m) => ({ default: m.CustomerPortalRequestPage })));
 const CustomerPortalPage = lazy(() => import('@/pages/public/CustomerPortalPage').then((m) => ({ default: m.CustomerPortalPage })));
 const BomsPage = lazy(() =>
@@ -403,6 +405,7 @@ export function App() {
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/pay/:token" element={<PublicPayPage />} />
         <Route path="/i/:token" element={<PublicInvoicePage />} />
+        <Route path="/q/:token" element={<PublicQuotationPage />} />
         <Route path="/portal" element={<CustomerPortalRequestPage />} />
         <Route path="/portal/:token" element={<CustomerPortalPage />} />
         <Route path="/lead-form/:token" element={<LeadFormPage />} />
@@ -414,7 +417,6 @@ export function App() {
             <Route path="reports/profit-loss" element={<Navigate to="/reports/profit-and-loss" replace />} />
             <Route path="accounting/chart-of-accounts" element={<Navigate to="/accounting/accounts" replace />} />
             <Route path="accounting/bank-recon" element={<Navigate to="/accounting/bank-reconciliation" replace />} />
-            <Route path="sales/quotations/new" element={<Navigate to="/sales/quotations?create=1" replace />} />
             <Route path="sales/returns/new" element={<Navigate to="/sales/returns?create=1" replace />} />
             <Route path="sales/challans" element={<Navigate to="/sales/delivery-challans" replace />} />
             <Route path="sales/challans/new" element={<Navigate to="/sales/delivery-challans/new" replace />} />
@@ -468,10 +470,12 @@ export function App() {
             {/* BB-000480: list & detail surfaces use view ACL; create stay on canCreateSales. */}
             <Route element={<RoleRoute allow={canViewSalesSurfaces} />}>
               <Route path="sales/quotations" element={<QuotationsPage />} />
-              <Route path="sales/quotations/:id" element={<QuotationsPage />} />
+              <Route path="sales/quotations/:id" element={<QuotationEditorPage />} />
+              <Route path="sales/quotations/:id/edit" element={<QuotationEditorPage />} />
               <Route path="sales/returns" element={<SalesReturnsPage />} />
             </Route>
             <Route element={<RoleRoute allow={canCreateSales} />}>
+              <Route path="sales/quotations/new" element={<QuotationEditorPage />} />
               <Route path="sales/credit-notes/:id" element={<CreditNoteEditor />} />
               <Route path="sales/debit-notes/:id" element={<DebitNoteEditor />} />
               <Route path="sales/orders/:id" element={<SalesOrderEditor />} />

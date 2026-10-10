@@ -400,6 +400,8 @@ export type EwayStatus = 'NONE' | 'READY' | 'GENERATED' | 'FAILED' | 'CANCELLED'
 
 export interface SalesInvoice extends DocumentTotals {
   id: number;
+  sourceQuotations?: SourceQuotation[];
+  sourceQuotationsDiffer?: boolean;
   number?: string | null;
   status: DocumentStatus;
   invoiceType: InvoiceType;
@@ -478,10 +480,59 @@ export interface SalesInvoice extends DocumentTotals {
   };
 }
 
+export interface QuotationConversion {
+  id: number;
+  target: 'ORDER' | 'INVOICE' | 'UNKNOWN';
+  documentId?: number | null;
+  documentNumber?: string | null;
+  documentStatus?: string | null;
+  quotationItem?: number | null;
+  product?: number | null;
+  quantity: string | number;
+  backfilled?: boolean;
+  createdAt?: string;
+  releasedAt?: string | null;
+  releaseReason?: string;
+}
+
+export type QuotationStatus = DocumentStatus | 'SENT' | 'ACCEPTED' | 'REJECTED';
+
+/** A quote a document was converted from (unreleased). The earliest is `primary`. */
+export interface SourceQuotation {
+  id: number;
+  number: string;
+  status: string;
+  salesman?: number | null;
+  salesmanName?: string;
+  salesChannel?: string;
+  deliveryAddress?: string;
+  primary: boolean;
+}
+
 export interface Quotation extends DocumentTotals {
   id: number;
   number?: string | null;
-  status: DocumentStatus;
+  status: QuotationStatus;
+  /** Decided by the server's date, so the badge never disagrees with convert. */
+  isExpired?: boolean;
+  conversionState?: 'NONE' | 'PARTIAL' | 'FULL' | 'CLOSED';
+  remainingTotal?: string | number;
+  cancelReason?: string;
+  conversions?: QuotationConversion[];
+  shortClosedAt?: string | null;
+  shortCloseReason?: string;
+  sentAt?: string | null;
+  copiedFrom?: number | null;
+  termsText?: string;
+  paymentTermsDays?: number;
+  additionalCharges?: string | number;
+  chargesHsn?: string;
+  chargesGstRate?: string | number;
+  invoiceDiscount?: string | number;
+  invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
+  autoRoundOff?: boolean;
+  supplyType?: SupplyType;
+  companyGstin?: number | null;
   invoiceType: InvoiceType;
   customer?: number | null;
   customerName?: string;
@@ -582,6 +633,8 @@ export interface SalesDebitNote extends DocumentTotals {
 
 export interface SalesOrder extends DocumentTotals {
   id: number;
+  sourceQuotations?: SourceQuotation[];
+  sourceQuotationsDiffer?: boolean;
   number?: string | null;
   status: DocumentStatus;
   customer: number;
@@ -959,7 +1012,7 @@ export interface DashboardKpis {
 
 export interface SearchResult {
   id: number | string;
-  type: 'invoice' | 'customer' | 'product' | 'supplier' | 'help';
+  type: 'invoice' | 'customer' | 'product' | 'supplier' | 'quotation' | 'help';
   title: string;
   subtitle?: string;
   path: string;

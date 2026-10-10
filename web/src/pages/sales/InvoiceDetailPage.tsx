@@ -59,6 +59,7 @@ import { primaryPostedAction } from '@/cognitive/loadHelpers';
 import { safePaymentHref } from '@/utils/safeUrl';
 import { DetailSkeleton, EmptyState, ErrorState } from '@/components/PageState';
 import { PdfStatusPoller } from '@/components/PdfStatusPoller';
+import { SourceQuotationsPanel } from '@/components/SourceQuotationsPanel';
 import { StatusChip } from '@/components/StatusChip';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { t, useLocale } from '@/i18n';
@@ -517,6 +518,9 @@ export function InvoiceDetailPage() {
             </Typography>
           </Stack>
           <Typography sx={{ mt: 1 }}>{inv.customerName}</Typography>
+          <Box sx={{ mt: 1 }}>
+            <SourceQuotationsPanel sources={inv.sourceQuotations} differ={inv.sourceQuotationsDiffer} />
+          </Box>
         </Box>
         <Stack direction="row" spacing={1}>
           {showAudit ? (

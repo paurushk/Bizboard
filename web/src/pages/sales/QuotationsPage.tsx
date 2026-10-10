@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -7,6 +7,7 @@ import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
 import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -15,355 +16,300 @@ import TableBody from '@mui/material/TableBody';
 import TableCell from '@mui/material/TableCell';
 import TableHead from '@mui/material/TableHead';
 import TableRow from '@mui/material/TableRow';
+import TableSortLabel from '@mui/material/TableSortLabel';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import DeleteIcon from '@mui/icons-material/Delete';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
+  cancelExpiredQuotations,
   cancelQuotation,
-  convertQuotation,
-  convertQuotationChain,
-  convertQuotationToOrder,
-  createCustomer,
-  createQuotation,
+  closeQuotationRemaining,
   downloadSalesDocumentPdf,
+  duplicateQuotation,
   getCompany,
-  getCustomer,
-  getQuotation,
   listQuotationsPage,
-  listSalesInvoicesPage,
-  updateQuotation,
+  quotationLifecycle,
+  reopenClosedQuotation,
+  type QuotationLifecycleAction,
 } from '@/api/resources';
-import { listEmployeesPage } from '@/api/payroll';
-import { todayIso } from '@/components/billing';
+import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import {
   EMPTY_HISTORY_FILTERS,
   HistoryFilterBar,
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
-import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { ShareQuotationDialog } from '@/components/ShareQuotationDialog';
 import { StatusChip } from '@/components/StatusChip';
-import { useProductCfFilters } from '@/hooks/useProductCfFilters';
-import { useProductSearch } from '@/hooks/useProductSearch';
-import { useCustomerSearch } from '@/hooks/usePartySearch';
-import { useAuth } from '@/auth/AuthContext';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { PageTitle } from '@/contextHelp';
+import { useCustomerSearch } from '@/hooks/usePartySearch';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useNotices } from '@/hooks/useNotices';
 import { t } from '@/i18n';
-import type { Customer, Product, Quotation } from '@/types/domain';
-import { preferredInvoiceType } from '@/onboarding/taxHints';
-import { formatMoney, expectedProfitAmount, toNumber } from '@/utils/money';
-import { canCreateSales } from '@/utils/permissions';
-import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { ConvertQuotationDialog } from '@/pages/sales/ConvertQuotationDialog';
-import { quotationHasRemainingAfterConvert, type ConvertLinePayload } from '@/utils/quotationConvert';
+import { useQuotationConvert } from '@/pages/sales/useQuotationConvert';
+import type { Customer, Quotation } from '@/types/domain';
 import { triggerBlobDownload } from '@/utils/blob';
-
-interface DraftLine {
-  key: string;
-  product: Product;
-  qty: number;
-  // F2-039: quotations always quoted the current catalog price with no way
-  // to negotiate/volume-price a line — the primary purpose of a quotation.
-  unitPrice: number;
-  discountPercent: number;
-  expectedPrice: number;
-}
-
-const emptyForm = { customer: null as Customer | null, lines: [] as DraftLine[] };
+import { formatMoney, toNumber } from '@/utils/money';
+import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
+import { isQuotationExpired, OPEN_QUOTATION_STATUSES } from '@/utils/quotationExpiry';
+import { documentStatusTone, statusLabelKey } from '@/utils/status';
 
 const PAGE_SIZE = 50;
+
+type ReasonKind = 'cancel' | 'reject' | 'reopen' | 'close' | 'reopen-closed';
+
+const REASON_TITLE: Record<ReasonKind, string> = {
+  cancel: 'common.cancel',
+  reject: 'phase1.quotationMarkRejected',
+  reopen: 'phase1.quotationReopen',
+  close: 'phase1.quotationCloseRemaining',
+  'reopen-closed': 'phase1.quotationReopenClosed',
+};
 
 export function QuotationsPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const canCreate = canCreateSales(user);
+  const canCancel = canCancelDocuments(user);
+  const isOwner = user?.role === 'OWNER';
+  useFeatureFlagEpoch();
+  const lifecycleOn = isRuntimeFlagEnabled('QUOTE_LIFECYCLE');
   const navigate = useNavigate();
-  const { id: editParam } = useParams();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const notices = useNotices();
+
+  // A page that sent the user here (the editor, a convert) can pass a message to show once.
+  const [flashDismissed, setFlashDismissed] = useState(false);
+  const flash = !flashDismissed ? ((location.state as { message?: string } | null)?.message ?? null) : null;
+
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const [filterCustomer, setFilterCustomer] = useState<Customer | null>(null);
+  const filterCustomerSearch = useCustomerSearch({ selected: filterCustomer });
+  // Sorting is done by the server so it covers every page, not just the one on screen.
+  const [sort, setSort] = useState<{ field: string; desc: boolean }>({ field: 'quotation_date', desc: true });
   const debouncedQ = useDebouncedValue(filters.q, 300);
-  const statusParam =
-    filters.status === 'OPEN'
-      ? 'DRAFT'
-      : filters.status === 'CLOSED'
-        ? 'CONVERTED'
-        : filters.status === 'CANCELLED'
-          ? 'CANCELLED'
-          : filters.status || undefined;
+  const expiredOnly = filters.status === 'EXPIRED';
+  const statusParam = expiredOnly ? undefined : filters.status === 'CLOSED' ? 'CONVERTED' : filters.status || undefined;
+
   const query = useQuery({
-    queryKey: ['quotations', page, statusParam, debouncedQ, filters.dateFrom, filters.dateTo],
+    queryKey: ['quotations', page, statusParam, expiredOnly, debouncedQ, filters.dateFrom, filters.dateTo, filterCustomer?.id ?? null, sort],
     queryFn: () =>
       listQuotationsPage({
         page,
         pageSize: PAGE_SIZE,
         status: statusParam,
+        expired: expiredOnly ? true : undefined,
         q: debouncedQ || undefined,
+        customer: filterCustomer?.id,
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
+        ordering: `${sort.desc ? '-' : ''}${sort.field}`,
       }),
   });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const employees = useQuery({ queryKey: ['employees-mini'], queryFn: async () => (await listEmployeesPage({ pageSize: 100 })).results });
-  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
-  const cf = useProductCfFilters();
-  const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
 
-  const [open, setOpen] = useState(false);
-  const [customer, setCustomer] = useState<Customer | null>(emptyForm.customer);
-  // F2-025: search-as-you-type instead of loading every customer up front.
-  const customerSearch = useCustomerSearch({ selected: customer });
-  // BUG-523: quotations were hardcoded to exactly one line item — this is
-  // now a real multi-line list, matching how invoices/purchases work.
-  const [lines, setLines] = useState<DraftLine[]>(emptyForm.lines);
-  const [pendingQty, setPendingQty] = useState('1');
-  const [pendingUnitPrice, setPendingUnitPrice] = useState('');
-  const [pendingDiscountPercent, setPendingDiscountPercent] = useState('0');
-  const [quotationDate, setQuotationDate] = useState(todayIso());
-  const [validUntil, setValidUntil] = useState('');
-  const [salesman, setSalesman] = useState('');
-  const [salesChannel, setSalesChannel] = useState('');
-  const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [isPartiallyConverted, setIsPartiallyConverted] = useState(false);
-  const [expectedProfit, setExpectedProfit] = useState<unknown>(null);
-  const [newPartyName, setNewPartyName] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ['quotations'] });
+    void qc.invalidateQueries({ queryKey: ['quotation'] });
+  };
 
-  // An inbound ?create=1 opens the dialog; the effect below then strips the param.
-  if (canCreate && searchParams.get('create') === '1' && !open) setOpen(true);
+  const convert = useQuotationConvert({ onDone: notices.success });
 
-  useEffect(() => {
-    if (!canCreate || searchParams.get('create') !== '1') return;
-    const next = new URLSearchParams(searchParams);
-    next.delete('create');
-    setSearchParams(next, { replace: true });
-  }, [canCreate, searchParams, setSearchParams]);
+  // ---- one reason dialog for cancel, reject, reopen, close remaining and reopen closed
+  const [reasonTarget, setReasonTarget] = useState<{ quotation: Quotation; kind: ReasonKind } | null>(null);
+  const [reason, setReason] = useState('');
+  const reasonRequired = reasonTarget != null && reasonTarget.kind !== 'cancel' && reasonTarget.kind !== 'reject';
+  const settle = (message: string) => {
+    setReasonTarget(null);
+    setReason('');
+    notices.success(message);
+    refresh();
+  };
+  const failWith = (err: unknown) => {
+    setReasonTarget(null);
+    notices.fail(getErrorMessage(err));
+  };
+  const cancelMutation = useMutation({
+    mutationFn: ({ id, text }: { id: number; text: string }) => cancelQuotation(id, text),
+    onSuccess: () => settle(t('phase1.quotationCancelled')),
+    onError: failWith,
+  });
+  const lifecycleMutation = useMutation({
+    mutationFn: ({ id, action, text }: { id: number; action: QuotationLifecycleAction; text?: string }) =>
+      quotationLifecycle(id, action, text),
+    onSuccess: () => settle(t('phase1.quotationStatusUpdated')),
+    onError: failWith,
+  });
+  const closeMutation = useMutation({
+    mutationFn: ({ id, text }: { id: number; text: string }) => closeQuotationRemaining(id, text),
+    onSuccess: () => settle(t('phase1.quotationStatusUpdated')),
+    onError: failWith,
+  });
+  const reopenClosedMutation = useMutation({
+    mutationFn: ({ id, text }: { id: number; text: string }) => reopenClosedQuotation(id, text),
+    onSuccess: () => settle(t('phase1.quotationStatusUpdated')),
+    onError: failWith,
+  });
+  const duplicateMutation = useMutation({
+    mutationFn: (id: number) => duplicateQuotation(id),
+    onSuccess: (copy) => {
+      refresh();
+      void navigate(`/sales/quotations/${copy.id}`, { state: { message: t('phase1.quotationDuplicated') } });
+    },
+    onError: (err) => notices.fail(getErrorMessage(err)),
+  });
+  const cancelExpiredMutation = useMutation({
+    mutationFn: cancelExpiredQuotations,
+    onSuccess: (res) => {
+      refresh();
+      const base = t('phase1.quotationCancelExpiredDone', { count: res.cancelled });
+      notices.success(
+        res.needsCloseRemaining.length > 0
+          ? `${base}. ${t('phase1.quotationNeedsClose', {
+              count: res.needsCloseRemaining.length,
+              numbers: res.needsCloseRemaining.map((row) => row.number || `#${row.id}`).join(', '),
+            })}`
+          : base,
+      );
+    },
+    onError: (err) => notices.fail(getErrorMessage(err)),
+  });
+  const [confirmCancelExpired, setConfirmCancelExpired] = useState(false);
 
-  useEffect(() => {
-    const id = Number(editParam);
-    if (!Number.isFinite(id) || id <= 0) return;
-    let cancelled = false;
-    void getQuotation(id)
-      .then(async (q) => {
-        if (cancelled) return;
-        setEditingId(q.id);
-        setOpen(true);
-        setQuotationDate(q.quotationDate || todayIso());
-        setValidUntil(q.validUntil ?? '');
-        setExpectedProfit(q.expectedProfit);
-        setSalesman(q.salesman ? String(q.salesman) : '');
-        setSalesChannel((q as { salesChannel?: string }).salesChannel ?? '');
-        setDeliveryAddress((q as { deliveryAddress?: string }).deliveryAddress ?? '');
-        setIsPartiallyConverted((q.items ?? []).some((item) => toNumber(item.convertedQuantity) > 0));
-        if (q.customer) {
-          try {
-            const c = await getCustomer(q.customer);
-            if (!cancelled) setCustomer(c);
-          } catch {
-            setCustomer({ id: q.customer, name: q.customerName ?? '', status: 'ACTIVE' });
-          }
-        }
-        setLines(
-          (q.items ?? []).map((item, idx) => ({
-            key: `edit-${item.id ?? idx}`,
-            product: {
-              id: item.product,
-              name: item.productName ?? '',
-              sku: '',
-              sellingPrice: item.unitPrice,
-              purchasePrice: (item as { expectedPrice?: string | number }).expectedPrice ?? 0,
-              gstRate: item.gstRate,
-              status: 'ACTIVE',
-            } as Product,
-            qty: toNumber(item.quantity),
-            unitPrice: toNumber(item.unitPrice),
-            discountPercent: toNumber(item.discountPercent),
-            expectedPrice: toNumber((item as { expectedPrice?: string | number }).expectedPrice),
-          })),
-        );
-      })
-      .catch((err) => setError(getErrorMessage(err)));
-    return () => {
-      cancelled = true;
-    };
-  }, [editParam]);
-
-  const resetDialog = () => {
-    setCustomer(null);
-    setLines([]);
-    setPendingProduct(null);
-    setPendingQty('1');
-    setPendingUnitPrice('');
-    setPendingDiscountPercent('0');
-    setQuotationDate(todayIso());
-    setValidUntil('');
-    setSalesman('');
-    setSalesChannel('');
-    setDeliveryAddress('');
-    setEditingId(null);
-    setIsPartiallyConverted(false);
-    setExpectedProfit(null);
-    setNewPartyName('');
-    productSearch.setProductQuery('');
-    if (editParam) {
-      void navigate('/sales/quotations', { replace: true });
+  const submitReason = () => {
+    if (!reasonTarget) return;
+    const id = reasonTarget.quotation.id;
+    const text = reason.trim();
+    switch (reasonTarget.kind) {
+      case 'cancel':
+        return cancelMutation.mutate({ id, text });
+      case 'reject':
+        return lifecycleMutation.mutate({ id, action: 'mark-rejected', text });
+      case 'reopen':
+        return lifecycleMutation.mutate({ id, action: 'reopen-for-changes', text });
+      case 'close':
+        return closeMutation.mutate({ id, text });
+      case 'reopen-closed':
+        return reopenClosedMutation.mutate({ id, text });
     }
   };
+  const reasonBusy =
+    cancelMutation.isPending || lifecycleMutation.isPending || closeMutation.isPending || reopenClosedMutation.isPending;
 
-  const addLine = () => {
-    if (!pendingProduct) return;
-    const qty = Math.max(0.001, toNumber(pendingQty) || 0.001);
-    const unitPrice = Math.max(0, toNumber(pendingUnitPrice) || 0);
-    const discountPercent = Math.min(100, Math.max(0, toNumber(pendingDiscountPercent) || 0));
-    setLines((prev) => [
-      ...prev,
-      { key: `${pendingProduct.id}-${Date.now()}`, product: pendingProduct, qty, unitPrice, discountPercent, expectedPrice: toNumber(pendingProduct.purchasePrice) },
-    ]);
-    setPendingProduct(null);
-    setPendingQty('1');
-    setPendingUnitPrice('');
-    setPendingDiscountPercent('0');
-  };
-
-  const updateLine = (key: string, patch: Partial<Pick<DraftLine, 'qty' | 'unitPrice' | 'discountPercent' | 'expectedPrice'>>) => {
-    setLines((prev) => prev.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-  };
-
-  const lineTotal = (l: DraftLine) => l.qty * l.unitPrice * (1 - l.discountPercent / 100);
-
-  const subtotal = lines.reduce((acc, l) => acc + lineTotal(l), 0);
-  const estimatedGst = lines.reduce(
-    (acc, l) => acc + lineTotal(l) * (toNumber(l.product.gstRate) / 100),
-    0,
-  );
-  const grandTotal = Math.round(subtotal + estimatedGst);
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      if (!customer?.id) throw new Error(t('billing.selectCustomerRequired', 'Select a customer before saving.'));
-      if (lines.length === 0) throw new Error('Add at least one product');
-      const payload = {
-        customer: customer.id,
-        quotationDate: editingId ? quotationDate : todayIso(),
-        validUntil: validUntil || null,
-        salesman: salesman ? Number(salesman) : null,
-        salesChannel,
-        deliveryAddress,
-        invoiceType: preferredInvoiceType(company.data?.registrationType),
-        items: lines.map((l) => ({
-          product: l.product.id,
-          quantity: l.qty,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent,
-          expectedPrice: l.expectedPrice,
-          gstRate: toNumber(l.product.gstRate),
-        })),
-      };
-      return editingId ? updateQuotation(editingId, payload) : createQuotation(payload);
-    },
-    onSuccess: () => {
-      setOpen(false);
-      setMessage(editingId ? t('phase1.saved') : 'Quotation created');
-      resetDialog();
-      void qc.invalidateQueries({ queryKey: ['quotations'] });
-    },
-    onError: (err) => setError(getErrorMessage(err)),
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: (id: number) => cancelQuotation(id),
-    onSuccess: () => {
-      setMessage(t('status.quotationCancelled', 'Quotation cancelled'));
-      void qc.invalidateQueries({ queryKey: ['quotations'] });
-    },
-    onError: (err) => setError(getErrorMessage(err)),
-  });
-
-  const [convertingId, setConvertingId] = useState<number | null>(null);
-  const [convertTarget, setConvertTarget] = useState<{
-    quotation: Quotation;
-    mode: 'invoice' | 'order';
-  } | null>(null);
-  const convertMutation = useMutation({
-    mutationFn: ({ id, items, confirmExpired }: { id: number; items: ConvertLinePayload[]; confirmExpired?: boolean }) =>
-      convertQuotation(id, { items, confirmExpired }),
-    onSuccess: async (invoice, vars) => {
-      const remaining = quotationHasRemainingAfterConvert(
-        convertTarget?.quotation.items ?? [],
-        vars.items,
-      );
-      setConvertingId(null);
-      setConvertTarget(null);
-      void qc.invalidateQueries({ queryKey: ['quotations'] });
-      if (remaining) {
-        setMessage(t('common.convertedPartialInvoice', { id: invoice.id }));
-        return;
-      }
-      const flash = `Converted to draft invoice #${invoice.id}`;
-      setMessage(flash);
-      try {
-        await qc.fetchQuery({
-          queryKey: ['sales-invoices'],
-          queryFn: () => listSalesInvoicesPage(),
-          staleTime: 0,
-        });
-      } catch {
-        void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
-      }
-      void navigate('/sales/history', { state: { message: flash } });
-    },
-    onError: (err) => {
-      setConvertingId(null);
-      setError(getErrorMessage(err));
-    },
-  });
-
-  const convertToOrderMutation = useMutation({
-    mutationFn: ({ id, items, confirmExpired }: { id: number; items: ConvertLinePayload[]; confirmExpired?: boolean }) =>
-      convertQuotationToOrder(id, { items, confirmExpired }),
-    onSuccess: async (order, vars) => {
-      const remaining = quotationHasRemainingAfterConvert(
-        convertTarget?.quotation.items ?? [],
-        vars.items,
-      );
-      setConvertingId(null);
-      setConvertTarget(null);
-      void qc.invalidateQueries({ queryKey: ['quotations'] });
-      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
-      if (remaining) {
-        setMessage(t('common.convertedPartialOrder', { id: order.id }));
-        return;
-      }
-      const flash = `Converted to draft sales order #${order.id}`;
-      setMessage(flash);
-      void navigate('/sales/orders', { state: { message: flash } });
-    },
-    onError: (err) => {
-      setConvertingId(null);
-      setError(getErrorMessage(err));
-    },
-  });
+  const [shareTarget, setShareTarget] = useState<Quotation | null>(null);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; quotation: Quotation } | null>(null);
 
   const quotations = query.data?.results ?? [];
+  const hasFilters = Boolean(filters.q || filters.status || filters.dateFrom || filters.dateTo || filterCustomer);
+  const clearFilters = () => {
+    setFilters(EMPTY_HISTORY_FILTERS);
+    setFilterCustomer(null);
+    filterCustomerSearch.setQuery('');
+    setPage(1);
+  };
+  const downloadPdf = (q: Quotation) => {
+    void downloadSalesDocumentPdf('quotation', q.id)
+      .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
+      .catch((err) => notices.fail(getErrorMessage(err)));
+  };
+  const sortHead = (field: string, label: string, align?: 'right') => (
+    <TableCell align={align} sortDirection={sort.field === field ? (sort.desc ? 'desc' : 'asc') : false}>
+      <TableSortLabel
+        active={sort.field === field}
+        direction={sort.desc ? 'desc' : 'asc'}
+        onClick={() => {
+          setSort((prev) => ({ field, desc: prev.field === field ? !prev.desc : field !== 'number' && field !== 'customer__name' }));
+          setPage(1);
+        }}
+      >
+        {label}
+      </TableSortLabel>
+    </TableCell>
+  );
+
+  const openReason = (quotation: Quotation, kind: ReasonKind) => {
+    setReason('');
+    setMenu(null);
+    setReasonTarget({ quotation, kind });
+  };
+
+  const menuQuote = menu?.quotation ?? null;
+  const menuItems = (() => {
+    if (!menuQuote) return [];
+    const q = menuQuote;
+    const items: Array<{ label: string; onClick: () => void; tone?: 'error' }> = [];
+    const noneConverted = (q.items ?? []).every((it) => toNumber(it.convertedQuantity) === 0);
+    const closed = Boolean(q.shortClosedAt);
+    if (q.status !== 'CANCELLED' && q.status !== 'REJECTED' && canCreate) {
+      items.push({ label: t('phase1.quotationShare'), onClick: () => { setMenu(null); setShareTarget(q); } });
+    }
+    if (canCreate) {
+      items.push({
+        label: t('phase1.quotationDuplicate'),
+        onClick: () => { setMenu(null); duplicateMutation.mutate(q.id); },
+      });
+    }
+    if (lifecycleOn && canCreate && !closed) {
+      if (q.status === 'DRAFT') {
+        items.push({ label: t('phase1.quotationMarkSent'), onClick: () => { setMenu(null); notices.clear(); lifecycleMutation.mutate({ id: q.id, action: 'mark-sent' }); } });
+      }
+      if (q.status === 'SENT') {
+        items.push({ label: t('phase1.quotationMarkAccepted'), onClick: () => { setMenu(null); notices.clear(); lifecycleMutation.mutate({ id: q.id, action: 'mark-accepted' }); } });
+        items.push({ label: t('phase1.quotationMarkRejected'), onClick: () => openReason(q, 'reject') });
+      }
+      if (['SENT', 'ACCEPTED', 'REJECTED'].includes(q.status)) {
+        items.push({ label: t('phase1.quotationReopen'), onClick: () => openReason(q, 'reopen') });
+      }
+    }
+    if (canCancel && OPEN_QUOTATION_STATUSES.includes(q.status) && !closed && !noneConverted) {
+      items.push({ label: t('phase1.quotationCloseRemaining'), onClick: () => openReason(q, 'close') });
+    }
+    if (isOwner && closed) {
+      items.push({ label: t('phase1.quotationReopenClosed'), onClick: () => openReason(q, 'reopen-closed') });
+    }
+    if (canCancel && q.status === 'DRAFT' && noneConverted) {
+      items.push({ label: t('common.cancel'), tone: 'error', onClick: () => openReason(q, 'cancel') });
+    }
+    return items;
+  })();
+
+  // Old links used ?create=1 to open the editor; it is a page now.
+  if (canCreate && searchParams.get('create') === '1') {
+    return <Navigate to="/sales/quotations/new" replace />;
+  }
 
   return (
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.quotations')}</PageTitle>
-        {canCreate ? (
-          <Button variant="contained" onClick={() => setOpen(true)}>
-            {t('phase1.newQuotation')}
-          </Button>
-        ) : null}
+        <Stack direction="row" spacing={1}>
+          {canCancel && expiredOnly && quotations.length > 0 ? (
+            <Button variant="outlined" color="warning" onClick={() => setConfirmCancelExpired(true)}>
+              {t('phase1.quotationCancelExpired')}
+            </Button>
+          ) : null}
+          {canCreate ? (
+            <Button variant="contained" onClick={() => void navigate('/sales/quotations/new')}>
+              {t('phase1.newQuotation')}
+            </Button>
+          ) : null}
+        </Stack>
       </Stack>
-      {message ? <Alert severity="success">{message}</Alert> : null}
-      {error ? <HelpErrorAlert message={error} /> : null}
+      {flash ? (
+        <Alert severity="success" onClose={() => setFlashDismissed(true)}>
+          {flash}
+        </Alert>
+      ) : null}
+      {notices.message ? <Alert severity="success" onClose={notices.clear}>{notices.message}</Alert> : null}
+      {notices.error ? <HelpErrorAlert message={notices.error} /> : null}
       <HistoryFilterBar
         value={filters}
         onChange={(next) => {
@@ -373,37 +319,74 @@ export function QuotationsPage() {
         dateRangePresets
         statusOptions={[
           { value: 'OPEN', label: t('status.OPEN') },
+          { value: 'EXPIRED', label: t('status.EXPIRED') },
           { value: 'CLOSED', label: t('status.converted') },
-          { value: 'CANCELLED', label: t('status.cancelled', 'Cancelled') },
+          ...(lifecycleOn
+            ? [
+                { value: 'SENT', label: t('status.SENT') },
+                { value: 'ACCEPTED', label: t('status.ACCEPTED') },
+                { value: 'REJECTED', label: t('status.REJECTED') },
+              ]
+            : []),
+          { value: 'CANCELLED', label: t('status.cancelled') },
         ]}
+        party={
+          <Autocomplete
+            size="small"
+            sx={{ minWidth: 200 }}
+            options={filterCustomerSearch.options}
+            filterOptions={(options) => options}
+            loading={filterCustomerSearch.isFetching}
+            value={filterCustomer}
+            isOptionEqualToValue={(option, value) => option.id === value.id}
+            getOptionLabel={(option) => option.name}
+            noOptionsText={t('common.noResults')}
+            onInputChange={(_, value, why) => {
+              if (why === 'input') filterCustomerSearch.setQuery(value);
+              if (why === 'clear') filterCustomerSearch.setQuery('');
+            }}
+            onChange={(_, option) => {
+              setFilterCustomer(option);
+              setPage(1);
+            }}
+            renderInput={(params) => <TextField {...params} label={t('billing.customer')} />}
+          />
+        }
       />
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {quotations.length === 0 && query.isSuccess ? <EmptyState description={t('empty.quotations')} /> : null}
+      {quotations.length === 0 && query.isSuccess ? (
+        hasFilters ? (
+          <EmptyState
+            description={t('phase1.quotationNoMatch')}
+            action={<Button onClick={clearFilters}>{t('common.clearFilters')}</Button>}
+          />
+        ) : (
+          <EmptyState description={t('empty.quotations')} />
+        )
+      ) : null}
       {quotations.length > 0 ? (
         <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell>{t('common.number')}</TableCell>
-                <TableCell>{t('common.date')}</TableCell>
-                <TableCell>{t('billing.validUntil', 'Valid Until')}</TableCell>
-                <TableCell>{t('billing.customer')}</TableCell>
+                {sortHead('number', t('common.number'))}
+                {sortHead('quotation_date', t('common.date'))}
+                {sortHead('valid_until', t('billing.validUntil'))}
+                {sortHead('customer__name', t('billing.customer'))}
                 <TableCell>{t('common.status')}</TableCell>
-                <TableCell align="right">{t('common.total')}</TableCell>
+                {sortHead('grand_total', t('common.total'), 'right')}
                 <TableCell />
               </TableRow>
             </TableHead>
             <TableBody>
               {quotations.map((q) => {
-                const isExpired = Boolean(q.validUntil && q.validUntil < todayIso());
-                const isConvertible = q.status === 'DRAFT' && canCreate;
-                const canCancel =
-                  isConvertible &&
-                  (q.items ?? []).every((it) => toNumber((it as { convertedQuantity?: number | string }).convertedQuantity) === 0);
-
+                const expired = isQuotationExpired(q);
+                const closed = Boolean(q.shortClosedAt);
+                const canConvert = OPEN_QUOTATION_STATUSES.includes(q.status) && canCreate && !closed;
+                const busy = convert.pending && convert.busyId === q.id;
                 return (
                   <TableRow key={q.id}>
                     <TableCell>{q.number ?? '—'}</TableCell>
@@ -412,9 +395,9 @@ export function QuotationsPage() {
                       {q.validUntil ? (
                         <Stack direction="row" spacing={0.5} alignItems="center">
                           <span>{q.validUntil}</span>
-                          {isExpired && q.status === 'DRAFT' ? (
+                          {expired ? (
                             <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 'bold' }}>
-                              ({t('status.expired', 'Expired')})
+                              ({t('status.EXPIRED')})
                             </Typography>
                           ) : null}
                         </Stack>
@@ -424,91 +407,59 @@ export function QuotationsPage() {
                     </TableCell>
                     <TableCell>{q.customerName ?? '—'}</TableCell>
                     <TableCell>
-                      <StatusChip
-                        tone={documentStatusTone(q.status)}
-                        labelKey={statusLabelKey(q.status)}
-                      />
+                      <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" useFlexGap>
+                        <StatusChip tone={documentStatusTone(q.status)} labelKey={statusLabelKey(q.status)} />
+                        {q.conversionState === 'PARTIAL' ? (
+                          <Typography variant="caption" color="text.secondary">
+                            {t('phase1.quotationPartlyConverted')}
+                            {q.remainingTotal != null ? ` · ${t('phase1.quotationRemaining')} ${formatMoney(q.remainingTotal)}` : ''}
+                          </Typography>
+                        ) : null}
+                        {closed ? (
+                          <Typography variant="caption" color="warning.main" title={q.shortCloseReason}>
+                            {t('phase1.quotationClosedChip')}
+                          </Typography>
+                        ) : null}
+                        {q.sentAt && q.status === 'DRAFT' ? (
+                          <Typography variant="caption" color="text.secondary">
+                            {t('phase1.quotationSentOn', { date: q.sentAt.slice(0, 10) })}
+                          </Typography>
+                        ) : null}
+                      </Stack>
                     </TableCell>
                     <TableCell align="right">{formatMoney(q.grandTotal)}</TableCell>
                     <TableCell align="right">
-                      {isConvertible ? (
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => {
-                              void downloadSalesDocumentPdf('quotation', q.id)
-                                .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
-                                .catch((err) => setError(getErrorMessage(err)));
-                            }}
-                          >
-                            {t('common.download')}
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="text"
-                            onClick={() => navigate(`/sales/quotations/${q.id}`)}
-                          >
-                            {t('common.edit')}
-                          </Button>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            disabled={
-                              (convertMutation.isPending || convertToOrderMutation.isPending) &&
-                              convertingId === q.id
-                            }
-                            onClick={() => {
-                              setError(null);
-                              setConvertingId(q.id);
-                              setConvertTarget({ quotation: q, mode: 'order' });
-                            }}
-                          >
-                            {t('common.toOrder')}
-                          </Button>
-                          <Button
-                            size="small"
-                            disabled={
-                              (convertMutation.isPending || convertToOrderMutation.isPending) &&
-                              convertingId === q.id
-                            }
-                            onClick={() => {
-                              setError(null);
-                              setConvertingId(q.id);
-                              setConvertTarget({ quotation: q, mode: 'invoice' });
-                            }}
-                          >
-                            {t('common.convert')}
-                          </Button>
-                          {canCancel ? (
-                            <Button
-                              size="small"
-                              color="error"
-                              variant="text"
-                              disabled={cancelMutation.isPending}
-                              onClick={() => {
-                                if (window.confirm(t('common.confirmCancelQuotation', 'Are you sure you want to cancel this quotation?'))) {
-                                  cancelMutation.mutate(q.id);
-                                }
-                              }}
-                            >
-                              {t('common.cancel')}
-                            </Button>
-                          ) : null}
-                        </Stack>
-                      ) : (
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => {
-                            void downloadSalesDocumentPdf('quotation', q.id)
-                              .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
-                              .catch((err) => setError(getErrorMessage(err)));
-                          }}
-                        >
+                      <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+                        <Button size="small" variant="text" onClick={() => downloadPdf(q)}>
                           {t('common.download')}
                         </Button>
-                      )}
+                        {q.status === 'DRAFT' && canCreate ? (
+                          <Button size="small" variant="text" onClick={() => void navigate(`/sales/quotations/${q.id}/edit`)}>
+                            {t('common.edit')}
+                          </Button>
+                        ) : (
+                          <Button size="small" variant="text" onClick={() => void navigate(`/sales/quotations/${q.id}`)}>
+                            {t('common.view')}
+                          </Button>
+                        )}
+                        {canConvert ? (
+                          <>
+                            <Button size="small" variant="outlined" disabled={busy} onClick={() => { notices.clear(); convert.open(q, 'order'); }}>
+                              {t('common.toOrder')}
+                            </Button>
+                            <Button size="small" disabled={busy} onClick={() => { notices.clear(); convert.open(q, 'invoice'); }}>
+                              {t('common.convert')}
+                            </Button>
+                          </>
+                        ) : null}
+                        <IconButton
+                          size="small"
+                          aria-label={t('common.moreActions')}
+                          onClick={(e) => setMenu({ anchor: e.currentTarget, quotation: q })}
+                        >
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
                     </TableCell>
                   </TableRow>
                 );
@@ -521,339 +472,95 @@ export function QuotationsPage() {
         <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
           <Typography variant="body2" color="text.secondary">
             {t('common.page')} {page}
+            {query.data.count != null ? ` · ${query.data.count}` : ''}
           </Typography>
           <Button variant="outlined" size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
             {t('common.previous')}
           </Button>
-          <Button
-            variant="outlined"
-            size="small"
-            disabled={!query.data.next}
-            onClick={() => setPage((p) => p + 1)}
-          >
+          <Button variant="outlined" size="small" disabled={!query.data.next} onClick={() => setPage((p) => p + 1)}>
             {t('common.next')}
           </Button>
         </Stack>
       ) : null}
 
-      <Dialog
-        open={open}
-        onClose={() => {
-          setOpen(false);
-          resetDialog();
-        }}
-        fullWidth
-        maxWidth="md"
-      >
-        <DialogTitle>{editingId ? t('common.edit') : t('phase1.newQuotation')}</DialogTitle>
+      <Menu anchorEl={menu?.anchor ?? null} open={menu != null && menuItems.length > 0} onClose={() => setMenu(null)}>
+        {menuItems.map((item) => (
+          <MenuItem key={item.label} onClick={item.onClick} sx={item.tone === 'error' ? { color: 'error.main' } : undefined}>
+            {item.label}
+          </MenuItem>
+        ))}
+      </Menu>
+
+      <Dialog open={reasonTarget != null} onClose={() => setReasonTarget(null)} aria-labelledby="quotation-reason-title">
+        <DialogTitle id="quotation-reason-title">
+          {reasonTarget ? t(REASON_TITLE[reasonTarget.kind]) : ''} {reasonTarget?.quotation.number ?? ''}
+        </DialogTitle>
         <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            {error ? <HelpErrorAlert message={error} /> : null}
-            {isPartiallyConverted ? (
-              <Alert severity="info">
-                {t('billing.quotationLinesLocked', 'Line items are locked because this quotation has already been partially converted.')}
-              </Alert>
-            ) : null}
-            <Autocomplete
-              options={customerSearch.options}
-              getOptionLabel={(o) => o.name}
-              filterOptions={(opts) => opts}
-              value={customer}
-              disabled={!canCreate}
-              onChange={(_, v) => {
-                setCustomer(v);
-                if (v && !deliveryAddress) {
-                  setDeliveryAddress((v as Customer & { shippingAddress?: string }).shippingAddress ?? '');
-                }
-              }}
-              onInputChange={(_, v) => customerSearch.setQuery(v)}
-              loading={customerSearch.isFetching}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  required
-                  label={t('billing.customer')}
-                  helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
-                />
-              )}
-            />
-            {canCreate ? (
-              <Stack direction="row" spacing={1}>
-                <TextField
-                  size="small"
-                  label={t('billing.addParty')}
-                  value={newPartyName}
-                  onChange={(e) => setNewPartyName(e.target.value)}
-                />
-                <Button
-                  size="small"
-                  disabled={!newPartyName.trim()}
-                  onClick={() => {
-                    void createCustomer({ name: newPartyName.trim(), status: 'ACTIVE' }).then((c) => {
-                      setCustomer(c);
-                      setNewPartyName('');
-                    }).catch((err) => setError(getErrorMessage(err)));
-                  }}
-                >
-                  {t('common.add')}
-                </Button>
-              </Stack>
-            ) : null}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                type="date"
-                size="small"
-                sx={{ flex: 1 }}
-                label={t('common.date', 'Quotation Date')}
-                InputLabelProps={{ shrink: true }}
-                value={quotationDate}
-                disabled={!canCreate}
-                onChange={(e) => setQuotationDate(e.target.value)}
-              />
-              <TextField
-                type="date"
-                size="small"
-                sx={{ flex: 1 }}
-                label={t('billing.validUntil')}
-                InputLabelProps={{ shrink: true }}
-                value={validUntil}
-                disabled={!canCreate}
-                onChange={(e) => setValidUntil(e.target.value)}
-              />
-            </Stack>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                select
-                size="small"
-                sx={{ flex: 1 }}
-                label={t('billing.salesman')}
-                value={salesman}
-                disabled={!canCreate}
-                onChange={(e) => setSalesman(e.target.value)}
-              >
-                <MenuItem value="">{t('common.all')}</MenuItem>
-                {(employees.data ?? []).map((emp) => (
-                  <MenuItem key={emp.id} value={emp.id}>{emp.name}</MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                select
-                size="small"
-                sx={{ flex: 1 }}
-                label={t('billing.salesChannel')}
-                value={salesChannel}
-                disabled={!canCreate}
-                onChange={(e) => setSalesChannel(e.target.value)}
-              >
-                <MenuItem value="">{t('common.all')}</MenuItem>
-                <MenuItem value="WALK_IN">{t('billing.channelWalkIn')}</MenuItem>
-                <MenuItem value="ONLINE">{t('billing.channelOnline')}</MenuItem>
-                <MenuItem value="DISTRIBUTOR">{t('billing.channelDistributor')}</MenuItem>
-              </TextField>
-            </Stack>
-            <TextField
-              size="small"
-              multiline
-              minRows={2}
-              label={t('billing.deliveryAddress')}
-              value={deliveryAddress}
-              disabled={!canCreate}
-              onChange={(e) => setDeliveryAddress(e.target.value)}
-            />
-            {expectedProfitAmount(expectedProfit) != null ? (
-              <Typography variant="body2" color="text.secondary">
-                {t('billing.expectedProfit')}: {formatMoney(expectedProfitAmount(expectedProfit))}
-              </Typography>
-            ) : null}
-
-            {lines.length > 0 ? (
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>{t('nav.products')}</TableCell>
-                    <TableCell align="right">{t('billing.qty')}</TableCell>
-                    <TableCell align="right">{t('billing.unitPrice')}</TableCell>
-                    <TableCell align="right">{t('billing.expectedPrice', 'Est. Cost')}</TableCell>
-                    <TableCell align="right">{t('billing.discountPercent')}</TableCell>
-                    <TableCell align="right">{t('common.total')}</TableCell>
-                    <TableCell />
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {lines.map((l) => (
-                    <TableRow key={l.key}>
-                      <TableCell>{l.product.name}</TableCell>
-                      <TableCell align="right">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={l.qty}
-                          disabled={isPartiallyConverted || !canCreate}
-                          onChange={(e) => updateLine(l.key, { qty: Math.max(0.001, toNumber(e.target.value) || 0.001) })}
-                          sx={{ width: 90 }}
-                          inputProps={{ min: 0.001, step: 'any', 'aria-label': t('billing.qty') }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={l.unitPrice}
-                          disabled={isPartiallyConverted || !canCreate}
-                          onChange={(e) => updateLine(l.key, { unitPrice: Math.max(0, toNumber(e.target.value) || 0) })}
-                          sx={{ width: 100 }}
-                          inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.unitPrice') }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={l.expectedPrice}
-                          disabled={isPartiallyConverted || !canCreate}
-                          onChange={(e) => updateLine(l.key, { expectedPrice: Math.max(0, toNumber(e.target.value) || 0) })}
-                          sx={{ width: 100 }}
-                          inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.expectedPrice') }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <TextField
-                          size="small"
-                          type="number"
-                          value={l.discountPercent}
-                          disabled={isPartiallyConverted || !canCreate}
-                          onChange={(e) =>
-                            updateLine(l.key, {
-                              discountPercent: Math.min(100, Math.max(0, toNumber(e.target.value) || 0)),
-                            })
-                          }
-                          sx={{ width: 80 }}
-                          inputProps={{ min: 0, max: 100, step: '0.01', 'aria-label': t('billing.discountPercent') }}
-                        />
-                      </TableCell>
-                      <TableCell align="right">{formatMoney(lineTotal(l))}</TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          size="small"
-                          aria-label={t('common.remove')}
-                          disabled={isPartiallyConverted || !canCreate}
-                          onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            ) : null}
-
-            {canCreate && !isPartiallyConverted ? (
-              <Stack spacing={1}>
-                {cf.filterBar}
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Autocomplete
-                    sx={{ flex: 1 }}
-                    options={productSearch.options}
-                    loading={productSearch.isFetching}
-                    filterOptions={(opts) => opts}
-                    inputValue={productSearch.productQuery}
-                    onInputChange={(_, v, reason) => {
-                      if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
-                    }}
-                    getOptionLabel={(o) => `${o.name} · ${o.sku}`}
-                    value={pendingProduct}
-                    onChange={(_, v) => {
-                      setPendingProduct(v);
-                      setPendingUnitPrice(v ? String(toNumber(v.sellingPrice)) : '');
-                    }}
-                    renderInput={(params) => (
-                      <TextField
-                        {...params}
-                        label={t('nav.products')}
-                        helperText={productSearch.helperText}
-                      />
-                    )}
-                  />
-                  <TextField
-                    type="number"
-                    label={t('billing.qty')}
-                    value={pendingQty}
-                    onChange={(e) => setPendingQty(e.target.value)}
-                    sx={{ width: 100 }}
-                    inputProps={{ min: 0.001, step: 'any' }}
-                  />
-                  <TextField
-                    type="number"
-                    label={t('billing.unitPrice')}
-                    value={pendingUnitPrice}
-                    onChange={(e) => setPendingUnitPrice(e.target.value)}
-                    sx={{ width: 110 }}
-                    inputProps={{ min: 0, step: '0.01' }}
-                  />
-                  <TextField
-                    type="number"
-                    label={t('billing.discountPercent')}
-                    value={pendingDiscountPercent}
-                    onChange={(e) => setPendingDiscountPercent(e.target.value)}
-                    sx={{ width: 90 }}
-                    inputProps={{ min: 0, max: 100, step: '0.01' }}
-                  />
-                  <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>
-                    {t('common.add')}
-                  </Button>
-                </Stack>
-              </Stack>
-            ) : null}
-
-            {lines.length > 0 ? (
-              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
-                <Stack spacing={0.5} alignItems="flex-end">
-                  <Typography variant="body2">{t('common.subtotal', 'Subtotal')}: {formatMoney(subtotal)}</Typography>
-                  <Typography variant="body2" color="text.secondary">{t('billing.estimatedTax', 'Est. GST')}: {formatMoney(estimatedGst)}</Typography>
-                  <Typography variant="subtitle1" fontWeight="bold">{t('common.total', 'Total')}: {formatMoney(grandTotal)}</Typography>
-                </Stack>
-              </Paper>
-            ) : null}
-          </Stack>
+          {reasonTarget?.kind === 'cancel' ? (
+            <Typography variant="body2" sx={{ mb: 2 }}>{t('phase1.confirmCancelQuotation')}</Typography>
+          ) : null}
+          {reasonTarget?.kind === 'close' ? (
+            <Typography variant="body2" sx={{ mb: 2 }}>{t('phase1.quotationCloseHelp')}</Typography>
+          ) : null}
+          <TextField
+            fullWidth
+            size="small"
+            autoFocus
+            required={reasonRequired}
+            label={reasonRequired ? t('phase1.quotationReasonLabel') : t('phase1.quotationCancelReason')}
+            value={reason}
+            inputProps={{ maxLength: 500 }}
+            onChange={(e) => setReason(e.target.value)}
+          />
         </DialogContent>
         <DialogActions>
+          <Button onClick={() => setReasonTarget(null)}>{t('common.close')}</Button>
           <Button
-            onClick={() => {
-              setOpen(false);
-              resetDialog();
-            }}
+            color={reasonTarget?.kind === 'cancel' ? 'error' : 'primary'}
+            variant="contained"
+            disabled={reasonBusy || (reasonRequired && !reason.trim())}
+            onClick={submitReason}
           >
-            {t('common.cancel')}
+            {reasonTarget?.kind === 'cancel' ? t('common.cancel') : t('common.confirm')}
           </Button>
-          {canCreate ? (
-            <Button
-              variant="contained"
-              disabled={!customer || lines.length === 0 || createMutation.isPending}
-              onClick={() => createMutation.mutate()}
-            >
-              {t('common.save')}
-            </Button>
-          ) : null}
         </DialogActions>
       </Dialog>
+
+      <Dialog open={confirmCancelExpired} onClose={() => setConfirmCancelExpired(false)}>
+        <DialogTitle>{t('phase1.quotationCancelExpired')}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">{t('phase1.quotationCancelExpiredConfirm')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmCancelExpired(false)}>{t('common.close')}</Button>
+          <Button
+            color="warning"
+            variant="contained"
+            disabled={cancelExpiredMutation.isPending}
+            onClick={() => {
+              setConfirmCancelExpired(false);
+              cancelExpiredMutation.mutate();
+            }}
+          >
+            {t('common.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <ShareQuotationDialog
+        open={shareTarget != null}
+        quotation={shareTarget ? { id: shareTarget.id, number: shareTarget.number } : null}
+        companyName={company.data?.name ?? ''}
+        onClose={() => setShareTarget(null)}
+        onShared={refresh}
+      />
       <ConvertQuotationDialog
-        quotation={convertTarget?.quotation ?? null}
-        mode={convertTarget?.mode ?? null}
-        pending={convertMutation.isPending || convertToOrderMutation.isPending}
-        error={error}
-        onClose={() => {
-          setConvertTarget(null);
-          setConvertingId(null);
-        }}
-        onConfirm={(items, confirmExpired) => {
-          if (!convertTarget) return;
-          if (convertTarget.mode === 'order') {
-            convertToOrderMutation.mutate({ id: convertTarget.quotation.id, items, confirmExpired });
-          } else {
-            convertMutation.mutate({ id: convertTarget.quotation.id, items, confirmExpired });
-          }
-        }}
+        quotation={convert.target?.quotation ?? null}
+        mode={convert.target?.mode ?? null}
+        pending={convert.pending}
+        error={convert.error}
+        onClose={convert.close}
+        onConfirm={convert.confirm}
       />
     </Stack>
   );

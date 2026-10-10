@@ -694,6 +694,17 @@ const MORE_FAQ: FaqItem[] = [
   ),
   faq(
     'sales-return',
+  faq(
+    'quotation-partial-close',
+    'Quotations, orders & challans',
+    'What if only part of a quotation is converted and the rest is dropped?',
+    ['partial quotation', 'close remaining', 'short close', 'expired quotation', 'cancel quotation'],
+    [
+      'A quotation that is partly converted cannot be cancelled, because orders or invoices already hold part of it. Open the row menu and choose **Close remaining** with a reason. The unconverted quantity stops counting, and the quotation shows as closed. An owner can reopen it.',
+      'When a quotation is converted in parts, the additional charges and invoice discount are shared by value. GST is worked out on each invoice, so it can differ from the quotation by a paisa.',
+      'A quotation takes its number when it is created, so deleting a draft leaves a gap in the numbers.',
+    ],
+  ),
     'Returns & notes',
     'How do sales returns work?',
     ['sales return', 'srn', 'goods back', 'return against invoice'],

@@ -96,12 +96,9 @@ export function NumericField({
         }
         const n = Number(raw);
         if (!Number.isFinite(n)) return;
-        // F2-031: apply the same `decimals` rounding here as onBlur does, so the
-        // value the parent (and the tax preview) sees mid-edit matches what
-        // snaps back on blur — no brief unrounded rate/qty feeding totals.
-        let clamped = Math.max(min, n);
-        if (max != null) clamped = Math.min(max, clamped);
-        onValueChange(decimals != null ? roundMoney(clamped) : clamped);
+        // F2-031: use the same clamp and `decimals` rounding as onBlur, so the value the
+        // parent (and the tax preview) sees mid-edit matches what snaps back on blur.
+        onValueChange(parseNumericText(raw, { min, max, emptyAs, decimals }));
       }}
       inputProps={{ inputMode: 'decimal', ...inputProps }}
       InputProps={InputProps}

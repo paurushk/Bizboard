@@ -30,12 +30,12 @@ import {
   getCustomer,
   getProduct,
   getSalesOrder,
+  searchSalespeople,
   listStock,
   updateSalesOrder,
 } from '@/api/resources';
 import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
 import { useAuth } from '@/auth/AuthContext';
-import { listEmployeesPage } from '@/api/payroll';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import {
   DocumentEditorShell,
@@ -49,6 +49,7 @@ import {
 } from '@/components/billing';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { SourceQuotationsPanel } from '@/components/SourceQuotationsPanel';
 import { StatusChip } from '@/components/StatusChip';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
@@ -96,7 +97,8 @@ export function SalesOrderEditorPage() {
   const [pendingQty, setPendingQty] = useState('1');
 
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const employees = useQuery({ queryKey: ['employees-mini'], queryFn: async () => (await listEmployeesPage({ pageSize: 100 })).results });
+  // The payroll employee list is owner-only; this one is open to anyone who can sell.
+  const employees = useQuery({ queryKey: ['salespeople', ''], queryFn: () => searchSalespeople() });
   // New orders default to the company's usual invoice type until the user picks one.
   const [seenCompanyForType, setSeenCompanyForType] = useState<typeof company.data>(undefined);
   if (!isEdit && !invoiceTypeTouched && company.data && company.data !== seenCompanyForType) {
@@ -445,6 +447,10 @@ export function SalesOrderEditorPage() {
         </>
       }
     >
+      <SourceQuotationsPanel
+        sources={existing.data?.sourceQuotations}
+        differ={existing.data?.sourceQuotationsDiffer}
+      />
       {/* F2-038: same coarse "any line or party selected" heuristic NewInvoicePage/
           NewPurchasePage already use — deliberately fires on opening an existing
           order too, not just fresh edits (matches that established behavior). */}

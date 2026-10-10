@@ -150,6 +150,9 @@ export function SeriesSettingsPage() {
         <Typography variant="body2" color="text.secondary">
           Configure independent, concurrency-safe sequential prefixes, padding, and next numbers for all commercial and statutory documents.
         </Typography>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+          {t('phase1.quotationNumberGapNote')}
+        </Typography>
       </Box>
 
       {error && <HelpErrorAlert error={error} />}

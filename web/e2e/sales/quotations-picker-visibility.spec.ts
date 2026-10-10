@@ -3,7 +3,7 @@ import { loginAsOwner } from '../helpers/auth';
 
 /**
  * Regression guard for the QOS product-picker bug: this Autocomplete stages
- * the pick behind a separate Add button (QuotationsPage), so after clicking
+ * the pick behind a separate Add button (QuotationEditorPage), so after clicking
  * an option the box must display the picked product — a stale query here
  * looks exactly like the click did nothing. No e2e coverage of this picker
  * existed before this pass.
@@ -11,8 +11,8 @@ import { loginAsOwner } from '../helpers/auth';
 test.describe('quotations: product picker visibility', () => {
   test('new quotation: product picker shows the picked product, not the raw query', async ({ page }) => {
     await loginAsOwner(page);
-    await page.goto('/sales/quotations?create=1', { waitUntil: 'domcontentloaded' });
-    await expect(page.getByRole('dialog').getByText(/new quotation/i)).toBeVisible({
+    await page.goto('/sales/quotations/new', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /new quotation/i })).toBeVisible({
       timeout: 15_000,
     });
 

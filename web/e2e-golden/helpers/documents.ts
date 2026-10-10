@@ -364,7 +364,7 @@ export async function createQuotationConvertedToOrder(
   await page.getByRole('button', { name: 'New quotation' }).click();
   await fillNamedCombobox(page, 'Customer', opts.customerName);
   await fillNamedCombobox(page, 'Products', opts.sku, new RegExp(opts.sku));
-  // F1-017: the dialog also has a disabled "Add Party" quick-add button with
+  // F1-017: the editor also has a disabled "Add Party" quick-add button with
   // the same exact accessible name "Add" — .last() is the real add-line
   // button, which renders after the party section in DOM order.
   await page.getByRole('button', { name: 'Add', exact: true }).last().click();

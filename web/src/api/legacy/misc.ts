@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { apiClient, idempotencyHeaders, newIdempotencyKey, shouldUseMocks, unwrapData } from '../client';
 import {
   mockAccountingAccounts,
@@ -24,6 +25,7 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
           products?: Array<{ id: number; name: string; sku?: string }>;
           suppliers?: Array<{ id: number; name: string }>;
           invoices?: Array<{ id: number; number?: string; kind?: string }>;
+          quotations?: Array<{ id: number; number?: string | null; status?: string; customer_name?: string; customerName?: string }>;
         }
     >(data);
 
@@ -62,6 +64,15 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
         title: inv.number ?? String(inv.id),
         subtitle: inv.kind,
         path: inv.kind === 'purchase' ? `/purchases/history/${inv.id}` : `/sales/history/${inv.id}`,
+      });
+    }
+    for (const quote of body.quotations ?? []) {
+      results.push({
+        id: quote.id,
+        type: 'quotation',
+        title: quote.number || String(quote.id),
+        subtitle: [t('nav.quotations'), quote.customer_name ?? quote.customerName].filter(Boolean).join(' · '),
+        path: `/sales/quotations/${quote.id}`,
       });
     }
     return results;

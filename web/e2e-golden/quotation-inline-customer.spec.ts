@@ -14,8 +14,9 @@ test('golden path: new quotation creates an inline customer', async ({ page }) =
 
   await page.goto('/sales/quotations');
   await page.getByRole('button', { name: 'New quotation' }).click();
-  const dialog = page.getByRole('dialog');
-  await expect(dialog).toBeVisible();
+  // The editor is a page now, not a dialog.
+  const dialog = page;
+  await expect(page.getByRole('heading', { name: /new quotation/i })).toBeVisible();
   await dialog.getByLabel('Add Party').fill(customerName);
   await dialog.getByRole('button', { name: 'Add', exact: true }).first().click();
   await expect(dialog.getByRole('combobox', { name: 'Customer' })).toHaveValue(customerName, { timeout: 15_000 });

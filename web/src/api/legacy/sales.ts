@@ -865,8 +865,10 @@ export async function listQuotationsPage(params?: PageParams): Promise<PageResul
 }
 
 export async function getQuotation(id: number): Promise<Quotation> {
-  const { data } = await apiClient.get(`/sales/quotations/${id}/`);
-  return unwrapData<Quotation>(data);
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/sales/quotations/${id}/`);
+    return unwrapData<Quotation>(data);
+  }, mockQuotations.find((q) => q.id === id) ?? mockQuotations[0]);
 }
 
 export async function updateQuotation(id: number, payload: Record<string, unknown>): Promise<Quotation> {
@@ -874,61 +876,120 @@ export async function updateQuotation(id: number, payload: Record<string, unknow
   return unwrapData<Quotation>(data);
 }
 
-export async function cancelQuotation(id: number): Promise<Quotation> {
-  const { data } = await apiClient.post(`/sales/quotations/${id}/cancel/`);
+export async function cancelQuotation(id: number, reason?: string): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/cancel/`, reason ? { reason } : {});
   return unwrapData<Quotation>(data);
 }
 
-export async function convertQuotationChain(
+export type QuotationLifecycleAction = 'mark-sent' | 'mark-accepted' | 'mark-rejected' | 'reopen-for-changes';
+
+export async function quotationLifecycle(
   id: number,
-  payload?: { stopStage?: string; confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
-): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.post(`/sales/quotations/${id}/convert-chain/`, {
-    stop_stage: payload?.stopStage,
-    confirm_expired: payload?.confirmExpired ?? false,
-    ...(payload?.items?.length ? { items: payload.items } : {}),
-  });
+  action: QuotationLifecycleAction,
+  reason?: string,
+): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/${action}/`, reason ? { reason } : {});
+  return unwrapData<Quotation>(data);
+}
+
+export async function closeQuotationRemaining(id: number, reason: string): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/close-remaining/`, { reason });
+  return unwrapData<Quotation>(data);
+}
+
+export async function reopenClosedQuotation(id: number, reason: string): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/reopen-closed/`, { reason });
+  return unwrapData<Quotation>(data);
+}
+
+export async function cancelExpiredQuotations(): Promise<{
+  cancelled: number;
+  needsCloseRemaining: Array<{ id: number; number: string }>;
+}> {
+  const { data } = await apiClient.post('/sales/quotations/cancel-expired/', {});
   return unwrapData(data);
 }
 
-export async function createQuotation(payload: {
-  customer?: number;
-  invoiceType?: string;
-  quotationDate?: string;
-  validUntil?: string | null;
-  salesman?: number | null;
-  salesChannel?: string;
-  deliveryAddress?: string;
-  items: Array<Partial<LineItem>>;
-}): Promise<Quotation> {
+export async function duplicateQuotation(id: number): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/duplicate/`, {}, {
+    headers: idempotencyHeaders(),
+  });
+  return unwrapData<Quotation>(data);
+}
+
+export async function shareQuotation(
+  id: number,
+  channel: 'link' | 'whatsapp' | 'download' = 'link',
+): Promise<{ url: string; expiresAt?: string | null; status: string; sentAt?: string | null }> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/share/`, { channel });
+  return unwrapData(data);
+}
+
+export async function revokeQuotationLink(id: number): Promise<{ revoked: boolean }> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/public-link/revoke/`, {});
+  return unwrapData(data);
+}
+
+export type Salesperson = { id: number; name: string; code: string };
+
+/** Active employees a sales user may pick. The payroll list is owner-only. */
+export async function searchSalespeople(q = ''): Promise<Salesperson[]> {
+  const { data } = await apiClient.get('/sales/salespeople/', { params: q ? { q } : {} });
+  const body = unwrapData<{ results?: Salesperson[] } | Salesperson[]>(data);
+  return Array.isArray(body) ? body : (body.results ?? []);
+}
+
+/** Anonymous read of a shared quotation. */
+export async function getPublicQuotation(token: string): Promise<Record<string, unknown>> {
+  const { data } = await axios.get(
+    `${publicApiBase}/public/quotations/${encodeURIComponent(token)}/`,
+    { headers: { Accept: 'application/json' } },
+  );
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+export async function downloadPublicQuotationPdf(token: string): Promise<Blob> {
+  const { data } = await axios.get(
+    `${publicApiBase}/public/quotations/${encodeURIComponent(token)}/pdf/`,
+    { responseType: 'blob', headers: { Accept: 'application/pdf' } },
+  );
+  return data as Blob;
+}
+
+export async function createQuotation(
+  payload: Record<string, unknown> & { items?: Array<Partial<LineItem>> },
+  idempotencyKey?: string,
+): Promise<Quotation> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/sales/quotations/', payload);
+    const { data } = await apiClient.post('/sales/quotations/', payload, {
+      headers: idempotencyHeaders(idempotencyKey),
+    });
     return unwrapData<Quotation>(data);
-  }, { ...mockQuotations[0], id: Date.now(), status: 'DRAFT', items: payload.items as LineItem[] });
+  }, { ...mockQuotations[0], id: Date.now(), status: 'DRAFT', items: (payload.items ?? []) as LineItem[] });
 }
 
 export async function convertQuotation(
   id: number,
-  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
+  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }>; idempotencyKey?: string },
 ): Promise<SalesInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/quotations/${id}/convert/`, {
       confirm_expired: opts?.confirmExpired ?? false,
       ...(opts?.items?.length ? { items: opts.items } : {}),
-    });
+    }, { headers: idempotencyHeaders(opts?.idempotencyKey) });
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id: Date.now(), status: 'DRAFT' });
 }
 
 export async function convertQuotationToOrder(
   id: number,
-  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }> },
+  opts?: { confirmExpired?: boolean; items?: Array<{ id: number; quantity: string | number }>; idempotencyKey?: string },
 ): Promise<SalesOrder> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/quotations/${id}/convert-to-order/`, {
       confirm_expired: opts?.confirmExpired ?? false,
       ...(opts?.items?.length ? { items: opts.items } : {}),
-    });
+    }, { headers: idempotencyHeaders(opts?.idempotencyKey) });
     return unwrapData<SalesOrder>(data);
   }, { id: Date.now(), status: 'DRAFT' } as unknown as SalesOrder);
 }
@@ -1682,3 +1743,11 @@ export async function cancelChallanEway(id: number): Promise<DeliveryChallan> {
   });
 }
 
+
+/** Available quantity per product in the default godown (tracked products only). */
+export async function getStockHints(productIds: number[]): Promise<Record<string, string>> {
+  if (productIds.length === 0) return {};
+  const { data } = await apiClient.get('/sales/stock-hints/', { params: { products: productIds.join(',') } });
+  const body = unwrapData<{ available?: Record<string, string> }>(data);
+  return body.available ?? {};
+}
