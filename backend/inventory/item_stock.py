@@ -185,15 +185,53 @@ def assert_unit_change_allowed(instance):
 _OPEN_DOCUMENT_CHECKS = (
     ("purchases", "PurchaseOrderItem", "purchase_order__status", ("DRAFT",), "an open purchase order"),
     ("purchases", "PurchaseItem", "invoice__status", ("DRAFT",), "a draft purchase bill"),
-    ("sales", "QuotationItem", "quotation__status", ("DRAFT",), "an open quotation"),
     ("sales", "SalesOrderItem", "sales_order__status", ("DRAFT", "CONFIRMED"), "an open sales order"),
     ("sales", "SalesItem", "invoice__status", ("DRAFT",), "a draft sales invoice"),
     ("sales", "DeliveryChallanItem", "challan__status", ("DRAFT",), "an open delivery challan"),
 )
 
 
+def _assert_no_open_quotations(instance):
+    """Draft, sent and accepted quotes still owing quantity block a unit change.
+
+    A quote whose remaining quantity was closed (Close remaining), or that is fully
+    converted, cancelled or rejected, does not. Expired quotes still count, because
+    they can be converted with confirmation; the message names them so they can be
+    cancelled or closed.
+    """
+    from django.db.models import DecimalField, ExpressionWrapper, F
+
+    from sales.models import Quotation, QuotationItem
+
+    remaining = ExpressionWrapper(
+        F("quantity") - F("converted_quantity"), output_field=DecimalField(max_digits=14, decimal_places=3)
+    )
+    numbers = list(
+        QuotationItem.objects.filter(
+            product=instance,
+            quotation__status__in=Quotation.OPEN_STATUSES,
+            quotation__short_closed_at__isnull=True,
+        )
+        .annotate(remaining=remaining)
+        .filter(remaining__gt=0)
+        .order_by("quotation__number", "quotation_id")
+        .values_list("quotation__number", "quotation_id")
+        .distinct()
+    )
+    if not numbers:
+        return
+    labels = [number or f"#{quote_id}" for number, quote_id in numbers]
+    shown = ", ".join(labels[:5]) + (f" (and {len(labels) - 5} more)" if len(labels) > 5 else "")
+    raise BusinessRuleError(
+        f"The base unit can't be changed while this item is on an open quotation ({shown}). "
+        "Convert, cancel or close those quotations first, then change the unit."
+    )
+
+
 def assert_no_open_documents_for_unit_change(instance):
     from django.apps import apps
+
+    _assert_no_open_quotations(instance)
 
     for app_label, model_name, status_path, statuses, label in _OPEN_DOCUMENT_CHECKS:
         model = apps.get_model(app_label, model_name)

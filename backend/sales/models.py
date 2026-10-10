@@ -259,13 +259,35 @@ class SalesItem(DocumentLineModel):
     )
 
 
+class QuotationQuerySet(models.QuerySet):
+    def expired(self, on=None):
+        on = on or timezone.localdate()
+        return self.filter(status__in=Quotation.OPEN_STATUSES, valid_until__lt=on)
+
+    def live(self, on=None):
+        on = on or timezone.localdate()
+        return self.filter(status__in=Quotation.OPEN_STATUSES).filter(
+            models.Q(valid_until__isnull=True) | models.Q(valid_until__gte=on)
+        )
+
+
 class Quotation(DocumentTotalsModel):
-    """`Draft` → `Converted` / `Cancelled` (§4.3)."""
+    """`Draft` → `Sent` → `Accepted` / `Rejected`; any open status →
+    `Converted` / `Cancelled` (§4.3). Expiry is computed from ``valid_until``."""
 
     class Status(models.TextChoices):
         DRAFT = "DRAFT"
+        SENT = "SENT"
+        ACCEPTED = "ACCEPTED"
+        REJECTED = "REJECTED"
         CONVERTED = "CONVERTED"
         CANCELLED = "CANCELLED"
+
+    EDITABLE_STATUSES = (Status.DRAFT,)
+    CONVERTIBLE_STATUSES = (Status.DRAFT, Status.SENT, Status.ACCEPTED)
+    OPEN_STATUSES = (Status.DRAFT, Status.SENT, Status.ACCEPTED)
+
+    objects = QuotationQuerySet.as_manager()
 
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="quotations")
     number = models.CharField(max_length=32, blank=True, db_index=True)
@@ -316,6 +338,22 @@ class Quotation(DocumentTotalsModel):
     )
     sales_channel = models.CharField(max_length=16, choices=SalesChannel.choices, blank=True, default="")
     delivery_address = models.TextField(blank=True)
+    revision = models.PositiveIntegerField(default=0)
+    cancel_reason = models.CharField(max_length=500, blank=True, default="")
+    # Open status to restore when a released conversion leaves quantity remaining (D2).
+    status_before_conversion = models.CharField(max_length=12, blank=True, default="")
+    # Close remaining (D-16): the unconverted quantity of a partly converted quote is abandoned.
+    short_closed_at = models.DateTimeField(null=True, blank=True)
+    short_closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    short_close_reason = models.CharField(max_length=500, blank=True, default="")
+    # Set when the quote is first shared or marked sent.
+    sent_at = models.DateTimeField(null=True, blank=True)
+    # Duplicate-as-new-version (D-11); the source quote is never changed.
+    copied_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="copies"
+    )
 
     class Meta:
         ordering = ["-quotation_date", "-id"]
@@ -341,6 +379,94 @@ class QuotationItem(DocumentLineModel):
     # CFT-115: qty already converted to an SO/invoice; remainder stays convertible.
     converted_quantity = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
     expected_price = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal("0"))
+
+
+class QuotationConversion(models.Model):
+    """One row per quote line per conversion. The ledger is the source of
+    truth; ``QuotationItem.converted_quantity`` is a cache recomputed from the
+    unreleased rows."""
+
+    class Target(models.TextChoices):
+        ORDER = "ORDER", "Sales order"
+        INVOICE = "INVOICE", "Sales invoice"
+        UNKNOWN = "UNKNOWN", "Unknown (backfilled)"
+
+    class ReleaseReason(models.TextChoices):
+        DRAFT_DELETED = "DRAFT_DELETED"
+        ORDER_CANCELLED = "ORDER_CANCELLED"
+        INVOICE_CANCELLED = "INVOICE_CANCELLED"
+        MANUAL_REOPEN = "MANUAL_REOPEN"
+
+    company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="+")
+    quotation = models.ForeignKey(Quotation, on_delete=models.PROTECT, related_name="conversions")
+    # SET_NULL: a line whose conversions were all released may later be removed in an edit.
+    quotation_item = models.ForeignKey(
+        QuotationItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="conversions"
+    )
+    product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="+")
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
+    target = models.CharField(max_length=8, choices=Target.choices)
+    sales_order = models.ForeignKey(
+        "SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="quotation_conversions"
+    )
+    sales_order_item = models.ForeignKey(
+        "SalesOrderItem", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    sales_invoice = models.ForeignKey(
+        SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="quotation_conversions"
+    )
+    sales_invoice_item = models.ForeignKey(
+        SalesItem, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    quantity = models.DecimalField(max_digits=12, decimal_places=3)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    released_at = models.DateTimeField(null=True, blank=True)
+    released_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    release_reason = models.CharField(max_length=24, choices=ReleaseReason.choices, blank=True, default="")
+    backfilled = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["company", "quotation"]),
+            models.Index(fields=["sales_order"]),
+            models.Index(fields=["sales_invoice"]),
+        ]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(quantity__gt=0), name="quote_conversion_qty_positive"),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        for related in (self.quotation, self.sales_order, self.sales_invoice):
+            if related is not None and related.company_id != self.company_id:
+                raise ValidationError("Quotation conversion rows must stay within one company.")
+
+
+class QuotationRevision(models.Model):
+    """Snapshot of a quote as the customer received it, kept before an edit (D8)."""
+
+    company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="+")
+    quotation = models.ForeignKey(Quotation, on_delete=models.PROTECT, related_name="revisions")
+    revision = models.PositiveIntegerField()
+    snapshot = models.JSONField(default=dict)
+    reason = models.CharField(max_length=500, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-revision"]
+        constraints = [
+            models.UniqueConstraint(fields=["quotation", "revision"], name="uniq_quotation_revision"),
+        ]
 
 
 class SalesReturn(DocumentTotalsModel):
@@ -1022,6 +1148,25 @@ class PosCounterRefund(CompanyScopedModel):
                 fields=["company", "idempotency_key"],
                 condition=~models.Q(idempotency_key=""),
                 name="uniq_pos_refund_idempotency",
+            ),
+        ]
+
+
+class QuotationPublicLink(CompanyScopedModel):
+    """Unguessable link to a quotation's PDF. One active row per quotation."""
+
+    quotation = models.ForeignKey(Quotation, on_delete=models.CASCADE, related_name="public_links")
+    token = models.CharField(max_length=64, unique=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    view_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["quotation"],
+                condition=models.Q(revoked_at__isnull=True),
+                name="uniq_active_quotation_public_link",
             ),
         ]
 

@@ -651,3 +651,40 @@ def test_public_invoice_link_never_crosses_tenants(tenant_a, tenant_b):
             call = anon.post if suffix == "pay/" else anon.get
             res = call(f"/api/v1/public/invoices/{bad}/{suffix}")
             assert res.status_code == 404, (bad, suffix, res.status_code)
+
+
+def test_public_quotation_link_never_crosses_tenants(tenant_a, tenant_b):
+    """Each shared quotation token opens only its own quotation; tenant B cannot reach A's quote or link."""
+    from rest_framework.test import APIClient
+
+    from sales.models import QuotationPublicLink
+    from tests.conftest import make_customer, make_product
+
+    def make_quote(tenant, name):
+        product = make_product(tenant.company, sku=f"ISO-Q-{name}")
+        customer = make_customer(tenant.company, name=name)
+        resp = tenant.client.post(
+            "/api/v1/sales/quotations/",
+            {"customer": customer.id, "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}]},
+            format="json",
+        )
+        assert resp.status_code == 201, resp.data
+        return resp.data["id"]
+
+    quote_a = make_quote(tenant_a, "Alpha Buyer")
+    quote_b = make_quote(tenant_b, "Beta Buyer")
+    token_a = tenant_a.client.post(f"/api/v1/sales/quotations/{quote_a}/share/", {}, format="json").data["url"].rsplit("/", 1)[-1]
+    token_b = tenant_b.client.post(f"/api/v1/sales/quotations/{quote_b}/share/", {}, format="json").data["url"].rsplit("/", 1)[-1]
+
+    # Tenant B has no route to A's quotation, to share, link, revoke or copy it.
+    for suffix in ("share/", "public-link/", "public-link/revoke/", "duplicate/"):
+        assert tenant_b.client.post(f"/api/v1/sales/quotations/{quote_a}/{suffix}", {}, format="json").status_code == 404, suffix
+    assert QuotationPublicLink.objects.get(token=token_a).revoked_at is None
+
+    anon = APIClient()
+    assert anon.get(f"/api/v1/public/quotations/{token_a}/").data["bill_to"]["name"] == "Alpha Buyer"
+    assert anon.get(f"/api/v1/public/quotations/{token_b}/").data["bill_to"]["name"] == "Beta Buyer"
+    # A guessed or altered token reveals nothing.
+    for bad in ("x" * 43, token_a[:-1] + ("A" if token_a[-1] != "A" else "B")):
+        for suffix in ("", "pdf/"):
+            assert anon.get(f"/api/v1/public/quotations/{bad}/{suffix}").status_code == 404, (bad, suffix)

@@ -24,3 +24,5 @@
 /api/v1/public/invoices/{token}/   # covered by test_public_invoice_link_never_crosses_tenants
 /api/v1/public/invoices/{token}/pay/   # covered by test_public_invoice_link_never_crosses_tenants
 /api/v1/public/invoices/{token}/pdf/   # covered by test_public_invoice_link_never_crosses_tenants
+/api/v1/public/quotations/{token}/   # covered by test_public_quotation_link_never_crosses_tenants
+/api/v1/public/quotations/{token}/pdf/   # covered by test_public_quotation_link_never_crosses_tenants

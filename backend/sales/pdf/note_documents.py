@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 from decimal import Decimal
 
+from django.utils import timezone
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -54,6 +56,8 @@ def _render_note_like(
     tax_enabled: bool = True,
     filing_gstin: str = "",
     extra_meta: list[str] | None = None,
+    terms: str = "",
+    watermark: str = "",
 ) -> bytes:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -171,8 +175,23 @@ def _render_note_like(
     if notes:
         story.append(Spacer(1, 2 * mm))
         story.append(Paragraph(f"<b>Notes:</b> {pdf_esc(notes)}", styles["body"]))
+    if terms:
+        story.append(Spacer(1, 2 * mm))
+        story.append(Paragraph(f"<b>Terms:</b> {pdf_esc(terms)}", styles["body"]))
 
-    doc.build(story)
+    if watermark:
+        def _stamp(canvas, _doc):
+            canvas.saveState()
+            canvas.setFont("Helvetica-Bold", 72)
+            canvas.setFillColorRGB(0.88, 0.88, 0.88)
+            canvas.translate(A4[0] / 2, A4[1] / 2)
+            canvas.rotate(45)
+            canvas.drawCentredString(0, 0, watermark)
+            canvas.restoreState()
+
+        doc.build(story, onFirstPage=_stamp, onLaterPages=_stamp)
+    else:
+        doc.build(story)
     return buf.getvalue()
 
 
@@ -284,12 +303,25 @@ def render_quotation(quotation) -> bytes:
         extra.append(f"<b>Valid until:</b> {pdf_esc(quotation.valid_until)}")
     items = list(quotation.items.select_related("product").all())
     notes = quotation.notes or ""
+    status = str(quotation.status)
+    if status == "CANCELLED" and quotation.cancel_reason:
+        extra.append(f"<b>Cancelled:</b> {pdf_esc(quotation.cancel_reason)}")
+    expired = (
+        status in ("DRAFT", "SENT", "ACCEPTED")
+        and quotation.valid_until is not None
+        and quotation.valid_until < timezone.localdate()
+    )
+    watermark = {"CANCELLED": "CANCELLED", "CONVERTED": "CONVERTED", "REJECTED": "REJECTED"}.get(
+        status, "EXPIRED" if expired or status == "EXPIRED" else ""
+    )
     return _render_note_like(
         company=quotation.company,
         customer=quotation.customer,
         number=quotation.number,
         doc_date=quotation.quotation_date,
         title="QUOTATION",
+        terms=quotation.terms_text or "",
+        watermark=watermark,
         items=items,
         totals={
             "taxable": quotation.taxable_total or Decimal("0"),

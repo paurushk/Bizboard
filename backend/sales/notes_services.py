@@ -726,6 +726,8 @@ class SalesNotesService:
             additional_charges=order.additional_charges,
         )
         SalesOrderItem.objects.bulk_create(items)
+        # Lines in input order, for callers that map source lines to these rows.
+        order._written_lines = items
         order.updated_by = user
         order.save()
         return order
@@ -1080,6 +1082,12 @@ class SalesNotesService:
         order.status = SalesOrder.Status.CANCELLED
         order.updated_by = user
         order.save()
+        from .models import QuotationConversion
+        from .quotation_conversions import QuotationConversionService
+
+        QuotationConversionService.release_for_order(
+            order, user, QuotationConversion.ReleaseReason.ORDER_CANCELLED
+        )
         return order
 
     # ---------- Delivery challan ----------

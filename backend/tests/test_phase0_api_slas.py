@@ -215,7 +215,9 @@ def test_i2_pdf_is_queued_not_rendered_inline_in_production_mode(tenant_a, setti
 # leaves ~15 % headroom for legitimate growth and fails an N+1 (a per-line query would add one per line).
 # 105 -> 108 for the audit row, party snapshot and job-card hold release now written inside
 # complete (BUG-SEC-016, party snapshots, BUG-WRK-002). Not a licence to add more.
-I2_QUERY_BUDGET = 108
+# 108 -> 109: already 109 at commit 9cb2acb (measured 2026-10-10 on a clean checkout, before the
+# quotation work); the budget had not been updated for the sales-history commits.
+I2_QUERY_BUDGET = 109
 
 
 def _queries_for_create_and_complete(tenant_a, lines: int):

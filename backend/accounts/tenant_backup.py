@@ -71,6 +71,8 @@ JSON_SECTIONS = (
     "sales_items",
     "quotations",
     "quotation_items",
+    "quotation_conversions",
+    "quotation_revisions",
     "sales_orders",
     "sales_order_items",
     "delivery_challans",
@@ -380,7 +382,9 @@ def build_export_payload(company) -> dict[str, Any]:
         DeliveryChallan,
         DeliveryChallanItem,
         Quotation,
+        QuotationConversion,
         QuotationItem,
+        QuotationRevision,
         SalesInvoice,
         SalesItem,
         SalesOrder,
@@ -415,6 +419,8 @@ def build_export_payload(company) -> dict[str, Any]:
     )
     quotations = _rows(Quotation.objects.filter(company=company).order_by("id"))
     quotation_items = _rows(QuotationItem.objects.filter(company=company).order_by("id"))
+    quotation_conversions = _rows(QuotationConversion.objects.filter(company=company).order_by("id"))
+    quotation_revisions = _rows(QuotationRevision.objects.filter(company=company).order_by("id"))
     sales_orders = _rows(
         SalesOrder.objects.filter(company=company).order_by("id"),
         extra_exclude={"warehouse_id"},
@@ -511,6 +517,8 @@ def build_export_payload(company) -> dict[str, Any]:
         "sales_items": sales_items,
         "quotations": quotations,
         "quotation_items": quotation_items,
+        "quotation_conversions": quotation_conversions,
+        "quotation_revisions": quotation_revisions,
         "sales_orders": sales_orders,
         "sales_order_items": sales_order_items,
         "delivery_challans": delivery_challans,
@@ -748,6 +756,8 @@ def wipe_logical_tenant_rows(company) -> None:
     from sales.models import (
         DeliveryChallan,
         Quotation,
+        QuotationConversion,
+        QuotationRevision,
         RecurringInvoiceRun,
         RecurringInvoiceSchedule,
         SalesCreditNote,
@@ -779,6 +789,10 @@ def wipe_logical_tenant_rows(company) -> None:
     SupplierPayment.objects.filter(company=company).delete()
     RecurringInvoiceRun.objects.filter(company=company).delete()
     RecurringInvoiceSchedule.objects.filter(company=company).delete()
+    # The ledger and revision snapshots protect their quote, and point at orders and invoices
+    # (SET_NULL), so they go first: conversion -> revision -> quote -> order -> challan -> invoice.
+    QuotationConversion.objects.filter(company=company).delete()
+    QuotationRevision.objects.filter(company=company).delete()
     Quotation.objects.filter(company=company).delete()
     SalesOrder.objects.filter(company=company).delete()
     DeliveryChallan.objects.filter(company=company).delete()
@@ -1179,6 +1193,82 @@ def _import_wipe_target_rows(
     _ = (bank_map, batch_map)
 
 
+def _restore_quotation_ledger(
+    *,
+    target_company,
+    payload: dict[str, Any],
+    quote_map,
+    quote_item_map,
+    order_map,
+    order_item_map,
+    sales_map,
+    sales_item_map,
+    product_map,
+) -> None:
+    """Rebuild conversion rows and revisions with the new ids, then prove the ledger.
+
+    An older backup has no conversion section: its rows are backfilled from each
+    line's converted quantity. Either way every restored quote must agree with its
+    ledger, otherwise the restore stops with the quote named.
+    """
+    from django.db.models import Sum
+
+    from core.exceptions import BusinessRuleError
+    from sales.models import Quotation, QuotationConversion, QuotationItem, QuotationRevision
+    from sales.quotation_conversions import backfill_conversions
+
+    for row in payload.get("quotation_revisions") or []:
+        kwargs = _copy_model_fields(
+            QuotationRevision, row,
+            skip={"id", "company_id", "created_by_id"},
+            remap={"quotation_id": quote_map},
+        )
+        if kwargs.get("quotation_id"):
+            QuotationRevision.objects.create(company=target_company, **kwargs)
+    for row in payload.get("quotations") or []:
+        source = row.get("copied_from_id")
+        if source and quote_map.get(source) and quote_map.get(row.get("id")):
+            Quotation.objects.filter(pk=quote_map[row["id"]]).update(copied_from_id=quote_map[source])
+
+    rows = payload.get("quotation_conversions")
+    if rows is None:
+        backfill_conversions(QuotationItem, QuotationConversion, company=target_company)
+    else:
+        for row in rows:
+            kwargs = _copy_model_fields(
+                QuotationConversion, row,
+                skip={"id", "company_id", "created_by_id", "released_by_id"},
+                remap={
+                    "quotation_id": quote_map,
+                    "quotation_item_id": quote_item_map,
+                    "sales_order_id": order_map,
+                    "sales_order_item_id": order_item_map,
+                    "sales_invoice_id": sales_map,
+                    "sales_invoice_item_id": sales_item_map,
+                    "product_id": product_map,
+                },
+            )
+            if not kwargs.get("quotation_id") or not kwargs.get("product_id"):
+                continue
+            QuotationConversion.objects.create(company=target_company, **kwargs)
+
+    live = {
+        row["quotation_item_id"]: row["total"]
+        for row in QuotationConversion.objects.filter(
+            company=target_company, released_at__isnull=True, quotation_item__isnull=False
+        )
+        .values("quotation_item_id")
+        .annotate(total=Sum("quantity"))
+    }
+    for item in QuotationItem.objects.filter(company=target_company).select_related("quotation"):
+        expected = live.get(item.id) or Decimal("0")
+        if Decimal(str(item.converted_quantity or 0)) != expected:
+            raise BusinessRuleError(
+                f"Restored quotation {item.quotation.number or item.quotation_id} does not match "
+                "its conversion ledger; nothing was restored."
+            )
+
+
 def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
     from accounting.models import Account, JournalEntry, JournalLine
     from core.models import FileAsset
@@ -1307,6 +1397,9 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         obj = BatchLot.objects.create(company=target_company, **kwargs)
         batch_map[row.get("id")] = obj.pk
 
+    sales_item_map: dict[Any, int] = {}
+    quote_item_map: dict[Any, int] = {}
+    order_item_map: dict[Any, int] = {}
     sales_map: dict[Any, int] = {}
     for row in payload.get("sales_invoices") or []:
         kwargs = _copy_model_fields(
@@ -1336,7 +1429,8 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         if not kwargs.get("invoice_id") or not kwargs.get("product_id"):
             continue
-        SalesItem.objects.create(company=target_company, **kwargs)
+        sales_item = SalesItem.objects.create(company=target_company, **kwargs)
+        sales_item_map[row.get("id")] = sales_item.pk
 
     quote_map: dict[Any, int] = {}
     for row in payload.get("quotations") or []:
@@ -1357,7 +1451,8 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         if not kwargs.get("quotation_id") or not kwargs.get("product_id"):
             continue
-        QuotationItem.objects.create(company=target_company, **kwargs)
+        quote_item = QuotationItem.objects.create(company=target_company, **kwargs)
+        quote_item_map[row.get("id")] = quote_item.pk
 
     order_map: dict[Any, int] = {}
     for row in payload.get("sales_orders") or []:
@@ -1378,7 +1473,19 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         if not kwargs.get("sales_order_id") or not kwargs.get("product_id"):
             continue
-        SalesOrderItem.objects.create(company=target_company, **kwargs)
+        order_item = SalesOrderItem.objects.create(company=target_company, **kwargs)
+        order_item_map[row.get("id")] = order_item.pk
+    _restore_quotation_ledger(
+        target_company=target_company,
+        payload=payload,
+        quote_map=quote_map,
+        quote_item_map=quote_item_map,
+        order_map=order_map,
+        order_item_map=order_item_map,
+        sales_map=sales_map,
+        sales_item_map=sales_item_map,
+        product_map=product_map,
+    )
 
     for row in payload.get("delivery_challans") or []:
         kwargs = _copy_model_fields(
@@ -1759,6 +1866,8 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
     from sales.models import (
         DeliveryChallan,
         Quotation,
+        QuotationConversion,
+        QuotationRevision,
         SalesCreditNote,
         SalesDebitNote,
         SalesInvoice,
@@ -1786,6 +1895,8 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
         ("accounts", Account),
         ("journals", JournalEntry),
         ("quotations", Quotation),
+        ("quotation_conversions", QuotationConversion),
+        ("quotation_revisions", QuotationRevision),
         ("sales_orders", SalesOrder),
         ("delivery_challans", DeliveryChallan),
         ("sales_credit_notes", SalesCreditNote),

@@ -246,7 +246,16 @@ class SalesOrderViewSet(CompanyScopedViewSet):
             status=DeliveryChallan.Status.CANCELLED
         ).exists():
             raise BusinessRuleError("Cannot delete a sales order that has an active delivery challan.")
-        super().perform_destroy(instance)
+        from django.db import transaction
+
+        from .models import QuotationConversion
+        from .quotation_conversions import QuotationConversionService
+
+        with transaction.atomic():
+            QuotationConversionService.release_for_order(
+                instance, self.request.user, QuotationConversion.ReleaseReason.DRAFT_DELETED
+            )
+            super().perform_destroy(instance)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):

@@ -588,6 +588,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "inventory.tasks.record_expiry_bands_task",
         "schedule": crontab(hour=7, minute=0),
     },
+    "sales-sweep-quotation-conversions": {
+        "task": "sales.tasks.sweep_quotation_conversions",
+        "schedule": crontab(hour=2, minute=30),
+    },
     "sales-purge-old-invoice-zips": {
         "task": "sales.tasks.purge_old_invoice_zips_task",
         "schedule": crontab(hour=3, minute=15),

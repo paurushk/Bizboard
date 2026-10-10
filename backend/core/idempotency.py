@@ -119,6 +119,8 @@ TRANSIENT_4XX_CODES = frozenset({
     "confirm_no_rcm",
     "confirm_duplicate_bill",
     "confirm_additional_debit",
+    # Expired quotation convert: retried with confirm_expired on the same key.
+    "quotation_expired",
     # CR-129: purchase CN/DN confirm-required 409s must release the key so the
     # operator can retry the same gesture with the confirm flag set, instead of
     # replaying the cached 409 forever.

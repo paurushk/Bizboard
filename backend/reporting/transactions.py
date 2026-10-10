@@ -128,7 +128,7 @@ def sales_side_transactions(
                 "customer_id": qtn.customer_id,
                 "party": getattr(qtn.customer, "name", ""),
                 "payment_mode": "",
-                "source_path": f"/sales/quotations",
+                "source_path": f"/sales/quotations/{qtn.id}",
             })
 
     if _keep("SALES_RETURN"):

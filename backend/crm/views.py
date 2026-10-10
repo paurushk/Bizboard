@@ -507,7 +507,14 @@ class OpportunityViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def quotation(self, request, pk=None):
+        """Quote a won opportunity through the same create path as every other quote.
+
+        An open quote for this opportunity is returned instead of a second one, so a
+        double click cannot duplicate it; a cancelled or fully converted one does not
+        block a new quote.
+        """
         from sales.models import Quotation
+        from sales.services import SalesService
 
         opportunity = self.get_object()
         if opportunity.stage != Opportunity.Stage.WON:
@@ -520,21 +527,32 @@ class OpportunityViewSet(CompanyScopedViewSet):
                 {"detail": "This opportunity has no customer yet."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        quotation = Quotation.objects.create(
-            company=opportunity.company,
-            customer=opportunity.customer,
-            opportunity=opportunity,
-            notes=opportunity.title,
-            created_by=request.user,
-            updated_by=request.user,
-        )
-        lines = list(opportunity.lines.select_related("product"))
-        if lines:
-            from sales.services import SalesService
 
-            SalesService.set_quotation_items(
-                quotation,
-                [
+        def _payload(quotation, *, already_exists):
+            return {
+                "id": quotation.id,
+                "number": quotation.number,
+                "customer": quotation.customer_id,
+                "opportunity": opportunity.id,
+                "grand_total": str(quotation.grand_total),
+                "already_exists": already_exists,
+            }
+
+        def _build():
+            with transaction.atomic():
+                existing = (
+                    Quotation.objects.select_for_update()
+                    .filter(
+                        company=opportunity.company,
+                        opportunity=opportunity,
+                        status__in=Quotation.OPEN_STATUSES,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+                if existing is not None:
+                    return Response(_payload(existing, already_exists=True), status=status.HTTP_200_OK)
+                items_data = [
                     {
                         "product": line.product,
                         "description": line.description,
@@ -543,11 +561,24 @@ class OpportunityViewSet(CompanyScopedViewSet):
                         "gst_rate": line.product.gst_rate,
                         "hsn_code": line.product.hsn_code,
                     }
-                    for line in lines
-                ],
-                request.user,
-            )
-        return Response(
-            {"id": quotation.id, "customer": quotation.customer_id, "opportunity": opportunity.id},
-            status=status.HTTP_201_CREATED,
+                    for line in opportunity.lines.select_related("product")
+                ]
+                quotation = SalesService.create_quotation(
+                    opportunity.company,
+                    request.user,
+                    {
+                        "customer": opportunity.customer,
+                        "opportunity": opportunity,
+                        "notes": opportunity.title,
+                    },
+                    items_data,
+                    allow_empty_lines=True,
+                )
+                return Response(_payload(quotation, already_exists=False), status=status.HTTP_201_CREATED)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope=f"crm_opportunity_quotation:{opportunity.pk}",
+            build=_build,
         )

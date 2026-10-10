@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 import pytest
 
 from sales.models import Quotation
@@ -132,7 +131,6 @@ def test_quotation_cancel_and_partially_converted_header_update(tenant_a):
         {
             "valid_until": "2026-03-30",
             "delivery_address": "123 Warehouse Rd",
-            "items": [{"product": prod.id, "quantity": "10", "unit_price": "50.00", "gst_rate": "18"}],
         },
         format="json",
     )

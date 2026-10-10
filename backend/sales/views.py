@@ -1,15 +1,19 @@
 import re
+from datetime import date
 
-from django.db.models import DecimalField, Exists, F, OuterRef, Q, Subquery, Sum, Value
+from django.db.models import DecimalField, Exists, F, OuterRef, Prefetch, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.celery_utils import safe_delay
 from core.exceptions import BusinessRuleError
@@ -40,9 +44,9 @@ from core.viewsets import CompanyScopedViewSet
 from masters.models import Customer, Product
 from payments.models import PaymentAllocation
 
-from .status_semantics import OPEN_RECEIVABLE_STATUSES
+from .status_semantics import NO_BALANCE_STATUSES, OPEN_RECEIVABLE_STATUSES
 from .einvoice_eway_actions import InvoiceEinvoiceEwayActionsMixin
-from .models import Quotation, RecurringInvoiceSchedule, SalesInvoice, SalesReturn
+from .models import Quotation, QuotationConversion, RecurringInvoiceSchedule, SalesInvoice, SalesReturn
 from .serializers import (
     QuotationSerializer,
     RecurringInvoiceScheduleSerializer,
@@ -361,9 +365,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             money = DecimalField(max_digits=14, decimal_places=2, null=True)
             qs = qs.annotate(
                 _due_sort=Case(
-                    When(status__in=(
-                        SalesInvoice.Status.DRAFT, SalesInvoice.Status.CANCELLED,
-                    ), then=Value(None)),
+                    When(status__in=NO_BALANCE_STATUSES, then=Value(None)),
                     default=F("_balance"),
                     output_field=money,
                 )
@@ -418,6 +420,12 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             # A draft made by converting an order took quantity from it: give that back.
             SalesNotesService.release_order_conversion(
                 getattr(instance, "source_order", None), instance.items.all(), unlink_invoice_id=instance.pk,
+            )
+            from .models import QuotationConversion
+            from .quotation_conversions import QuotationConversionService
+
+            QuotationConversionService.release_for_invoice(
+                instance, self.request.user, QuotationConversion.ReleaseReason.DRAFT_DELETED
             )
             super().perform_destroy(instance)
 
@@ -1669,42 +1677,151 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         return Response(data)
 
 
+QUOTATION_ORDERING = {
+    "quotation_date": ("quotation_date", "id"),
+    "valid_until": ("valid_until", "id"),
+    "grand_total": ("grand_total", "id"),
+    "number": ("number", "id"),
+    "customer__name": ("customer__name", "id"),
+}
+
+
+@extend_schema_view(
+    partial_update=extend_schema(
+        description=(
+            "Edit a draft quotation. Error codes: `quotation_not_editable` (not a draft), "
+            "`quotation_lines_locked` (part of it was converted, so `items` cannot be sent) and "
+            "`quotation_fields_locked` (only validity, notes, terms, delivery address, salesperson "
+            "and channel may change after a partial conversion; the response lists the blocked fields), "
+            "`customer_blocked`."
+        )
+    ),
+    update=extend_schema(
+        description=(
+            "Replace a draft quotation. Error codes: `quotation_not_editable`, `quotation_lines_locked`, "
+            "`quotation_fields_locked`, `customer_blocked`."
+        )
+    ),
+    destroy=extend_schema(description="Delete an unconverted draft. Error code: `quotation_not_deletable`."),
+)
 class QuotationViewSet(CompanyScopedViewSet):
-    queryset = Quotation.objects.select_related("customer").prefetch_related("items__product")
+    queryset = Quotation.objects.select_related("customer", "salesman").prefetch_related(
+        "items__product",
+        Prefetch(
+            "conversions",
+            queryset=QuotationConversion.objects.select_related("sales_order", "sales_invoice"),
+        ),
+    )
     serializer_class = QuotationSerializer
+
+    LIFECYCLE_ACTIONS = ("mark_sent", "mark_accepted", "mark_rejected", "reopen_for_changes")
 
     def get_permissions(self):
         action = getattr(self, "action", None)
-        if action == "number_series":
-            return [IsAuthenticated(), HasCompany(), IsOwner()]
-        if action == "cancel":
+        if action in ("number_series", "reopen", "reopen_closed"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), IsOwner()]
+        if action in ("cancel", "cancel_expired", "close_remaining"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "convert", "convert_to_order", "convert_chain"):
+        if action in (
+            "create", "update", "partial_update", "destroy", "convert", "convert_to_order", "convert_chain",
+            "share", "public_link", "revoke_public_link", "duplicate",
+            *self.LIFECYCLE_ACTIONS,
+        ):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action == "revisions":
+            # D-12: what was sent to the customer is for people who can change quotes.
+            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
         if action in ("list", "retrieve", "pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
 
     def get_queryset(self):
+        from datetime import date as _date
+
         qs = super().get_queryset()
+        if getattr(self, "action", None) != "list":
+            return qs
         params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
+        status_param = (params.get("status") or "").strip().upper()
+        if status_param == "OPEN":
+            qs = qs.live()
+        elif status_param:
+            if status_param not in Quotation.Status.values:
+                raise BusinessRuleError(f"Unknown status {status_param!r}.")
+            qs = qs.filter(status=status_param)
+        if str(params.get("expired") or "").lower() in ("true", "1", "yes"):
+            qs = qs.expired()
         if params.get("customer"):
             try:
                 qs = qs.filter(customer_id=int(params["customer"]))
-            except (TypeError, ValueError):
-                pass
-        if params.get("date_from"):
-            qs = qs.filter(quotation_date__gte=params["date_from"])
-        if params.get("date_to"):
-            qs = qs.filter(quotation_date__lte=params["date_to"])
-        q = (params.get("q") or "").strip()
-        if q:
+            except (TypeError, ValueError) as exc:
+                raise BusinessRuleError("customer must be a numeric id.") from exc
+        for key, lookup in (("date_from", "quotation_date__gte"), ("date_to", "quotation_date__lte")):
+            raw = params.get(key)
+            if raw:
+                try:
+                    qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
+                except ValueError as exc:
+                    raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).") from exc
+        term = (params.get("q") or "").strip()[:100]
+        if term:
             qs = qs.filter(
-                Q(number__icontains=q) | Q(customer__name__icontains=q)
+                Q(number__icontains=term)
+                | Q(customer__name__icontains=term)
+                | Q(customer__phone__icontains=term)
             )
+        ordering = (params.get("ordering") or "").strip()
+        if ordering:
+            key = ordering.lstrip("-")
+            if key not in QUOTATION_ORDERING:
+                raise BusinessRuleError(
+                    f"ordering must be one of: {', '.join(sorted(QUOTATION_ORDERING))} (prefix - for descending)."
+                )
+            prefix = "-" if ordering.startswith("-") else ""
+            qs = qs.order_by(*(f"{prefix}{field}" for field in QUOTATION_ORDERING[key]))
         return qs
+
+    def create(self, request, *args, **kwargs):
+        def _run():
+            return super(QuotationViewSet, self).create(request, *args, **kwargs)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope=f"quotation_create:{request.user.pk}",
+            build=_run,
+        )
+
+    def perform_destroy(self, instance):
+        from .models import QuotationConversion
+
+        if (
+            instance.status != Quotation.Status.DRAFT
+            or instance.items.filter(converted_quantity__gt=0).exists()
+            or QuotationConversion.objects.filter(quotation=instance).exists()
+        ):
+            raise BusinessRuleError(
+                "Only an unconverted draft quotation can be deleted; use Cancel instead.",
+                code="quotation_not_deletable",
+            )
+        from core.services.audit import AuditService
+
+        entity_id = str(instance.pk)
+        metadata = {
+            "number": instance.number,
+            "customer": instance.customer_id,
+            "grand_total": str(instance.grand_total),
+        }
+        instance.delete()
+        AuditService.log(
+            action="DELETE",
+            company=self.company,
+            user=self.request.user,
+            entity_type="Quotation",
+            entity_id=entity_id,
+            description=f"Quotation {metadata['number'] or entity_id} deleted.",
+            metadata=metadata,
+        )
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):
@@ -1723,37 +1840,93 @@ class QuotationViewSet(CompanyScopedViewSet):
             raise BusinessRuleError(str(exc)) from exc
         return Response(data)
 
+    @staticmethod
+    def _confirm_expired(request):
+        value = request.data.get("confirm_expired", request.data.get("confirmExpired"))
+        return str(value or "").lower() in ("true", "1", "yes")
+
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):
-        confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
-            "true", "1", "yes",
+        quotation = self.get_object()
+
+        def _run():
+            invoice = SalesService.convert_quotation(
+                quotation, request.user, confirm_expired=self._confirm_expired(request),
+                line_quantities=_convert_line_quantities(request),
+            )
+            return Response(SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data)
+
+        request._idempotency_ignore_keys = frozenset({"confirm_expired", "confirmExpired"})
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope=f"quotation_convert:{request.user.pk}:{quotation.pk}",
+            build=_run,
         )
-        invoice = SalesService.convert_quotation(
-            self.get_object(), request.user, confirm_expired=confirm_expired,
-            line_quantities=_convert_line_quantities(request),
-        )
-        return Response(SalesInvoiceSerializer(invoice, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"], url_path="convert-to-order")
     def convert_to_order(self, request, pk=None):
         from .phase1_serializers import SalesOrderSerializer
 
-        confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
-            "true", "1", "yes",
-        )
-        order = SalesService.convert_quotation_to_order(
-            self.get_object(), request.user, confirm_expired=confirm_expired,
-            line_quantities=_convert_line_quantities(request),
-        )
-        return Response(SalesOrderSerializer(order, context=self.get_serializer_context()).data)
+        quotation = self.get_object()
 
+        def _run():
+            order = SalesService.convert_quotation_to_order(
+                quotation, request.user, confirm_expired=self._confirm_expired(request),
+                line_quantities=_convert_line_quantities(request),
+            )
+            return Response(SalesOrderSerializer(order, context=self.get_serializer_context()).data)
+
+        request._idempotency_ignore_keys = frozenset({"confirm_expired", "confirmExpired"})
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope=f"quotation_convert_to_order:{request.user.pk}:{quotation.pk}",
+            build=_run,
+        )
+
+    CONVERT_CHAIN_SUNSET = "Sat, 28 Nov 2026 00:00:00 GMT"
+    # From this date the endpoint answers 410 Gone (closure plan WP16, decision D-14).
+    CONVERT_CHAIN_SUNSET_DATE = date(2026, 11, 28)
+
+    @extend_schema(deprecated=True)
     @action(detail=True, methods=["post"], url_path="convert-chain")
     def convert_chain(self, request, pk=None):
-        """Quote → SO → (optional draft DC) → (optional draft invoice)."""
+        """Deprecated: quote → SO → (optional draft DC) → (optional draft invoice).
+        Convert to a sales order and continue from the sales order screen."""
+        import logging
+
         from .notes_services import SalesNotesService
         from .phase1_serializers import DeliveryChallanSerializer, SalesOrderSerializer
 
+        if timezone.localdate() >= self.CONVERT_CHAIN_SUNSET_DATE:
+            gone = Response(
+                {
+                    "detail": "Convert the quotation to a sales order, then continue from the sales order screen.",
+                    "code": "convert_chain_gone",
+                },
+                status=status.HTTP_410_GONE,
+            )
+            gone["Deprecation"] = "true"
+            gone["Sunset"] = self.CONVERT_CHAIN_SUNSET
+            return gone
+
         stop = (request.data.get("stop_stage") or request.data.get("stopStage") or "INVOICE").upper()
+        logging.getLogger("bizboard.deprecated").warning(
+            "deprecated quotation convert-chain call",
+            extra={
+                "company_id": self.company.pk,
+                "user_id": request.user.pk,
+                "stop_stage": stop,
+                "user_agent": request.headers.get("User-Agent", "")[:200],
+            },
+        )
+        try:
+            from insights.telemetry import note_once
+
+            note_once(self.company, "deprecated_quote_convert_chain", user=request.user, journey="growth")
+        except Exception:  # noqa: BLE001 - telemetry must never fail the request
+            pass
         if stop not in ("SALES_ORDER", "DELIVERY_CHALLAN", "INVOICE"):
             raise BusinessRuleError("stop_stage must be SALES_ORDER, DELIVERY_CHALLAN, or INVOICE.")
         confirm_expired = str(request.data.get("confirm_expired") or "").lower() in (
@@ -1797,7 +1970,10 @@ class QuotationViewSet(CompanyScopedViewSet):
                 if invoice is not None else None
             ),
         }
-        return Response(payload)
+        response = Response(payload)
+        response["Deprecation"] = "true"
+        response["Sunset"] = self.CONVERT_CHAIN_SUNSET
+        return response
 
     @action(detail=True, methods=["get"])
     def pdf(self, request, pk=None):
@@ -1816,8 +1992,195 @@ class QuotationViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        quotation = SalesService.cancel_quotation(self.get_object(), request.user)
+        reason = request.data.get("reason", request.data.get("cancel_reason", "")) or ""
+        quotation = SalesService.cancel_quotation(self.get_object(), request.user, reason=str(reason))
         return Response(self.get_serializer(quotation).data)
+
+    @action(detail=True, methods=["post"], url_path="public-link")
+    def public_link(self, request, pk=None):
+        from .quotation_links import mint_link, public_quotation_url
+
+        link = mint_link(self.get_object(), request.user)
+        return Response({"url": public_quotation_url(link.token), "expires_at": link.expires_at})
+
+    @action(detail=True, methods=["post"], url_path="public-link/revoke")
+    def revoke_public_link(self, request, pk=None):
+        from .quotation_links import revoke_links
+
+        return Response({"revoked": bool(revoke_links(self.get_object()))})
+
+    @action(detail=True, methods=["post"])
+    def share(self, request, pk=None):
+        """Make the PDF link, stamp ``sent_at`` and, when the lifecycle is on, move DRAFT to SENT."""
+        from core.services.audit import AuditService
+        from core.services.feature_flags import flag_enabled
+
+        from .quotation_links import mint_link, public_quotation_url
+
+        channel = str(request.data.get("channel") or "link")[:20]
+        quotation = self.get_object()
+        link = mint_link(quotation, request.user)
+        if quotation.sent_at is None:
+            Quotation.objects.filter(pk=quotation.pk).update(sent_at=timezone.now())
+        if quotation.status == Quotation.Status.DRAFT and flag_enabled(self.company, "QUOTE_LIFECYCLE"):
+            SalesService.set_quotation_status(quotation, Quotation.Status.SENT, request.user, reason=f"Shared by {channel}")
+        AuditService.log(
+            action="QUOTATION_SHARED",
+            company=self.company,
+            user=request.user,
+            entity_type="Quotation",
+            entity_id=str(quotation.pk),
+            description=f"Shared by {channel}.",
+            metadata={"channel": channel},
+        )
+        fresh = Quotation.objects.get(pk=quotation.pk)
+        return Response({
+            "url": public_quotation_url(link.token),
+            "expires_at": link.expires_at,
+            "status": fresh.status,
+            "sent_at": fresh.sent_at,
+        })
+
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request, pk=None):
+        """Copy into a new draft with a new number. The source quote is not changed."""
+        from datetime import timedelta
+
+        from .services import _quotation_items_data_from_plan
+
+        source = self.get_object()
+        items = list(source.items.select_related("product").order_by("id"))
+        # Cost is copied from the stored lines whoever asks, so a user who cannot see it
+        # still gets a copy with the right margin.
+        items_data = _quotation_items_data_from_plan([(item, item.quantity) for item in items])
+        validity_days = (
+            (source.valid_until - source.quotation_date).days
+            if source.valid_until and source.quotation_date
+            else None
+        )
+        today = timezone.localdate()
+        header = {
+            "customer": source.customer,
+            "quotation_date": today,
+            "valid_until": today + timedelta(days=validity_days) if validity_days is not None else None,
+            "invoice_type": source.invoice_type,
+            "payment_terms_days": source.payment_terms_days,
+            "additional_charges": source.additional_charges,
+            "charges_hsn": source.charges_hsn,
+            "charges_gst_rate": source.charges_gst_rate,
+            "invoice_discount": source.invoice_discount,
+            "invoice_discount_mode": source.invoice_discount_mode,
+            "auto_round_off": source.auto_round_off,
+            "notes": source.notes,
+            "terms_text": source.terms_text,
+            "supply_type": source.supply_type,
+            "company_gstin": source.company_gstin,
+            "salesman": source.salesman,
+            "sales_channel": source.sales_channel,
+            "delivery_address": source.delivery_address,
+            "opportunity": source.opportunity,
+            "copied_from": source,
+        }
+        quotation = SalesService.create_quotation(self.company, request.user, header, items_data)
+        return Response(
+            self.get_serializer(Quotation.objects.get(pk=quotation.pk)).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=["post"], url_path="cancel-expired")
+    def cancel_expired(self, request):
+        """Cancel every expired open quote that nothing was converted from.
+
+        Quotes that were partly converted cannot be cancelled; they come back in
+        ``needs_close_remaining`` so the user can close what is left of them.
+        """
+        qs = Quotation.objects.filter(company=self.company).expired().filter(short_closed_at__isnull=True)
+        customer = request.data.get("customer")
+        if customer not in (None, ""):
+            try:
+                qs = qs.filter(customer_id=int(customer))
+            except (TypeError, ValueError) as exc:
+                raise BusinessRuleError("customer must be a numeric id.") from exc
+        cancelled = 0
+        needs_close = []
+        for quotation in qs.order_by("id"):
+            try:
+                SalesService.cancel_quotation(quotation, request.user, reason="Expired")
+                cancelled += 1
+            except BusinessRuleError:
+                needs_close.append({"id": quotation.id, "number": quotation.number})
+        return Response({"cancelled": cancelled, "needs_close_remaining": needs_close})
+
+    @action(detail=True, methods=["post"], url_path="close-remaining")
+    def close_remaining(self, request, pk=None):
+        from .quotation_conversions import QuotationConversionService
+
+        quotation = QuotationConversionService.close_remaining(
+            self.get_object(), request.user, request.data.get("reason")
+        )
+        return Response(self.get_serializer(Quotation.objects.get(pk=quotation.pk)).data)
+
+    @action(detail=True, methods=["post"], url_path="reopen-closed")
+    def reopen_closed(self, request, pk=None):
+        from .quotation_conversions import QuotationConversionService
+
+        quotation = QuotationConversionService.reopen_closed(
+            self.get_object(), request.user, request.data.get("reason")
+        )
+        return Response(self.get_serializer(Quotation.objects.get(pk=quotation.pk)).data)
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        """Owner-only: release converted quantity whose downstream document is gone
+        (backfilled UNKNOWN rows, or releases missed while the rollout flag was off)."""
+        from .quotation_conversions import QuotationConversionService
+
+        quotation = self.get_object()
+        ids = request.data.get("conversion_ids", request.data.get("conversionIds"))
+        QuotationConversionService.reopen(quotation, request.user, request.data.get("reason"), ids)
+        return Response(self.get_serializer(Quotation.objects.get(pk=quotation.pk)).data)
+
+    def _lifecycle(self, request, target):
+        from core.services.feature_flags import flag_enabled
+
+        quotation = self.get_object()  # 404 for another tenant's quote before any flag answer
+        if not flag_enabled(self.company, "QUOTE_LIFECYCLE"):
+            raise PermissionDenied("Quotation lifecycle is not enabled for this company.")
+        quotation = SalesService.set_quotation_status(
+            quotation, target, request.user, reason=str(request.data.get("reason") or "")
+        )
+        return Response(self.get_serializer(quotation).data)
+
+    @action(detail=True, methods=["post"], url_path="mark-sent")
+    def mark_sent(self, request, pk=None):
+        return self._lifecycle(request, Quotation.Status.SENT)
+
+    @action(detail=True, methods=["post"], url_path="mark-accepted")
+    def mark_accepted(self, request, pk=None):
+        return self._lifecycle(request, Quotation.Status.ACCEPTED)
+
+    @action(detail=True, methods=["post"], url_path="mark-rejected")
+    def mark_rejected(self, request, pk=None):
+        return self._lifecycle(request, Quotation.Status.REJECTED)
+
+    @action(detail=True, methods=["post"], url_path="reopen-for-changes")
+    def reopen_for_changes(self, request, pk=None):
+        return self._lifecycle(request, Quotation.Status.DRAFT)
+
+    @action(detail=True, methods=["get"])
+    def revisions(self, request, pk=None):
+        quotation = self.get_object()
+        rows = quotation.revisions.filter(company_id=quotation.company_id).order_by("-revision")
+        return Response([
+            {
+                "id": row.id,
+                "revision": row.revision,
+                "reason": row.reason,
+                "created_at": row.created_at,
+                "snapshot": row.snapshot,
+            }
+            for row in rows
+        ])
 
 
 class SalesReturnViewSet(CompanyScopedViewSet):
@@ -1944,3 +2307,66 @@ class RecurringInvoiceScheduleViewSet(CompanyScopedViewSet):
             "period_key": run.period_key,
             "status": status,
         })
+
+
+class SalespersonSearchView(APIView):
+    """Names a sales user may pick as a document's salesperson.
+
+    The payroll employee list is owner-only and needs payroll switched on, so a
+    salesperson picker built on it was empty for staff and for most shops. This
+    returns only id, name and code of active employees.
+    """
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        from core.permissions import get_company_user
+        from payroll.models import Employee
+
+        company = get_company_user(request).company
+        term = (request.query_params.get("q") or "").strip()[:60]
+        qs = Employee.objects.filter(company=company, status=Employee.Status.ACTIVE)
+        if term:
+            qs = qs.filter(Q(name__icontains=term) | Q(code__icontains=term))
+        rows = qs.order_by("name").values("id", "name", "code")[:30]
+        return Response({"results": list(rows)})
+
+
+class StockHintView(APIView):
+    """Available quantity in the default godown for the products on a quotation.
+
+    A quotation has no godown of its own; conversion uses the default one, so the
+    hint is measured there. Read-only, and only for products whose stock is tracked.
+    """
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        from core.permissions import get_company_user
+        from inventory.models import StockBalance, Warehouse
+        from masters.models import Product
+
+        company = get_company_user(request).company
+        ids = []
+        for raw in str(request.query_params.get("products") or "").split(",")[:100]:
+            if raw.strip().isdigit():
+                ids.append(int(raw.strip()))
+        warehouse = Warehouse.objects.filter(company=company, is_default=True).first()
+        if not ids or warehouse is None:
+            return Response({"warehouse": getattr(warehouse, "id", None), "available": {}})
+        tracked = set(
+            Product.objects.filter(company=company, pk__in=ids, track_inventory=True).values_list("id", flat=True)
+        )
+        rows = (
+            StockBalance.objects.filter(company=company, warehouse=warehouse, product_id__in=tracked)
+            .values("product_id")
+            .annotate(on_hand=Sum("on_hand"), reserved=Sum("reserved"))
+        )
+        available = {str(pid): "0.000" for pid in tracked}
+        for row in rows:
+            available[str(row["product_id"])] = str(max((row["on_hand"] or 0) - (row["reserved"] or 0), 0))
+        return Response({"warehouse": warehouse.id, "available": available})

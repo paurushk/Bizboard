@@ -10,8 +10,16 @@ from .models import (
     SalesOrder,
     SalesOrderItem,
 )
+from .expected_profit import preserve_expected_prices, strip_expected_prices
 from .notes_services import SalesNotesService
-from .serializers import LINE_READONLY, TOTAL_READONLY, CompanyScopedSerializerMixin, _BaseLineSerializer
+from .serializers import (
+    LINE_READONLY,
+    TOTAL_READONLY,
+    CompanyScopedSerializerMixin,
+    CostMaskedLineMixin,
+    SourceQuotationsMixin,
+    _BaseLineSerializer,
+)
 
 
 class SalesCreditNoteItemSerializer(_BaseLineSerializer):
@@ -192,7 +200,7 @@ class SalesDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSe
         return instance
 
 
-class SalesOrderItemSerializer(_BaseLineSerializer):
+class SalesOrderItemSerializer(CostMaskedLineMixin, _BaseLineSerializer):
     class Meta:
         model = SalesOrderItem
         fields = [
@@ -204,7 +212,7 @@ class SalesOrderItemSerializer(_BaseLineSerializer):
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
-class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
+class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = SalesOrderItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     expected_profit = serializers.SerializerMethodField()
@@ -226,7 +234,7 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
             "auto_round_off", "notes", "terms_text", "items",
             "supply_type", "company_gstin",
             "salesman", "sales_channel", "delivery_address",
-            "expected_profit",
+            "expected_profit", "source_quotations", "source_quotations_differ",
             "converted_invoice", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = ["number", "status", "converted_invoice", "expected_profit"] + TOTAL_READONLY
@@ -246,9 +254,10 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
         return company_gstin
 
     def create(self, validated_data):
-        items_data = validated_data.pop("items")
+        request = self.context["request"]
+        items_data = strip_expected_prices(request, validated_data.pop("items"))
         order = SalesOrder.objects.create(**validated_data)
-        SalesNotesService.set_order_items(order, [dict(l) for l in items_data], self.context["request"].user)
+        SalesNotesService.set_order_items(order, [dict(l) for l in items_data], request.user)
         return order
 
     def update(self, instance, validated_data):
@@ -269,16 +278,17 @@ class SalesOrderSerializer(CompanyScopedSerializerMixin, serializers.ModelSerial
             raise BusinessRuleError(
                 "This sales order already has a delivery challan and cannot be edited."
             )
-        items_data = validated_data.pop("items", None)
+        request = self.context["request"]
+        items_data = preserve_expected_prices(
+            request, validated_data.pop("items", None), instance.items.order_by("id")
+        )
         instance = super().update(instance, validated_data)
         if items_data is not None:
-            SalesNotesService.set_order_items(
-                instance, [dict(l) for l in items_data], self.context["request"].user
-            )
+            SalesNotesService.set_order_items(instance, [dict(l) for l in items_data], request.user)
         return instance
 
 
-class DeliveryChallanItemSerializer(_BaseLineSerializer):
+class DeliveryChallanItemSerializer(CostMaskedLineMixin, _BaseLineSerializer):
     class Meta:
         model = DeliveryChallanItem
         fields = [
@@ -349,11 +359,10 @@ class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         return sales_order
 
     def create(self, validated_data):
-        items_data = validated_data.pop("items")
+        request = self.context["request"]
+        items_data = strip_expected_prices(request, validated_data.pop("items"))
         challan = DeliveryChallan.objects.create(**validated_data)
-        SalesNotesService.set_challan_items(
-            challan, [dict(l) for l in items_data], self.context["request"].user
-        )
+        SalesNotesService.set_challan_items(challan, [dict(l) for l in items_data], request.user)
         return challan
 
     def update(self, instance, validated_data):
@@ -361,10 +370,11 @@ class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
         if instance.status != DeliveryChallan.Status.DRAFT:
             raise BusinessRuleError("Completed challan cannot be edited.")
-        items_data = validated_data.pop("items", None)
+        request = self.context["request"]
+        items_data = preserve_expected_prices(
+            request, validated_data.pop("items", None), instance.items.order_by("id")
+        )
         instance = super().update(instance, validated_data)
         if items_data is not None:
-            SalesNotesService.set_challan_items(
-                instance, [dict(l) for l in items_data], self.context["request"].user
-            )
+            SalesNotesService.set_challan_items(instance, [dict(l) for l in items_data], request.user)
         return instance

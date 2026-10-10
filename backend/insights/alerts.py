@@ -434,6 +434,46 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
             return rows
 
         builders.append(("contract_renewal", _contract_renewal))
+
+    def _quotation_expiry():
+        """Open quotes that expire within 3 days, or expired in the last 7 and are still open."""
+        from sales.models import Quotation
+
+        rows = []
+        soon = as_of + timedelta(days=3)
+        recent = as_of - timedelta(days=7)
+        open_quotes = (
+            Quotation.objects.filter(
+                company=company,
+                status__in=Quotation.OPEN_STATUSES,
+                short_closed_at__isnull=True,
+                valid_until__isnull=False,
+                valid_until__gte=recent,
+                valid_until__lte=soon,
+            )
+            .select_related("customer")
+            .order_by("valid_until", "id")[:50]
+        )
+        for quote in open_quotes:
+            expired = quote.valid_until < as_of
+            label = quote.number or f"#{quote.id}"
+            rows.append(_alert(
+                "QUOTATION_EXPIRED" if expired else "QUOTATION_EXPIRING",
+                "info" if expired else "warning",
+                (
+                    f"Quotation {label} for {quote.customer.name} expired on {quote.valid_until:%d %b}."
+                    if expired
+                    else f"Quotation {label} for {quote.customer.name} expires on {quote.valid_until:%d %b}."
+                ),
+                subject_key=f"quotation:{quote.id}",
+                document_type="quotation",
+                document_id=quote.id,
+                dedupe_key=f"{'QUOTATION_EXPIRED' if expired else 'QUOTATION_EXPIRING'}:{quote.id}",
+                cta_path=f"/sales/quotations/{quote.id}",
+            ))
+        return rows
+
+    builders.append(("quotation_expiry", _quotation_expiry))
     for name, builder in builders:
         alerts.extend(_run_alert_builder(name, company, builder))
 

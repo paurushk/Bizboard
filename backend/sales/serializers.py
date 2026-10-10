@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.exceptions import BusinessRuleError
@@ -16,6 +17,7 @@ from masters.models import Customer, Product
 
 from .models import (
     Quotation,
+    QuotationConversion,
     QuotationItem,
     RecurringInvoiceSchedule,
     SalesInvoice,
@@ -97,7 +99,96 @@ class SalesItemSerializer(_BaseLineSerializer):
         }
 
 
-class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
+class SourceQuotationRefSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    number = serializers.CharField()
+    status = serializers.CharField()
+    salesman = serializers.IntegerField(allow_null=True)
+    salesman_name = serializers.CharField(allow_blank=True)
+    sales_channel = serializers.CharField(allow_blank=True)
+    delivery_address = serializers.CharField(allow_blank=True)
+    primary = serializers.BooleanField()
+
+
+class SourceQuotationsMixin(serializers.Serializer):
+    """``source_quotations``: quotes this document was converted from (unreleased).
+
+    An invoice made from an order made from a quote is traced through the order, the
+    invoice's source order and its delivery challans. The earliest source is marked
+    ``primary``; ``source_quotations_differ`` says whether their salesperson, channel
+    or delivery address disagree. Filled on detail reads only; list rows and the
+    responses to create, update and complete return an empty list.
+    """
+
+    source_quotations = serializers.SerializerMethodField()
+    source_quotations_differ = serializers.SerializerMethodField()
+
+    def _source_rows(self, obj):
+        cache = getattr(self, "_source_rows_cache", None)
+        if cache is None:
+            cache = self._source_rows_cache = {}
+        if obj.pk in cache:
+            return cache[obj.pk]
+        from django.db.models import Q
+
+        from .models import Quotation, QuotationConversion, SalesInvoice, SalesOrder
+
+        # One query finds every route from a quote to this document: direct, through the
+        # order it was split or converted from, or through that order's delivery challans.
+        lookup = Q(sales_order_id=obj.pk) if isinstance(obj, SalesOrder) else Q(sales_invoice_id=obj.pk)
+        if isinstance(obj, SalesInvoice):
+            lookup |= Q(sales_order__converted_invoice_id=obj.pk)
+            lookup |= Q(sales_order__challans__converted_invoice_id=obj.pk)
+            if obj.source_order_id:
+                lookup |= Q(sales_order_id=obj.source_order_id)
+        quote_ids = sorted(
+            set(
+                QuotationConversion.objects.filter(
+                    lookup, released_at__isnull=True, company_id=obj.company_id
+                ).values_list("quotation_id", flat=True)
+            )
+        )
+        if not quote_ids:
+            cache[obj.pk] = []
+            return []
+        quotes = list(
+            Quotation.objects.filter(pk__in=quote_ids, company_id=obj.company_id)
+            .select_related("salesman")
+            .order_by("id")
+        )
+        rows = [
+            {
+                "id": quote.id,
+                "number": quote.number,
+                "status": quote.status,
+                "salesman": quote.salesman_id,
+                "salesman_name": quote.salesman.name if quote.salesman_id else "",
+                "sales_channel": quote.sales_channel,
+                "delivery_address": quote.delivery_address,
+                "primary": index == 0,
+            }
+            for index, quote in enumerate(quotes)
+        ]
+        cache[obj.pk] = rows
+        return rows
+
+    def _wants_sources(self) -> bool:
+        # Only a detail read shows the panel. Create, update and complete responses skip the
+        # lookup, which keeps the invoice save path at its query budget.
+        return getattr(self.context.get("view"), "action", None) == "retrieve"
+
+    @extend_schema_field(SourceQuotationRefSerializer(many=True))
+    def get_source_quotations(self, obj):
+        return self._source_rows(obj) if self._wants_sources() else []
+
+    def get_source_quotations_differ(self, obj) -> bool:
+        if not self._wants_sources():
+            return False
+        rows = self._source_rows(obj)
+        return len({(r["salesman"], r["sales_channel"], r["delivery_address"]) for r in rows}) > 1
+
+
+class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = SalesItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     received = serializers.SerializerMethodField()
@@ -136,7 +227,7 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
-            "settlement_state", "cancel_approval_pending",
+            "settlement_state", "cancel_approval_pending", "source_quotations", "source_quotations_differ",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
@@ -529,7 +620,33 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         return _flush_money_audit(instance)
 
 
-class QuotationItemSerializer(_BaseLineSerializer):
+class CostMaskedLineMixin(serializers.Serializer):
+    """``expected_price`` is internal cost: null for users who can't view
+    expected profit, and a null on write means "keep the stored value"."""
+
+    expected_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True,
+        help_text="Internal cost per unit. Null when the user can't view expected profit.",
+    )
+
+    def to_representation(self, instance):
+        from .expected_profit import mask_expected_price
+
+        return mask_expected_price(self.context.get("request"), super().to_representation(instance))
+
+    def to_internal_value(self, data):
+        value = super().to_internal_value(data)
+        if value.get("expected_price", 0) is None:
+            value.pop("expected_price")
+        return value
+
+
+class QuotationItemSerializer(CostMaskedLineMixin, _BaseLineSerializer):
+    id = serializers.IntegerField(
+        required=False,
+        help_text="Existing line id. Lines with an id are updated in place; omit it for a new line.",
+    )
+
     class Meta:
         model = QuotationItem
         fields = [
@@ -542,10 +659,88 @@ class QuotationItemSerializer(_BaseLineSerializer):
         extra_kwargs = {"unit_price": {"required": False}, "gst_rate": {"required": False}}
 
 
+class QuotationConversionSerializer(serializers.ModelSerializer):
+    document_id = serializers.SerializerMethodField()
+    document_number = serializers.SerializerMethodField()
+    document_status = serializers.SerializerMethodField()
+
+    def _document(self, obj):
+        return obj.sales_order if obj.target == "ORDER" else obj.sales_invoice
+
+    def get_document_id(self, obj) -> int | None:
+        document = self._document(obj)
+        return document.pk if document is not None else None
+
+    def get_document_number(self, obj) -> str:
+        document = self._document(obj)
+        return (document.number or "") if document is not None else ""
+
+    def get_document_status(self, obj) -> str:
+        document = self._document(obj)
+        return document.status if document is not None else ""
+
+    class Meta:
+        model = QuotationConversion
+        fields = [
+            "id", "target", "document_id", "document_number", "document_status",
+            "quotation_item", "product", "quantity", "backfilled",
+            "created_at", "released_at", "release_reason",
+        ]
+        read_only_fields = fields
+
+
+QUOTATION_POST_CONVERSION_EDITABLE = frozenset({
+    "valid_until", "notes", "terms_text", "delivery_address", "salesman", "sales_channel",
+})
+QUOTATION_TOTALS_AFFECTING = frozenset({
+    "customer", "invoice_type", "supply_type", "company_gstin", "additional_charges",
+    "charges_hsn", "charges_gst_rate", "invoice_discount", "invoice_discount_mode", "auto_round_off",
+})
+_QUOTATION_SERVER_FIELDS = frozenset({"company", "created_by", "updated_by"})
+
+
+def _field_value(value):
+    return getattr(value, "pk", value)
+
+
+_AUDITED_FIELDS = ("customer_id", "valid_until", "status", "grand_total")
+
+
+def _audit_snapshot(quotation) -> dict:
+    return {name: ("" if getattr(quotation, name) is None else str(getattr(quotation, name))) for name in _AUDITED_FIELDS}
+
+
+def _audit_update(quotation, user, changed, lines_changed, before) -> None:
+    """Record what an edit touched: field names, and before/after for the fields that matter."""
+    from core.services.audit import AuditService
+
+    names = sorted(changed | ({"items"} if lines_changed else set()))
+    AuditService.log(
+        action="QUOTATION_UPDATED",
+        company=quotation.company,
+        user=user,
+        entity_type="Quotation",
+        entity_id=str(quotation.pk),
+        description=f"Quotation {quotation.number or quotation.pk} edited: {', '.join(names)}.",
+        metadata={"changed": names, "before": before, "after": _audit_snapshot(quotation)},
+    )
+
+
 class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = QuotationItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    salesman_name = serializers.CharField(source="salesman.name", read_only=True, default="")
     expected_profit = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
+    conversion_state = serializers.SerializerMethodField()
+    remaining_total = serializers.SerializerMethodField()
+    converted_invoice = serializers.SerializerMethodField(
+        help_text="Deprecated: latest unreleased invoice conversion. Use `conversions`."
+    )
+    converted_order = serializers.SerializerMethodField(
+        help_text="Deprecated: latest unreleased order conversion. Use `conversions`."
+    )
+    conversions = serializers.SerializerMethodField()
 
     def get_expected_profit(self, obj):
         from .expected_profit import can_view_expected_profit, expected_profit_for_quotation
@@ -553,6 +748,62 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
         if not can_view_expected_profit(self.context.get("request")):
             return None
         return expected_profit_for_quotation(obj)
+
+    def get_is_expired(self, obj) -> bool:
+        from django.utils import timezone
+
+        return bool(
+            obj.status in Quotation.OPEN_STATUSES
+            and obj.valid_until is not None
+            and obj.valid_until < timezone.localdate()
+        )
+
+    @staticmethod
+    def _progress(obj):
+        items = list(obj.items.all())
+        quantity = sum((Decimal(str(i.quantity or 0)) for i in items), Decimal("0"))
+        converted = sum((Decimal(str(i.converted_quantity or 0)) for i in items), Decimal("0"))
+        remaining = Decimal("0")
+        for item in items:
+            qty = Decimal(str(item.quantity or 0))
+            if qty > 0:
+                left = max(qty - Decimal(str(item.converted_quantity or 0)), Decimal("0"))
+                remaining += left / qty * Decimal(str(item.line_total or 0))
+        return quantity, converted, remaining
+
+    def get_conversion_state(self, obj) -> str:
+        if obj.short_closed_at is not None:
+            return "CLOSED"
+        quantity, converted, _ = self._progress(obj)
+        if converted <= 0:
+            return "NONE"
+        return "FULL" if converted >= quantity else "PARTIAL"
+
+    @extend_schema_field(serializers.DecimalField(max_digits=14, decimal_places=2))
+    def get_remaining_total(self, obj):
+        """Indicative only: excludes header discount, charges and round-off."""
+        _, _, remaining = self._progress(obj)
+        if obj.short_closed_at is not None:
+            remaining = Decimal("0")
+        return str(remaining.quantize(Decimal("0.01")))
+
+    def get_converted_invoice(self, obj) -> int | None:
+        from .quotation_conversions import latest_link
+
+        return latest_link(obj, "INVOICE")
+
+    def get_converted_order(self, obj) -> int | None:
+        from .quotation_conversions import latest_link
+
+        return latest_link(obj, "ORDER")
+
+    @extend_schema_field(QuotationConversionSerializer(many=True))
+    def get_conversions(self, obj):
+        # The list only needs conversion_state and remaining_total; the rows load on retrieve.
+        if getattr(self.context.get("view"), "action", None) == "list":
+            return []
+        rows = sorted(obj.conversions.all(), key=lambda row: row.id)
+        return QuotationConversionSerializer(rows, many=True, context=self.context).data
 
     class Meta:
         model = Quotation
@@ -562,15 +813,26 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
             "payment_terms_days", "additional_charges", "charges_hsn", "charges_gst_rate",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "supply_type", "company_gstin",
-            "salesman", "sales_channel", "delivery_address",
-            "expected_profit",
+            "salesman", "salesman_name", "sales_channel", "delivery_address",
+            "expected_profit", "is_expired", "conversion_state", "remaining_total",
+            "revision", "cancel_reason",
+            "short_closed_at", "short_close_reason", "sent_at", "copied_from",
             "items", "converted_invoice",
-            "converted_order", "created_at", "updated_at",
+            "converted_order", "conversions", "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "converted_invoice", "converted_order", "expected_profit"] + TOTAL_READONLY
+        read_only_fields = [
+            "number", "status", "expected_profit", "revision", "cancel_reason",
+            "short_closed_at", "short_close_reason", "sent_at", "copied_from",
+        ] + TOTAL_READONLY
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
+        if customer.status == Customer.Status.BLOCKED:
+            instance = getattr(self, "instance", None)
+            if instance is None or instance.customer_id != customer.pk:
+                raise BusinessRuleError(
+                    "Cannot create a quotation for a blocked customer.", code="customer_blocked"
+                )
         return customer
 
     def validate_company_gstin(self, company_gstin):
@@ -578,68 +840,84 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
             self.check_company_ref(company_gstin, "company_gstin")
         return company_gstin
 
+    def validate_salesman(self, salesman):
+        if salesman is not None:
+            self.check_company_ref(salesman, "salesman")
+        return salesman
+
+    def validate(self, attrs):
+        instance = getattr(self, "instance", None)
+        quotation_date = attrs.get("quotation_date", getattr(instance, "quotation_date", None))
+        valid_until = attrs.get("valid_until", getattr(instance, "valid_until", None))
+        if quotation_date and valid_until and valid_until < quotation_date:
+            raise serializers.ValidationError(
+                {"valid_until": "Valid until cannot be before the quotation date."}
+            )
+        return attrs
+
     def create(self, validated_data):
-        from django.db import transaction
+        from .expected_profit import strip_expected_prices
 
-        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
-
-        items_data = validated_data.pop("items")
-        customer = validated_data.get("customer")
-        if customer is not None and not (validated_data.get("delivery_address") or "").strip():
-            validated_data["delivery_address"] = customer.shipping_address or ""
-        with transaction.atomic():
-            quotation = Quotation.objects.create(**validated_data)
-            if not quotation.number:
-                quotation.number = DocumentNumberService.next_number(
-                    quotation.company,
-                    "QUOTATION",
-                    gstin=resolve_series_gstin(quotation.company),
-                    on_date=quotation.quotation_date,
-                )
-                quotation.save(update_fields=["number"])
-            SalesService.set_quotation_items(
-                quotation, [dict(l) for l in items_data], self.context["request"].user
-            )
-            from insights.telemetry import note_once
-
-            note_once(
-                quotation.company,
-                "first_quote",
-                user=self.context["request"].user,
-                journey="growth",
-            )
-            return quotation
+        request = self.context["request"]
+        items_data = strip_expected_prices(request, [dict(l) for l in validated_data.pop("items")])
+        for line in items_data:
+            line.pop("id", None)
+        company = validated_data.pop("company")
+        return SalesService.create_quotation(company, request.user, validated_data, items_data)
 
     def update(self, instance, validated_data):
-        from core.exceptions import BusinessRuleError
+        from django.db import transaction
 
-        if instance.status != Quotation.Status.DRAFT:
-            raise BusinessRuleError("Only draft quotations can be edited.")
+        from core.services.feature_flags import flag_enabled
+
+        from .expected_profit import strip_expected_prices
+
+        request = self.context["request"]
         items_data = validated_data.pop("items", None)
-        instance = super().update(instance, validated_data)
         if items_data is not None:
-            has_converted = instance.items.filter(converted_quantity__gt=0).exists()
-            if has_converted:
-                # Allow header updates by skipping line reset if items were not modified
-                existing_items = list(instance.items.order_by("id").values("product_id", "quantity"))
-                new_items = [
-                    {
-                        "product_id": getattr(d["product"], "id", d["product"]),
-                        "quantity": d["quantity"],
-                    }
-                    for d in items_data
-                ]
-                lines_changed = len(existing_items) != len(new_items) or any(
-                    e["product_id"] != n["product_id"] or str(e["quantity"]) != str(n["quantity"])
-                    for e, n in zip(existing_items, new_items)
+            items_data = strip_expected_prices(request, [dict(l) for l in items_data])
+        with transaction.atomic():
+            instance = Quotation.objects.select_for_update().get(pk=instance.pk)
+            if (
+                instance.status == Quotation.Status.SENT
+                and flag_enabled(instance.company, "QUOTE_LIFECYCLE")
+            ):
+                # D8: keep what the customer received before changing it.
+                instance = SalesService.set_quotation_status(
+                    instance, Quotation.Status.DRAFT, request.user, reason="Edited after sending"
                 )
-                if lines_changed:
+            SalesService.assert_quotation_editable(instance)
+            changed = {
+                name for name, value in validated_data.items()
+                if name not in _QUOTATION_SERVER_FIELDS
+                and _field_value(value) != _field_value(getattr(instance, name, None))
+            }
+            audited_before = _audit_snapshot(instance)
+            converted = instance.items.filter(converted_quantity__gt=0).exists()
+            if converted:
+                if items_data is not None:
                     raise BusinessRuleError(
-                        "Cannot edit lines on a quotation that already has converted quantity."
+                        "Lines cannot change after part of this quotation was converted. "
+                        "Reload the page and try again.",
+                        code="quotation_lines_locked",
                     )
-            else:
-                SalesService.set_quotation_items(instance, [dict(l) for l in items_data], self.context["request"].user)
-        return instance
+                locked = sorted(changed - QUOTATION_POST_CONVERSION_EDITABLE)
+                if locked:
+                    raise BusinessRuleError(
+                        "These fields can't change after part of this quotation was converted: "
+                        f"{', '.join(locked)}. Reload the page and try again.",
+                        code="quotation_fields_locked",
+                        extra={"fields": locked},
+                    )
+            instance = super().update(instance, validated_data)
+            if items_data is not None:
+                instance = SalesService.set_quotation_items(instance, items_data, request.user)
+            elif changed & QUOTATION_TOTALS_AFFECTING:
+                instance = SalesService.recompute_quotation_totals(instance, request.user)
+            fresh = Quotation.objects.get(pk=instance.pk)
+            if changed or items_data is not None:
+                _audit_update(fresh, request.user, changed, items_data is not None, audited_before)
+        return fresh
 
 
 class SalesReturnItemSerializer(_BaseLineSerializer):

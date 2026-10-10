@@ -276,12 +276,6 @@ class ProductSerializer(serializers.ModelSerializer):
 
         return can_see_product_cost(request)
 
-    def to_representation(self, instance):
-        data = super().to_representation(instance)
-        if not self._may_see_cost():
-            data["purchase_price"] = None
-        return data
-
     class Meta:
         model = Product
         fields = [
@@ -493,7 +487,12 @@ class ProductSerializer(serializers.ModelSerializer):
         from planwave.services import mask_commercial
 
         role = getattr(get_company_user(request), "role", "")
-        return mask_commercial(data, role)
+        # The permission rule (can_see_product_cost) was a second to_representation that this
+        # one replaced, so it never ran. Apply it here, through the same mask so below_cost is
+        # still worked out before the cost is dropped. A role that may see money still loses
+        # cost when the user has none of the cost permissions.
+        mask_role = role if self._may_see_cost() else ""
+        return mask_commercial(data, mask_role)
 
 
 class PriceListItemSerializer(serializers.ModelSerializer):

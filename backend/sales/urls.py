@@ -12,7 +12,15 @@ from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet, Pod
 from .pos_batch import PosBatchSyncView
 from .pos_views import PosCollectView, PosCounterEventView, PosReturnView, PosSettingsView
 from .public_invoice_views import PublicInvoicePayView, PublicInvoicePdfView, PublicInvoiceView
-from .views import QuotationViewSet, RecurringInvoiceScheduleViewSet, SalesInvoiceViewSet, SalesReturnViewSet
+from .public_quotation_views import PublicQuotationPdfView, PublicQuotationView
+from .views import (
+    QuotationViewSet,
+    RecurringInvoiceScheduleViewSet,
+    SalesInvoiceViewSet,
+    SalesReturnViewSet,
+    SalespersonSearchView,
+    StockHintView,
+)
 
 router = DefaultRouter()
 router.register("invoices", SalesInvoiceViewSet, basename="sales-invoices")
@@ -30,9 +38,13 @@ public_urlpatterns = [
     path("public/invoices/<str:token>/pdf/", PublicInvoicePdfView.as_view(), name="public-invoice-pdf"),
     path("public/invoices/<str:token>/pay/", PublicInvoicePayView.as_view(), name="public-invoice-pay"),
     path("public/invoices/<str:token>/", PublicInvoiceView.as_view(), name="public-invoice"),
+    path("public/quotations/<str:token>/pdf/", PublicQuotationPdfView.as_view(), name="public-quotation-pdf"),
+    path("public/quotations/<str:token>/", PublicQuotationView.as_view(), name="public-quotation"),
 ]
 
 urlpatterns = [
+    path("salespeople/", SalespersonSearchView.as_view(), name="salespeople"),
+    path("stock-hints/", StockHintView.as_view(), name="stock-hints"),
     path("pos/batch-sync/", PosBatchSyncView.as_view(), name="pos-batch-sync"),
     path("pos/settings/", PosSettingsView.as_view(), name="pos-settings"),
     path("pos/events/", PosCounterEventView.as_view(), name="pos-events"),

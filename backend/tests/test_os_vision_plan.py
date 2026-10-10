@@ -383,8 +383,16 @@ def test_won_opportunity_creates_a_blank_quotation(tenant_a):
     assert quotation.customer_id == customer.id
     assert quotation.opportunity_id == opportunity.id
     assert quotation.items.count() == 0
+    # An open quote for the same opportunity is returned, not duplicated.
     second = tenant_a.client.post(f"/api/v1/crm/opportunities/{opportunity.id}/quotation/")
-    assert second.status_code == 201
+    assert second.status_code == 200
+    assert _body(second)["id"] == quotation.id
+    assert _body(second)["already_exists"] is True
+    assert Quotation.objects.filter(opportunity=opportunity).count() == 1
+    # Once that quote is cancelled the deal can be quoted again.
+    Quotation.objects.filter(pk=quotation.pk).update(status=Quotation.Status.CANCELLED)
+    third = tenant_a.client.post(f"/api/v1/crm/opportunities/{opportunity.id}/quotation/")
+    assert third.status_code == 201
     assert Quotation.objects.filter(opportunity=opportunity).count() == 2
 
 

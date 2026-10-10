@@ -57,6 +57,16 @@ ROLLOUT_GRANTABLE_KEYS = frozenset({
     "ENABLE_INSURANCE",
 })
 
+# Per-company staged rollouts with no env ceiling: company JSON true is the opt-in.
+COMPANY_ROLLOUT_KEYS = (
+    "QUOTE_CONVERSION_RELEASE",
+    "QUOTE_LIFECYCLE",
+)
+
+# Rollout keys that are on unless the company JSON sets them to false (a kill-switch).
+# Releasing converted quantity must not depend on someone remembering to turn it on.
+COMPANY_DEFAULT_ON_KEYS = frozenset({"QUOTE_CONVERSION_RELEASE"})
+
 ENV_FLAG_KEYS = (
     "ENABLE_MANUFACTURING",
     "ENABLE_PAYROLL",
@@ -265,10 +275,14 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         # New signups set this True so the sidebar starts as the archetype pack.
         # Absent means an existing company keeps the full menu.
         flags["NAV_PACK_DEFAULT"] = bool(overrides.get("NAV_PACK_DEFAULT"))
+        for key in COMPANY_ROLLOUT_KEYS:
+            flags[key] = bool(overrides.get(key, key in COMPANY_DEFAULT_ON_KEYS))
     else:
         flags["ENABLE_ACCOUNTING"] = False
         flags["ENABLE_AI"] = False
         flags["ENABLE_AA_CONSENT"] = False
+        for key in COMPANY_ROLLOUT_KEYS:
+            flags[key] = False
     return flags
 
 

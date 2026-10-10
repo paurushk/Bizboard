@@ -16,17 +16,58 @@ def _won_revenue(opportunity: Opportunity) -> tuple[Decimal, str]:
 
     Quotation totals and opportunity.amount are not revenue. grand_total
     includes GST, so it is not the basis either.
-    """
-    from sales.models import SalesCreditNote, SalesInvoice
 
-    invoice_ids = list(
-        Quotation.objects.filter(
-            company_id=opportunity.company_id,
-            opportunity=opportunity,
-            status=Quotation.Status.CONVERTED,
-            converted_invoice_id__isnull=False,
-        ).values_list("converted_invoice_id", flat=True)
+    Known limit: an order or invoice edited after conversion to add lines that were
+    not on the quote counts in full.
+    """
+    from sales.models import (
+        DeliveryChallan,
+        QuotationConversion,
+        SalesCreditNote,
+        SalesInvoice,
+        SalesOrder,
     )
+
+    # Every path from a quote to an invoice: direct conversion, quote -> order -> invoice
+    # (split invoices, the order's own link, or a challan), and pre-ledger legacy links.
+    # Released conversions are ignored, and partially converted quotes count.
+    company_id = opportunity.company_id
+    quote_ids = list(
+        Quotation.objects.filter(company_id=company_id, opportunity=opportunity).values_list("id", flat=True)
+    )
+    live = QuotationConversion.objects.filter(
+        company_id=company_id, quotation_id__in=quote_ids, released_at__isnull=True
+    )
+    invoice_ids = set(
+        live.filter(sales_invoice_id__isnull=False).values_list("sales_invoice_id", flat=True)
+    )
+    order_ids = set(live.filter(sales_order_id__isnull=False).values_list("sales_order_id", flat=True))
+    if order_ids:
+        invoice_ids |= set(
+            SalesInvoice.objects.filter(company_id=company_id, source_order_id__in=order_ids)
+            .values_list("id", flat=True)
+        )
+        invoice_ids |= set(
+            SalesOrder.objects.filter(
+                company_id=company_id, pk__in=order_ids, converted_invoice_id__isnull=False
+            ).values_list("converted_invoice_id", flat=True)
+        )
+        invoice_ids |= set(
+            DeliveryChallan.objects.filter(
+                company_id=company_id, sales_order_id__in=order_ids, converted_invoice_id__isnull=False
+            ).values_list("converted_invoice_id", flat=True)
+        )
+    # Quotes converted before the ledger existed have no rows, only the old single link.
+    invoice_ids |= set(
+        Quotation.objects.filter(
+            company_id=company_id,
+            pk__in=quote_ids,
+            converted_invoice_id__isnull=False,
+        )
+        .exclude(pk__in=QuotationConversion.objects.filter(quotation_id__in=quote_ids).values("quotation_id"))
+        .values_list("converted_invoice_id", flat=True)
+    )
+    invoice_ids = list(invoice_ids)
     invoices = SalesInvoice.objects.filter(
         company_id=opportunity.company_id,
         pk__in=invoice_ids or [-1],

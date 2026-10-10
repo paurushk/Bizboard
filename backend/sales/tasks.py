@@ -398,3 +398,14 @@ def purge_old_invoice_zips_task(days: int = 7) -> int:
         asset.delete()
         removed += 1
     return removed
+
+
+@shared_task
+def sweep_quotation_conversions() -> dict:
+    """Nightly: give converted quantity back when its order or invoice is gone or cancelled."""
+    from .quotation_conversions import QuotationConversionService
+
+    result = QuotationConversionService.sweep()
+    if result["released"]:
+        logger.warning("quotation conversion sweep released %s row(s): %s", result["released"], result["by_reason"])
+    return result

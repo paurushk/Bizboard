@@ -349,6 +349,14 @@ def _build_items(model_cls, parent_field, parent, items_data):
                     "rate_override": bool(line.get("rate_override")),
                     "rate_override_reason": (line.get("rate_override_reason") or "")[:255],
                 })
+        if model_cls is QuotationItem:
+            nature = (line.get("supply_nature") or "TAXABLE").upper()
+            if nature in ("NIL", "EXEMPT", "NON_GST"):
+                kwargs["gst_rate"] = Decimal("0")
+            kwargs["supply_nature"] = nature if nature in ("TAXABLE", "NIL", "EXEMPT", "NON_GST") else "TAXABLE"
+            kwargs["hsn_code"] = (line.get("hsn_code") or getattr(product, "hsn_code", "") or "")[:8]
+            inclusive = line.get("unit_price_inclusive")
+            kwargs["unit_price_inclusive"] = Decimal(str(inclusive)) if inclusive not in (None, "") else None
         from sales.models import DeliveryChallanItem
 
         if model_cls is DeliveryChallanItem:
@@ -502,6 +510,20 @@ def _update_items_in_place(invoice: SalesInvoice, items_data):
     return items
 
 
+QUOTATION_LINE_WRITE_FIELDS = [
+    f.name
+    for f in QuotationItem._meta.concrete_fields
+    if f.name not in ("id", "company", "quotation", "converted_quantity")
+]
+
+
+def _validate_quotation_dates(quotation_date, valid_until):
+    if quotation_date and valid_until and valid_until < quotation_date:
+        raise BusinessRuleError(
+            "Valid until cannot be before the quotation date.", code="quotation_invalid_dates"
+        )
+
+
 def _quotation_remaining(item) -> Decimal:
     return Decimal(str(item.quantity)) - Decimal(str(getattr(item, "converted_quantity", 0) or 0))
 
@@ -566,17 +588,46 @@ def _quotation_items_data_from_plan(plan):
 
 
 def _commit_quotation_conversion(quotation, plan, user, *, invoice=None, order=None):
-    for item, qty in plan:
-        item.converted_quantity = Decimal(str(item.converted_quantity or 0)) + qty
-        item.save(update_fields=["converted_quantity"])
-    remaining = any(_quotation_remaining(row) > 0 for row in quotation.items.all())
-    quotation.status = Quotation.Status.DRAFT if remaining else Quotation.Status.CONVERTED
-    if invoice is not None:
-        quotation.converted_invoice = invoice
-    if order is not None:
-        quotation.converted_order = order
-    quotation.updated_by = user
-    quotation.save()
+    from .quotation_conversions import QuotationConversionService
+
+    document = order if order is not None else invoice
+    lines = list(getattr(document, "_written_lines", None) or [])
+    if len(lines) != len(plan):
+        raise BusinessRuleError(
+            "Converted lines do not match the quotation lines; nothing was converted."
+        )
+    quotation.save(update_fields=["number", "updated_at"])
+    QuotationConversionService.record(
+        quotation,
+        [(item, qty, line) for (item, qty), line in zip(plan, lines)],
+        user,
+        order=order,
+        invoice=invoice,
+    )
+
+
+def _assert_quotation_convertible(quotation, *, confirm_expired, target_label):
+    if quotation.status not in Quotation.CONVERTIBLE_STATUSES:
+        raise BusinessRuleError(
+            f"Cannot convert a quotation in status {quotation.status}.", code="quotation_not_convertible"
+        )
+    if quotation.customer.status == Customer.Status.BLOCKED:
+        raise BusinessRuleError(f"Cannot create {target_label} for a blocked customer.")
+    if quotation.valid_until and timezone.localdate() > quotation.valid_until and not confirm_expired:
+        raise BusinessRuleError(
+            "Quotation validity has expired. Refresh pricing or pass "
+            "confirm_expired=true to convert anyway.",
+            code="quotation_expired",
+        )
+    if not quotation.number:
+        from core.services.document_numbers import resolve_series_gstin
+
+        quotation.number = DocumentNumberService.next_number(
+            quotation.company,
+            "QUOTATION",
+            gstin=resolve_series_gstin(quotation.company),
+            on_date=quotation.quotation_date,
+        )
 
 
 class SalesService:
@@ -815,6 +866,8 @@ class SalesService:
                 item.save()
         else:
             SalesItem.objects.bulk_create(items)
+        # Lines in input order, for callers that map source lines to these rows.
+        invoice._written_lines = items
 
         if adjust_stock:
             # CR-024 / CR-128: quantities on completed invoices are immutable; no stock delta to post.
@@ -1764,6 +1817,12 @@ class SalesService:
         SalesOrder.objects.filter(converted_invoice=invoice).exclude(
             status=SalesOrder.Status.CONVERTED
         ).update(converted_invoice=None, updated_by=user, updated_at=timezone.now())
+        from .models import QuotationConversion
+        from .quotation_conversions import QuotationConversionService
+
+        QuotationConversionService.release_for_invoice(
+            invoice, user, QuotationConversion.ReleaseReason.INVOICE_CANCELLED
+        )
         # GAP-005: cancel open payment links so public pay pages cannot collect
         # against a cancelled invoice.
         from payments.models import PaymentLink, PaymentLinkStatus
@@ -1799,17 +1858,7 @@ class SalesService:
     # ---------------- Quotation ----------------
 
     @staticmethod
-    @transaction.atomic
-    def set_quotation_items(quotation: Quotation, items_data, user):
-        if quotation.status != Quotation.Status.DRAFT:
-            raise BusinessRuleError("Only draft quotations can be edited.")
-        if quotation.items.filter(converted_quantity__gt=0).exists():
-            raise BusinessRuleError(
-                "Cannot edit lines on a quotation that already has converted quantity."
-            )
-        _validate_lines(items_data, quotation.company)
-        quotation.items.all().delete()
-        items = _build_items(QuotationItem, "quotation", quotation, items_data)
+    def _compute_quotation_totals(quotation, items):
         get_tax_engine(quotation.company).compute_document_totals(
             quotation, items,
             tax_enabled=_tax_enabled(quotation.invoice_type),
@@ -1827,8 +1876,140 @@ class SalesService:
             auto_round_off=getattr(quotation, "auto_round_off", True),
             invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None),
         )
-        QuotationItem.objects.bulk_create(items)
+
+    @staticmethod
+    def assert_quotation_editable(quotation: Quotation):
+        if quotation.status not in Quotation.EDITABLE_STATUSES:
+            raise BusinessRuleError(
+                "Only a draft quotation can be edited. Reload the page and try again.",
+                code="quotation_not_editable",
+            )
+
+    @staticmethod
+    @transaction.atomic
+    def create_quotation(company, user, header: dict, items_data, *, allow_empty_lines=False):
+        """Single create path for the API, CRM and copy flows: number, lines, totals."""
+        from core.services.document_numbers import resolve_series_gstin
+
+        customer = header.get("customer")
+        if customer is None:
+            raise BusinessRuleError("A customer is required.")
+        if customer.status == Customer.Status.BLOCKED:
+            raise BusinessRuleError(
+                "Cannot create a quotation for a blocked customer.", code="customer_blocked"
+            )
+        header = dict(header)
+        # Same default the web editor uses: GST for a regular registration, otherwise a bill of supply.
+        header.setdefault(
+            "invoice_type",
+            SalesInvoice.InvoiceType.GST
+            if company.registration_type == company.RegistrationType.REGULAR
+            else SalesInvoice.InvoiceType.NON_GST,
+        )
+        header.setdefault("quotation_date", timezone.localdate())
+        _validate_quotation_dates(header.get("quotation_date"), header.get("valid_until"))
+        if not (header.get("delivery_address") or "").strip():
+            header["delivery_address"] = customer.shipping_address or ""
+        header.pop("company", None)
+        header.setdefault("created_by", user)
+        header.setdefault("updated_by", user)
+        quotation = Quotation.objects.create(company=company, **header)
+        quotation.number = DocumentNumberService.next_number(
+            company,
+            "QUOTATION",
+            gstin=resolve_series_gstin(company),
+            on_date=quotation.quotation_date,
+        )
+        quotation.save(update_fields=["number"])
+        if items_data or not allow_empty_lines:
+            SalesService.set_quotation_items(quotation, items_data, user)
+        from insights.telemetry import note_once
+
+        note_once(company, "first_quote", user=user, journey="growth")
+        # set_quotation_items works on a locked copy; hand the caller the saved totals.
+        quotation.refresh_from_db()
+        return quotation
+
+    @staticmethod
+    @transaction.atomic
+    def set_quotation_items(quotation: Quotation, items_data, user):
+        """Upsert lines in place. Rows carrying ``id`` update that line; rows
+        without one are new; existing lines not referenced are removed. A
+        payload with no ids at all replaces every line (legacy clients)."""
+        quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
+        SalesService.assert_quotation_editable(quotation)
+        existing = {row.id: row for row in quotation.items.all()}
+        if any(Decimal(str(row.converted_quantity or 0)) > 0 for row in existing.values()):
+            raise BusinessRuleError(
+                "Lines cannot change after part of this quotation was converted. "
+                "Reload the page and try again.",
+                code="quotation_lines_locked",
+            )
+        items_data = [dict(line) for line in items_data]
+        _validate_lines(items_data, quotation.company)
+        line_ids = []
+        for line in items_data:
+            line_id = line.pop("id", None)
+            if line_id is not None:
+                line_id = int(line_id)
+                if line_id not in existing or line_id in line_ids:
+                    raise BusinessRuleError(
+                        "A line on this quotation no longer exists. Reload the page and try again.",
+                        code="quotation_unknown_line",
+                    )
+                if "expected_price" not in line:
+                    line["expected_price"] = existing[line_id].expected_price
+            line_ids.append(line_id)
+        # Lines without an id and without a cost keep the cost of the first
+        # unused existing line for the same product (clients that can't see cost).
+        unused = [row for row_id, row in sorted(existing.items()) if row_id not in line_ids]
+        for line, line_id in zip(items_data, line_ids):
+            if line_id is not None or "expected_price" in line:
+                continue
+            product_id = getattr(line["product"], "pk", line["product"])
+            match = next((row for row in unused if row.product_id == product_id), None)
+            if match is not None:
+                line["expected_price"] = match.expected_price
+                unused.remove(match)
+        # A new line with no cost (API, CRM, or a user who cannot see cost) costs what the
+        # product costs today, so expected profit is meaningful whoever created the line.
+        for line in items_data:
+            if "expected_price" not in line:
+                product = line["product"]
+                if not hasattr(product, "purchase_price"):
+                    from masters.models import Product
+
+                    product = Product.objects.filter(pk=product, company=quotation.company).first()
+                line["expected_price"] = getattr(product, "purchase_price", None) or Decimal("0")
+        items = _build_items(QuotationItem, "quotation", quotation, items_data)
+        for item, line_id in zip(items, line_ids):
+            if line_id is not None:
+                item.pk = line_id
+                item._state.adding = False
+        SalesService._compute_quotation_totals(quotation, items)
+        kept = {line_id for line_id in line_ids if line_id is not None}
+        quotation.items.exclude(pk__in=kept).delete()
+        updated = [item for item in items if item.pk is not None]
+        created = [item for item in items if item.pk is None]
+        if updated:
+            QuotationItem.objects.bulk_update(updated, QUOTATION_LINE_WRITE_FIELDS)
+        if created:
+            QuotationItem.objects.bulk_create(created)
         quotation.updated_by = user
+        quotation.save()
+        return quotation
+
+    @staticmethod
+    @transaction.atomic
+    def recompute_quotation_totals(quotation: Quotation, user=None):
+        """Header change that moves tax/totals: recompute on the existing lines."""
+        quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
+        items = list(quotation.items.select_related("product").order_by("id"))
+        SalesService._compute_quotation_totals(quotation, items)
+        if items:
+            QuotationItem.objects.bulk_update(items, QUOTATION_LINE_WRITE_FIELDS)
+        if user is not None:
+            quotation.updated_by = user
         quotation.save()
         return quotation
 
@@ -1837,19 +2018,8 @@ class SalesService:
     def convert_quotation(quotation: Quotation, user, *, confirm_expired=False, line_quantities=None):
         """Quotation → draft sales invoice, preserving lines (E4.5). CFT-115: optional partial qty."""
         quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
-        if quotation.status != Quotation.Status.DRAFT:
-            raise BusinessRuleError(f"Cannot convert a quotation in status {quotation.status}.")
-        if quotation.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
-        if quotation.valid_until and timezone.localdate() > quotation.valid_until:
-            if not confirm_expired:
-                raise BusinessRuleError(
-                    "Quotation validity has expired. Refresh pricing or pass "
-                    "confirm_expired=true to convert anyway."
-                )
+        _assert_quotation_convertible(quotation, confirm_expired=confirm_expired, target_label="an invoice")
         plan = _quotation_convert_plan(quotation, line_quantities)
-        if not quotation.number:
-            quotation.number = DocumentNumberService.next_number(quotation.company, "QUOTATION")
 
         from accounts.models import CompanyGstin
 
@@ -1859,6 +2029,9 @@ class SalesService:
             )
         )
         stamp = active_gstins[0] if len(active_gstins) == 1 else None
+        from .quotation_conversions import header_shares
+
+        header_charges, header_discount = header_shares(quotation, plan)
         invoice = SalesInvoice.objects.create(
             company=quotation.company,
             customer=quotation.customer,
@@ -1867,10 +2040,10 @@ class SalesService:
             company_gstin=getattr(quotation, "company_gstin", None) or stamp,
             supply_type=getattr(quotation, "supply_type", None) or SalesInvoice.SupplyType.B2B,
             payment_terms_days=getattr(quotation, "payment_terms_days", 0) or 0,
-            additional_charges=getattr(quotation, "additional_charges", 0) or 0,
+            additional_charges=header_charges,
             charges_hsn=getattr(quotation, "charges_hsn", "") or "",
             charges_gst_rate=getattr(quotation, "charges_gst_rate", 0) or 0,
-            invoice_discount=getattr(quotation, "invoice_discount", 0) or 0,
+            invoice_discount=header_discount,
             invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None)
             or SalesInvoice.DiscountMode.AFTER_TAX,
             auto_round_off=getattr(quotation, "auto_round_off", True),
@@ -1895,20 +2068,12 @@ class SalesService:
         from .notes_services import SalesNotesService
 
         quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
-        if quotation.status != Quotation.Status.DRAFT:
-            raise BusinessRuleError(f"Cannot convert a quotation in status {quotation.status}.")
-        if quotation.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create an order for a blocked customer.")
-        if quotation.valid_until and timezone.localdate() > quotation.valid_until:
-            if not confirm_expired:
-                raise BusinessRuleError(
-                    "Quotation validity has expired. Refresh pricing or pass "
-                    "confirm_expired=true to convert anyway."
-                )
+        _assert_quotation_convertible(quotation, confirm_expired=confirm_expired, target_label="an order")
         plan = _quotation_convert_plan(quotation, line_quantities)
-        if not quotation.number:
-            quotation.number = DocumentNumberService.next_number(quotation.company, "QUOTATION")
 
+        from .quotation_conversions import header_shares
+
+        header_charges, header_discount = header_shares(quotation, plan)
         order = SalesOrder.objects.create(
             company=quotation.company,
             customer=quotation.customer,
@@ -1917,10 +2082,10 @@ class SalesService:
             company_gstin=getattr(quotation, "company_gstin", None),
             supply_type=getattr(quotation, "supply_type", None) or SalesInvoice.SupplyType.B2B,
             payment_terms_days=getattr(quotation, "payment_terms_days", 0) or 0,
-            additional_charges=getattr(quotation, "additional_charges", 0) or 0,
+            additional_charges=header_charges,
             charges_hsn=getattr(quotation, "charges_hsn", "") or "",
             charges_gst_rate=getattr(quotation, "charges_gst_rate", 0) or 0,
-            invoice_discount=getattr(quotation, "invoice_discount", 0) or 0,
+            invoice_discount=header_discount,
             invoice_discount_mode=getattr(quotation, "invoice_discount_mode", None)
             or SalesInvoice.DiscountMode.AFTER_TAX,
             auto_round_off=getattr(quotation, "auto_round_off", True),
@@ -1946,17 +2111,132 @@ class SalesService:
 
     @staticmethod
     @transaction.atomic
-    def cancel_quotation(quotation: Quotation, user):
-        if quotation.status != Quotation.Status.DRAFT:
+    def cancel_quotation(quotation: Quotation, user, *, reason: str = ""):
+        quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
+        if quotation.status not in Quotation.OPEN_STATUSES:
             raise BusinessRuleError(f"Cannot cancel a quotation in status {quotation.status}.")
         if quotation.items.filter(converted_quantity__gt=0).exists():
             raise BusinessRuleError(
                 "Cannot cancel a quotation with converted quantity; cancel the "
-                "sales order or invoice instead."
+                "sales order or invoice instead, or use Close remaining to stop the unconverted quantity.",
+                code="quotation_has_conversions",
             )
         quotation.status = Quotation.Status.CANCELLED
+        quotation.cancel_reason = (reason or "").strip()[:500]
         quotation.updated_by = user
         quotation.save()
+        from .quotation_links import revoke_links
+
+        revoke_links(quotation)
+        return quotation
+
+    QUOTATION_TRANSITIONS = {
+        Quotation.Status.DRAFT: {Quotation.Status.SENT},
+        Quotation.Status.SENT: {Quotation.Status.ACCEPTED, Quotation.Status.REJECTED, Quotation.Status.DRAFT},
+        Quotation.Status.ACCEPTED: {Quotation.Status.DRAFT},
+        Quotation.Status.REJECTED: {Quotation.Status.DRAFT},
+    }
+    # Moving these back to DRAFT keeps a snapshot of what the customer received (D8).
+    QUOTATION_SNAPSHOT_FROM = (Quotation.Status.SENT, Quotation.Status.ACCEPTED)
+    QUOTATION_REASON_REQUIRED = {
+        (Quotation.Status.ACCEPTED, Quotation.Status.DRAFT),
+        (Quotation.Status.REJECTED, Quotation.Status.DRAFT),
+    }
+
+    @staticmethod
+    def quotation_snapshot(quotation: Quotation) -> dict:
+        """Header, lines and totals as sent. Internal cost is never included."""
+        def s(value):
+            return "" if value is None else str(value)
+
+        return {
+            "number": quotation.number,
+            "status": quotation.status,
+            "revision": quotation.revision,
+            "customer": quotation.customer_id,
+            "customer_name": quotation.customer.name,
+            "quotation_date": s(quotation.quotation_date),
+            "valid_until": s(quotation.valid_until),
+            "invoice_type": quotation.invoice_type,
+            "payment_terms_days": quotation.payment_terms_days,
+            "notes": quotation.notes,
+            "terms_text": quotation.terms_text,
+            "delivery_address": quotation.delivery_address,
+            "additional_charges": s(quotation.additional_charges),
+            "invoice_discount": s(quotation.invoice_discount),
+            "invoice_discount_mode": quotation.invoice_discount_mode,
+            "subtotal": s(quotation.subtotal),
+            "discount_total": s(quotation.discount_total),
+            "taxable_total": s(quotation.taxable_total),
+            "cgst_total": s(quotation.cgst_total),
+            "sgst_total": s(quotation.sgst_total),
+            "igst_total": s(quotation.igst_total),
+            "cess_total": s(quotation.cess_total),
+            "round_off": s(quotation.round_off),
+            "grand_total": s(quotation.grand_total),
+            "items": [
+                {
+                    "id": item.id,
+                    "product": item.product_id,
+                    "product_name": item.product.name,
+                    "description": item.description,
+                    "quantity": s(item.quantity),
+                    "unit_price": s(item.unit_price),
+                    "discount_percent": s(item.discount_percent),
+                    "gst_rate": s(item.gst_rate),
+                    "taxable_amount": s(item.taxable_amount),
+                    "line_total": s(item.line_total),
+                }
+                for item in quotation.items.select_related("product").order_by("id")
+            ],
+        }
+
+    @staticmethod
+    @transaction.atomic
+    def set_quotation_status(quotation: Quotation, target: str, user, *, reason: str = ""):
+        from .models import QuotationRevision
+
+        quotation = Quotation.objects.select_for_update().get(pk=quotation.pk)
+        current = quotation.status
+        if target not in SalesService.QUOTATION_TRANSITIONS.get(current, set()):
+            raise BusinessRuleError(
+                f"A quotation in status {current} cannot move to {target}.",
+                code="quotation_invalid_transition",
+            )
+        reason = (reason or "").strip()
+        if (current, target) in SalesService.QUOTATION_REASON_REQUIRED and not reason:
+            raise BusinessRuleError("A reason is required for this change.", code="reason_required")
+        if target == Quotation.Status.DRAFT and current in SalesService.QUOTATION_SNAPSHOT_FROM:
+            QuotationRevision.objects.create(
+                company_id=quotation.company_id,
+                quotation=quotation,
+                revision=quotation.revision,
+                snapshot=SalesService.quotation_snapshot(quotation),
+                reason=reason[:500],
+                created_by=user,
+            )
+            quotation.revision += 1
+        quotation.status = target
+        quotation.updated_by = user
+        fields = ["status", "revision", "updated_by", "updated_at"]
+        if target == Quotation.Status.SENT and quotation.sent_at is None:
+            quotation.sent_at = timezone.now()
+            fields.append("sent_at")
+        quotation.save(update_fields=fields)
+        if target in (Quotation.Status.DRAFT, Quotation.Status.REJECTED):
+            # What the customer was shown is no longer current; the next share makes a new link.
+            from .quotation_links import revoke_links
+
+            revoke_links(quotation)
+        AuditService.log(
+            action="QUOTATION_STATUS_CHANGED",
+            company=quotation.company,
+            user=user,
+            entity_type="Quotation",
+            entity_id=str(quotation.pk),
+            description=f"{current} -> {target}" + (f": {reason[:200]}" if reason else ""),
+            metadata={"from": current, "to": target, "reason": reason[:500], "revision": quotation.revision},
+        )
         return quotation
 
     # ---------------- Sales return ----------------

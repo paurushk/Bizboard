@@ -7732,7 +7732,7 @@
         "/api/v1/crm/opportunities/{id}/quotation/": {
             "post": {
                 "operationId": "crm_opportunities_quotation_create",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "Quote a won opportunity through the same create path as every other quote.\n\nAn open quote for this opportunity is returned instead of a second one, so a\ndouble click cannot duplicate it; a cancelled or fully converted one does not\nblock a new quote.",
                 "parameters": [
                     {
                         "in": "path",
@@ -21422,6 +21422,74 @@
                 }
             }
         },
+        "/api/v1/public/quotations/{token}/": {
+            "get": {
+                "operationId": "public_quotations_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/public/quotations/{token}/pdf/": {
+            "get": {
+                "operationId": "public_quotations_pdf_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/purchases/bills-of-entry/": {
             "get": {
                 "operationId": "purchases_bills_of_entry_list",
@@ -32412,7 +32480,7 @@
             },
             "put": {
                 "operationId": "sales_quotations_update",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "Replace a draft quotation. Error codes: `quotation_not_editable`, `quotation_lines_locked`, `quotation_fields_locked`, `customer_blocked`.",
                 "parameters": [
                     {
                         "in": "path",
@@ -32467,7 +32535,7 @@
             },
             "patch": {
                 "operationId": "sales_quotations_partial_update",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "Edit a draft quotation. Error codes: `quotation_not_editable` (not a draft), `quotation_lines_locked` (part of it was converted, so `items` cannot be sent) and `quotation_fields_locked` (only validity, notes, terms, delivery address, salesperson and channel may change after a partial conversion; the response lists the blocked fields), `customer_blocked`.",
                 "parameters": [
                     {
                         "in": "path",
@@ -32521,7 +32589,7 @@
             },
             "delete": {
                 "operationId": "sales_quotations_destroy",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "Delete an unconverted draft. Error code: `quotation_not_deletable`.",
                 "parameters": [
                     {
                         "in": "path",
@@ -32551,6 +32619,63 @@
         "/api/v1/sales/quotations/{id}/cancel/": {
             "post": {
                 "operationId": "sales_quotations_cancel_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/close-remaining/": {
+            "post": {
+                "operationId": "sales_quotations_close_remaining_create",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "parameters": [
                     {
@@ -32665,7 +32790,65 @@
         "/api/v1/sales/quotations/{id}/convert-chain/": {
             "post": {
                 "operationId": "sales_quotations_convert_chain_create",
-                "description": "Quote → SO → (optional draft DC) → (optional draft invoice).",
+                "description": "Deprecated: quote → SO → (optional draft DC) → (optional draft invoice).\nConvert to a sales order and continue from the sales order screen.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "deprecated": true,
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/convert-to-order/": {
+            "post": {
+                "operationId": "sales_quotations_convert_to_order_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "parameters": [
                     {
                         "in": "path",
@@ -32719,9 +32902,180 @@
                 }
             }
         },
-        "/api/v1/sales/quotations/{id}/convert-to-order/": {
+        "/api/v1/sales/quotations/{id}/duplicate/": {
             "post": {
-                "operationId": "sales_quotations_convert_to_order_create",
+                "operationId": "sales_quotations_duplicate_create",
+                "description": "Copy into a new draft with a new number. The source quote is not changed.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/mark-accepted/": {
+            "post": {
+                "operationId": "sales_quotations_mark_accepted_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/mark-rejected/": {
+            "post": {
+                "operationId": "sales_quotations_mark_rejected_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/mark-sent/": {
+            "post": {
+                "operationId": "sales_quotations_mark_sent_create",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "parameters": [
                     {
@@ -32794,6 +33148,431 @@
                 "tags": [
                     "sales"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/public-link/": {
+            "post": {
+                "operationId": "sales_quotations_public_link_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/public-link/revoke/": {
+            "post": {
+                "operationId": "sales_quotations_public_link_revoke_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/reopen/": {
+            "post": {
+                "operationId": "sales_quotations_reopen_create",
+                "description": "Owner-only: release converted quantity whose downstream document is gone\n(backfilled UNKNOWN rows, or releases missed while the rollout flag was off).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/reopen-closed/": {
+            "post": {
+                "operationId": "sales_quotations_reopen_closed_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/reopen-for-changes/": {
+            "post": {
+                "operationId": "sales_quotations_reopen_for_changes_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/revisions/": {
+            "get": {
+                "operationId": "sales_quotations_revisions_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/{id}/share/": {
+            "post": {
+                "operationId": "sales_quotations_share_create",
+                "description": "Make the PDF link, stamp ``sent_at`` and, when the lifecycle is on, move DRAFT to SENT.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this quotation.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Quotation"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/quotations/cancel-expired/": {
+            "post": {
+                "operationId": "sales_quotations_cancel_expired_create",
+                "description": "Cancel every expired open quote that nothing was converted from.\n\nQuotes that were partly converted cannot be cancelled; they come back in\n``needs_close_remaining`` so the user can close what is left of them.",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Quotation"
+                            }
+                        }
+                    },
+                    "required": true
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -33642,6 +34421,60 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SalesReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/salespeople/": {
+            "get": {
+                "operationId": "sales_salespeople_retrieve",
+                "description": "Names a sales user may pick as a document's salesperson.\n\nThe payroll employee list is owner-only and needs payroll switched on, so a\nsalesperson picker built on it was empty for staff and for most shops. This\nreturns only id, name and code of active employees.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/stock-hints/": {
+            "get": {
+                "operationId": "sales_stock_hints_retrieve",
+                "description": "Available quantity in the default godown for the products on a quotation.\n\nA quotation has no godown of its own; conversion uses the default one, so the\nhint is measured there. Read-only, and only for products whose stock is tracked.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -37616,6 +38449,7 @@
             },
             "DeliveryChallanItem": {
                 "type": "object",
+                "description": "``expected_price`` is internal cost: null for users who can't view\nexpected profit, and a null on write means \"keep the stored value\".",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -37674,7 +38508,9 @@
                     "expected_price": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "Internal cost per unit. Null when the user can't view expected profit."
                     },
                     "taxable_amount": {
                         "type": "string",
@@ -45715,7 +46551,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Status4a7Enum"
+                                "$ref": "#/components/schemas/PurchaseOrderStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -45980,7 +46816,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Status4a7Enum"
+                                "$ref": "#/components/schemas/QuotationStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -46059,6 +46895,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "salesman_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "sales_channel": {
                         "oneOf": [
                             {
@@ -46076,6 +46917,49 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "is_expired": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "conversion_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "remaining_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "revision": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "cancel_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "short_close_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "sent_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "copied_from": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -46084,13 +46968,22 @@
                     },
                     "converted_invoice": {
                         "type": "integer",
+                        "nullable": true,
                         "readOnly": true,
-                        "nullable": true
+                        "description": "Deprecated: latest unreleased invoice conversion. Use `conversions`."
                     },
                     "converted_order": {
                         "type": "integer",
+                        "nullable": true,
                         "readOnly": true,
-                        "nullable": true
+                        "description": "Deprecated: latest unreleased order conversion. Use `conversions`."
+                    },
+                    "conversions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/QuotationConversion"
+                        },
+                        "readOnly": true
                     },
                     "created_at": {
                         "type": "string",
@@ -46656,6 +47549,7 @@
             },
             "PatchedSalesInvoice": {
                 "type": "object",
+                "description": "``source_quotations``: quotes this document was converted from (unreleased).\n\nAn invoice made from an order made from a quote is traced through the order, the\ninvoice's source order and its delivery challans. The earliest source is marked\n``primary``; ``source_quotations_differ`` says whether their salesperson, channel\nor delivery address disagree. Filled on detail reads only; list rows and the\nresponses to create, update and complete return an empty list.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -47032,6 +47926,17 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "source_quotations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceQuotationRef"
+                        },
+                        "readOnly": true
+                    },
+                    "source_quotations_differ": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -47090,6 +47995,7 @@
             },
             "PatchedSalesOrder": {
                 "type": "object",
+                "description": "``source_quotations``: quotes this document was converted from (unreleased).\n\nAn invoice made from an order made from a quote is traced through the order, the\ninvoice's source order and its delivery challans. The earliest source is marked\n``primary``; ``source_quotations_differ`` says whether their salesperson, channel\nor delivery address disagree. Filled on detail reads only; list rows and the\nresponses to create, update and complete return an empty list.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -47206,6 +48112,17 @@
                     },
                     "expected_profit": {
                         "type": "string",
+                        "readOnly": true
+                    },
+                    "source_quotations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceQuotationRef"
+                        },
+                        "readOnly": true
+                    },
+                    "source_quotations_differ": {
+                        "type": "boolean",
                         "readOnly": true
                     },
                     "converted_invoice": {
@@ -50034,7 +50951,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Status4a7Enum"
+                                "$ref": "#/components/schemas/PurchaseOrderStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -50280,6 +51197,15 @@
                     "sgst",
                     "taxable_amount"
                 ]
+            },
+            "PurchaseOrderStatusEnum": {
+                "enum": [
+                    "DRAFT",
+                    "CONVERTED",
+                    "CANCELLED"
+                ],
+                "type": "string",
+                "description": "* `DRAFT` - Draft\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
             },
             "PurchaseReturn": {
                 "type": "object",
@@ -50546,7 +51472,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/Status4a7Enum"
+                                "$ref": "#/components/schemas/QuotationStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -50625,6 +51551,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "salesman_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "sales_channel": {
                         "oneOf": [
                             {
@@ -50642,6 +51573,49 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "is_expired": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "conversion_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "remaining_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "revision": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "cancel_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "short_closed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "short_close_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "sent_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "copied_from": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "items": {
                         "type": "array",
                         "items": {
@@ -50650,13 +51624,22 @@
                     },
                     "converted_invoice": {
                         "type": "integer",
+                        "nullable": true,
                         "readOnly": true,
-                        "nullable": true
+                        "description": "Deprecated: latest unreleased invoice conversion. Use `conversions`."
                     },
                     "converted_order": {
                         "type": "integer",
+                        "nullable": true,
                         "readOnly": true,
-                        "nullable": true
+                        "description": "Deprecated: latest unreleased order conversion. Use `conversions`."
+                    },
+                    "conversions": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/QuotationConversion"
+                        },
+                        "readOnly": true
                     },
                     "created_at": {
                         "type": "string",
@@ -50724,10 +51707,14 @@
                     }
                 },
                 "required": [
+                    "cancel_reason",
                     "cess_total",
                     "cgst_total",
+                    "conversion_state",
+                    "conversions",
                     "converted_invoice",
                     "converted_order",
+                    "copied_from",
                     "created_at",
                     "customer",
                     "customer_name",
@@ -50736,22 +51723,112 @@
                     "grand_total",
                     "id",
                     "igst_total",
+                    "is_expired",
                     "items",
                     "number",
+                    "remaining_total",
+                    "revision",
                     "round_off",
+                    "salesman_name",
+                    "sent_at",
                     "sgst_total",
+                    "short_close_reason",
+                    "short_closed_at",
                     "status",
                     "subtotal",
                     "taxable_total",
                     "updated_at"
                 ]
             },
-            "QuotationItem": {
+            "QuotationConversion": {
                 "type": "object",
                 "properties": {
                     "id": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "target": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/TargetEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "document_id": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "document_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "document_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "quotation_item": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "product": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "quantity": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$",
+                        "readOnly": true
+                    },
+                    "backfilled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "released_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "release_reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ReleaseReasonEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "backfilled",
+                    "created_at",
+                    "document_id",
+                    "document_number",
+                    "document_status",
+                    "id",
+                    "product",
+                    "quantity",
+                    "quotation_item",
+                    "release_reason",
+                    "released_at",
+                    "target"
+                ]
+            },
+            "QuotationItem": {
+                "type": "object",
+                "description": "``expected_price`` is internal cost: null for users who can't view\nexpected profit, and a null on write means \"keep the stored value\".",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Existing line id. Lines with an id are updated in place; omit it for a new line."
                     },
                     "product": {
                         "type": "integer"
@@ -50817,7 +51894,9 @@
                     "expected_price": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "Internal cost per unit. Null when the user can't view expected profit."
                     },
                     "taxable_amount": {
                         "type": "string",
@@ -50860,7 +51939,6 @@
                     "cess",
                     "cgst",
                     "converted_quantity",
-                    "id",
                     "igst",
                     "line_total",
                     "product",
@@ -50869,6 +51947,18 @@
                     "sgst",
                     "taxable_amount"
                 ]
+            },
+            "QuotationStatusEnum": {
+                "enum": [
+                    "DRAFT",
+                    "SENT",
+                    "ACCEPTED",
+                    "REJECTED",
+                    "CONVERTED",
+                    "CANCELLED"
+                ],
+                "type": "string",
+                "description": "* `DRAFT` - Draft\n* `SENT` - Sent\n* `ACCEPTED` - Accepted\n* `REJECTED` - Rejected\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
             },
             "Reason260Enum": {
                 "enum": [
@@ -51099,6 +52189,16 @@
                 ],
                 "type": "string",
                 "description": "* `NONE` - Not regulated\n* `DRUG` - Drug / pharmaceutical\n* `FOOD` - Food (FSSAI)"
+            },
+            "ReleaseReasonEnum": {
+                "enum": [
+                    "DRAFT_DELETED",
+                    "ORDER_CANCELLED",
+                    "INVOICE_CANCELLED",
+                    "MANUAL_REOPEN"
+                ],
+                "type": "string",
+                "description": "* `DRAFT_DELETED` - Draft Deleted\n* `ORDER_CANCELLED` - Order Cancelled\n* `INVOICE_CANCELLED` - Invoice Cancelled\n* `MANUAL_REOPEN` - Manual Reopen"
             },
             "RewardStatusEnum": {
                 "enum": [
@@ -51853,6 +52953,7 @@
             },
             "SalesInvoice": {
                 "type": "object",
+                "description": "``source_quotations``: quotes this document was converted from (unreleased).\n\nAn invoice made from an order made from a quote is traced through the order, the\ninvoice's source order and its delivery challans. The earliest source is marked\n``primary``; ``source_quotations_differ`` says whether their salesperson, channel\nor delivery address disagree. Filled on detail reads only; list rows and the\nresponses to create, update and complete return an empty list.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -52229,6 +53330,17 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "source_quotations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceQuotationRef"
+                        },
+                        "readOnly": true
+                    },
+                    "source_quotations_differ": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -52327,6 +53439,8 @@
                     "round_off",
                     "settlement_state",
                     "sgst_total",
+                    "source_quotations",
+                    "source_quotations_differ",
                     "status",
                     "subtotal",
                     "taxable_total",
@@ -52518,6 +53632,7 @@
             },
             "SalesOrder": {
                 "type": "object",
+                "description": "``source_quotations``: quotes this document was converted from (unreleased).\n\nAn invoice made from an order made from a quote is traced through the order, the\ninvoice's source order and its delivery challans. The earliest source is marked\n``primary``; ``source_quotations_differ`` says whether their salesperson, channel\nor delivery address disagree. Filled on detail reads only; list rows and the\nresponses to create, update and complete return an empty list.",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -52636,6 +53751,17 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "source_quotations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceQuotationRef"
+                        },
+                        "readOnly": true
+                    },
+                    "source_quotations_differ": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "converted_invoice": {
                         "type": "integer",
                         "readOnly": true,
@@ -52722,6 +53848,8 @@
                     "number",
                     "round_off",
                     "sgst_total",
+                    "source_quotations",
+                    "source_quotations_differ",
                     "status",
                     "subtotal",
                     "taxable_total",
@@ -52730,6 +53858,7 @@
             },
             "SalesOrderItem": {
                 "type": "object",
+                "description": "``expected_price`` is internal cost: null for users who can't view\nexpected profit, and a null on write means \"keep the stored value\".",
                 "properties": {
                     "id": {
                         "type": "integer",
@@ -52779,7 +53908,9 @@
                     "expected_price": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,10}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "Internal cost per unit. Null when the user can't view expected profit."
                     },
                     "taxable_amount": {
                         "type": "string",
@@ -53160,6 +54291,46 @@
                 "type": "string",
                 "description": "* `MANUAL` - Manual\n* `GATEWAY` - Gateway\n* `BANK_IMPORT` - Bank Import\n* `PAYMENT_LINK` - Payment Link"
             },
+            "SourceQuotationRef": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "number": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "salesman": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "salesman_name": {
+                        "type": "string"
+                    },
+                    "sales_channel": {
+                        "type": "string"
+                    },
+                    "delivery_address": {
+                        "type": "string"
+                    },
+                    "primary": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "delivery_address",
+                    "id",
+                    "number",
+                    "primary",
+                    "sales_channel",
+                    "salesman",
+                    "salesman_name",
+                    "status"
+                ]
+            },
             "StageEnum": {
                 "enum": [
                     "OPEN",
@@ -53178,15 +54349,6 @@
                 ],
                 "type": "string",
                 "description": "* `ACTIVE` - Active\n* `INACTIVE` - Inactive"
-            },
-            "Status4a7Enum": {
-                "enum": [
-                    "DRAFT",
-                    "CONVERTED",
-                    "CANCELLED"
-                ],
-                "type": "string",
-                "description": "* `DRAFT` - Draft\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
             },
             "StatusA38Enum": {
                 "enum": [
@@ -54027,6 +55189,15 @@
                 ],
                 "type": "string",
                 "description": "* `B2B` - B2B\n* `SEZWP` - SEZ with payment\n* `SEZWOP` - SEZ without payment\n* `EXPWP` - Export with payment\n* `EXPWOP` - Export without payment\n* `DEXP` - Deemed export"
+            },
+            "TargetEnum": {
+                "enum": [
+                    "ORDER",
+                    "INVOICE",
+                    "UNKNOWN"
+                ],
+                "type": "string",
+                "description": "* `ORDER` - Sales order\n* `INVOICE` - Sales invoice\n* `UNKNOWN` - Unknown (backfilled)"
             },
             "TaxRate": {
                 "type": "object",

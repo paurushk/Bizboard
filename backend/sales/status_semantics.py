@@ -36,6 +36,9 @@ PROFIT_SNAPSHOT_STATUSES = (Status.COMPLETED, Status.CANCELLED, Status.RETURNED)
 # Back-compat alias — ledgers/services.py originated this name; keep it
 # importable from here too so callers can migrate one at a time.
 OPEN_SALES_STATUSES = OPEN_RECEIVABLE_STATUSES
+# Invoices that owe nothing yet or any more: drafts have no balance and cancelled ones are void.
+# The sales-history "due" sort puts these last.
+NO_BALANCE_STATUSES = (Status.DRAFT, Status.CANCELLED)
 
 
 def is_open_receivable(status: str) -> bool:

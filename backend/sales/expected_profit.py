@@ -18,6 +18,43 @@ def can_view_expected_profit(request) -> bool:
     return CanViewFinancialReports().has_permission(request, None)
 
 
+def mask_expected_price(request, data: dict) -> dict:
+    """Line ``expected_price`` is internal cost; hide it like ``expected_profit``."""
+    if "expected_price" in data and not can_view_expected_profit(request):
+        data["expected_price"] = None
+    return data
+
+
+def strip_expected_prices(request, items_data):
+    """A user who can't see cost can't change it: drop any incoming value."""
+    if items_data is None or can_view_expected_profit(request):
+        return items_data
+    out = []
+    for line in items_data:
+        line = dict(line)
+        line.pop("expected_price", None)
+        out.append(line)
+    return out
+
+
+def preserve_expected_prices(request, items_data, existing_lines):
+    """For delete-and-recreate line writers: lines from a user who can't see
+    cost take the stored cost of the first unused existing line with the same
+    product (product-and-position matching)."""
+    if items_data is None or can_view_expected_profit(request):
+        return items_data
+    pool = list(existing_lines)
+    out = []
+    for line in strip_expected_prices(request, items_data):
+        product_id = getattr(line.get("product"), "pk", line.get("product"))
+        match = next((row for row in pool if row.product_id == product_id), None)
+        if match is not None:
+            line["expected_price"] = match.expected_price
+            pool.remove(match)
+        out.append(line)
+    return out
+
+
 def expected_profit_for_lines(items) -> dict:
     revenue = Decimal("0")
     cost = Decimal("0")

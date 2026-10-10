@@ -2519,8 +2519,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Quote a won opportunity through the same create path as every other quote.
+         *
+         *     An open quote for this opportunity is returned instead of a second one, so a
+         *     double click cannot duplicate it; a cancelled or fully converted one does not
+         *     block a new quote.
          */
         post: operations["crm_opportunities_quotation_create"];
         delete?: never;
@@ -7443,6 +7446,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/quotations/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_quotations_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/quotations/{token}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["public_quotations_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/bills-of-entry/": {
         parameters: {
             query?: never;
@@ -11029,23 +11064,14 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         get: operations["sales_quotations_retrieve"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Replace a draft quotation. Error codes: `quotation_not_editable`, `quotation_lines_locked`, `quotation_fields_locked`, `customer_blocked`. */
         put: operations["sales_quotations_update"];
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Delete an unconverted draft. Error code: `quotation_not_deletable`. */
         delete: operations["sales_quotations_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Edit a draft quotation. Error codes: `quotation_not_editable` (not a draft), `quotation_lines_locked` (part of it was converted, so `items` cannot be sent) and `quotation_fields_locked` (only validity, notes, terms, delivery address, salesperson and channel may change after a partial conversion; the response lists the blocked fields), `customer_blocked`. */
         patch: operations["sales_quotations_partial_update"];
         trace?: never;
     };
@@ -11063,6 +11089,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_quotations_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/close-remaining/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_close_remaining_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11098,7 +11144,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Quote → SO → (optional draft DC) → (optional draft invoice). */
+        /**
+         * @deprecated
+         * @description Deprecated: quote → SO → (optional draft DC) → (optional draft invoice).
+         *     Convert to a sales order and continue from the sales order screen.
+         */
         post: operations["sales_quotations_convert_chain_create"];
         delete?: never;
         options?: never;
@@ -11126,6 +11176,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/quotations/{id}/duplicate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Copy into a new draft with a new number. The source quote is not changed. */
+        post: operations["sales_quotations_duplicate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/mark-accepted/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_mark_accepted_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/mark-rejected/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_mark_rejected_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/mark-sent/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_mark_sent_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/quotations/{id}/pdf/": {
         parameters: {
             query?: never;
@@ -11140,6 +11267,165 @@ export interface paths {
         get: operations["sales_quotations_pdf_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/public-link/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_public_link_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/public-link/revoke/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_public_link_revoke_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Owner-only: release converted quantity whose downstream document is gone
+         *     (backfilled UNKNOWN rows, or releases missed while the rollout flag was off).
+         */
+        post: operations["sales_quotations_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/reopen-closed/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_reopen_closed_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/reopen-for-changes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_quotations_reopen_for_changes_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/revisions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_quotations_revisions_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/{id}/share/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Make the PDF link, stamp ``sent_at`` and, when the lifecycle is on, move DRAFT to SENT. */
+        post: operations["sales_quotations_share_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/quotations/cancel-expired/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Cancel every expired open quote that nothing was converted from.
+         *
+         *     Quotes that were partly converted cannot be cancelled; they come back in
+         *     ``needs_close_remaining`` so the user can close what is left of them.
+         */
+        post: operations["sales_quotations_cancel_expired_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11364,6 +11650,51 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["sales_returns_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/salespeople/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Names a sales user may pick as a document's salesperson.
+         *
+         *     The payroll employee list is owner-only and needs payroll switched on, so a
+         *     salesperson picker built on it was empty for staff and for most shops. This
+         *     returns only id, name and code of active employees.
+         */
+        get: operations["sales_salespeople_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/stock-hints/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Available quantity in the default godown for the products on a quotation.
+         *
+         *     A quotation has no godown of its own; conversion uses the default one, so the
+         *     hint is measured there. Read-only, and only for products whose stock is tracked.
+         */
+        get: operations["sales_stock_hints_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/search/": {
@@ -12667,6 +12998,10 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal: string;
         };
+        /**
+         * @description ``expected_price`` is internal cost: null for users who can't view
+         *     expected profit, and a null on write means "keep the stored value".
+         */
         DeliveryChallanItem: {
             readonly id: number;
             product: number;
@@ -12687,8 +13022,11 @@ export interface components {
             batch?: number | null;
             batchNo?: string;
             serialNumbers?: unknown;
-            /** Format: decimal */
-            expectedPrice?: string;
+            /**
+             * Format: decimal
+             * @description Internal cost per unit. Null when the user can't view expected profit.
+             */
+            expectedPrice?: string | null;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -15680,7 +16018,7 @@ export interface components {
         PatchedPurchaseOrder: {
             readonly id?: number;
             readonly number?: string;
-            readonly status?: components["schemas"]["Status4a7Enum"];
+            readonly status?: components["schemas"]["PurchaseOrderStatusEnum"];
             supplier?: number;
             readonly supplierName?: string;
             purchaseType?: components["schemas"]["PurchaseTypeEnum"];
@@ -15764,7 +16102,7 @@ export interface components {
         PatchedQuotation: {
             readonly id?: number;
             readonly number?: string;
-            readonly status?: components["schemas"]["Status4a7Enum"];
+            readonly status?: components["schemas"]["QuotationStatusEnum"];
             invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer?: number;
             readonly customerName?: string;
@@ -15788,12 +16126,29 @@ export interface components {
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
             salesman?: number | null;
+            /** @default  */
+            readonly salesmanName: string;
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
             readonly expectedProfit?: string;
+            readonly isExpired?: boolean;
+            readonly conversionState?: string;
+            /** Format: decimal */
+            readonly remainingTotal?: string;
+            readonly revision?: number;
+            readonly cancelReason?: string;
+            /** Format: date-time */
+            readonly shortClosedAt?: string | null;
+            readonly shortCloseReason?: string;
+            /** Format: date-time */
+            readonly sentAt?: string | null;
+            readonly copiedFrom?: number | null;
             items?: components["schemas"]["QuotationItem"][];
+            /** @description Deprecated: latest unreleased invoice conversion. Use `conversions`. */
             readonly convertedInvoice?: number | null;
+            /** @description Deprecated: latest unreleased order conversion. Use `conversions`. */
             readonly convertedOrder?: number | null;
+            readonly conversions?: components["schemas"]["QuotationConversion"][];
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -15975,6 +16330,15 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal?: string;
         };
+        /**
+         * @description ``source_quotations``: quotes this document was converted from (unreleased).
+         *
+         *     An invoice made from an order made from a quote is traced through the order, the
+         *     invoice's source order and its delivery challans. The earliest source is marked
+         *     ``primary``; ``source_quotations_differ`` says whether their salesperson, channel
+         *     or delivery address disagree. Filled on detail reads only; list rows and the
+         *     responses to create, update and complete return an empty list.
+         */
         PatchedSalesInvoice: {
             readonly id?: number;
             readonly number?: string;
@@ -16079,6 +16443,8 @@ export interface components {
             readonly returnState?: string;
             readonly settlementState?: string;
             readonly cancelApprovalPending?: string;
+            readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
+            readonly sourceQuotationsDiffer?: boolean;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
@@ -16098,6 +16464,15 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal?: string;
         };
+        /**
+         * @description ``source_quotations``: quotes this document was converted from (unreleased).
+         *
+         *     An invoice made from an order made from a quote is traced through the order, the
+         *     invoice's source order and its delivery challans. The earliest source is marked
+         *     ``primary``; ``source_quotations_differ`` says whether their salesperson, channel
+         *     or delivery address disagree. Filled on detail reads only; list rows and the
+         *     responses to create, update and complete return an empty list.
+         */
         PatchedSalesOrder: {
             readonly id?: number;
             readonly number?: string;
@@ -16130,6 +16505,8 @@ export interface components {
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
             readonly expectedProfit?: string;
+            readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
+            readonly sourceQuotationsDiffer?: boolean;
             readonly convertedInvoice?: number | null;
             /** Format: date-time */
             readonly createdAt?: string;
@@ -17000,7 +17377,7 @@ export interface components {
         PurchaseOrder: {
             readonly id: number;
             readonly number: string;
-            readonly status: components["schemas"]["Status4a7Enum"];
+            readonly status: components["schemas"]["PurchaseOrderStatusEnum"];
             supplier: number;
             readonly supplierName: string;
             purchaseType?: components["schemas"]["PurchaseTypeEnum"];
@@ -17073,6 +17450,13 @@ export interface components {
             /** Format: decimal */
             readonly lineTotal: string;
         };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `CONVERTED` - Converted
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        PurchaseOrderStatusEnum: "DRAFT" | "CONVERTED" | "CANCELLED";
         PurchaseReturn: {
             readonly id: number;
             readonly number: string;
@@ -17150,7 +17534,7 @@ export interface components {
         Quotation: {
             readonly id: number;
             readonly number: string;
-            readonly status: components["schemas"]["Status4a7Enum"];
+            readonly status: components["schemas"]["QuotationStatusEnum"];
             invoiceType?: components["schemas"]["InvoiceTypeEnum"];
             customer: number;
             readonly customerName: string;
@@ -17174,12 +17558,29 @@ export interface components {
             supplyType?: components["schemas"]["SupplyTypeEnum"] | components["schemas"]["BlankEnum"];
             companyGstin?: number | null;
             salesman?: number | null;
+            /** @default  */
+            readonly salesmanName: string;
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
             readonly expectedProfit: string;
+            readonly isExpired: boolean;
+            readonly conversionState: string;
+            /** Format: decimal */
+            readonly remainingTotal: string;
+            readonly revision: number;
+            readonly cancelReason: string;
+            /** Format: date-time */
+            readonly shortClosedAt: string | null;
+            readonly shortCloseReason: string;
+            /** Format: date-time */
+            readonly sentAt: string | null;
+            readonly copiedFrom: number | null;
             items: components["schemas"]["QuotationItem"][];
+            /** @description Deprecated: latest unreleased invoice conversion. Use `conversions`. */
             readonly convertedInvoice: number | null;
+            /** @description Deprecated: latest unreleased order conversion. Use `conversions`. */
             readonly convertedOrder: number | null;
+            readonly conversions: components["schemas"]["QuotationConversion"][];
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -17203,8 +17604,30 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal: string;
         };
-        QuotationItem: {
+        QuotationConversion: {
             readonly id: number;
+            readonly target: components["schemas"]["TargetEnum"];
+            readonly documentId: number | null;
+            readonly documentNumber: string;
+            readonly documentStatus: string;
+            readonly quotationItem: number | null;
+            readonly product: number;
+            /** Format: decimal */
+            readonly quantity: string;
+            readonly backfilled: boolean;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly releasedAt: string | null;
+            readonly releaseReason: components["schemas"]["ReleaseReasonEnum"];
+        };
+        /**
+         * @description ``expected_price`` is internal cost: null for users who can't view
+         *     expected profit, and a null on write means "keep the stored value".
+         */
+        QuotationItem: {
+            /** @description Existing line id. Lines with an id are updated in place; omit it for a new line. */
+            id?: number;
             product: number;
             readonly productName: string;
             description?: string;
@@ -17226,8 +17649,11 @@ export interface components {
             unitPriceInclusive?: string | null;
             /** Format: decimal */
             readonly convertedQuantity: string;
-            /** Format: decimal */
-            expectedPrice?: string;
+            /**
+             * Format: decimal
+             * @description Internal cost per unit. Null when the user can't view expected profit.
+             */
+            expectedPrice?: string | null;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -17241,6 +17667,16 @@ export interface components {
             /** Format: decimal */
             readonly lineTotal: string;
         };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `SENT` - Sent
+         *     * `ACCEPTED` - Accepted
+         *     * `REJECTED` - Rejected
+         *     * `CONVERTED` - Converted
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        QuotationStatusEnum: "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "CONVERTED" | "CANCELLED";
         /**
          * @description * `SALES_RETURN` - Sales return
          *     * `POST_SALE_DISCOUNT` - Post-sale discount
@@ -17333,6 +17769,14 @@ export interface components {
          * @enum {string}
          */
         RegulatedCategoryEnum: "NONE" | "DRUG" | "FOOD";
+        /**
+         * @description * `DRAFT_DELETED` - Draft Deleted
+         *     * `ORDER_CANCELLED` - Order Cancelled
+         *     * `INVOICE_CANCELLED` - Invoice Cancelled
+         *     * `MANUAL_REOPEN` - Manual Reopen
+         * @enum {string}
+         */
+        ReleaseReasonEnum: "DRAFT_DELETED" | "ORDER_CANCELLED" | "INVOICE_CANCELLED" | "MANUAL_REOPEN";
         /**
          * @description * `PENDING` - Pending
          *     * `APPROVED` - Approved
@@ -17550,6 +17994,15 @@ export interface components {
             /** Format: decimal */
             readonly lineTotal: string;
         };
+        /**
+         * @description ``source_quotations``: quotes this document was converted from (unreleased).
+         *
+         *     An invoice made from an order made from a quote is traced through the order, the
+         *     invoice's source order and its delivery challans. The earliest source is marked
+         *     ``primary``; ``source_quotations_differ`` says whether their salesperson, channel
+         *     or delivery address disagree. Filled on detail reads only; list rows and the
+         *     responses to create, update and complete return an empty list.
+         */
         SalesInvoice: {
             readonly id: number;
             readonly number: string;
@@ -17654,6 +18107,8 @@ export interface components {
             readonly returnState: string;
             readonly settlementState: string;
             readonly cancelApprovalPending: string;
+            readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
+            readonly sourceQuotationsDiffer: boolean;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
@@ -17725,6 +18180,15 @@ export interface components {
             /** Format: decimal */
             readonly lineTotal: string;
         };
+        /**
+         * @description ``source_quotations``: quotes this document was converted from (unreleased).
+         *
+         *     An invoice made from an order made from a quote is traced through the order, the
+         *     invoice's source order and its delivery challans. The earliest source is marked
+         *     ``primary``; ``source_quotations_differ`` says whether their salesperson, channel
+         *     or delivery address disagree. Filled on detail reads only; list rows and the
+         *     responses to create, update and complete return an empty list.
+         */
         SalesOrder: {
             readonly id: number;
             readonly number: string;
@@ -17757,6 +18221,8 @@ export interface components {
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
             readonly expectedProfit: string;
+            readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
+            readonly sourceQuotationsDiffer: boolean;
             readonly convertedInvoice: number | null;
             /** Format: date-time */
             readonly createdAt: string;
@@ -17781,6 +18247,10 @@ export interface components {
             /** Format: decimal */
             readonly grandTotal: string;
         };
+        /**
+         * @description ``expected_price`` is internal cost: null for users who can't view
+         *     expected profit, and a null on write means "keep the stored value".
+         */
         SalesOrderItem: {
             readonly id: number;
             product: number;
@@ -17798,8 +18268,11 @@ export interface components {
             cessRate?: string;
             /** Format: decimal */
             cessAmount?: string;
-            /** Format: decimal */
-            expectedPrice?: string;
+            /**
+             * Format: decimal
+             * @description Internal cost per unit. Null when the user can't view expected profit.
+             */
+            expectedPrice?: string | null;
             /** Format: decimal */
             readonly taxableAmount: string;
             /** Format: decimal */
@@ -17925,6 +18398,16 @@ export interface components {
          * @enum {string}
          */
         SourceEnum: "MANUAL" | "GATEWAY" | "BANK_IMPORT" | "PAYMENT_LINK";
+        SourceQuotationRef: {
+            id: number;
+            number: string;
+            status: string;
+            salesman: number | null;
+            salesmanName: string;
+            salesChannel: string;
+            deliveryAddress: string;
+            primary: boolean;
+        };
         /**
          * @description * `OPEN` - Open
          *     * `QUALIFIED` - Qualified
@@ -17940,13 +18423,6 @@ export interface components {
          * @enum {string}
          */
         Status372Enum: "ACTIVE" | "INACTIVE";
-        /**
-         * @description * `DRAFT` - Draft
-         *     * `CONVERTED` - Converted
-         *     * `CANCELLED` - Cancelled
-         * @enum {string}
-         */
-        Status4a7Enum: "DRAFT" | "CONVERTED" | "CANCELLED";
         /**
          * @description * `DRAFT` - Draft
          *     * `COMPLETED` - Completed
@@ -18216,6 +18692,13 @@ export interface components {
          * @enum {string}
          */
         SupplyTypeEnum: "B2B" | "SEZWP" | "SEZWOP" | "EXPWP" | "EXPWOP" | "DEXP";
+        /**
+         * @description * `ORDER` - Sales order
+         *     * `INVOICE` - Sales invoice
+         *     * `UNKNOWN` - Unknown (backfilled)
+         * @enum {string}
+         */
+        TargetEnum: "ORDER" | "INVOICE" | "UNKNOWN";
         TaxRate: {
             readonly id: number;
             name: string;
@@ -31435,6 +31918,50 @@ export interface operations {
             };
         };
     };
+    public_quotations_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    public_quotations_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                };
+            };
+        };
+    };
     purchases_bills_of_entry_list: {
         parameters: {
             query?: {
@@ -37810,6 +38337,34 @@ export interface operations {
             };
         };
     };
+    sales_quotations_close_remaining_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
     sales_quotations_convert_create: {
         parameters: {
             query?: never;
@@ -37894,6 +38449,118 @@ export interface operations {
             };
         };
     };
+    sales_quotations_duplicate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_mark_accepted_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_mark_rejected_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_mark_sent_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
     sales_quotations_pdf_retrieve: {
         parameters: {
             query?: never;
@@ -37905,6 +38572,221 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_public_link_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_public_link_revoke_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_reopen_closed_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_reopen_for_changes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_revisions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_share_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this quotation. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Quotation"];
+                };
+            };
+        };
+    };
+    sales_quotations_cancel_expired_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Quotation"];
+                "multipart/form-data": components["schemas"]["Quotation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Quotation"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -38380,6 +39262,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalesReturn"];
+                };
+            };
+        };
+    };
+    sales_salespeople_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    sales_stock_hints_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

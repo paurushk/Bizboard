@@ -102,8 +102,21 @@ class UniversalSearchView(APIView):
                 from sales.models import Quotation
 
                 quotations = [
-                    {"id": row.id, "kind": "quotation", "number": row.number, "status": row.status}
-                    for row in Quotation.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                    {
+                        "id": row.id,
+                        "kind": "quotation",
+                        "number": row.number,
+                        "status": row.status,
+                        "customer_name": row.customer.name,
+                    }
+                    for row in Quotation.objects.filter(company=company)
+                    .filter(
+                        Q(number__icontains=q)
+                        | Q(customer__name__icontains=q)
+                        | Q(customer__phone__icontains=q)
+                    )
+                    .select_related("customer")
+                    .order_by("-id")[:LIMIT]
                 ]
             can_view_growth = cu.role != "VIEWER"
             tickets = complaints = contracts = opportunities = []
