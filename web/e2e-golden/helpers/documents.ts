@@ -356,12 +356,21 @@ export async function enableSandboxPayments(page: Page) {
   await expect(page.getByText('Gateway settings saved')).toBeVisible({ timeout: 15_000 });
 }
 
+/** The editor is a page now. Right after the route change the app moves focus, which would blur a
+ * field filled instantly, so wait for the page to settle before typing. */
+export async function waitForQuotationEditor(page: Page) {
+  await expect(page.getByRole('heading', { name: /new quotation/i })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(800);
+}
+
 export async function createQuotationConvertedToOrder(
   page: Page,
   opts: { customerName: string; sku: string },
 ) {
   await page.goto('/sales/quotations');
   await page.getByRole('button', { name: 'New quotation' }).click();
+  await waitForQuotationEditor(page);
   await fillNamedCombobox(page, 'Customer', opts.customerName);
   await fillNamedCombobox(page, 'Products', opts.sku, new RegExp(opts.sku));
   // F1-017: the editor also has a disabled "Add Party" quick-add button with

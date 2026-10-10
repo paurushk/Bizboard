@@ -524,6 +524,9 @@ export function QuotationEditorPage() {
           <Autocomplete
             options={customerSearch.options}
             getOptionLabel={(o) => o.name}
+            // The search refetches and returns new objects for the same customer; compare by id
+            // so a refresh does not look like the selection disappeared.
+            isOptionEqualToValue={(option, value) => option.id === value.id}
             filterOptions={(opts) => opts}
             value={customer}
             disabled={linesLocked}
@@ -753,6 +756,7 @@ export function QuotationEditorPage() {
                   if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
                 }}
                 getOptionLabel={(o) => `${o.name} · ${o.sku}`}
+                isOptionEqualToValue={(option, value) => option.id === value.id}
                 value={pendingProduct}
                 onChange={(_, v) => pickProduct(v)}
                 renderInput={(params) => (

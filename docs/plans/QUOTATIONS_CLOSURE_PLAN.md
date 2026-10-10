@@ -57,14 +57,34 @@ The items left open after the first pass were closed as follows.
 | Wall-clock timing tests | Pass on a quiet machine; they failed only while other heavy jobs ran. |
 | Leaving the editor through a link | **Fixed for the quotation editor.** `UnsavedChangesGuard` has an opt-in `interceptLinks` mode that asks before an in-app link is followed (modified clicks, new tabs, downloads and other origins are left alone). It is opt-in because several other editors treat a freshly opened saved document as unsaved and would prompt on every click. The browser Back button still cannot be intercepted on a plain router. |
 
+### Docker verification (2026-10-10, evening)
+
+The DEV Compose stack (`bizboard`) was backed up, rebuilt and refreshed, and a throwaway PostgreSQL 17
+container was used for the tests that need real row locks.
+
+| Item | Result |
+|---|---|
+| DEV backup | `backups/dev/bizboard-20261010T151245Z.sql.gz` (git-ignored; written unencrypted with the script's local-dev override). |
+| DEV rebuild and refresh | All images rebuilt (api, worker, beat, web, migrate); migrations `sales 0068-0070` and `core 0054-0055` applied to the real DEV database; containers recreated and nginx restarted. Health, the web bundle and the new routes answer correctly. |
+| Backfill on real data | 37 quotations, 13 backfilled conversion rows, **0** `UNKNOWN` rows. |
+| Production-style sweep dry run | `release_orphan_quotation_conversions --dry-run` on the DEV database: **0 rows to release**. |
+| PostgreSQL concurrency tests | **3 of 3 pass** on PostgreSQL 17: parallel conversions never exceed the quantity, an edit racing a conversion keeps the ledger whole, the sweep racing a conversion does not corrupt it. |
+| Wider backend suites on PostgreSQL | **458 passed, 1 skipped**: tenancy and row-level security, race and atomicity tests, error suites, and the quotation, CRM, PDF, status, growth and plan suites. |
+| Golden Playwright, `quotation-inline-customer` | **Passes** against a Postgres-backed API container built from the new image. |
+| Golden Playwright, `lifecycle-arch03` | The quotation part passes (quote created in the new editor, converted to an order, and the final invoice shows the "From quotation" link back to it). The spec then fails inside the generic invoice-completion helper against the sales-history list, which belongs to the separate sales-history work. It also needs more than its 4-minute limit on this setup. |
+
+Findings from the live run:
+
+- The DEV container enforces two-step verification for money roles (`DJANGO_DEBUG=false`), so the golden specs cannot register and sign in there. They were run against a separate container with the golden settings instead, leaving DEV's security settings alone.
+- With the editor now a page, the app moves focus about 400 ms after a route change, which blurred a field the tests filled instantly. `waitForQuotationEditor` in the e2e helpers waits for the page to settle. Real users are not affected.
+- The customer and product pickers now compare the selected value by id, so a refreshed search result list cannot look like the selection vanished.
+
 ### Still open
 
 - Confirmation of D-9, D-10 and D-11 before the lifecycle and sharing features go to customers.
-- The PostgreSQL concurrency tests have never run (no PostgreSQL here); they run in CI.
-- The golden Playwright specs need a live backend; selectors are updated but only `quotations-picker-visibility` was run.
-- The lifecycle flag becomes the default only after a pilot company runs about two weeks without defects.
-- A production dry run of the sweep (`release_orphan_quotation_conversions --dry-run`) before relying on the nightly job.
+- The lifecycle flag becomes the default only after a pilot company runs about two weeks without defects. A calendar wait; Docker cannot shorten it.
 - Chain-convert switches to 410 on 2026-11-28 by itself; check the deprecation log for callers beforehand.
+- The rest of the `lifecycle-arch03` golden spec (after the quote and order steps) and a 4-minute spec limit that this setup exceeds.
 - GST on split documents can differ from the quotation by up to a paisa per document (accepted, explained in the help).
 - The 1.9 MB master issue register was not edited; the Q-OS backlog is the live store.
 - The `SalesHistoryPage` test "a success after a pending-approval warning is shown as a success" fails on this working tree, with or without the quotation changes. That page belongs to the separate sales-history work and is outside this plan.
