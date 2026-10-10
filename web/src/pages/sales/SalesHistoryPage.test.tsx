@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, RouterProvider, createBrowserRouter, createMemoryRouter } from 'react-router-dom';
 import type { ReactElement, ReactNode } from 'react';
@@ -368,6 +368,8 @@ describe('SalesHistoryPage messages', () => {
     const pending = await screen.findByText(/waiting for approval/i);
     expect(pending.closest('[role="alert"]')?.className).toMatch(/Warning/);
     expect(cancelSalesInvoiceMock).toHaveBeenCalledWith(3, { reason: 'wrong bill' });
+    // The closing dialog hides the rest of the page from assistive tech until it has gone.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
     await openRowAction(/INV-(?:0002|2)/, /record payment/i);
     await userEvent.click(within(await screen.findByRole('dialog', { name: /record payment/i })).getByRole('button', { name: /save payment/i }));

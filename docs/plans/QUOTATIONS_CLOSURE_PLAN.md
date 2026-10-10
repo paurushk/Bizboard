@@ -81,13 +81,12 @@ Findings from the live run:
 
 ### Still open
 
-- Confirmation of D-9, D-10 and D-11 before the lifecycle and sharing features go to customers.
-- The lifecycle flag becomes the default only after a pilot company runs about two weeks without defects. A calendar wait; Docker cannot shorten it.
+- D-9, D-10 and D-11 are confirmed (founder, 2026-10-10).
+- Lifecycle pilot: `QUOTE_LIFECYCLE` is on for "Demo Traders" in DEV since 2026-10-10; review about 2026-10-24 before making it the default. A calendar wait.
 - Chain-convert switches to 410 on 2026-11-28 by itself; check the deprecation log for callers beforehand.
 - The rest of the `lifecycle-arch03` golden spec (after the quote and order steps) and a 4-minute spec limit that this setup exceeds.
 - GST on split documents can differ from the quotation by up to a paisa per document (accepted, explained in the help).
 - The 1.9 MB master issue register was not edited; the Q-OS backlog is the live store.
-- The `SalesHistoryPage` test "a success after a pending-approval warning is shown as a success" fails on this working tree, with or without the quotation changes. That page belongs to the separate sales-history work and is outside this plan.
 
 ---
 

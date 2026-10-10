@@ -5,8 +5,7 @@
 
 Every decision below is **adopted and built**. The "Confirmed by" column is for the
 founder: only a person can fill it. The four decisions that change money behaviour (D-1,
-D-2, D-3, D-17) were **confirmed by the founder in chat on 2026-10-10**. D-9 to D-11 still
-need confirmation before the lifecycle and sharing release is switched on for customers.
+D-2, D-3, D-17) were **confirmed by the founder in chat on 2026-10-10**. D-9 to D-11 were confirmed the same day.
 
 | ID | Decision | Built in | Confirmed by (name, date) |
 |---|---|---|---|
@@ -18,9 +17,9 @@ need confirmation before the lifecycle and sharing release is switched on for cu
 | D-6 | Expiry stays **computed** from the validity date (`is_expired`). The backend never had an `EXPIRED` status; it is removed from the web type too. | `QuotationSerializer.get_is_expired` | |
 | D-7 | Invoices get no salesperson, channel or address columns. The invoice detail shows them through the source quotation. | `SourceQuotationsMixin` | |
 | D-8 | A quotation number is allocated at create. Deleting a draft (API only) leaves a gap; the delete is audited with the number and the series screen says so. | `QuotationViewSet.perform_destroy`, `SeriesSettingsPage` | |
-| D-9 | `QUOTE_LIFECYCLE` stays opt-in per company for one pilot, then becomes default after two weeks without defects. | flag unchanged (opt-in) | |
-| D-10 | Sharing is a public PDF link plus the WhatsApp share sheet. Sharing a draft moves it to Sent when the lifecycle flag is on. | `sales/quotation_links.py`, `ShareQuotationDialog` | |
-| D-11 | "New version" is **Duplicate** into a new draft linked by `copied_from`; the source is not changed. | `QuotationViewSet.duplicate` | |
+| D-9 | `QUOTE_LIFECYCLE` stays opt-in per company for one pilot, then becomes default after two weeks without defects. | flag unchanged (opt-in); pilot started 2026-10-10 on company 1 "Demo Traders" in DEV, review about 2026-10-24 | Founder, in chat, 2026-10-10 |
+| D-10 | Sharing is a public PDF link plus the WhatsApp share sheet. Sharing a draft moves it to Sent when the lifecycle flag is on. | `sales/quotation_links.py`, `ShareQuotationDialog` | Founder, in chat, 2026-10-10 |
+| D-11 | "New version" is **Duplicate** into a new draft linked by `copied_from`; the source is not changed. | `QuotationViewSet.duplicate` | Founder, in chat, 2026-10-10 |
 | D-12 | Quotes are visible to everyone who can view sales, like invoices. The revisions endpoint needs the create-sales permission. | `QuotationViewSet.get_permissions` | |
 | D-13 | Campaign revenue counts the whole order or invoice even if lines were added after conversion (documented limit). | `crm/campaigns.py::_won_revenue` | |
 | D-14 | The chain-convert endpoint returns 410 after 2026-11-28. Until then it answers with `Deprecation` and `Sunset` headers and is logged. | `QuotationViewSet.convert_chain` (410 not yet switched on) | |
