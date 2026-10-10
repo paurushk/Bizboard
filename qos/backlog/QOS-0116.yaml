@@ -1,0 +1,27 @@
+id: "QOS-0116"
+category: "PERFORMANCE"
+title: "The quotation list ran extra queries per row"
+persona: ["P2"]
+journey: "Open the quotation list"
+problem: "The conversions field built a new queryset per row instead of using the prefetch."
+evidence:
+  strength: "measured"
+  source: ["backend/sales/serializers.py", "backend/tests/test_quotation_closure_cross.py"]
+  detail: "Measured 2026-10-10: 12 queries for 5 rows. Fixed: prefetch with select_related, conversions only on retrieve; a test proves the count does not grow with rows."
+scoring:
+  reach: 4
+  severity: 2
+  frequency: 4
+  impact_band: "Medium"
+business_metric: "none"
+priority: "P1"
+priority_rationale: "Impact Medium. Measured."
+effort: "S"
+recommendation: "Done: prefetch the conversions with their documents, return them only on retrieve, and keep a test that fails if the query count grows with the number of rows."
+test_required: "backend/tests/test_quotation_closure_cross.py::test_wp7_list_query_count_does_not_grow_with_rows"
+guard_ref:
+  test: "backend/tests/test_quotation_closure_cross.py::test_wp7_list_query_count_does_not_grow_with_rows"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

@@ -1,0 +1,27 @@
+id: "QOS-0110"
+category: "RELIABILITY_TRUST"
+title: "Backup, restore and tenant wipe broke once a quotation had been converted or revised"
+persona: ["P1"]
+journey: "Restore a company from a backup"
+problem: "wipe_logical_tenant_rows deleted quotations while the conversion ledger and revision snapshots protected them, so any company with a converted quote hit ProtectedError. Export and import also ignored both tables and kept no line-item id maps, so a restore lost the ledger and could convert already-converted quantity again."
+evidence:
+  strength: "measured"
+  source: ["backend/accounts/tenant_backup.py", "backend/tests/test_quotation_closure.py"]
+  detail: "ProtectedError reproduced 2026-10-10. Fixed: delete order conversion, revision, quote, order, challan, invoice; export and import both tables with line-item maps; old backups backfill the ledger; every restored quote is checked against its ledger and the restore stops naming the quote on a mismatch; backfill_conversions takes a company."
+scoring:
+  reach: 2
+  severity: 5
+  frequency: 1
+  impact_band: "High"
+business_metric: "none"
+priority: "P0"
+priority_rationale: "Severity 5 (data loss on restore). Measured."
+effort: "L"
+recommendation: "Done. Keep the ledger invariant check in any future import path."
+test_required: "backend/tests/test_quotation_closure.py::test_wp2_restore_round_trip_keeps_ledger_revisions_and_links"
+guard_ref:
+  test: "backend/tests/test_quotation_closure.py::test_wp2_restore_round_trip_keeps_ledger_revisions_and_links"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

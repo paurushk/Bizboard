@@ -1,0 +1,27 @@
+id: "QOS-0114"
+category: "PERSONA_GAP"
+title: "The salesperson picker used the owner-only payroll list, so sales staff and most shops got an empty list"
+persona: ["P2"]
+journey: "Pick a salesperson on a quotation or sales order"
+problem: "Both editors called the payroll employee list, which is owner-only and needs payroll switched on. A salesperson could not be chosen by the people who sell."
+evidence:
+  strength: "heuristic"
+  source: ["backend/payroll/views.py", "web/src/pages/sales/SalesOrderEditorPage.tsx"]
+  detail: "Read from the permission classes. Fixed: /sales/salespeople/ returns id, name and code of active employees to anyone who can view sales."
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 3
+  impact_band: "Medium"
+business_metric: "none"
+priority: "P1"
+priority_rationale: "Impact Medium. Heuristic."
+effort: "S"
+recommendation: "Done for quotations and sales orders. Other editors that list employees for a salesperson should switch too."
+test_required: "backend/tests/test_quotation_closure_cross.py::test_salespeople_endpoint_works_for_sales_staff_without_payroll"
+guard_ref:
+  test: "backend/tests/test_quotation_closure_cross.py::test_salespeople_endpoint_works_for_sales_staff_without_payroll"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

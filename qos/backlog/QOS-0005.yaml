@@ -30,7 +30,7 @@ recommendation: 'Implement WF-33: open a reconciliation session, match statement
   the D3-credentials blocker.'
 test_required: test_wf33_bank_reconciliation green (unblocked); WF-37/38 tracked as blocked
 guard_ref:
-  test: backend/tests/workflows/test_wf_extended_stubs.py::test_wf33_bank_reconciliation
+  test: backend/tests/workflows/test_wf_extended.py::test_wf33_bank_reconciliation
 lifecycle: verified
 owner: backend
 opened: '2026-09-10'

@@ -17,13 +17,12 @@ scoring:
   impact_band: Low
 business_metric: none
 priority: P2
-priority_rationale: The paid control currently cannot change the customer balance.
+priority_rationale: Superseded 2026-10-10. The product now records the settlement on the reward without drafting a credit note, and that behaviour is pinned by test_referral_paid_records_settlement_without_a_credit_note in backend/tests/test_llm_path_to_ten.py. The earlier credit-note design was dropped.
 effort: M
 recommendation: Owner or manager only. Second call returns the note on the reward. Completing the note posts the balance.
 test_required: One note, PostgreSQL race, sales staff 403, self-referral still rejected.
-guard_ref:
-  test: backend/tests/test_llm_path_to_ten.py::test_referral_paid_drafts_one_credit_note
-lifecycle: verified
+lifecycle: accepted_wontfix
+wontfix_rationale: "The shipped behaviour records the settlement on the reward and drafts no credit note, as pinned by test_referral_paid_records_settlement_without_a_credit_note. The credit-note design in this item was not built and the item is closed against that decision."
 owner: founder
 opened: '2026-09-29'
 closed: '2026-09-29'

@@ -1,0 +1,27 @@
+id: "QOS-0109"
+category: "CRITICAL_BUG"
+title: "Partial quotation conversions repeated the full charges and discount on every document"
+persona: ["P1", "P2"]
+journey: "Convert part of a quotation to orders or invoices, twice"
+problem: "convert_quotation and convert_quotation_to_order copied additional_charges and invoice_discount unchanged. A quote with 100 of charges and 50 of discount converted as 5 + 5 of 10 units produced two orders that each carried the full 100 and 50, so the documents totalled 1,280 against a 640 quote."
+evidence:
+  strength: "measured"
+  source: ["backend/sales/services.py", "backend/tests/test_quotation_closure.py"]
+  detail: "Reproduced 2026-10-10 with a probe test (two orders, each charges 100 and discount 50). Fixed by sharing the header out by converted value with cumulative rounding (sales/quotation_conversions.py header_shares)."
+scoring:
+  reach: 4
+  severity: 5
+  frequency: 3
+  impact_band: "High"
+business_metric: "support_ticket_rate"
+priority: "P0"
+priority_rationale: "Severity 5 (money wrong). Measured."
+effort: "M"
+recommendation: "Done: pro-rata header shares, cumulative rounding so the documents add up to the paisa, zero-value lines carry no share, discount capped at the converted value. GST stays per-invoice (up to a paisa per document), documented in help."
+test_required: "backend/tests/test_quotation_closure.py::test_wp1_even_split_shares_header_and_sums_to_quote"
+guard_ref:
+  test: "backend/tests/test_quotation_closure.py::test_wp1_even_split_shares_header_and_sums_to_quote"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

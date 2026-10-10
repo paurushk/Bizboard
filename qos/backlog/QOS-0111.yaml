@@ -1,0 +1,27 @@
+id: "QOS-0111"
+category: "CROSS_FLOW_CONSISTENCY"
+title: "Creating a quotation returned a zero grand total and CRM quotes had no number"
+persona: ["P1", "P2"]
+journey: "Create a quotation from the API or from a won opportunity"
+problem: "POST /quotations/ returned grand_total 0.00 because the totals were computed on a locked copy. The CRM create-quotation action bypassed the single create service, so its quotes had no number, the model-default invoice type, no delivery address and no blocked-customer check, and a double click made two quotes."
+evidence:
+  strength: "measured"
+  source: ["backend/sales/services.py", "backend/crm/views.py", "backend/tests/test_quotation_closure.py", "backend/tests/test_quotation_closure_cross.py"]
+  detail: "Zero total reproduced 2026-10-10. Fixed: create_quotation refreshes before returning; CRM uses it with idempotency and returns the open quote instead of a second one."
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 3
+  impact_band: "Medium"
+business_metric: "support_ticket_rate"
+priority: "P1"
+priority_rationale: "Impact Medium. Measured."
+effort: "M"
+recommendation: "Done. A cancelled or fully converted quote does not block a new one for the same opportunity."
+test_required: "backend/tests/test_quotation_closure.py::test_wp3_create_response_has_real_totals"
+guard_ref:
+  test: "backend/tests/test_quotation_closure.py::test_wp3_create_response_has_real_totals"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

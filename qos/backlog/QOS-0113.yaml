@@ -1,0 +1,27 @@
+id: "QOS-0113"
+category: "USABILITY"
+title: "A partly converted quotation could neither be cancelled nor stop blocking a unit change"
+persona: ["P1", "P2"]
+journey: "Abandon the unconverted rest of a quotation"
+problem: "Cancel is refused once any quantity is converted, and the unit-change guard only looked at draft quotes (so sent and accepted ones were ignored while an abandoned expired one blocked forever with no way out)."
+evidence:
+  strength: "heuristic"
+  source: ["backend/sales/services.py", "backend/inventory/item_stock.py"]
+  detail: "Found in plan review 2026-10-10. Fixed: Close remaining (reason, audited, owner can reopen), a guard that covers every open status and names the quotes, and a bulk Cancel expired action."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: "Low"
+business_metric: "support_ticket_rate"
+priority: "P2"
+priority_rationale: "Impact Low."
+effort: "M"
+recommendation: "Done: Close remaining with a required reason and an audit entry, an owner-only reopen, a unit-change guard that names the open quotations, and a bulk Cancel expired action."
+test_required: "backend/tests/test_quotation_closure_cross.py::test_wp6_partly_converted_expired_quote_deadlock_is_resolved_by_close_remaining"
+guard_ref:
+  test: "backend/tests/test_quotation_closure_cross.py::test_wp6_partly_converted_expired_quote_deadlock_is_resolved_by_close_remaining"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

@@ -1,0 +1,27 @@
+id: "QOS-0117"
+category: "BUSINESS_GAP"
+title: "A quotation could not be shared, copied, or carry its commercial terms in the product"
+persona: ["P1", "P2"]
+journey: "Send a quotation to a customer and revise it"
+problem: "The editor was a cramped dialog without notes, terms, charges, discount or price lists. There was no link to send, no duplicate, no expiry reminder, and orders and invoices did not show which quotation they came from."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/QUOTATIONS_REVIEW_AND_IMPLEMENTATION_PLAN.md", "docs/plans/QUOTATIONS_CLOSURE_PLAN.md"]
+  detail: "Delivered 2026-10-10: full-page editor, price lists, searchable salesperson, unsaved-changes guard, share link and public page, duplicate, expiry alerts, From-quotation panel."
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 3
+  impact_band: "Medium"
+business_metric: "activation"
+priority: "P1"
+priority_rationale: "Impact Medium. Heuristic."
+effort: "XL"
+recommendation: "Done. Pilot the lifecycle flag with one company before making it the default."
+test_required: "backend/tests/test_quotation_closure_cross.py::test_wp14b_share_makes_a_link_marks_sent_and_serves_the_pdf"
+guard_ref:
+  test: "backend/tests/test_quotation_closure_cross.py::test_wp14b_share_makes_a_link_marks_sent_and_serves_the_pdf"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-10"
+closed: "2026-10-10"

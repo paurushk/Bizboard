@@ -1,0 +1,27 @@
+id: "QOS-0112"
+category: "RELIABILITY_TRUST"
+title: "Converted quantity stayed locked when the order or invoice was deleted or cancelled"
+persona: ["P1", "P2"]
+journey: "Delete a draft invoice that was made from a quotation"
+problem: "Releasing converted quantity was an opt-in company flag, and a row whose document was deleted while it was off could never release itself. The quote stayed Converted and could not be converted again."
+evidence:
+  strength: "heuristic"
+  source: ["backend/core/services/feature_flags.py", "backend/sales/quotation_conversions.py"]
+  detail: "Read from the code and covered by new tests. Fixed: release is on by default (company JSON false is a kill switch), a nightly and on-demand sweep releases orphaned or cancelled rows, backfilled UNKNOWN rows stay owner-only."
+scoring:
+  reach: 3
+  severity: 4
+  frequency: 2
+  impact_band: "Medium"
+business_metric: "support_ticket_rate"
+priority: "P1"
+priority_rationale: "Heuristic evidence caps at P1."
+effort: "M"
+recommendation: "Done. Run release_orphan_quotation_conversions --dry-run once in production before relying on the nightly job."
+test_required: "backend/tests/test_quotation_closure.py::test_wp4_flag_off_leaves_an_orphan_and_the_sweep_releases_it"
+guard_ref:
+  test: "backend/tests/test_quotation_closure.py::test_wp4_flag_off_leaves_an_orphan_and_the_sweep_releases_it"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"

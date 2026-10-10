@@ -1,0 +1,27 @@
+id: "QOS-0115"
+category: "SECURITY_PRIVACY"
+title: "Product purchase price masking by permission never runs (duplicate to_representation)"
+persona: ["P2"]
+journey: "Read a product as a user who only sells"
+problem: "ProductSerializer defined to_representation twice; the second replaced the first, so the can_see_product_cost rule was dead code. Only the plan-based role masking applied."
+evidence:
+  strength: "heuristic"
+  source: ["backend/masters/serializers.py"]
+  detail: "Found by ruff F811 on 2026-10-10. A first merge of the two methods broke test_product_api_omits_cost_for_sales_staff because mask_commercial needs the cost to work out below_cost. Fixed by feeding the permission result into mask_commercial (an empty role masks), so the cost is omitted and below_cost is still set."
+scoring:
+  reach: 3
+  severity: 3
+  frequency: 3
+  impact_band: "Medium"
+business_metric: "none"
+priority: "P1"
+priority_rationale: "Heuristic evidence caps at P1."
+effort: "S"
+recommendation: "Done: the permission rule runs through mask_commercial and omits the field. A role that may normally see money but holds no cost permission now loses cost too; check any report that reads purchase price as such a user."
+test_required: "backend/tests/test_quotation_closure_cross.py::test_product_cost_permission_matrix_omits_the_field_and_keeps_below_cost"
+guard_ref:
+  test: "backend/tests/test_quotation_closure_cross.py::test_product_cost_permission_matrix_omits_the_field_and_keeps_below_cost"
+lifecycle: "fixed"
+owner: "backend"
+opened: "2026-10-10"
+closed: "2026-10-10"
