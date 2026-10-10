@@ -541,8 +541,8 @@ export const HELP_INTENTS: HelpIntent[] = [
       hi: '**t:common.complete** वाला बिल हो चुका। ग्राहक नहीं बदल सकते। पैसे या टैक्स बदलने के लिए Owner चाहिए, और GST पीरियड बंद हो तो रुक सकता है। गलत मात्रा/रेट पर **t:nav.creditNotes** बनाएँ — इतिहास न लिखें।',
     },
     action: {
-      en: 'Open a **t:nav.creditNotes** against this bill, or a debit note if you under-billed. Do not try to unlock **t:common.complete**. The Owner can **t:common.cancel** the bill if it should never have been issued.',
-      hi: 'इस बिल पर credit note खोलें, या कम बिल हो तो debit note। **t:common.complete** को अनलॉक न करें।',
+      en: 'Open a **t:nav.creditNotes** against this bill, or a debit note if you under-billed. Do not try to unlock **t:common.complete**. The Owner can **t:history.amend** a wrong price or discount. If the bill should never have been issued, **t:common.cancel** it with a reason; a second Owner approves that unless you are the only Owner.',
+      hi: 'इस बिल पर credit note खोलें, या कम बिल हो तो debit note। **t:common.complete** को अनलॉक न करें। गलत कीमत या छूट Owner **t:history.amend** से ठीक कर सकते हैं। बिल बनना ही नहीं था तो कारण लिखकर **t:common.cancel** करें; अगर आप अकेले Owner नहीं हैं तो दूसरे Owner की मंज़ूरी चाहिए।',
     },
     resolution: {
       en: 'Sales → Credit notes → new, linked to this invoice.',
@@ -567,7 +567,7 @@ export const HELP_INTENTS: HelpIntent[] = [
       },
     ],
     relatedIntents: ['cannot-complete-invoice'],
-    citedKeys: ['common.complete', 'nav.creditNotes', 'common.cancel'],
+    citedKeys: ['common.complete', 'nav.creditNotes', 'common.cancel', 'history.amend'],
     lastReviewed: REVIEWED,
   },
   {

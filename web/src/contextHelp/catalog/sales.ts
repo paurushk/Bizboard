@@ -228,44 +228,95 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('sales-history', {
     title: ['Sales history', 'बिक्री इतिहास'],
     summary: [
-      'Every sales invoice for this company. Open a draft to keep editing. Open a completed row for the PDF, share link, e-Invoice, e-Way, payment, and Profit Details. The list does not skip the invoice rules.',
-      'कंपनी के सभी बिक्री बिल। ड्राफ्ट खोलकर जारी रखें। पूर्ण पंक्ति पर PDF, शेयर लिंक, e-Invoice, e-Way, भुगतान और Profit Details। सूची इनवॉइस के नियम नहीं छोड़ती।',
+      'Every sales invoice for this company. Find a bill, see what is still due, collect it, reprint it, or cancel it. Open a completed row for the PDF, share link, e-Invoice, e-Way, payment, and Profit Details. The list follows the same invoice rules as the invoice screen.',
+      'कंपनी के सभी बिक्री बिल। बिल ढूँढें, बकाया देखें, भुगतान दर्ज करें, दोबारा प्रिंट करें या रद्द करें। पूर्ण पंक्ति पर PDF, शेयर लिंक, e-Invoice, e-Way, भुगतान और Profit Details मिलते हैं। सूची पर भी इनवॉइस स्क्रीन वाले नियम लागू होते हैं।',
     ],
     howItWorks: [
-      ['Filter by status, payment, date, and party. Drafts have no legal number until Save & Complete. Payment and return badges are calculated from allocations and returns.', 'स्थिति, भुगतान, तारीख और पार्टी से फ़िल्टर करें। ड्राफ्ट का कानूनी नंबर Save & Complete तक नहीं। भुगतान और रिटर्न बैज आवंटन और रिटर्न से बनते हैं।'],
+      [
+        'Search matches the bill number, customer name, or phone. The customer box needs at least 2 letters. Status chips, date presets (This FY, quarters, Custom) and the sort are kept in the address bar, so Back and a copied link return to the same view.',
+        'खोज बिल नंबर, ग्राहक के नाम या फ़ोन से मिलती है। ग्राहक बॉक्स में कम से कम 2 अक्षर लिखें। स्थिति, तारीख (This FY, तिमाही, Custom) और क्रम पता-पट्टी में रहते हैं, इसलिए Back और कॉपी किया लिंक वही सूची खोलते हैं।',
+      ],
+      [
+        'Paid means nothing is due. Partial means a receipt, credit note, or settlement discount is applied and money is still due. Unpaid means the full amount is due. Overdue adds completed bills past their due date with money still due. The chips count bills and amounts for your current filters.',
+        'Paid का मतलब कुछ बकाया नहीं। Partial का मतलब रसीद, क्रेडिट नोट या सेटलमेंट छूट लगी है और पैसा अभी बाकी है। Unpaid का मतलब पूरी रकम बाकी है। Overdue में वे पूर्ण बिल आते हैं जिनकी देय तारीख निकल गई और पैसा बाकी है। चिप्स आपके फ़िल्टर के हिसाब से बिल और रकम गिनते हैं।',
+      ],
+      [
+        'Sort by newest, oldest, total, or due from the Sort box or the Date, Total, and Due headers. Export CSV downloads up to 5,000 rows with the same filters and sort.',
+        'Sort बॉक्स या Date, Total, Due शीर्षक से नए, पुराने, कुल या बकाया के क्रम में लगाएँ। Export CSV उन्हीं फ़िल्टर और क्रम के साथ 5,000 पंक्तियों तक डाउनलोड करता है।',
+      ],
+      [
+        'Tick up to 100 bills and use Download PDFs (zip). Drafts and cancelled bills are skipped and named. Only the person who made the ZIP can download it, and it is removed after 7 days.',
+        '100 बिल तक चुनें और Download PDFs (zip) दबाएँ। ड्राफ्ट और रद्द बिल छोड़े जाते हैं और उनके नंबर संदेश में आते हैं। ZIP सिर्फ़ बनाने वाला डाउनलोड कर सकता है और 7 दिन बाद हट जाती है।',
+      ],
+      [
+        'The row menu shows what the bill and your role allow: Edit, Complete, and Delete for drafts; Print, Download, 80 mm and 58 mm receipts, Share, Record payment, Sales return, Profit Details, and Cancel for completed bills. Amend is for the Owner.',
+        'पंक्ति मेनू वही दिखाता है जो बिल और आपकी भूमिका अनुमति देती है: ड्राफ्ट पर Edit, Complete, Delete; पूर्ण बिल पर Print, Download, 80 mm और 58 mm रसीद, Share, Record payment, Sales return, Profit Details और Cancel। Amend सिर्फ़ Owner के लिए है।',
+      ],
     ],
     businessImpact: [
       [
-        'This list is a reader of invoice status, payment state and return state. Changing a bill on its detail page is what updates the row.',
-        'यह सूची बिल की स्थिति/भुगतान/रिटर्न पढ़ती है। डिटेल पेज पर बदलाव से पंक्ति अपडेट होती है।',
+        'This list reads invoice status, payment state, and return state. Completing a draft here assigns the number and posts stock and the ledger with the full amount due. Record payment moves the bill to Partial or Paid at once.',
+        'यह सूची बिल की स्थिति, भुगतान और रिटर्न पढ़ती है। यहाँ ड्राफ्ट Complete करने पर नंबर मिलता है, स्टॉक और लेजर पोस्ट होते हैं और पूरी रकम बकाया रहती है। Record payment से बिल तुरंत Partial या Paid हो जाता है।',
+      ],
+      [
+        'Cancelling reverses the ledger and restores stock. The reason you type is kept on the bill and appears in the CSV export.',
+        'रद्द करने से लेजर उलटता है और स्टॉक वापस आता है। आपका लिखा कारण बिल पर रहता है और CSV में दिखता है।',
       ],
     ],
     keyRules: [
-      ['List actions never skip Complete gates (stock, GST, period lock, credit limit).', 'सूची की क्रियाएँ Complete के द्वार (स्टॉक, GST, पीरियड, लिमिट) नहीं छोड़तीं।'],
+      ['List actions follow every Complete check: stock, GST, period lock, and credit limit.', 'सूची की क्रियाओं पर Complete की हर जाँच लागू होती है: स्टॉक, GST, पीरियड लॉक और क्रेडिट लिमिट।'],
+      [
+        'Cancel needs a reason and cancel permission. A second Owner must approve it unless you are the only Owner; until then the row shows Cancel pending and the bill stays completed. After approval, choose Cancel again. A request lasts 72 hours.',
+        'Cancel के लिए कारण और रद्द करने की अनुमति चाहिए। अगर आप अकेले Owner नहीं हैं, तो दूसरे Owner की मंज़ूरी चाहिए; तब तक पंक्ति पर Cancel pending दिखता है और बिल पूर्ण रहता है। मंज़ूरी के बाद Cancel फिर से चुनें। अनुरोध 72 घंटे तक मान्य रहता है।',
+      ],
+      [
+        'Cancel is refused while a receipt is allocated, an IRN or e-way bill is live, or a return or credit/debit note is on the bill.',
+        'रसीद आवंटित हो, IRN या ई-वे बिल चालू हो, या बिल पर रिटर्न या क्रेडिट/डेबिट नोट हो, तो Cancel मना होता है।',
+      ],
+      [
+        'Only drafts can be deleted. Amend on a completed bill changes prices, discounts, charges, and dates; lines, quantities, GST rates, and the customer stay as issued.',
+        'सिर्फ़ ड्राफ्ट डिलीट होते हैं। पूर्ण बिल पर Amend से कीमत, छूट, चार्ज और तारीख बदलती है; लाइनें, मात्रा, GST दर और ग्राहक वही रहते हैं।',
+      ],
     ],
     commonMistakes: [
-      ['Deleting a completed invoice from the list. Use cancel or a credit note instead.', 'पूर्ण बिल सूची से डिलीट न करें। रद्द या क्रेडिट नोट लें।'],
+      ['Deleting or cancelling a completed bill to fix a quantity. Use a sales return or a credit note for the part being taken back.', 'मात्रा ठीक करने के लिए पूर्ण बिल डिलीट या रद्द करना। वापस ली गई मात्रा के लिए सेल्स रिटर्न या क्रेडिट नोट बनाएँ।'],
+      ['Looking for an old bill with the date range still on This Month. Widen the date range and clear the status and payment chips first.', 'तारीख This Month पर छोड़कर पुराना बिल ढूँढना। पहले तारीख की सीमा बढ़ाएँ और स्थिति व भुगतान चिप्स हटाएँ।'],
+      ['Recording the same payment again on Money in after recording it here. Each receipt counts once against the bill.', 'यहाँ भुगतान दर्ज करने के बाद Money in पर वही भुगतान दोबारा दर्ज करना। हर रसीद बिल पर एक बार गिनी जाती है।'],
     ],
     relatedPages: [
       { path: '/sales/new', labelKey: 'nav.newInvoice' },
       { path: '/sales/receipts', labelKey: 'nav.receipts' },
+      { path: '/sales/returns', labelKey: 'nav.salesReturns' },
       { path: '/reports/sales', labelKey: 'nav.salesReports' },
     ],
     nextActions: [
-      ['Open drafts that should be billed today and press Save & Complete after checking godown and GST.', 'आज के ड्राफ्ट खोलें, गोदाम और GST जाँचकर Save & Complete दबाएँ।'],
+      ['Open drafts that should be billed today and press Complete after checking godown and GST.', 'आज के ड्राफ्ट खोलें, गोदाम और GST जाँचकर Complete दबाएँ।'],
+      ['Pick Unpaid and Overdue, sort by Highest due, and call those customers first.', 'Unpaid और Overdue चुनें, Highest due से क्रम लगाएँ और पहले उन ग्राहकों से बात करें।'],
     ],
   }),
 
   helpPage('quotations', {
     title: ['Quotations', 'कोटेशन'],
     summary: [
-      'Price offers. Convert remaining quantity to a **draft** invoice or sales order. Conversion does not Complete the invoice and does not take stock.',
-      'कीमत का प्रस्ताव। बची मात्रा को **ड्राफ्ट** इनवॉइस या सेल्स ऑर्डर में बदलें। कन्वर्ट से बिल Complete नहीं होता और स्टॉक नहीं कटता।',
+      'Price offers. Create and edit them on a full page, share a PDF link, then convert the remaining quantity to a **draft** invoice or sales order. Conversion does not Complete the invoice and does not take stock.',
+      'कीमत का प्रस्ताव। पूरे पेज पर बनाएँ और बदलें, PDF लिंक भेजें, फिर बची मात्रा को **ड्राफ्ट** इनवॉइस या सेल्स ऑर्डर में बदलें। कन्वर्ट से बिल Complete नहीं होता और स्टॉक नहीं कटता।',
     ],
     howItWorks: [
       [
         'Convert only from an allowed quotation status. You can convert part of a line; leftover quantity stays convertible.',
         'अनुमत स्थिति से ही कन्वर्ट करें। लाइन की कुछ मात्रा कन्वर्ट हो सकती है; बाकी बाद में।',
+      ],
+      [
+        'When a quotation is converted in parts, additional charges and the invoice discount are shared across the documents by value, so together they add up to the quotation.',
+        'कोटेशन कई हिस्सों में कन्वर्ट हो तो अतिरिक्त शुल्क और इनवॉइस डिस्काउंट मूल्य के अनुसार बँटते हैं, ताकि कुल कोटेशन के बराबर रहें।',
+      ],
+      [
+        'Row menu: **Share** makes a public PDF link (and a WhatsApp message), **Duplicate** copies it into a new draft and leaves the original unchanged, **Close remaining** drops the unconverted quantity with a reason, and the owner can reopen it.',
+        'रो मेन्यू: **Share** से PDF लिंक/WhatsApp, **Duplicate** से नया ड्राफ्ट (मूल अपरिवर्तित), **Close remaining** से बची मात्रा कारण सहित बंद; मालिक दोबारा खोल सकता है।',
+      ],
+      [
+        'If your company has turned on the quotation lifecycle, a shared quotation becomes Sent and can be marked Accepted or Rejected. Editing a Sent quotation sends it back to Draft.',
+        'कंपनी में कोटेशन लाइफसाइकल चालू हो तो शेयर करने पर कोटेशन Sent बनता है और Accepted/Rejected चिह्नित हो सकता है। Sent को बदलने पर वह Draft हो जाता है।',
       ],
       [
         'Expired validity needs an explicit confirm. A blocked customer cannot convert.',
@@ -277,12 +328,19 @@ export const SALES_HELP: ContextHelpPage[] = [
         'Stock, GST and customer balance move only when the resulting invoice (or reserved order) is later Completed — not at convert.',
         'स्टॉक, GST और ग्राहक बैलेंस कन्वर्ट पर नहीं, बाद में इनवॉइस/ऑर्डर Complete होने पर चलते हैं।',
       ],
+      [
+        'Deleting or cancelling the draft order or invoice gives the converted quantity back to the quotation. An expired quotation that gets its quantity back returns to Draft.',
+        'ड्राफ्ट ऑर्डर/इनवॉइस हटाने या रद्द करने पर कन्वर्ट की गई मात्रा कोटेशन को वापस मिलती है। समाप्त कोटेशन वापस Draft हो जाता है।',
+      ],
     ],
     keyRules: [
       ['Quotations do not post tax or receivables. Do not treat a converted draft as a tax invoice until Complete.', 'कोटेशन टैक्स या बकाया पोस्ट नहीं करता। कन्वर्टेड ड्राफ्ट Complete तक टैक्स इनवॉइस नहीं है।'],
+      ['A partly converted quotation cannot be cancelled; use Close remaining. A quotation takes its number when created, so deleting a draft leaves a gap.', 'आंशिक कन्वर्ट कोटेशन रद्द नहीं होता; Close remaining उपयोग करें। नंबर बनाते समय मिलता है, इसलिए ड्राफ्ट हटाने पर नंबर में खाली जगह रहती है।'],
+      ['The public link shows an expired quotation as expired, and stops working once revoked, cancelled or rejected. GST is worked out per invoice, so split documents can differ from the quotation by a paisa.', 'पब्लिक लिंक समाप्त कोटेशन को समाप्त दिखाता है; रद्द/अस्वीकृत/वापस लेने पर बंद हो जाता है। GST हर इनवॉइस पर अलग निकलता है, इसलिए एक पैसे का अंतर हो सकता है।'],
     ],
     commonMistakes: [
       ['Assuming convert reserved stock. Sales orders reserve on confirm; quotations do not.', 'कन्वर्ट को स्टॉक रिज़र्व न समझें। रिज़र्व सेल्स ऑर्डर कन्फर्म पर होता है।'],
+      ['Leaving the editor with unsaved changes. Save first, or confirm when asked.', 'बिना सेव किए एडिटर छोड़ना। पहले सेव करें, या पूछे जाने पर पुष्टि करें।'],
     ],
     relatedPages: [
       { path: '/sales/new', labelKey: 'nav.newInvoice' },
@@ -291,6 +349,7 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     nextActions: [
       ['After convert, open the draft invoice or order, check godown and GST, then Complete when ready.', 'कन्वर्ट के बाद ड्राफ्ट खोलें, गोदाम/GST जाँचें, तैयार हों तो Complete करें।'],
+      ['Chase quotations nearing their validity date, or Close remaining on ones that will not convert.', 'वैधता खत्म होने वाले कोटेशन पर फॉलो-अप करें, या न बदलने वालों पर Close remaining करें।'],
     ],
   }),
 

@@ -18,6 +18,7 @@ export const FAQ_CATEGORIES: string[] = [
   'Users & permissions',
   'GST & registration',
   'Sales invoices',
+  'Sales history',
   'Quotations, orders & challans',
   'Customers',
   'Returns & notes',
@@ -392,19 +393,20 @@ const MORE_FAQ: FaqItem[] = [
     'edit-completed-invoice',
     'Sales invoices',
     'Can I edit or delete a completed invoice?',
-    ['edit invoice', 'delete bill', 'immutable', 'credit note instead', 'void'],
+    ['edit invoice', 'delete bill', 'immutable', 'credit note instead', 'void', 'amend', 'change price after complete'],
     [
-      'No. A completed bill is frozen. Change it with a **t:nav.creditNotes** or **t:nav.debitNotes**, or **t:common.cancel** if nothing is allocated and you have cancel permission.',
-      'Line-edit is blocked so history and GST worksheets stay meaningful.',
+      'A completed bill cannot be deleted, and its customer, lines, quantities, products and GST rates stay as issued. Change it with a **t:nav.creditNotes** or **t:nav.debitNotes**, or **t:common.cancel** it if it should never have been issued.',
+      'The Owner can use **t:history.amend** in **t:nav.salesHistory** to correct a unit price, a line discount, a header discount, charges, or dates. Amend asks for a confirm, needs an open GST period, and is blocked while an IRN is live. For a wrong quantity, make a sales return.',
     ],
   ),
   faq(
     'cancel-invoice',
     'Sales invoices',
     'How do I cancel an invoice?',
-    ['cancel bill', 'void invoice', 'unallocate', 'payment link cancel', 'can cancel documents'],
+    ['cancel bill', 'void invoice', 'unallocate', 'payment link cancel', 'can cancel documents', 'cancel reason', 'cancel approval'],
     [
-      'Open the invoice → **t:common.cancel**. You need cancel permission, or be the Owner. Remove receipt allocations first, and clear any draft return or draft credit/debit note. A completed return or note blocks cancel.',
+      'Open the invoice, or use the row menu in **t:nav.salesHistory**, then **t:common.cancel** and type a reason. You need cancel permission. Remove receipt allocations first, and clear any draft return or draft credit/debit note. A completed return or note, a live IRN, or a live e-way bill blocks cancel.',
+      'Cancelling a completed bill needs a second Owner to approve it, unless you are the only Owner. Until then the bill stays completed and shows **t:history.cancelPendingChip**.',
       'Cancel also cancels an open payment link. The public invoice page stays available and can show Cancelled until you choose Revoke link. A full return removes that public link.',
     ],
   ),
@@ -570,6 +572,119 @@ const MORE_FAQ: FaqItem[] = [
   ),
 
   faq(
+    'sales-history-find-bill',
+    'Sales history',
+    'How do I find a bill in Sales History?',
+    ['search bill', 'find invoice', 'search by phone', 'customer filter', 'date range', 'this fy', 'bill not showing', 'gopal'],
+    [
+      'Type in **t:history.searchLabel**. It matches the bill number, the customer name, or the customer phone, and the list updates when you pause typing. To see one customer only, pick them in the customer box after typing at least 2 letters.',
+      'Use **t:history.dateRange** for Today, This Week, This Month, This FY, Previous FY, a quarter, or Custom, and the status chips for draft, completed, cancelled, or returned bills. If a bill is missing, widen the date range and clear the status and payment filters first.',
+      'The filters are kept in the address bar. Browser Back returns to the previous filter, and a copied link opens the same view.',
+    ],
+  ),
+  faq(
+    'sales-history-payment-chips',
+    'Sales history',
+    'What do Paid, Partial, Unpaid and Overdue mean on Sales History?',
+    ['paid', 'partial', 'unpaid', 'overdue', 'payment status', 'due amount', 'receipt pending', 'chips'],
+    [
+      '**Paid** means nothing is due. **Partial** means a receipt, a credit note, or a settlement discount has been applied and money is still due. **Unpaid** means the full amount is still due. Each chip shows the bill count and the amount due (for Paid, the amount billed), using the search, customer, and date filters you have set.',
+      '**t:history.overdue** shows completed bills whose due date has passed and that still have money due. It works together with the payment chips, so Unpaid plus Overdue lists unpaid bills that are late.',
+      '**t:status.PAID_PENDING_BOOKS** means an online payment was captured but its receipt has not reached the books yet. It is listed in **t:nav.attention**. Drafts and cancelled bills have no payment status.',
+    ],
+  ),
+  faq(
+    'sales-history-sort',
+    'Sales history',
+    'How do I sort bills by amount or by what is still due?',
+    ['sort', 'highest due', 'biggest bill', 'oldest first', 'order by total'],
+    [
+      'Use the Sort box: Newest, Oldest, Highest total, Lowest total, Highest due, or Lowest due. You can also click the Date, Total, or Due column header. Each click moves through highest first, lowest first, and back to newest.',
+      'Highest due is the quickest way to see whom to call first. The sort is also used by **t:history.exportCsv**.',
+    ],
+  ),
+  faq(
+    'sales-history-bulk-pdf',
+    'Sales history',
+    'How do I download many invoice PDFs at once?',
+    ['bulk download', 'zip', 'download all pdf', 'many invoices', 'skipped', 'ca pdfs'],
+    [
+      'Tick the bills in **t:nav.salesHistory**, then **t:history.bulkDownload**. You get one `invoices.zip` with up to 100 bills. Each file is named after the bill number; a slash in the number becomes a dash.',
+      'Drafts and cancelled bills have no tax-invoice PDF, so they are skipped and the message names them. The ZIP can be downloaded only by the person who made it, and it is removed after 7 days. You need permission to create sales.',
+    ],
+  ),
+  faq(
+    'sales-history-export-csv',
+    'Sales history',
+    'Can I export the sales register to Excel?',
+    ['export csv', 'excel', 'spreadsheet', 'sales register', 'download list'],
+    [
+      '**t:history.exportCsv** downloads `sales-register.csv` with the filters and sort you have on screen. Columns: Date, Number, Customer, Phone, Status, Total, Due, Due date, and Cancel reason. Due is blank for drafts and cancelled bills.',
+      'One file holds up to 5,000 bills; narrow the date range for more. A value that starts with = + - or @ gets a leading apostrophe so a spreadsheet does not run it as a formula.',
+    ],
+  ),
+  faq(
+    'sales-history-record-payment',
+    'Sales history',
+    'How do I record a payment from Sales History?',
+    ['record payment', 'collect money', 'receive payment', 'settlement discount', 'write off', 'part payment'],
+    [
+      'Open the row menu on a completed bill that still has money due and choose **t:history.recordPayment**. Enter the amount and mode. A part payment moves the bill to Partial; the full amount moves it to Paid. The message names the bill it was recorded on.',
+      '**t:history.settlementDiscount** writes off a small balance after tax; the invoice GST does not change. You need permission to record payments.',
+    ],
+  ),
+  faq(
+    'sales-history-cancel-approval',
+    'Sales history',
+    'Why does Cancel say the bill is waiting for approval?',
+    ['cancel pending', 'waiting for approval', 'approve cancel', 'second owner', 'cancel approval expired'],
+    [
+      'Cancelling a completed bill needs a second Owner to approve it. If you are the company’s only Owner, it cancels at once. Otherwise the bill stays completed, the row shows **t:history.cancelPendingChip**, and Cancel is hidden until the request is decided. Asking again does not create a second request.',
+      'Once another Owner approves, open the row menu again and choose **t:common.cancel**; the approval is used once. A request lasts 72 hours. An expired or rejected request means you ask again.',
+    ],
+  ),
+  faq(
+    'sales-history-cancel-refused',
+    'Sales history',
+    'Why was my cancel refused?',
+    ['cancel blocked', 'cannot cancel', 'receipt allocated', 'irn live', 'eway live', 'open receipts'],
+    [
+      'A bill cannot be cancelled while a receipt is still allocated to it, while an IRN or e-way bill is live, or while a return or a credit/debit note is on it. The message names the reason. Cancel the IRN or e-way bill first, or use **t:history.openReceipts** to remove the allocation.',
+      'If money was received against a bill that is still right, keep the bill and use a sales return or **t:nav.creditNotes** for the part being taken back.',
+    ],
+  ),
+  faq(
+    'sales-history-row-actions',
+    'Sales history',
+    'Why don’t I see Record payment, Cancel, or Profit Details in the row menu?',
+    ['menu missing', 'no cancel option', 'no record payment', 'profit details hidden', 'permission', 'row actions'],
+    [
+      'The menu shows what the bill and your role allow. **t:history.recordPayment** needs a completed bill with money due and payment permission. **t:common.cancel** needs a completed bill, cancel permission, and no cancel already waiting for approval. **t:invoiceDetail.profitDetails** needs permission to view financial reports.',
+      'Edit, **t:common.complete**, and **t:common.delete** are for drafts. **t:history.amend** on a completed bill is for the Owner. Share, **t:history.salesReturn**, and bulk download need permission to create sales.',
+    ],
+  ),
+  faq(
+    'sales-history-complete-draft',
+    'Sales history',
+    'What happens when I complete a draft from Sales History?',
+    ['complete draft', 'finish bill', 'draft to invoice', 'delete draft'],
+    [
+      '**t:common.complete** from the row menu assigns the tax invoice number, posts stock and the ledger, and leaves the full amount due. If the customer is paying now, use **t:history.recordPayment** after it completes. The same checks as on the invoice screen apply: stock, GST, credit limit, and period lock.',
+      'Only a draft can be deleted. A completed bill is cancelled or corrected with a note instead.',
+    ],
+  ),
+  faq(
+    'sales-history-print',
+    'Sales history',
+    'How do I reprint a bill or print a small receipt?',
+    ['reprint', 'thermal', '80mm', '58mm', 'receipt printer', 'pdf generating', 'retry pdf'],
+    [
+      'In the row menu, **t:common.print** opens the tax-invoice PDF and **t:common.download** saves it. **t:sweep2.printReceipt80** and **t:sweep2.printReceipt58** print a receipt for a thermal printer.',
+      'Right after completing, the PDF may still be generating. The message says so; press **t:history.retryPdf** after a few seconds.',
+    ],
+  ),
+
+  faq(
     'quotation-convert',
     'Quotations, orders & challans',
     'How do I turn a quotation into an invoice?',
@@ -577,6 +692,75 @@ const MORE_FAQ: FaqItem[] = [
     [
       'Open **t:nav.sales** → **t:nav.quotations**. Convert is allowed only from the right status. A blocked customer cannot convert.',
       'Conversion creates an invoice (or order). It does not auto-complete the invoice.',
+    ],
+  ),
+  faq(
+    'quotation-partial-close',
+    'Quotations, orders & challans',
+    'What if only part of a quotation is converted and the rest is dropped?',
+    ['partial quotation', 'close remaining', 'short close', 'expired quotation', 'cancel quotation'],
+    [
+      'A quotation that is partly converted cannot be cancelled, because orders or invoices already hold part of it. Open the row menu and choose **Close remaining** with a reason. The unconverted quantity stops counting, and the quotation shows as closed. An owner can reopen it.',
+      'When a quotation is converted in parts, the additional charges and invoice discount are shared by value. GST is worked out on each invoice, so it can differ from the quotation by a paisa.',
+      'A quotation takes its number when it is created, so deleting a draft leaves a gap in the numbers.',
+    ],
+  ),
+  faq(
+    'quotation-create-edit',
+    'Quotations, orders & challans',
+    'How do I create or edit a quotation?',
+    ['new quotation', 'edit quotation', 'quote editor', 'unsaved changes', 'salesperson', 'valid till'],
+    [
+      'Open **t:nav.sales** → **t:nav.quotations** and choose New. The editor is a full page: pick the customer, add products, set the validity date, and optionally a salesperson, channel and address.',
+      'If you leave with unsaved changes you are asked first. Editing a quotation that was already sent moves it back to Draft and keeps a snapshot of what was sent.',
+    ],
+  ),
+  faq(
+    'quotation-share',
+    'Quotations, orders & challans',
+    'How do I send a quotation to a customer?',
+    ['share quotation', 'whatsapp quotation', 'pdf link', 'public link', 'revoke link', 'sent'],
+    [
+      'Choose **Share** in the row menu. It creates a public PDF link you can copy or send on WhatsApp. The customer needs no login.',
+      'The link shows “expired” after the validity date and stops working if you revoke it or the quotation is cancelled or rejected. Moving the quotation back to Draft revokes the link. If your company uses the quotation lifecycle, sharing a draft marks it Sent.',
+    ],
+  ),
+  faq(
+    'quotation-duplicate',
+    'Quotations, orders & challans',
+    'How do I revise a quotation or make a new version?',
+    ['duplicate quotation', 'new version', 'copy quotation', 'revise quote'],
+    [
+      'Choose **Duplicate** in the row menu. It creates a new draft with the same lines and links it to the original; the original is not changed. Edit the copy and share it.',
+    ],
+  ),
+  faq(
+    'quotation-expiry',
+    'Quotations, orders & challans',
+    'What happens when a quotation expires?',
+    ['expired quotation', 'validity', 'expiry alert', 'cancel expired', 'convert expired'],
+    [
+      'Expiry is worked out from the validity date; there is no separate Expired status. An expired quotation can still be converted after you confirm. You get an alert before and after the date.',
+      'An open quotation also stops you changing a product’s unit. The message names the quotations, and **Cancel expired quotations** cancels the ones with nothing converted.',
+    ],
+  ),
+  faq(
+    'quotation-return-quantity',
+    'Quotations, orders & challans',
+    'I deleted the draft invoice. Why is the quotation quantity available again?',
+    ['release quantity', 'converted quantity', 'deleted draft', 'cancelled invoice', 'quote balance'],
+    [
+      'Deleting a draft order or invoice made from a quotation, or cancelling one made directly from it, gives the quantity back. An invoice made from an order never returns quantity to the quotation; only the order’s own cancellation or deletion does.',
+      'A nightly check also releases quantity held by orders or invoices that no longer exist.',
+    ],
+  ),
+  faq(
+    'quotation-source-link',
+    'Quotations, orders & challans',
+    'Where do I see which quotation an invoice came from?',
+    ['from quotation', 'source quotation', 'salesperson on invoice', 'quote link'],
+    [
+      'The order or invoice detail shows a “From quotation” panel with a link back, plus the salesperson, channel and address from the quotation. When a bill combines several quotations, the earliest is shown first and a note says if their details differ.',
     ],
   ),
   faq(
@@ -694,17 +878,6 @@ const MORE_FAQ: FaqItem[] = [
   ),
   faq(
     'sales-return',
-  faq(
-    'quotation-partial-close',
-    'Quotations, orders & challans',
-    'What if only part of a quotation is converted and the rest is dropped?',
-    ['partial quotation', 'close remaining', 'short close', 'expired quotation', 'cancel quotation'],
-    [
-      'A quotation that is partly converted cannot be cancelled, because orders or invoices already hold part of it. Open the row menu and choose **Close remaining** with a reason. The unconverted quantity stops counting, and the quotation shows as closed. An owner can reopen it.',
-      'When a quotation is converted in parts, the additional charges and invoice discount are shared by value. GST is worked out on each invoice, so it can differ from the quotation by a paisa.',
-      'A quotation takes its number when it is created, so deleting a draft leaves a gap in the numbers.',
-    ],
-  ),
     'Returns & notes',
     'How do sales returns work?',
     ['sales return', 'srn', 'goods back', 'return against invoice'],

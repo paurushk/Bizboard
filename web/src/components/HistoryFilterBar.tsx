@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import MenuItem from '@mui/material/MenuItem';
@@ -133,6 +134,15 @@ type Props = {
   bulkActions?: ReactNode;
   onClearBulk?: () => void;
   party?: ReactNode;
+  /**
+   * 'stacked' (default) keeps every control on its own row. 'compact' puts the status chips and
+   * `actions` on one row, search / date / party / `controls` on a wrapping second row, and
+   * `footer` (quick-filter chips) on a third.
+   */
+  layout?: 'stacked' | 'compact';
+  actions?: ReactNode;
+  controls?: ReactNode;
+  footer?: ReactNode;
 };
 
 export function HistoryFilterBar({
@@ -148,6 +158,10 @@ export function HistoryFilterBar({
   bulkActions,
   onClearBulk,
   party,
+  layout = 'stacked',
+  actions,
+  controls,
+  footer,
 }: Props) {
   const set = (patch: Partial<HistoryFilters>) => onChange({ ...value, ...patch });
   const [forceCustom, setForceCustom] = useState(false);
@@ -164,6 +178,114 @@ export function HistoryFilterBar({
     setForceCustom(id === 'custom');
     set(dateRangeForPreset(id));
   };
+
+  const compact = layout === 'compact';
+  const searchField = (
+    <TextField
+      size="small"
+      label={searchLabel}
+      placeholder={searchPlaceholder ?? t('common.search')}
+      value={value.q}
+      onChange={(e) => set({ q: e.target.value })}
+      sx={compact ? { flex: '2 1 260px', minWidth: 0, maxWidth: { sm: 440 } } : { minWidth: 220, flex: 1, maxWidth: 360 }}
+      inputProps={searchLabel ? { 'aria-label': searchLabel } : undefined}
+    />
+  );
+  const dateSelect = (
+    <TextField
+      select
+      size="small"
+      label={t('history.dateRange')}
+      value={presetValue}
+      onChange={(event) => applyPreset(event.target.value as DateRangePresetId | '')}
+      sx={compact ? { flex: '1 1 190px', minWidth: 0, maxWidth: { sm: 260 } } : { maxWidth: 280 }}
+    >
+      <MenuItem value="">{t('common.all')}</MenuItem>
+      {DATE_RANGE_PRESET_IDS.map((id) => (
+        <MenuItem key={id} value={id}>
+          {t(`history.preset.${id}`)}
+        </MenuItem>
+      ))}
+    </TextField>
+  );
+  const dateFields = (
+    <>
+      <TextField
+        size="small"
+        type="date"
+        label={t('common.from')}
+        InputLabelProps={{ shrink: true }}
+        value={value.dateFrom}
+        onChange={(e) => set({ dateFrom: e.target.value })}
+        sx={compact ? { flex: '1 1 150px', minWidth: 0, maxWidth: { sm: 180 } } : { maxWidth: 180 }}
+      />
+      <TextField
+        size="small"
+        type="date"
+        label={t('common.to')}
+        InputLabelProps={{ shrink: true }}
+        value={value.dateTo}
+        onChange={(e) => set({ dateTo: e.target.value })}
+        sx={compact ? { flex: '1 1 150px', minWidth: 0, maxWidth: { sm: 180 } } : { maxWidth: 180 }}
+      />
+    </>
+  );
+  const bulkRow = bulkSelectedCount > 0 ? (
+    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+      <Typography variant="body2">
+        {t('history.selectedCount', { count: bulkSelectedCount })}
+      </Typography>
+      {bulkActions}
+      {onClearBulk ? (
+        <Button size="small" onClick={onClearBulk}>
+          {t('common.clear')}
+        </Button>
+      ) : null}
+    </Stack>
+  ) : null;
+
+  if (compact) {
+    const statusChips = statusOptions.length ? (
+      <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+        <Chip
+          label={t('common.all')}
+          color={value.status === '' ? 'primary' : 'default'}
+          variant={value.status === '' ? 'filled' : 'outlined'}
+          onClick={() => set({ status: '' })}
+        />
+        {statusOptions.map((opt) => (
+          <Chip
+            key={opt.value}
+            label={opt.label}
+            color={value.status === opt.value ? 'primary' : 'default'}
+            variant={value.status === opt.value ? 'filled' : 'outlined'}
+            onClick={() => set({ status: value.status === opt.value ? '' : opt.value })}
+          />
+        ))}
+      </Stack>
+    ) : <span />;
+    return (
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+          {statusChips}
+          {actions}
+        </Stack>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'flex-start' }}>
+          {searchField}
+          {dateRangePresets && showDateRange && dateControl === 'preset' ? dateSelect : null}
+          {party ? (
+            <Box sx={{ flex: '1 1 220px', minWidth: 0, maxWidth: { sm: 300 }, '& .MuiAutocomplete-root': { width: '100%', maxWidth: 'none' } }}>
+              {party}
+            </Box>
+          ) : null}
+          {controls ? <Box sx={{ flex: '0 1 180px', minWidth: 0, '& .MuiTextField-root': { width: '100%', minWidth: 0 } }}>{controls}</Box> : null}
+          {showDateRange && showDateFields ? dateFields : null}
+        </Box>
+        {footer}
+        {bulkRow}
+      </Stack>
+    );
+  }
 
   return (
     <Stack spacing={1.5}>

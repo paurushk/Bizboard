@@ -583,8 +583,8 @@ export function SalesHistoryPage() {
             </Button>
           )}
           onClearBulk={() => setSelected([])}
-        />
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+          layout="compact"
+          controls={(
           <TextField
             select
             size="small"
@@ -596,12 +596,15 @@ export function SalesHistoryPage() {
               setPage(1);
               publish(filters, 1, next, customerId);
             }}
-            sx={{ minWidth: 180 }}
+            fullWidth
           >
             {SORTS.map((id) => (
               <MenuItem key={id} value={id}>{t(`history.sort.${id}`)}</MenuItem>
             ))}
           </TextField>
+          )}
+          footer={hidePaymentChips ? null : (
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
           {hidePaymentChips ? null : (['UNPAID', 'PARTIAL', 'PAID'] as const).map((bucket) => {
             const stat = stats.data?.[bucket === 'PAID' ? 'paid' : bucket === 'PARTIAL' ? 'partial' : 'unpaid'];
             const amount = formatMoney(stat?.amount);
@@ -611,7 +614,6 @@ export function SalesHistoryPage() {
             return (
               <Chip
                 key={bucket}
-                size="small"
                 label={label}
                 color={filters.paymentStatus === bucket ? 'primary' : 'default'}
                 variant={filters.paymentStatus === bucket ? 'filled' : 'outlined'}
@@ -622,7 +624,6 @@ export function SalesHistoryPage() {
           })}
           {hidePaymentChips ? null : (
             <Chip
-              size="small"
               label={t('history.overdue')}
               color={filters.overdue ? 'warning' : 'default'}
               variant={filters.overdue ? 'filled' : 'outlined'}
@@ -630,8 +631,10 @@ export function SalesHistoryPage() {
               onClick={togglePaymentBucket}
             />
           )}
+            </Stack>
+          )}
+          actions={(
           <Button
-            size="small"
             variant="outlined"
             disabled={exportBusy}
             onClick={async () => {
@@ -658,7 +661,8 @@ export function SalesHistoryPage() {
           >
             {t('history.exportCsv')}
           </Button>
-        </Stack>
+          )}
+        />
       </>
 
       {showLoading ? <LoadingState /> : null}
