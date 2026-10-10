@@ -22,11 +22,14 @@ export function VirtualizedTable({
   maxHeight = 560,
   rowCount,
   rowHeight = 52,
+  chromeHeight = 0,
 }: {
   children: ReactNode | ((args: VirtualizedTableRenderArgs) => ReactNode);
   maxHeight?: number;
   rowCount?: number;
   rowHeight?: number;
+  /** Pixels of non-row content (a table header) rendered inside the sized box. */
+  chromeHeight?: number;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -50,9 +53,15 @@ export function VirtualizedTable({
         tabIndex={0}
         role="region"
         aria-label={t('common.scrollableTable')}
-        sx={{ maxHeight, overflow: 'auto', contain: 'layout paint', width: '100%' }}
+        sx={{
+          maxHeight,
+          minHeight: chromeHeight + (rowCount ? rowHeight : 0),
+          overflow: 'auto',
+          contain: 'layout paint',
+          width: '100%',
+        }}
       >
-        <Box sx={{ height: virtualizer.getTotalSize(), position: 'relative', width: '100%' }}>
+        <Box sx={{ height: virtualizer.getTotalSize() + chromeHeight, position: 'relative', width: '100%' }}>
           {children({
             rows: virtualizer.getVirtualItems(),
             totalSize: virtualizer.getTotalSize(),

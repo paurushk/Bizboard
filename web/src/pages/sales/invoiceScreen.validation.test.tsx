@@ -99,7 +99,12 @@ const soap: DraftLine = {
   gross: 187.5,
 };
 
-function renderLine(line: DraftLine, intra: boolean | null, onUpdate = vi.fn()) {
+function renderLine(
+  line: DraftLine,
+  intra: boolean | null,
+  onUpdate = vi.fn(),
+  extra: { priceInclusive?: boolean } = {},
+) {
   const tax = calculateLineTax({
     quantity: line.quantity,
     unitPrice: line.unitPrice,
@@ -113,6 +118,7 @@ function renderLine(line: DraftLine, intra: boolean | null, onUpdate = vi.fn()) 
       taxes={[tax]}
       showCess={false}
       intraState={intra}
+      priceInclusive={extra.priceInclusive}
       onUpdate={onUpdate}
       onDelete={() => undefined}
     />,
@@ -160,6 +166,33 @@ describe('invoice line validation', () => {
     await user.click(amount);
     await user.tab();
     expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it('REVIEW-B7 in tax-inclusive mode the typed amount becomes the rate with no tax taken out', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onUpdate = renderLine({ ...soap, unitPrice: 118 }, true, vi.fn(), { priceInclusive: true });
+    const amount = screen.getByLabelText(/total amount/i);
+    await user.clear(amount);
+    await user.type(amount, '236');
+    await user.tab();
+    const patch = onUpdate.mock.calls.at(-1)?.[1] as { unitPrice?: number; priceEdited?: boolean };
+    expect(patch.unitPrice).toBe(236);
+    expect(patch.priceEdited).toBe(true);
+  });
+
+  it('REVIEW-B6 typing an amount marks the price as typed, but tabbing past it twice does not', async () => {
+    const user = userEvent.setup({ delay: null });
+    const onUpdate = renderLine(soap, true);
+    const amount = screen.getByLabelText(/total amount/i);
+    await user.click(amount);
+    await user.tab();
+    await user.click(amount);
+    await user.tab();
+    expect(onUpdate).not.toHaveBeenCalled();
+    await user.click(amount);
+    await user.type(amount, '0');
+    await user.tab();
+    expect(onUpdate).toHaveBeenCalledTimes(1);
   });
 
   it('INV-MAIN-07 a percent discount stays when the amount is edited', async () => {
@@ -549,6 +582,8 @@ describe('posted invoice actions', () => {
     await user.click(screen.getByRole('button', { name: /^share$/i }));
     expect(screen.getByRole('menuitem', { name: /whatsapp/i })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: /copy link/i })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: /revoke link/i })).toBeInTheDocument();
+    expect(screen.getByText(/anyone with this link can see the customer name/i)).toBeInTheDocument();
   });
 
   it('INV-DET-05 copy link writes the public invoice URL', async () => {
@@ -584,6 +619,25 @@ describe('posted invoice actions', () => {
       />,
     );
     expect(screen.queryByRole('button', { name: /generate e-invoice/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /generate e-way bill/i })).not.toBeInTheDocument();
+  });
+
+  it('INV-DET-09 a service-only bill hides e-way and keeps e-invoice', () => {
+    wrap(
+      <InvoicePostedActionBar
+        invoice={{
+          ...invoice,
+          items: [{ hsnCode: '998313', quantity: 1, productType: 'SERVICE' }],
+        }}
+        customerGstin="29AABCU9603R1ZJ"
+        onShareWhatsApp={() => undefined}
+        onShareEmail={() => undefined}
+        onRecordPayment={() => undefined}
+        onMessage={() => undefined}
+        onError={() => undefined}
+      />,
+    );
+    expect(screen.getByRole('button', { name: /generate e-invoice/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /generate e-way bill/i })).not.toBeInTheDocument();
   });
 });

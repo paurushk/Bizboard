@@ -89,7 +89,7 @@ export function ReceiptsPage() {
   const advanceInvoices = useQuery({
     queryKey: ['receipt-allocate-invoices', advance?.customer],
     queryFn: () =>
-      listSalesInvoicesPage({ status: 'COMPLETED', customer: advance!.customer, pageSize: 20 }),
+      listSalesInvoicesPage({ status: 'COMPLETED', payment_status: 'UNPAID,PARTIAL', customer: advance!.customer, pageSize: 50 }),
     enabled: Boolean(advance?.customer),
   });
   const allocateMutation = useMutation({
@@ -139,6 +139,8 @@ export function ReceiptsPage() {
     queryFn: () =>
       listSalesInvoicesPage({
         status: 'COMPLETED',
+        // Only bills with money due. Paid bills would push the old unpaid ones off the page.
+        payment_status: 'UNPAID,PARTIAL',
         pageSize: 50,
         q: debouncedInvoiceQuery.trim() || undefined,
         customer: customer?.id,

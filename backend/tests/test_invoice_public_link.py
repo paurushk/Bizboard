@@ -126,6 +126,78 @@ def test_public_pay_with_gateway_credentials_returns_a_path(tenant_a, monkeypatc
     assert str(resp.data["path"]).startswith("/pay/")
 
 
+@override_settings(FRONTEND_URL="http://front.test")
+def test_cancel_keeps_the_public_page_and_blocks_the_pdf(tenant_a):
+    """Cancel does not revoke the link. The page can say Cancelled; the PDF cannot download."""
+    invoice_id = _completed(tenant_a)
+    token = tenant_a.client.post(f"/api/v1/sales/invoices/{invoice_id}/public-link/").data["url"].rsplit("/", 1)[-1]
+    cancelled = tenant_a.client.post(
+        f"/api/v1/sales/invoices/{invoice_id}/cancel/",
+        {"reason": "wrong bill"},
+        format="json",
+    )
+    assert cancelled.status_code == 200, cancelled.data
+    assert cancelled.data["status"] == "CANCELLED"
+    assert InvoicePublicLink.objects.filter(invoice_id=invoice_id, revoked_at__isnull=True).count() == 1
+
+    anon = APIClient()
+    page = anon.get(f"/api/v1/public/invoices/{token}/")
+    assert page.status_code == 200, page.data
+    assert page.data["status"] == "CANCELLED"
+    pdf = anon.get(f"/api/v1/public/invoices/{token}/pdf/")
+    assert pdf.status_code == 410
+
+
+@override_settings(FRONTEND_URL="http://front.test")
+def test_full_return_removes_the_public_link(tenant_a):
+    product = make_product(tenant_a.company, sku="PUB-RET", hsn_code="3004", gst_rate="18")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company, name="Return Buyer", state="Karnataka")
+    draft = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "2", "unit_price": "100", "gst_rate": "18"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/").status_code == 200
+    token = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/public-link/").data["url"].rsplit("/", 1)[-1]
+
+    created = tenant_a.client.post("/api/v1/sales/returns/", {
+        "customer": customer.id,
+        "sales_invoice": draft["id"],
+        "items": [{"product": product.id, "quantity": "2", "unit_price": "100"}],
+    }, format="json")
+    assert created.status_code == 201, created.data
+    done = tenant_a.client.post(f"/api/v1/sales/returns/{created.data['id']}/complete/")
+    assert done.status_code == 200, done.data
+
+    assert InvoicePublicLink.objects.filter(invoice_id=draft["id"], revoked_at__isnull=True).count() == 0
+    anon = APIClient()
+    assert anon.get(f"/api/v1/public/invoices/{token}/").status_code == 404
+
+
+@override_settings(FRONTEND_URL="http://front.test")
+def test_partial_return_keeps_the_public_link(tenant_a):
+    product = make_product(tenant_a.company, sku="PUB-PART", hsn_code="3004", gst_rate="18")
+    add_stock(tenant_a, product, "5")
+    customer = make_customer(tenant_a.company, name="Partial Buyer", state="Karnataka")
+    draft = create_draft_invoice(tenant_a, customer, [
+        {"product": product.id, "quantity": "2", "unit_price": "100", "gst_rate": "18"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/").status_code == 200
+    token = tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/public-link/").data["url"].rsplit("/", 1)[-1]
+
+    created = tenant_a.client.post("/api/v1/sales/returns/", {
+        "customer": customer.id,
+        "sales_invoice": draft["id"],
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert created.status_code == 201, created.data
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{created.data['id']}/complete/").status_code == 200
+
+    assert InvoicePublicLink.objects.filter(invoice_id=draft["id"], revoked_at__isnull=True).count() == 1
+    page = APIClient().get(f"/api/v1/public/invoices/{token}/")
+    assert page.status_code == 200, page.data
+    assert page.data["status"] == "COMPLETED"
+
+
 def test_public_link_rejects_a_draft(tenant_a):
     product = make_product(tenant_a.company, sku="PUB-D", gst_rate="0")
     add_stock(tenant_a, product, "2")

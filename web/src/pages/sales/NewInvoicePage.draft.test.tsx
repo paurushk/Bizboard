@@ -15,6 +15,8 @@ const USER_ID = 1;
 
 const api = vi.hoisted(() => ({
   getProduct: vi.fn(),
+  getCustomer: vi.fn(async (id: number) => ({ id, name: 'Anil Store', status: 'ACTIVE', state: 'Delhi' })),
+  listPriceLists: vi.fn(async () => [] as unknown[]),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -46,12 +48,12 @@ vi.mock('@/api/resources', () => ({
   getProduct: (...args: unknown[]) => api.getProduct(...args),
   listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
   listCustomersPage: async () => ({ results: [], count: 0, next: null, previous: null }),
-  getCustomer: async (id: number) => ({ id, name: 'Anil Store', status: 'ACTIVE', state: 'Delhi' }),
+  getCustomer: (...args: unknown[]) => api.getCustomer(...(args as [number])),
   listCollectionRisk: async () => [],
   listWarehouses: async () => [{ id: 1, name: 'Main Godown' }],
   listCompanyGstins: async () => [],
   listCostCenters: async () => [],
-  listPriceLists: async () => [],
+  listPriceLists: (...args: unknown[]) => api.listPriceLists(...(args as [])),
   listBatches: async () => [],
   getSalesInvoiceNumberSeries: async () => ({ prefix: 'INV', nextNumber: 1 }),
   getSalesInvoice: async () => ({ id: 1, number: 'INV-1' }),
@@ -182,6 +184,80 @@ describe('NewInvoicePage restoring a saved draft', () => {
     await screen.findByText('Soap');
     expect(await screen.findByDisplayValue('33')).toBeTruthy();
     expect(screen.queryByDisplayValue('40')).toBeNull();
+  });
+
+  describe('REVIEW price drift uses the draft party price list', () => {
+    const listWith = (rate: number) => [
+      { id: 3, name: 'Wholesale', isActive: true, items: [{ product: 5, unitPrice: rate, minQty: 1 }] },
+    ];
+
+    beforeEach(() => {
+      api.getCustomer.mockClear();
+      api.getCustomer.mockImplementation(async (id: number) => ({
+        id, name: 'Anil Store', status: 'ACTIVE', state: 'Delhi', priceList: 3,
+      }));
+    });
+    afterEach(() => {
+      api.getCustomer.mockImplementation(async (id: number) => ({ id, name: 'Anil Store', status: 'ACTIVE', state: 'Delhi' }));
+      api.listPriceLists.mockImplementation(async () => []);
+    });
+
+    it('fetches the party when it is not on the loaded page, so a list price is not mistaken for drift', async () => {
+      api.listPriceLists.mockImplementation(async () => listWith(90));
+      seedDraft([line(5, 'Soap', { unitPrice: 90 })], 10);
+      api.getProduct.mockResolvedValue(product(5, 'Soap', 100));
+      renderPage();
+      await userEvent.click(await restoreButton());
+      expect(await screen.findByText('Soap')).toBeTruthy();
+      expect(api.getCustomer).toHaveBeenCalledWith(10);
+      expect(screen.queryByRole('button', { name: /keep draft prices/i })).toBeNull();
+      expect(await screen.findByDisplayValue('90')).toBeTruthy();
+    });
+
+    it('asks to keep or update when the party list price has moved, and keeps the draft price on request', async () => {
+      api.listPriceLists.mockImplementation(async () => listWith(80));
+      seedDraft([line(5, 'Soap', { unitPrice: 90 })], 10);
+      api.getProduct.mockResolvedValue(product(5, 'Soap', 100));
+      renderPage();
+      await userEvent.click(await restoreButton());
+      const keep = await screen.findByRole('button', { name: /keep draft prices/i });
+      expect(screen.getByRole('button', { name: /update to current prices/i })).toBeTruthy();
+      await userEvent.click(keep);
+      expect(await screen.findByDisplayValue('90')).toBeTruthy();
+    });
+
+    it('updates to the party list price on request', async () => {
+      api.listPriceLists.mockImplementation(async () => listWith(80));
+      seedDraft([line(5, 'Soap', { unitPrice: 90 })], 10);
+      api.getProduct.mockResolvedValue(product(5, 'Soap', 100));
+      renderPage();
+      await userEvent.click(await restoreButton());
+      await userEvent.click(await screen.findByRole('button', { name: /update to current prices/i }));
+      expect(await screen.findByDisplayValue('80')).toBeTruthy();
+    });
+
+    it('does not ask about a price the operator typed', async () => {
+      api.listPriceLists.mockImplementation(async () => listWith(80));
+      seedDraft([line(5, 'Soap', { unitPrice: 77, priceEdited: true })], 10);
+      api.getProduct.mockResolvedValue(product(5, 'Soap', 100));
+      renderPage();
+      await userEvent.click(await restoreButton());
+      expect(await screen.findByDisplayValue('77')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: /keep draft prices/i })).toBeNull();
+    });
+  });
+
+  it('REVIEW the saved copy never carries the item purchase cost', async () => {
+    api.getProduct.mockResolvedValue({ ...product(5, 'Soap', 100), purchasePrice: 61 });
+    seedDraft([line(5, 'Soap', { unitPrice: 100, priceEdited: true })]);
+    renderPage();
+    await userEvent.click(await restoreButton());
+    expect(await screen.findByText('Soap')).toBeTruthy();
+    await waitFor(() => {
+      const stored = JSON.parse(savedDraft() ?? 'null');
+      expect(stored?.payload?.lines?.[0]).toBeTruthy();
+      expect(stored.payload.lines[0].purchasePrice ?? null).toBeNull();
+    });
   });
 
   it('keeps the whole draft, and says why, when the products cannot be fetched', async () => {

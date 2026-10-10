@@ -104,10 +104,11 @@ def link_shows_paid(link: PaymentLink) -> bool:
     return GatewayPayment.objects.filter(payment_link=link, status__in=CAPTURED_LIKE).exists()
 
 
-def invoice_payment_state(invoice, outstanding=None) -> str:
+def invoice_payment_state(invoice, outstanding=None, holding=None, captured=None) -> str:
     """``outstanding`` may be passed when the caller has just computed
     ``LedgerService.sales_invoice_outstanding(invoice)`` (it is four aggregate queries),
-    so one response does not compute the same figure three times."""
+    so one response does not compute the same figure three times. ``holding`` and
+    ``captured`` may be passed from list annotations for the same reason."""
     from ledgers.services import LedgerService
 
     if outstanding is None:
@@ -115,16 +116,18 @@ def invoice_payment_state(invoice, outstanding=None) -> str:
     outstanding = Decimal(str(outstanding or 0))
     if outstanding <= 0:
         return PAYMENT_STATE_PAID
-    holding = GatewayPayment.objects.filter(
-        payment_link__sales_invoice=invoice,
-        status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
-    ).exists()
+    if holding is None:
+        holding = GatewayPayment.objects.filter(
+            payment_link__sales_invoice=invoice,
+            status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+        ).exists()
     if holding:
         return PAYMENT_STATE_PAID_PENDING_BOOKS
-    captured = GatewayPayment.objects.filter(
-        payment_link__sales_invoice=invoice,
-        status=GatewayPaymentStatus.CAPTURED,
-    ).exists()
+    if captured is None:
+        captured = GatewayPayment.objects.filter(
+            payment_link__sales_invoice=invoice,
+            status=GatewayPaymentStatus.CAPTURED,
+        ).exists()
     if captured:
         return PAYMENT_STATE_PAID_PENDING_BOOKS if outstanding > 0 else PAYMENT_STATE_PAID
     return PAYMENT_STATE_UNPAID

@@ -109,6 +109,7 @@ class SalesInvoice(DocumentTotalsModel):
     )
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancel_reason = models.CharField(max_length=500, blank=True, default="")
     # CFT-120: optimistic concurrency token for completed-invoice amend.
     amend_revision = models.PositiveIntegerField(default=0)
     salesperson = models.ForeignKey(

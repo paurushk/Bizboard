@@ -430,10 +430,14 @@ export interface SalesInvoice extends DocumentTotals {
   received?: string | number;
   balance: string | number;
   paymentState?: 'UNPAID' | 'PAID_PENDING_BOOKS' | 'PAID';
+  /** Server bucket shared by the payment filter and the status chip. */
+  settlementState?: 'NONE' | 'PAID' | 'PARTIAL' | 'UNPAID';
+  cancelApprovalPending?: boolean;
   /** Distinct from `status` — a partial return leaves `status` COMPLETED. */
   returnState?: 'NONE' | 'PARTIAL' | 'FULL';
   completedAt?: string | null;
   cancelledAt?: string | null;
+  cancelReason?: string;
   warnings?: string[];
   gstGuardWarnings?: { code: string; message: string }[];
   einvoiceStatus?: EinvoiceStatus;
@@ -948,6 +952,7 @@ export interface DashboardKpis {
     grandTotal: string | number;
     balance?: string | number;
     paymentState?: string;
+    settlementState?: 'NONE' | 'PAID' | 'PARTIAL' | 'UNPAID';
     returnState?: 'NONE' | 'PARTIAL' | 'FULL';
   }>;
 }

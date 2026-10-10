@@ -226,6 +226,10 @@ export function NewInvoicePage() {
     flashError,
     flashWarning,
   } = useBillingSaveFeedback();
+  useEffect(() => {
+    const flashed = (location.state as { message?: unknown } | null)?.message;
+    if (typeof flashed === 'string' && flashed.trim()) setError(flashed);
+  }, [location.state, setError]);
   const [editingStatus, setEditingStatus] = useState<SalesInvoice['status'] | null>(null);
   const [loadedEdit, setLoadedEdit] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -1375,6 +1379,7 @@ export function NewInvoicePage() {
 
   const lastScan = useRef('');
   const scanChain = useRef<Promise<void>>(Promise.resolve());
+  const highlightedItem = useRef<Product | null>(null);
   useEffect(() => {
     const query = productQuery.trim();
     if (!query) {
@@ -2546,6 +2551,11 @@ export function NewInvoicePage() {
                 if (reason === 'input' || reason === 'clear') setProductQuery(v);
               }}
               onChange={(_, v) => addProduct(v)}
+              // Set inside the arrow-key handler itself, so an Enter that follows at once
+              // already knows a row is chosen. The DOM attribute can lag behind it.
+              onHighlightChange={(_, option) => {
+                highlightedItem.current = option;
+              }}
               disabled={isCompletedEdit}
               getOptionLabel={(o) =>
                 `${formatProductOptionLabel(o, availableByProduct.get(Number(o.id)))}${
@@ -2565,7 +2575,7 @@ export function NewInvoicePage() {
                   onKeyDown={(e) => {
                     if (e.key !== 'Enter') return;
                     // Enter on a highlighted search row picks that item. A bare Enter is a barcode scan.
-                    if ((e.target as HTMLInputElement).getAttribute('aria-activedescendant')) return;
+                    if (highlightedItem.current || (e.target as HTMLInputElement).getAttribute('aria-activedescendant')) return;
                     e.preventDefault();
                     e.stopPropagation();
                     const code = productQuery.trim();

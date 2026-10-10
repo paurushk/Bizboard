@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
 import TableBody from '@mui/material/TableBody';
@@ -14,6 +17,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
 import type { Quotation } from '@/types/domain';
+import { todayIso } from '@/components/billing';
 import { toNumber } from '@/utils/money';
 import {
   buildConvertItemsPayload,
@@ -29,7 +33,7 @@ type Props = {
   pending?: boolean;
   error?: string | null;
   onClose: () => void;
-  onConfirm: (items: ConvertLinePayload[]) => void;
+  onConfirm: (items: ConvertLinePayload[], confirmExpired?: boolean) => void;
 };
 
 export function ConvertQuotationDialog({
@@ -41,6 +45,9 @@ export function ConvertQuotationDialog({
   onConfirm,
 }: Props) {
   const [qtyById, setQtyById] = useState<Record<number, number>>({});
+  const [confirmExpired, setConfirmExpired] = useState(false);
+
+  const isExpired = Boolean(quotation?.validUntil && quotation.validUntil < todayIso());
 
   // Computed once per quotation change instead of re-deriving
   // remainingQuotationQty(line) at every call site (initial qty, canSubmit,
@@ -59,25 +66,32 @@ export function ConvertQuotationDialog({
   if (seenRemaining !== remainingById) {
     setSeenRemaining(remainingById);
     setQtyById(remainingById);
+    setConfirmExpired(false);
   }
 
   const open = Boolean(quotation && mode);
   const title =
     mode === 'order' ? t('common.confirmToOrder') : t('common.confirmConvert');
 
-  const canSubmit = (quotation?.items ?? []).some((line) => {
-    if (line.id == null) return false;
-    const remaining = remainingById[line.id] ?? 0;
-    const qty = qtyById[line.id] ?? remaining;
-    return qty > 0;
-  });
+  const canSubmit =
+    (!isExpired || confirmExpired) &&
+    (quotation?.items ?? []).some((line) => {
+      if (line.id == null) return false;
+      const remaining = remainingById[line.id] ?? 0;
+      const qty = qtyById[line.id] ?? remaining;
+      return qty > 0;
+    });
 
   const submit = () => {
     if (!quotation) return;
     try {
       const items = buildConvertItemsPayload(quotation.items ?? [], qtyById);
       if (items.length === 0) return;
-      onConfirm(items);
+      if (isExpired && confirmExpired) {
+        onConfirm(items, true);
+      } else {
+        onConfirm(items);
+      }
     } catch (err) {
       // Parent already shows convert errors; keep dialog open on over-qty.
       void err;
@@ -92,6 +106,20 @@ export function ConvertQuotationDialog({
           <Typography variant="body2" color="text.secondary">
             {t('common.convertPartialHint')}
           </Typography>
+          {isExpired ? (
+            <Alert severity="warning">
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    size="small"
+                    checked={confirmExpired}
+                    onChange={(e) => setConfirmExpired(e.target.checked)}
+                  />
+                }
+                label={`Quotation validity expired on ${quotation?.validUntil}. Confirm conversion at quoted prices.`}
+              />
+            </Alert>
+          ) : null}
           {error ? (
             <Typography color="error" variant="body2">
               {error}

@@ -1620,6 +1620,19 @@ class SalesService:
 
         assert_no_live_irn(invoice, kind="invoice")
         assert_no_live_eway(invoice, kind="invoice")
+        # Money that arrived through a payment link is not an allocation yet when it is held
+        # for the books. Cancelling now would strand it against a dead bill.
+        from payments.models import GatewayPayment, GatewayPaymentStatus
+
+        if GatewayPayment.objects.filter(
+            company=invoice.company,
+            payment_link__sales_invoice=invoice,
+            status__in=(GatewayPaymentStatus.CAPTURED, GatewayPaymentStatus.CAPTURED_PENDING_BOOKS),
+        ).exists():
+            raise BusinessRuleError(
+                "An online payment was received against this invoice. Book or refund it before cancelling.",
+                code="gateway_payment_received",
+            )
 
         if invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             if invoice.company.accounting_enabled:
@@ -1733,6 +1746,7 @@ class SalesService:
                     linked.save(update_fields=["stock_posted", "converted_invoice", "updated_at"])
         invoice.status = SalesInvoice.Status.CANCELLED
         invoice.cancelled_at = timezone.now()
+        invoice.cancel_reason = (reason or "").strip()[:500]
         invoice.updated_by = user
         invoice.save()
         from projects.services import sync_project_milestone

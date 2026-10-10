@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
@@ -12,6 +13,8 @@ export type HistoryFilters = {
   dateFrom: string;
   dateTo: string;
   paymentStatus?: string;
+  /** Only bills past their due date with money still due. */
+  overdue?: boolean;
 };
 
 export const EMPTY_HISTORY_FILTERS: HistoryFilters = {
@@ -103,12 +106,28 @@ export function dateRangeForPreset(id: DateRangePresetId, now = new Date()): { d
   return { dateFrom: isoDate(from), dateTo: to };
 }
 
+export function activeDatePreset(
+  dateFrom: string,
+  dateTo: string,
+  now = new Date(),
+): DateRangePresetId | '' {
+  if (!dateFrom && !dateTo) return '';
+  for (const id of DATE_RANGE_PRESET_IDS) {
+    if (id === 'custom') continue;
+    const range = dateRangeForPreset(id, now);
+    if (range.dateFrom === dateFrom && range.dateTo === dateTo) return id;
+  }
+  return 'custom';
+}
+
 type Props = {
   value: HistoryFilters;
   onChange: (next: HistoryFilters) => void;
   statusOptions?: HistoryStatusOption[];
   showDateRange?: boolean;
   dateRangePresets?: boolean;
+  dateControl?: 'chips' | 'preset';
+  searchLabel?: string;
   searchPlaceholder?: string;
   bulkSelectedCount?: number;
   bulkActions?: ReactNode;
@@ -122,6 +141,8 @@ export function HistoryFilterBar({
   statusOptions = [],
   showDateRange = true,
   dateRangePresets = false,
+  dateControl = 'chips',
+  searchLabel,
   searchPlaceholder,
   bulkSelectedCount = 0,
   bulkActions,
@@ -129,10 +150,19 @@ export function HistoryFilterBar({
   party,
 }: Props) {
   const set = (patch: Partial<HistoryFilters>) => onChange({ ...value, ...patch });
+  const [forceCustom, setForceCustom] = useState(false);
+  const derivedPreset = activeDatePreset(value.dateFrom, value.dateTo);
+  const presetValue = derivedPreset || (forceCustom ? 'custom' : '');
+  const showDateFields = dateControl === 'chips' || derivedPreset === 'custom' || forceCustom;
 
-  const applyPreset = (id: DateRangePresetId) => {
-    const range = dateRangeForPreset(id);
-    set(range);
+  const applyPreset = (id: DateRangePresetId | '') => {
+    if (id === '') {
+      setForceCustom(false);
+      set({ dateFrom: '', dateTo: '' });
+      return;
+    }
+    setForceCustom(id === 'custom');
+    set(dateRangeForPreset(id));
   };
 
   return (
@@ -158,7 +188,7 @@ export function HistoryFilterBar({
           ))}
         </Stack>
       ) : null}
-      {dateRangePresets && showDateRange ? (
+      {dateRangePresets && showDateRange && dateControl === 'chips' ? (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           {DATE_RANGE_PRESET_IDS.map((id) => (
             <Chip
@@ -171,16 +201,35 @@ export function HistoryFilterBar({
           ))}
         </Stack>
       ) : null}
+      {dateRangePresets && showDateRange && dateControl === 'preset' ? (
+        <TextField
+          select
+          size="small"
+          label={t('history.dateRange')}
+          value={presetValue}
+          onChange={(event) => applyPreset(event.target.value as DateRangePresetId | '')}
+          sx={{ maxWidth: 280 }}
+        >
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {DATE_RANGE_PRESET_IDS.map((id) => (
+            <MenuItem key={id} value={id}>
+              {t(`history.preset.${id}`)}
+            </MenuItem>
+          ))}
+        </TextField>
+      ) : null}
       {party}
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
         <TextField
           size="small"
+          label={searchLabel}
           placeholder={searchPlaceholder ?? t('common.search')}
           value={value.q}
           onChange={(e) => set({ q: e.target.value })}
           sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
+          inputProps={searchLabel ? { 'aria-label': searchLabel } : undefined}
         />
-        {showDateRange ? (
+        {showDateRange && showDateFields ? (
           <>
             <TextField
               size="small"

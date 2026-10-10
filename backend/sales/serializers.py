@@ -105,6 +105,8 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
     whatsapp_offer = serializers.SerializerMethodField()
     payment_state = serializers.SerializerMethodField()
     return_state = serializers.SerializerMethodField()
+    settlement_state = serializers.SerializerMethodField()
+    cancel_approval_pending = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
@@ -129,21 +131,23 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             "ecommerce_operator_gstin",
             "tcs_section", "tcs_rate", "tcs_amount", "tcs_amount_manual",
             "received", "balance", "is_opening_balance",
-            "completed_at", "cancelled_at", "amend_revision",
+            "completed_at", "cancelled_at", "cancel_reason", "amend_revision",
             "created_at", "updated_at",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
+            "settlement_state", "cancel_approval_pending",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
-            "completed_at", "cancelled_at", "amend_revision", "is_opening_balance",
+            "completed_at", "cancelled_at", "cancel_reason", "amend_revision", "is_opening_balance",
             "pos_assumed_local",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
+            "settlement_state", "cancel_approval_pending",
             "tcs_amount_manual",
         ] + TOTAL_READONLY + RCM_READONLY
 
@@ -163,12 +167,13 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
             return receivable
         # CR-016: list uses CN/DN-aware outstanding (bulk-attached on the view),
         # not grand_total − allocations only.
-        list_outstanding = getattr(obj, "_list_outstanding", None)
-        if list_outstanding is not None and self.context.get("view") and getattr(
-            self.context["view"], "action", None
-        ) == "list":
-            return Decimal(str(list_outstanding))
+        if self._is_list_row(obj):
+            return Decimal(str(obj._list_outstanding))
         return self._document_outstanding(obj)
+
+    def _is_list_row(self, obj):
+        view = self.context.get("view")
+        return getattr(obj, "_list_outstanding", None) is not None and getattr(view, "action", None) == "list"
 
     def _document_outstanding(self, obj):
         """sales_invoice_outstanding(obj), computed once per to_representation() call.
@@ -210,6 +215,13 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
 
         if obj.status == SalesInvoice.Status.DRAFT:
             return "UNPAID"
+        if self._is_list_row(obj):
+            return invoice_payment_state(
+                obj,
+                outstanding=obj._list_outstanding,
+                holding=getattr(obj, "_gateway_holding", None),
+                captured=getattr(obj, "_gateway_captured", None),
+            )
         return invoice_payment_state(obj, outstanding=self._document_outstanding(obj))
 
     def get_return_state(self, obj):
@@ -230,6 +242,32 @@ class SalesInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
                 sales_invoice=obj, status=SalesReturn.Status.COMPLETED
             ).exists()
         return "PARTIAL" if has_return else "NONE"
+
+    def get_settlement_state(self, obj):
+        from sales.settlement import live_settlement_parts, settlement_bucket
+
+        if obj.status not in ("COMPLETED", "RETURNED"):
+            return "NONE"
+        # Outside the list the instance may be unannotated, or annotated before an action
+        # changed its receipts, so read the parts fresh to match the fresh balance.
+        if self._is_list_row(obj) and hasattr(obj, "_live_alloc"):
+            alloc, notes, discount = obj._live_alloc, obj._cn, obj._settle
+        else:
+            alloc, notes, discount = live_settlement_parts(obj)
+        return settlement_bucket(obj.status, obj.grand_total, self.get_balance(obj), alloc, notes, discount)
+
+    def get_cancel_approval_pending(self, obj):
+        flagged = getattr(obj, "_cancel_approval_pending", None)
+        if flagged is not None and self._is_list_row(obj):
+            return bool(flagged)
+        from planwave.models import ApprovalRequest
+
+        return ApprovalRequest.objects.filter(
+            company_id=obj.company_id,
+            action="invoice_cancel",
+            status=ApprovalRequest.Status.PENDING,
+            payload__invoice=obj.pk,
+        ).exists()
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -580,7 +618,27 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
         items_data = validated_data.pop("items", None)
         instance = super().update(instance, validated_data)
         if items_data is not None:
-            SalesService.set_quotation_items(instance, [dict(l) for l in items_data], self.context["request"].user)
+            has_converted = instance.items.filter(converted_quantity__gt=0).exists()
+            if has_converted:
+                # Allow header updates by skipping line reset if items were not modified
+                existing_items = list(instance.items.order_by("id").values("product_id", "quantity"))
+                new_items = [
+                    {
+                        "product_id": getattr(d["product"], "id", d["product"]),
+                        "quantity": d["quantity"],
+                    }
+                    for d in items_data
+                ]
+                lines_changed = len(existing_items) != len(new_items) or any(
+                    e["product_id"] != n["product_id"] or str(e["quantity"]) != str(n["quantity"])
+                    for e, n in zip(existing_items, new_items)
+                )
+                if lines_changed:
+                    raise BusinessRuleError(
+                        "Cannot edit lines on a quotation that already has converted quantity."
+                    )
+            else:
+                SalesService.set_quotation_items(instance, [dict(l) for l in items_data], self.context["request"].user)
         return instance
 
 

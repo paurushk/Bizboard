@@ -56,4 +56,33 @@ describe('ConvertQuotationDialog — CFT-115', () => {
     await user.click(screen.getByRole('button', { name: 'Convert to invoice' }));
     expect(onConfirm).toHaveBeenCalledWith([{ id: 1, quantity: 2 }]);
   });
+
+  it('requires confirmation checkbox when quotation validity has expired', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    const expiredQuotation = {
+      ...quotation,
+      validUntil: '2020-01-01',
+    };
+    render(
+      <ConvertQuotationDialog
+        quotation={expiredQuotation}
+        mode="order"
+        onClose={() => undefined}
+        onConfirm={onConfirm}
+      />,
+    );
+    const submitBtn = screen.getByRole('button', { name: 'To Order' });
+    expect(submitBtn).toBeDisabled();
+
+    const checkbox = screen.getByRole('checkbox');
+    expect(checkbox).not.toBeChecked();
+
+    await user.click(checkbox);
+    expect(checkbox).toBeChecked();
+    expect(submitBtn).not.toBeDisabled();
+
+    await user.click(submitBtn);
+    expect(onConfirm).toHaveBeenCalledWith([{ id: 1, quantity: 6 }], true);
+  });
 });

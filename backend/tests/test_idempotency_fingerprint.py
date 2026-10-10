@@ -89,6 +89,23 @@ def test_empty_body_is_a_valid_fingerprint():
     assert request_fingerprint(_req(data={})) != ""
 
 
+def test_ignored_keys_drop_only_the_named_top_level_confirm_flags():
+    """Complete's confirm flags are the same gesture as the first attempt, so a retry that adds
+    one must reuse the key. Everything else in the body still changes the fingerprint."""
+    def fp(data):
+        request = _req(path="/api/v1/sales/invoices/9/complete/", data=data)
+        request._idempotency_ignore_keys = frozenset({"confirm_blank_pos", "confirmBlankPos"})
+        return request_fingerprint(request)
+
+    base = fp({"note": "a"})
+    assert base == fp({"note": "a", "confirm_blank_pos": True})
+    assert base == fp({"note": "a", "confirmBlankPos": "true"})
+    assert base != fp({"note": "b", "confirm_blank_pos": True})
+    assert fp({"x": {"confirm_blank_pos": True}}) != fp({"x": {}}), "nested keys are request data"
+    plain = _req(path="/api/v1/sales/invoices/9/complete/", data={"note": "a", "confirm_blank_pos": True})
+    assert request_fingerprint(plain) != base, "without the opt-in nothing is ignored"
+
+
 # --- begin_record -------------------------------------------------------------------
 
 def test_first_claim_stores_the_fingerprint(tenant_a):
@@ -181,6 +198,35 @@ def test_wrap_idempotent_refuses_a_reused_key_without_running_the_work(tenant_a)
     replay = wrap_idempotent(request=req("1"), company=tenant_a.company, scope="sales_invoice_complete", build=build)
     assert replay.status_code == 201 and replay.data == first.data
     assert len(calls) == 1, "the guarded work must have run exactly once"
+
+
+def test_a_confirm_prompt_releases_the_key_so_the_confirmed_retry_runs(tenant_a):
+    """The missing-licence prompt is a 400 the user answers. Storing it would replay the refusal
+    to the confirmed retry, because the confirm flag is left out of the fingerprint."""
+    from core.exceptions import BusinessRuleError
+    from core.help_codes import HelpCode
+
+    calls = []
+
+    def build():
+        calls.append(1)
+        if len(calls) == 1:
+            raise BusinessRuleError("Confirm the missing licence.", code=HelpCode.CONFIRM_MISSING_LICENCE)
+        return Response({"id": 7}, status=200)
+
+    def req(data):
+        r = _req(path="/api/v1/sales/invoices/7/complete/", data=data)
+        r.META["HTTP_IDEMPOTENCY_KEY"] = "licence-1"
+        r._idempotency_ignore_keys = frozenset({"confirm_missing_licence"})
+        return r
+
+    with pytest.raises(BusinessRuleError):
+        wrap_idempotent(request=req({}), company=tenant_a.company, scope="sales_invoice_complete", build=build)
+    second = wrap_idempotent(
+        request=req({"confirm_missing_licence": True}), company=tenant_a.company,
+        scope="sales_invoice_complete", build=build,
+    )
+    assert second.status_code == 200 and len(calls) == 2
 
 
 # --- error shape -----------------------------------------------------------------------

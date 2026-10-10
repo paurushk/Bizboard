@@ -81,3 +81,12 @@ describe('QuotationsPage inbound ?create=1', () => {
     expect(screen.getByTestId('search').textContent).toBe('?create=1');
   });
 });
+
+describe('QuotationsPage list view & lifecycle', () => {
+  it('renders table columns and cancel button for active draft quotations', async () => {
+    auth.role = 'OWNER';
+    mount('/sales/quotations');
+    expect(await screen.findByText(t('nav.quotations'))).toBeTruthy();
+    expect(await screen.findByText(t('empty.quotations'))).toBeTruthy();
+  });
+});

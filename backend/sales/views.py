@@ -1,6 +1,11 @@
+import re
+
 from django.db.models import DecimalField, Exists, F, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import serializers as drf_serializers
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -45,6 +50,7 @@ from .serializers import (
     SalesReturnSerializer,
 )
 from .services import SalesService, _tax_enabled
+from .settlement import annotate_live_settlement as _annotate_live_settlement
 from .tasks import generate_invoice_pdf
 
 
@@ -65,105 +71,76 @@ def _convert_line_quantities(request):
 _INVOICE_IDEMPOTENCY_TTL = 60 * 60 * 24  # 24h
 
 
-def _annotate_live_settlement(qs):
-    """Live paid/partial/unpaid: reversed receipts do not count, credit notes do."""
-    from django.db.models import Case, ExpressionWrapper, When
-
-    from payments.models import PaymentAllocation
-    from sales.models import SalesCreditNote, SalesDebitNote
-
-    money = DecimalField(max_digits=14, decimal_places=2)
-
-    def _sum(filtered, field):
-        return Coalesce(
-            Subquery(
-                filtered.values("sales_invoice_id").annotate(s=Sum(field)).values("s")[:1],
-                output_field=money,
-            ),
-            Value(0, output_field=money),
-        )
-
-    cn = _sum(
-        SalesCreditNote.objects.filter(
-            sales_invoice_id=OuterRef("pk"),
-            status=SalesCreditNote.Status.COMPLETED,
-        ),
-        "grand_total",
-    )
-    dn = _sum(
-        SalesDebitNote.objects.filter(
-            sales_invoice_id=OuterRef("pk"),
-            status=SalesDebitNote.Status.COMPLETED,
-        ),
-        "grand_total",
-    )
-    alloc = _sum(
-        PaymentAllocation.objects.filter(
-            sales_invoice_id=OuterRef("pk"),
-            reversed_at__isnull=True,
-            receipt__isnull=False,
-            receipt__status="POSTED",
-        ),
-        "amount",
-    )
-    # Settlement (early-payment) discount counts as settled, as the ledger counts it: each
-    # allocation carries its share of its receipt's discount, by share of the receipt's allocations.
-    receipt_alloc_total = Subquery(
-        PaymentAllocation.objects.filter(
-            receipt_id=OuterRef("receipt_id"),
-            receipt__isnull=False,
-            supplier_payment__isnull=True,
-            reversed_at__isnull=True,
-        ).values("receipt_id").annotate(t=Sum("amount")).values("t")[:1],
-        output_field=money,
-    )
-    discount_share = Coalesce(
-        Subquery(
-            PaymentAllocation.objects.filter(
-                sales_invoice_id=OuterRef("pk"),
-                reversed_at__isnull=True,
-                receipt__isnull=False,
-                supplier_payment__isnull=True,
-            ).values("sales_invoice_id").annotate(
-                d=Sum(
-                    ExpressionWrapper(
-                        F("receipt__settlement_discount") * F("amount") / receipt_alloc_total,
-                        output_field=money,
-                    )
-                )
-            ).values("d")[:1],
-            output_field=money,
-        ),
-        Value(0, output_field=money),
-    )
-    tcs_extra = Case(
-        When(tcs_in_grand_total=False, then=F("tcs_amount")),
-        default=Value(0),
-        output_field=money,
-    )
-    return qs.annotate(_cn=cn, _dn=dn, _live_alloc=alloc, _settle=discount_share).annotate(
-        _balance=ExpressionWrapper(
-            F("grand_total") + tcs_extra - F("_cn") + F("_dn") - F("_live_alloc") - F("_settle"),
-            output_field=money,
-        )
-    )
-
-
 def _apply_payment_status(qs, payment_status):
+    """payment_status is one bucket name or a list of them (a bill matches any of the buckets)."""
     # A draft or cancelled invoice has no receivable: it is neither paid nor unpaid.
-    qs = _annotate_live_settlement(qs).filter(
-        status__in=OPEN_RECEIVABLE_STATUSES
-    )
-    if payment_status == "PAID":
-        return qs.filter(_balance__lte=0, grand_total__gt=0)
-    if payment_status == "UNPAID":
-        return qs.filter(_balance__gt=0, _live_alloc=0, _cn=0)
-    return qs.filter(_balance__gt=0).filter(Q(_live_alloc__gt=0) | Q(_cn__gt=0))
+    if "_balance" not in getattr(qs.query, "annotations", {}):
+        qs = _annotate_live_settlement(qs)
+    qs = qs.filter(status__in=OPEN_RECEIVABLE_STATUSES)
+    wanted = [payment_status] if isinstance(payment_status, str) else list(payment_status)
+    any_settled = Q(_live_alloc__gt=0) | Q(_cn__gt=0) | Q(_settle__gt=0)
+    match = Q(pk__in=[])
+    if "PAID" in wanted:
+        match |= Q(_balance__lte=0, grand_total__gt=0)
+    if "UNPAID" in wanted:
+        match |= Q(_balance__gt=0, _live_alloc=0, _cn=0, _settle=0)
+    if "PARTIAL" in wanted:
+        match |= Q(_balance__gt=0) & any_settled
+    return qs.filter(match)
+
+
+class _StatsBucketSerializer(drf_serializers.Serializer):
+    count = drf_serializers.IntegerField()
+    amount = drf_serializers.DecimalField(max_digits=14, decimal_places=2)
+
+
+class InvoicePaymentStatsSerializer(drf_serializers.Serializer):
+    """paid.amount is the billed grand total. partial.amount and unpaid.amount are outstanding."""
+
+    paid = _StatsBucketSerializer()
+    partial = _StatsBucketSerializer()
+    unpaid = _StatsBucketSerializer()
+
+
+class _ZipIncludedSerializer(drf_serializers.Serializer):
+    id = drf_serializers.IntegerField()
+    number = drf_serializers.CharField()
+
+
+class _ZipSkippedSerializer(drf_serializers.Serializer):
+    id = drf_serializers.IntegerField()
+    number = drf_serializers.CharField(required=False)
+    reason = drf_serializers.ChoiceField(choices=["not_completed", "unavailable"])
+
+
+class InvoiceBulkPdfZipRequestSerializer(drf_serializers.Serializer):
+    ids = drf_serializers.ListField(child=drf_serializers.IntegerField())
+
+
+class InvoiceBulkPdfZipSerializer(drf_serializers.Serializer):
+    url = drf_serializers.CharField()
+    file_id = drf_serializers.IntegerField()
+    included = _ZipIncludedSerializer(many=True)
+    skipped = _ZipSkippedSerializer(many=True)
 
 
 class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="sort",
+                required=False,
+                type=str,
+                enum=["date_desc", "date_asc", "total_desc", "total_asc", "due_desc", "due_asc"],
+                description="Register order. due_desc and due_asc place drafts and cancelled bills last.",
+            ),
+        ]
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def get_throttles(self):
         throttles = super().get_throttles()
@@ -226,6 +203,8 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
         if action == "profit_details":
             return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+        if action == "bulk_pdf_zip_download":
+            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
         if action in (
             "create", "complete", "update", "partial_update", "destroy", "share",
             "bulk_pdf_zip", "repeat_last", "public_link", "revoke_public_link",
@@ -233,7 +212,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in (
             "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
-            "preview_totals", "preview_pdf", "payment_stats", "hsn_summary",
+            "preview_totals", "preview_pdf", "payment_stats", "hsn_summary", "export_csv",
         ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
@@ -280,6 +259,23 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 )
             )
         )
+        if getattr(self, "action", None) == "list":
+            from payments.models import GatewayPayment, GatewayPaymentStatus
+
+            qs = qs.annotate(
+                _gateway_holding=Exists(
+                    GatewayPayment.objects.filter(
+                        payment_link__sales_invoice_id=OuterRef("pk"),
+                        status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS,
+                    )
+                ),
+                _gateway_captured=Exists(
+                    GatewayPayment.objects.filter(
+                        payment_link__sales_invoice_id=OuterRef("pk"),
+                        status=GatewayPaymentStatus.CAPTURED,
+                    )
+                ),
+            )
         # B2-020: validate before feeding query params to the ORM so bad input
         # is a 400, not a 500 (FieldError / ValidationError / ValueError).
         from datetime import date as _date
@@ -306,18 +302,77 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
                 except ValueError:
                     raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
-        if params.get("q"):
-            term = params["q"]
+        term = (params.get("q") or "").strip()[:100]
+        if term:
             qs = qs.filter(
                 Q(number__icontains=term)
                 | Q(customer__name__icontains=term)
                 | Q(customer__phone__icontains=term)
             )
-        payment_status = (params.get("payment_status") or "").upper()
-        if payment_status in ("PAID", "PARTIAL", "UNPAID"):
-            # Live outstanding: reversed receipts do not pay, credit notes do.
-            qs = _apply_payment_status(qs, payment_status)
-        return qs
+        if getattr(self, "action", None) not in ("list", "payment_stats", "export_csv"):
+            return qs
+        if "_balance" not in getattr(qs.query, "annotations", {}):
+            qs = _annotate_live_settlement(qs)
+        if self.action == "payment_stats":
+            return qs
+        from django.db.models import CharField
+        from django.db.models.fields.json import KT
+        from django.db.models.functions import Cast
+
+        from planwave.models import ApprovalRequest
+
+        # Postgres has no jsonb = bigint operator, so compare the payload id as text.
+        qs = qs.annotate(
+            _cancel_approval_pending=Exists(
+                ApprovalRequest.objects.annotate(_invoice_ref=KT("payload__invoice")).filter(
+                    company_id=OuterRef("company_id"),
+                    action="invoice_cancel",
+                    status=ApprovalRequest.Status.PENDING,
+                    _invoice_ref=Cast(OuterRef("pk"), output_field=CharField()),
+                )
+            )
+        )
+        # One bucket, or several joined by commas (UNPAID,PARTIAL is every bill with money due).
+        buckets = [
+            part for part in (p.strip().upper() for p in (params.get("payment_status") or "").split(","))
+            if part in ("PAID", "PARTIAL", "UNPAID")
+        ]
+        if buckets:
+            qs = _apply_payment_status(qs, buckets)
+        if (params.get("overdue") or "").lower() in ("1", "true", "yes"):
+            from django.utils import timezone
+
+            qs = qs.filter(
+                status=SalesInvoice.Status.COMPLETED, due_date__lt=timezone.localdate(), _balance__gt=0,
+            )
+        return self._order_invoice_list(qs, params.get("sort"))
+
+    def _order_invoice_list(self, qs, raw_sort):
+        sort = (raw_sort or "date_desc").strip() or "date_desc"
+        allowed = {
+            "date_desc": ("-invoice_date", "-id"),
+            "date_asc": ("invoice_date", "id"),
+            "total_desc": ("-grand_total", "-id"),
+            "total_asc": ("grand_total", "id"),
+        }
+        if sort in ("due_desc", "due_asc"):
+            from django.db.models import Case, When
+
+            money = DecimalField(max_digits=14, decimal_places=2, null=True)
+            qs = qs.annotate(
+                _due_sort=Case(
+                    When(status__in=(
+                        SalesInvoice.Status.DRAFT, SalesInvoice.Status.CANCELLED,
+                    ), then=Value(None)),
+                    default=F("_balance"),
+                    output_field=money,
+                )
+            )
+            direction = F("_due_sort").desc(nulls_last=True) if sort == "due_desc" else F("_due_sort").asc(nulls_last=True)
+            return qs.order_by(direction, "id")
+        if sort not in allowed:
+            raise BusinessRuleError("Unknown sort.")
+        return qs.order_by(*allowed[sort])
 
     def get_serializer(self, *args, **kwargs):
         # CR-016: attach CN/DN-aware outstanding for list rows in one bulk query.
@@ -335,7 +390,13 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                 ids = [r.pk for r in rows if getattr(r, "pk", None)]
                 outstanding = LedgerService.bulk_sales_invoice_outstanding(self.company, ids)
                 for row in rows:
-                    row._list_outstanding = outstanding.get(row.pk, Decimal("0"))
+                    # Prefer the annotation the payment filter and due sort use,
+                    # floored the same way as the ledger helper, so the Due column
+                    # cannot disagree with those queries.
+                    if getattr(row, "_balance", None) is not None and row.status in OPEN_RECEIVABLE_STATUSES:
+                        row._list_outstanding = Decimal(str(row._balance))
+                    else:
+                        row._list_outstanding = outstanding.get(row.pk, Decimal("0"))
                 args = (rows,) + args[1:]
                 kwargs["many"] = True
         return super().get_serializer(*args, **kwargs)
@@ -820,6 +881,17 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         raw_items = [r for r in (request.data.get("items") or []) if isinstance(r, dict)]
         if len(raw_items) > 300:
             raise BusinessRuleError("A preview can show at most 300 lines.")
+        # Check the numbers before the tax engine sees them; it would crash on text.
+        for raw in raw_items:
+            for field in ("quantity", "unit_price", "unit_price_inclusive", "mrp", "discount_percent", "gst_rate"):
+                value = raw.get(field)
+                if value in (None, ""):
+                    continue
+                try:
+                    if not Decimal(str(value)).is_finite():
+                        raise ValueError
+                except Exception:  # noqa: BLE001
+                    raise BusinessRuleError("A quantity or price is not a number.") from None
         bundle = self._preview_bundle(request)
         preview = bundle["preview"]
         products_by_id = bundle["products_by_id"]
@@ -1014,6 +1086,15 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             data["gst_guard_warnings"] = getattr(invoice, "_gst_guard_warnings", [])
             return Response(data)
 
+        # Confirm flags are the same user intent as the first attempt. A timeout
+        # retry must reuse the key; a new key would post a second number.
+        request._idempotency_ignore_keys = frozenset({
+            "confirm_sales_rcm", "confirmSalesRcm",
+            "confirm_blank_pos", "confirmBlankPos",
+            "confirm_gstin_total_change", "confirmGstinTotalChange",
+            "confirm_missing_licence", "confirmMissingLicence",
+            "confirm_no_rcm", "confirmNoRcm",
+        })
         return wrap_idempotent(
             request=request,
             company=self.company,
@@ -1060,8 +1141,18 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                     submit_approval,
                 )
 
+                approval_id = request.data.get("approval_id")
+                if not approval_id:
+                    # Asking again after the approver said yes spends that approval.
+                    from django.utils import timezone
+
+                    approval_id = ApprovalRequest.objects.filter(
+                        company=current.company, action="invoice_cancel", requester=request.user,
+                        status=ApprovalRequest.Status.APPROVED, token_used_at__isnull=True,
+                        expires_at__gt=timezone.now(), payload__invoice=current.pk,
+                    ).order_by("-pk").values_list("pk", flat=True).first()
                 approval = consume_action_approval(
-                    current.company, request.data.get("approval_id"), request.user, "invoice_cancel",
+                    current.company, approval_id, request.user, "invoice_cancel",
                     invoice=current.pk,
                 )
                 if approval is None and owner_is_sole_approver(current.company, request.user):
@@ -1099,27 +1190,70 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         invoice.refresh_from_db()
         return Response({"pdf_status": invoice.pdf_status, "pdf_file": invoice.pdf_file_id})
 
+    @extend_schema(responses=InvoicePaymentStatsSerializer)
     @action(detail=False, methods=["get"], url_path="payment-stats")
     def payment_stats(self, request):
         from django.db.models import Count, Sum
 
+        # get_queryset leaves out the payment filter here: the chips count every bucket.
         qs = self.filter_queryset(self.get_queryset())
-        if "_balance" not in getattr(qs.query, "annotations", {}):
-            qs = _annotate_live_settlement(qs)
         qs = qs.filter(status__in=OPEN_RECEIVABLE_STATUSES)
         paid = qs.filter(_balance__lte=0, grand_total__gt=0)
-        unpaid = qs.filter(_balance__gt=0, _live_alloc=0, _cn=0)
-        partial = qs.filter(_balance__gt=0).filter(Q(_live_alloc__gt=0) | Q(_cn__gt=0))
+        unpaid = qs.filter(_balance__gt=0, _live_alloc=0, _cn=0, _settle=0)
+        partial = qs.filter(_balance__gt=0).filter(
+            Q(_live_alloc__gt=0) | Q(_cn__gt=0) | Q(_settle__gt=0)
+        )
 
-        def _agg(s):
-            data = s.aggregate(count=Count("id"), amount=Sum("grand_total"))
+        def _agg(rows, amount_field):
+            data = rows.aggregate(count=Count("id"), amount=Sum(amount_field))
             return {"count": data["count"] or 0, "amount": data["amount"] or 0}
 
         return Response({
-            "paid": _agg(paid),
-            "partial": _agg(partial),
-            "unpaid": _agg(unpaid),
+            "paid": _agg(paid, "grand_total"),
+            "partial": _agg(partial, "_balance"),
+            "unpaid": _agg(unpaid, "_balance"),
         })
+
+    @extend_schema(responses={(200, "text/csv"): OpenApiTypes.BINARY})
+    @action(detail=False, methods=["get"], url_path="export-csv")
+    def export_csv(self, request):
+        """The register as a spreadsheet, with the same filters and sort as the list."""
+        import csv
+
+        from django.http import HttpResponse
+
+        limit = 5000
+        qs = self.filter_queryset(self.get_queryset()).select_related("customer")
+        rows = list(qs[: limit + 1])
+        truncated = len(rows) > limit
+        rows = rows[:limit]
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="sales-register.csv"'
+        if truncated:
+            response["X-Export-Truncated"] = "1"
+        response.write("﻿")
+        writer = csv.writer(response)
+        writer.writerow(["Date", "Number", "Customer", "Phone", "Status", "Total", "Due", "Due date", "Cancel reason"])
+
+        def _safe(value):
+            # A leading = + - @ would run as a formula when the file is opened in a spreadsheet.
+            text = "" if value is None else str(value)
+            return "'" + text if text[:1] in ("=", "+", "-", "@") else text
+
+        for inv in rows:
+            open_bill = inv.status in OPEN_RECEIVABLE_STATUSES
+            writer.writerow([
+                inv.invoice_date,
+                _safe(inv.number or f"Draft #{inv.pk}"),
+                _safe(inv.customer.name if inv.customer_id else ""),
+                _safe(inv.customer.phone if inv.customer_id else ""),
+                inv.status,
+                inv.grand_total,
+                getattr(inv, "_balance", 0) if open_bill else "",
+                inv.due_date or "",
+                _safe(inv.cancel_reason),
+            ])
+        return response
 
     @action(detail=True, methods=["get"], url_path="hsn-summary")
     def hsn_summary(self, request, pk=None):
@@ -1220,6 +1354,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         )
         return Response(self.get_serializer(invoice).data)
 
+    @extend_schema(request=InvoiceBulkPdfZipRequestSerializer, responses=InvoiceBulkPdfZipSerializer)
     @action(detail=False, methods=["post"], url_path="bulk-pdf-zip")
     def bulk_pdf_zip(self, request):
         import io
@@ -1232,25 +1367,45 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
 
         ids = request.data.get("ids") or request.data.get("invoice_ids") or []
         try:
-            ids = [int(x) for x in ids]
+            ids = list(dict.fromkeys(int(x) for x in ids))
         except (TypeError, ValueError) as exc:
             raise BusinessRuleError("ids must be a list of invoice ids.") from exc
         if not ids:
             raise BusinessRuleError("Select at least one invoice.")
         if len(ids) > 100:
             raise BusinessRuleError("Bulk download is capped at 100 invoices for the sync path.")
-        invoices = list(
-            SalesInvoice.objects.filter(company=self.company, pk__in=ids).select_related("customer", "company")
-        )
-        if len(invoices) != len(set(ids)):
-            raise BusinessRuleError("One or more invoices were not found in this company.")
+        found = {
+            inv.pk: inv
+            for inv in SalesInvoice.objects.filter(company=self.company, pk__in=ids).select_related("customer", "company")
+        }
+        included = []
+        skipped = []
+        ready = []
+        for pk in ids:
+            inv = found.get(pk)
+            if inv is None:
+                # Missing and another company's id look the same. Do not attach a number.
+                skipped.append({"id": pk, "reason": "unavailable"})
+                continue
+            if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
+                skipped.append({"id": inv.pk, "number": inv.number or f"Draft #{inv.pk}", "reason": "not_completed"})
+                continue
+            included.append({"id": inv.pk, "number": inv.number or str(inv.pk)})
+            ready.append(inv)
+        if not ready:
+            raise BusinessRuleError("None of the selected bills have a PDF.")
         buf = io.BytesIO()
+        used_names = set()
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-            for inv in invoices:
-                if inv.status not in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
-                    continue
+            for inv in ready:
                 content = render_gst_tax_invoice(inv, copy="ORIGINAL")
-                zf.writestr(f"{inv.number or inv.pk}.pdf", content)
+                # Series like INV/24-25/001 would otherwise unpack into folders.
+                stem = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "-", str(inv.number or inv.pk)).strip(" .-") or str(inv.pk)
+                name = f"{stem}.pdf"
+                if name.lower() in used_names:
+                    name = f"{stem}-{inv.pk}.pdf"
+                used_names.add(name.lower())
+                zf.writestr(name, content)
         asset = FileAsset.objects.create(
             company=self.company,
             kind=FileAsset.Kind.EXPORT,
@@ -1262,7 +1417,35 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
         )
         asset.file.save("invoices.zip", ContentFile(buf.getvalue()), save=True)
         url = request.build_absolute_uri(asset.file.url) if asset.file else ""
-        return Response({"url": url, "file_id": asset.id, "count": len(invoices)})
+        return Response({
+            "url": url,
+            "file_id": asset.id,
+            "included": included,
+            "skipped": skipped,
+        })
+
+    @extend_schema(responses={(200, "application/zip"): OpenApiTypes.BINARY})
+    @action(detail=False, methods=["get"], url_path=r"bulk-pdf-zip/(?P<file_id>\d+)")
+    def bulk_pdf_zip_download(self, request, file_id=None):
+        from django.http import Http404
+
+        from core.models import FileAsset
+
+        # /media/ is internal behind nginx, so the zip is served here, to the user who built it.
+        asset = FileAsset.objects.filter(
+            company=self.company,
+            pk=file_id,
+            kind=FileAsset.Kind.EXPORT,
+            original_name="invoices.zip",
+            created_by=request.user,
+        ).first()
+        if asset is None or not asset.file:
+            raise Http404("The download is no longer available.")
+        try:
+            handle = asset.file.open("rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("The download is no longer available.") from exc
+        return FileResponse(handle, as_attachment=True, filename="invoices.zip", content_type="application/zip")
 
     @action(detail=True, methods=["get"], url_path="pdf-status")
     def pdf_status(self, request, pk=None):
@@ -1504,8 +1687,23 @@ class QuotationViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
+        params = self.request.query_params
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        if params.get("customer"):
+            try:
+                qs = qs.filter(customer_id=int(params["customer"]))
+            except (TypeError, ValueError):
+                pass
+        if params.get("date_from"):
+            qs = qs.filter(quotation_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(quotation_date__lte=params["date_to"])
+        q = (params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(
+                Q(number__icontains=q) | Q(customer__name__icontains=q)
+            )
         return qs
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")

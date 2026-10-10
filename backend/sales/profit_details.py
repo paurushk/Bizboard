@@ -102,6 +102,7 @@ def invoice_profit_details(invoice) -> dict:
                 "unit_cost": None,
                 "line_cost": Decimal("0.00"),
                 "fell_back_to_purchase_price": False,
+                "cost_missing": False,
             })
             continue
         fell_back = False

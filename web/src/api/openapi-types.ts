@@ -10579,6 +10579,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/bulk-pdf-zip/{file_id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way. */
+        get: operations["sales_invoices_bulk_pdf_zip_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/export-csv/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The register as a spreadsheet, with the same filters and sort as the list. */
+        get: operations["sales_invoices_export_csv_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/number-series/": {
         parameters: {
             query?: never;
@@ -13117,12 +13151,27 @@ export interface components {
          * @enum {string}
          */
         ImsActionEnum: "NO_ACTION" | "ACCEPT" | "REJECT" | "PENDING";
+        InvoiceBulkPdfZip: {
+            url: string;
+            fileId: number;
+            included: components["schemas"]["_ZipIncluded"][];
+            skipped: components["schemas"]["_ZipSkipped"][];
+        };
+        InvoiceBulkPdfZipRequest: {
+            ids: number[];
+        };
         /**
          * @description * `AFTER_TAX` - Cash discount (after tax)
          *     * `BEFORE_TAX` - Discount (reduces GST)
          * @enum {string}
          */
         InvoiceDiscountModeEnum: "AFTER_TAX" | "BEFORE_TAX";
+        /** @description paid.amount is the billed grand total. partial.amount and unpaid.amount are outstanding. */
+        InvoicePaymentStats: {
+            paid: components["schemas"]["_StatsBucket"];
+            partial: components["schemas"]["_StatsBucket"];
+            unpaid: components["schemas"]["_StatsBucket"];
+        };
         /**
          * @description * `GST` - GST Invoice
          *     * `TAX` - Tax Invoice
@@ -16014,6 +16063,7 @@ export interface components {
             readonly completedAt?: string | null;
             /** Format: date-time */
             readonly cancelledAt?: string | null;
+            readonly cancelReason?: string;
             readonly amendRevision?: number;
             /** Format: date-time */
             readonly createdAt?: string;
@@ -16027,6 +16077,8 @@ export interface components {
             readonly whatsappOffer?: string;
             readonly paymentState?: string;
             readonly returnState?: string;
+            readonly settlementState?: string;
+            readonly cancelApprovalPending?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
@@ -17586,6 +17638,7 @@ export interface components {
             readonly completedAt: string | null;
             /** Format: date-time */
             readonly cancelledAt: string | null;
+            readonly cancelReason: string;
             readonly amendRevision: number;
             /** Format: date-time */
             readonly createdAt: string;
@@ -17599,6 +17652,8 @@ export interface components {
             readonly whatsappOffer: string;
             readonly paymentState: string;
             readonly returnState: string;
+            readonly settlementState: string;
+            readonly cancelApprovalPending: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
@@ -18329,6 +18384,26 @@ export interface components {
          * @enum {string}
          */
         WorkOrderStatusEnum: "DRAFT" | "RELEASED" | "COMPLETED" | "CANCELLED";
+        _StatsBucket: {
+            count: number;
+            /** Format: decimal */
+            amount: string;
+        };
+        _ZipIncluded: {
+            id: number;
+            number: string;
+        };
+        _ZipSkipped: {
+            id: number;
+            number?: string;
+            reason: components["schemas"]["_ZipSkippedReasonEnum"];
+        };
+        /**
+         * @description * `not_completed` - not_completed
+         *     * `unavailable` - unavailable
+         * @enum {string}
+         */
+        _ZipSkippedReasonEnum: "not_completed" | "unavailable";
     };
     responses: never;
     parameters: never;
@@ -36084,6 +36159,8 @@ export interface operations {
                 page?: number;
                 /** @description Number of results to return per page. */
                 page_size?: number;
+                /** @description Register order. due_desc and due_asc place drafts and cancelled bills last. */
+                sort?: "date_asc" | "date_desc" | "due_asc" | "due_desc" | "total_asc" | "total_desc";
             };
             header?: never;
             path?: never;
@@ -36898,9 +36975,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["SalesInvoice"];
-                "multipart/form-data": components["schemas"]["SalesInvoice"];
-                "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
+                "application/json": components["schemas"]["InvoiceBulkPdfZipRequest"];
+                "multipart/form-data": components["schemas"]["InvoiceBulkPdfZipRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["InvoiceBulkPdfZipRequest"];
             };
         };
         responses: {
@@ -36909,7 +36986,47 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SalesInvoice"];
+                    "application/json": components["schemas"]["InvoiceBulkPdfZip"];
+                };
+            };
+        };
+    };
+    sales_invoices_bulk_pdf_zip_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+        };
+    };
+    sales_invoices_export_csv_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -36972,7 +37089,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SalesInvoice"];
+                    "application/json": components["schemas"]["InvoicePaymentStats"];
                 };
             };
         };

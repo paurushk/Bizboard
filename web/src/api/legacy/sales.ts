@@ -529,11 +529,33 @@ export async function uploadFile(file: File, kind = 'ATTACHMENT'): Promise<{ id:
   }, { id: Date.now(), url: URL.createObjectURL(file) });
 }
 
-export async function cancelSalesInvoice(id: number): Promise<SalesInvoice> {
+export type CancelInvoiceResult =
+  | { outcome: 'cancelled'; invoice: SalesInvoice }
+  | { outcome: 'pending'; invoiceId: number; approvalId: number };
+
+export async function cancelSalesInvoice(
+  id: number,
+  options?: { reason?: string },
+): Promise<CancelInvoiceResult> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/invoices/${id}/cancel/`);
-    return unwrapData<SalesInvoice>(data);
-  }, { ...mockInvoices[0], id, status: 'CANCELLED' });
+    const response = await apiClient.post(`/sales/invoices/${id}/cancel/`, {
+      cancelReason: options?.reason ?? '',
+    });
+    const body = unwrapData<Record<string, unknown>>(response.data);
+    if (response.status === 202) {
+      const approvalId = body.approvalId ?? body.approval_id;
+      if (body.status !== 'PENDING' || approvalId == null) {
+        throw new Error('Cancel returned 202 without a pending approval.');
+      }
+      return { outcome: 'pending', invoiceId: id, approvalId: Number(approvalId) };
+    }
+    if (response.status === 200) {
+      const invoice = body as unknown as SalesInvoice;
+      if (invoice?.id == null) throw new Error('Cancel returned 200 without an invoice.');
+      return { outcome: 'cancelled', invoice };
+    }
+    throw new Error(`Unexpected cancel status ${response.status}`);
+  }, { outcome: 'cancelled', invoice: { ...mockInvoices[0], id, status: 'CANCELLED' } });
 }
 
 export async function deleteSalesInvoice(id: number): Promise<void> {
@@ -849,6 +871,11 @@ export async function getQuotation(id: number): Promise<Quotation> {
 
 export async function updateQuotation(id: number, payload: Record<string, unknown>): Promise<Quotation> {
   const { data } = await apiClient.patch(`/sales/quotations/${id}/`, payload);
+  return unwrapData<Quotation>(data);
+}
+
+export async function cancelQuotation(id: number): Promise<Quotation> {
+  const { data } = await apiClient.post(`/sales/quotations/${id}/cancel/`);
   return unwrapData<Quotation>(data);
 }
 
@@ -1547,7 +1574,25 @@ export async function recordInvoicePayment(
 
 export async function bulkInvoicePdfZip(ids: number[]) {
   const { data } = await apiClient.post('/sales/invoices/bulk-pdf-zip/', { ids });
-  return unwrapData<{ url: string; fileId?: number; count: number }>(data);
+  return unwrapData<{
+    url: string;
+    fileId?: number;
+    included: { id: number; number: string }[];
+    skipped: { id: number; number?: string; reason: string }[];
+  }>(data);
+}
+
+export async function exportSalesRegisterCsv(params?: PageParams): Promise<Blob> {
+  const { data } = await apiClient.get('/sales/invoices/export-csv/', {
+    params: flattenQueryParams(params),
+    responseType: 'blob',
+  });
+  return data as Blob;
+}
+
+export async function downloadBulkInvoicePdfZip(fileId: number): Promise<Blob> {
+  const { data } = await apiClient.get(`/sales/invoices/bulk-pdf-zip/${fileId}/`, { responseType: 'blob' });
+  return data as Blob;
 }
 
 export async function listDeliveryRoutesPage(params?: PageParams) {

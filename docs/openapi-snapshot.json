@@ -29605,6 +29605,22 @@
                         "schema": {
                             "type": "integer"
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "sort",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "date_asc",
+                                "date_desc",
+                                "due_asc",
+                                "due_desc",
+                                "total_asc",
+                                "total_desc"
+                            ]
+                        },
+                        "description": "Register order. due_desc and due_asc place drafts and cancelled bills last."
                     }
                 ],
                 "tags": [
@@ -31163,17 +31179,17 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/SalesInvoice"
+                                "$ref": "#/components/schemas/InvoiceBulkPdfZipRequest"
                             }
                         },
                         "multipart/form-data": {
                             "schema": {
-                                "$ref": "#/components/schemas/SalesInvoice"
+                                "$ref": "#/components/schemas/InvoiceBulkPdfZipRequest"
                             }
                         },
                         "application/x-www-form-urlencoded": {
                             "schema": {
-                                "$ref": "#/components/schemas/SalesInvoice"
+                                "$ref": "#/components/schemas/InvoiceBulkPdfZipRequest"
                             }
                         }
                     },
@@ -31189,7 +31205,72 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/SalesInvoice"
+                                    "$ref": "#/components/schemas/InvoiceBulkPdfZip"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/bulk-pdf-zip/{file_id}/": {
+            "get": {
+                "operationId": "sales_invoices_bulk_pdf_zip_retrieve",
+                "description": "Mixin for SalesInvoiceViewSet — prepare/submit/mark e-Invoice and e-Way.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "file_id",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^\\d+$"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/zip": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/export-csv/": {
+            "get": {
+                "operationId": "sales_invoices_export_csv_retrieve",
+                "description": "The register as a spreadsheet, with the same filters and sort as the list.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
                                 }
                             }
                         },
@@ -31284,7 +31365,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/SalesInvoice"
+                                    "$ref": "#/components/schemas/InvoicePaymentStats"
                                 }
                             }
                         },
@@ -39034,6 +39115,49 @@
                 "type": "string",
                 "description": "* `NO_ACTION` - No Action\n* `ACCEPT` - Accept\n* `REJECT` - Reject\n* `PENDING` - Pending"
             },
+            "InvoiceBulkPdfZip": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string"
+                    },
+                    "file_id": {
+                        "type": "integer"
+                    },
+                    "included": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_ZipIncluded"
+                        }
+                    },
+                    "skipped": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/_ZipSkipped"
+                        }
+                    }
+                },
+                "required": [
+                    "file_id",
+                    "included",
+                    "skipped",
+                    "url"
+                ]
+            },
+            "InvoiceBulkPdfZipRequest": {
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "required": [
+                    "ids"
+                ]
+            },
             "InvoiceDiscountModeEnum": {
                 "enum": [
                     "AFTER_TAX",
@@ -39041,6 +39165,26 @@
                 ],
                 "type": "string",
                 "description": "* `AFTER_TAX` - Cash discount (after tax)\n* `BEFORE_TAX` - Discount (reduces GST)"
+            },
+            "InvoicePaymentStats": {
+                "type": "object",
+                "description": "paid.amount is the billed grand total. partial.amount and unpaid.amount are outstanding.",
+                "properties": {
+                    "paid": {
+                        "$ref": "#/components/schemas/_StatsBucket"
+                    },
+                    "partial": {
+                        "$ref": "#/components/schemas/_StatsBucket"
+                    },
+                    "unpaid": {
+                        "$ref": "#/components/schemas/_StatsBucket"
+                    }
+                },
+                "required": [
+                    "paid",
+                    "partial",
+                    "unpaid"
+                ]
             },
             "InvoiceTypeEnum": {
                 "enum": [
@@ -46828,6 +46972,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "cancel_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "amend_revision": {
                         "type": "integer",
                         "readOnly": true
@@ -46873,6 +47021,14 @@
                         "readOnly": true
                     },
                     "return_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "settlement_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "cancel_approval_pending": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -52013,6 +52169,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "cancel_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "amend_revision": {
                         "type": "integer",
                         "readOnly": true
@@ -52058,6 +52218,14 @@
                         "readOnly": true
                     },
                     "return_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "settlement_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "cancel_approval_pending": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -52121,6 +52289,8 @@
                     "ack_no",
                     "amend_revision",
                     "balance",
+                    "cancel_approval_pending",
+                    "cancel_reason",
                     "cancelled_at",
                     "cess_total",
                     "cgst_total",
@@ -52155,6 +52325,7 @@
                     "received",
                     "return_state",
                     "round_off",
+                    "settlement_state",
                     "sgst_total",
                     "status",
                     "subtotal",
@@ -54346,6 +54517,64 @@
                 ],
                 "type": "string",
                 "description": "* `DRAFT` - Draft\n* `RELEASED` - Released\n* `COMPLETED` - Completed\n* `CANCELLED` - Cancelled"
+            },
+            "_StatsBucket": {
+                "type": "object",
+                "properties": {
+                    "count": {
+                        "type": "integer"
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    }
+                },
+                "required": [
+                    "amount",
+                    "count"
+                ]
+            },
+            "_ZipIncluded": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "number": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "number"
+                ]
+            },
+            "_ZipSkipped": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "number": {
+                        "type": "string"
+                    },
+                    "reason": {
+                        "$ref": "#/components/schemas/_ZipSkippedReasonEnum"
+                    }
+                },
+                "required": [
+                    "id",
+                    "reason"
+                ]
+            },
+            "_ZipSkippedReasonEnum": {
+                "enum": [
+                    "not_completed",
+                    "unavailable"
+                ],
+                "type": "string",
+                "description": "* `not_completed` - not_completed\n* `unavailable` - unavailable"
             }
         },
         "securitySchemes": {

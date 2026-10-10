@@ -144,3 +144,27 @@ def test_invoice_payment_state_still_works_without_a_precomputed_value(tenant_a)
     assert invoice_payment_state(inv) == "UNPAID"
     assert invoice_payment_state(inv, outstanding=Decimal("0")) == "PAID"
     assert LedgerService.sales_invoice_outstanding(inv) == Decimal("500")
+
+
+def test_invoice_payment_state_uses_list_gateway_flags_without_querying(tenant_a):
+    """List rows pass the gateway flags from annotations; a row must not query per field."""
+    from payments.holding import invoice_payment_state
+
+    inv, _ = _invoice(tenant_a, "500")
+    with CaptureQueriesContext(connection) as ctx:
+        assert invoice_payment_state(inv, outstanding=Decimal("500"), holding=False, captured=False) == "UNPAID"
+        assert invoice_payment_state(inv, outstanding=Decimal("500"), holding=True, captured=False) == "PAID_PENDING_BOOKS"
+        assert invoice_payment_state(inv, outstanding=Decimal("500"), holding=False, captured=True) == "PAID_PENDING_BOOKS"
+    assert len(ctx.captured_queries) == 0
+
+
+def test_the_list_payment_state_does_not_query_per_row(tenant_a):
+    for amount in ("100", "200", "300"):
+        _invoice(tenant_a, amount)
+    with CaptureQueriesContext(connection) as few:
+        assert tenant_a.client.get("/api/v1/sales/invoices/", {"page_size": 3}).status_code == 200
+    for amount in ("400", "500", "600"):
+        _invoice(tenant_a, amount)
+    with CaptureQueriesContext(connection) as more:
+        assert tenant_a.client.get("/api/v1/sales/invoices/", {"page_size": 6}).status_code == 200
+    assert len(more.captured_queries) <= len(few.captured_queries) + 2

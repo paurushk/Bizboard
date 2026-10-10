@@ -115,6 +115,7 @@ TRANSIENT_4XX_CODES = frozenset({
     "GSTIN_TOTAL_CHANGED",
     "place_of_supply_unresolved",
     "sales_rcm_unconfirmed",
+    "confirm_missing_licence",
     "confirm_no_rcm",
     "confirm_duplicate_bill",
     "confirm_additional_debit",
@@ -165,7 +166,11 @@ def request_fingerprint(request) -> str:
     must never break a money request."""
     try:
         method, path = request.method, request.path
-        body = json.dumps(_canon(request.data), sort_keys=True, separators=(",", ":"), default=str)
+        canon = _canon(request.data)
+        ignore = getattr(request, "_idempotency_ignore_keys", None)
+        if ignore and isinstance(canon, dict):
+            canon = {k: v for k, v in canon.items() if k not in ignore}
+        body = json.dumps(canon, sort_keys=True, separators=(",", ":"), default=str)
     except Exception:  # noqa: BLE001
         return ""
     return hashlib.sha256(f"{method}\n{path}\n{body}".encode("utf-8")).hexdigest()

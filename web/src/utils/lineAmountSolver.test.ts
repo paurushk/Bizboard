@@ -110,4 +110,55 @@ describe('priceForLineAmount', () => {
       expect(Math.abs(solved.difference)).toBeLessThanOrEqual(0.01);
     }
   });
+
+  it('REVIEW-B7 in tax-inclusive mode the typed amount is the rate times quantity, with no tax taken out', () => {
+    const solved = priceForLineAmount({
+      amount: 118,
+      quantity: 2,
+      discountPercent: 0,
+      gstRate: 18,
+      intraState: true,
+      inclusive: true,
+    });
+    expect(solved.unitPrice).toBe(59);
+    expect(solved.lineTotal).toBe(118);
+    expect(solved.difference).toBe(0);
+  });
+
+  it('REVIEW-B7 inclusive mode keeps a percent discount and ignores cess', () => {
+    const solved = priceForLineAmount({
+      amount: 90,
+      quantity: 1,
+      discountPercent: 10,
+      gstRate: 28,
+      cessRate: 12,
+      intraState: false,
+      inclusive: true,
+    });
+    expect(solved.unitPrice).toBe(100);
+    expect(solved.lineTotal).toBe(90);
+  });
+
+  it('REVIEW-B7 the exclusive answer differs from the inclusive one for the same typed amount', () => {
+    const args = { amount: 118, quantity: 1, gstRate: 18, intraState: true } as const;
+    expect(priceForLineAmount({ ...args }).unitPrice).toBe(100);
+    expect(priceForLineAmount({ ...args, inclusive: true }).unitPrice).toBe(118);
+  });
+
+  it('REVIEW-B7 an amount no 2-decimal price can reach is reported as a difference, not hidden', () => {
+    const solved = priceForLineAmount({
+      amount: 100.01,
+      quantity: 1000,
+      discountPercent: 0,
+      gstRate: 18,
+      intraState: true,
+    });
+    expect(Math.abs(solved.difference)).toBeGreaterThan(0.01);
+    expect(solved.lineTotal).toBe(Math.round((100.01 - solved.difference) * 100) / 100);
+  });
+
+  it('an unknown place of supply solves without tax', () => {
+    const solved = priceForLineAmount({ amount: 100, quantity: 4, gstRate: 18, intraState: null });
+    expect(solved.unitPrice).toBe(25);
+  });
 });

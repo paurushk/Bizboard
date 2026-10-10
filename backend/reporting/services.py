@@ -51,6 +51,14 @@ def _invoice_payment_state(invoice) -> str:
     return invoice_payment_state(invoice)
 
 
+def _invoice_settlement_state(invoice, balance, parts) -> str:
+    """The same Paid / Partial / Unpaid bucket the sales register shows for this bill."""
+    from sales.settlement import settlement_bucket
+
+    alloc, notes, discount = parts.get(invoice.pk, (0, 0, 0))
+    return settlement_bucket(invoice.status, invoice.grand_total, balance, alloc, notes, discount)
+
+
 def _as_sort_date(value):
     if isinstance(value, datetime):
         return value.date()
@@ -401,6 +409,9 @@ class ReportService:
             company=company, status__in=OPEN_RECEIVABLE_STATUSES
         ).order_by("-completed_at")[:5]
         recent_list = list(recent.select_related("customer"))
+        from sales.settlement import live_settlement_parts_bulk
+
+        settlement_parts = live_settlement_parts_bulk(i.id for i in recent_list)
         partially_returned_ids = set(
             SalesReturn.objects.filter(
                 sales_invoice_id__in=[i.id for i in recent_list],
@@ -439,8 +450,9 @@ class ReportService:
                     "date": i.invoice_date,
                     "status": i.status,
                     "grand_total": i.grand_total,
-                    "balance": ReportService._invoice_balance(i),
+                    "balance": (balance := ReportService._invoice_balance(i)),
                     "payment_state": _invoice_payment_state(i),
+                    "settlement_state": _invoice_settlement_state(i, balance, settlement_parts),
                     "return_state": (
                         "FULL"
                         if i.status == SalesInvoice.Status.RETURNED

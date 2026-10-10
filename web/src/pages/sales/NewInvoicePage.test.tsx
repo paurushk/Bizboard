@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { configure, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError } from 'axios';
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeDraft, removeDraft } from '@/lib/deviceDraft';
@@ -625,7 +626,7 @@ describe('INV-MAIN default path', () => {
     await user.click(screen.getByPlaceholderText(/scan barcode or search sku/i));
     await user.paste('Delivery');
     await user.click(await screen.findByRole('option', { name: /delivery/i }));
-    expect(await screen.findByRole('button', { name: /save & complete/i })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: /save & complete/i })).toBeEnabled());
     expect(screen.queryByText(/insufficient stock/i)).not.toBeInTheDocument();
   }, 60_000);
 
@@ -638,7 +639,7 @@ describe('INV-MAIN default path', () => {
     await user.click(screen.getByPlaceholderText(/scan barcode or search sku/i));
     await user.paste('Nirma');
     await user.click(await screen.findByRole('option', { name: /nirma soap/i }));
-    expect(await screen.findByRole('button', { name: /save & complete/i })).toBeEnabled();
+    await waitFor(() => expect(screen.getByRole('button', { name: /save & complete/i })).toBeEnabled());
     expect(screen.queryByText(/insufficient stock/i)).not.toBeInTheDocument();
   }, 60_000);
 
@@ -698,6 +699,100 @@ describe('INV-MAIN default path', () => {
     }
   }, 60_000);
 
+  describe('REVIEW complete failures and the idempotency key', () => {
+    const draftInvoice = {
+      id: 5,
+      number: '',
+      status: 'DRAFT',
+      invoiceType: 'GST',
+      invoiceDate: '2026-10-08',
+      customer: 1,
+      items: [{ id: 1, product: 202, productName: 'Nirma Soap', quantity: '1', unitPrice: '20.00', gstRate: '18', discountPercent: '0' }],
+    };
+    const completed = { ...draftInvoice, status: 'COMPLETED', number: 'INV-5' };
+    const serverError = () =>
+      new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 422,
+        statusText: 'Unprocessable',
+        headers: {},
+        config: {} as never,
+        data: { error: { message: 'Insufficient stock for Nirma Soap' } },
+      });
+    const networkError = () => new AxiosError('Network Error', 'ERR_NETWORK');
+    let previous: Record<string, unknown>;
+
+    beforeEach(() => {
+      previous = invoiceState.value;
+      invoiceState.value = draftInvoice;
+      updateSalesInvoice.mockReset();
+      updateSalesInvoice.mockImplementation(async () => draftInvoice as never);
+      completeSalesInvoice.mockReset();
+    });
+    afterEach(() => {
+      invoiceState.value = previous;
+      completeSalesInvoice.mockImplementation(async () => ({ id: 88, status: 'COMPLETED', number: 'INV-88' }));
+    });
+
+    const keyOf = (call: number) =>
+      (completeSalesInvoice.mock.calls[call]?.[1] as { idempotencyKey?: string } | undefined)?.idempotencyKey;
+
+    async function openDraftAndComplete(user: ReturnType<typeof userEvent.setup>) {
+      renderPage(['/sales/history/5/edit']);
+      const complete = await screen.findByRole('button', { name: /save & complete/i });
+      await waitFor(() => expect(complete).toBeEnabled());
+      await user.click(complete);
+    }
+
+    it('a server answer is final for its key: the retry after a fix gets a new key', async () => {
+      completeSalesInvoice.mockRejectedValueOnce(serverError());
+      completeSalesInvoice.mockResolvedValueOnce(completed as never);
+      const user = userEvent.setup({ delay: null });
+      await openDraftAndComplete(user);
+      expect(await screen.findByText(/insufficient stock for nirma soap/i)).toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /save & complete/i }));
+      await waitFor(() => expect(completeSalesInvoice).toHaveBeenCalledTimes(2));
+      expect(keyOf(0)).toBeTruthy();
+      expect(keyOf(1)).toBeTruthy();
+      expect(keyOf(1)).not.toBe(keyOf(0));
+    }, 60_000);
+
+    it('a lost reply is checked on the server and, if it committed, opens the invoice', async () => {
+      completeSalesInvoice.mockRejectedValueOnce(networkError());
+      const user = userEvent.setup({ delay: null });
+      renderPage(['/sales/history/5/edit']);
+      const complete = await screen.findByRole('button', { name: /save & complete/i });
+      await waitFor(() => expect(complete).toBeEnabled());
+      invoiceState.value = completed;
+      await user.click(complete);
+      expect(await screen.findByText('Opened invoice 5')).toBeInTheDocument();
+      expect(completeSalesInvoice).toHaveBeenCalledTimes(1);
+    }, 60_000);
+
+    it('a lost reply that did not commit says so, keeps the form, and retries with the same key', async () => {
+      completeSalesInvoice.mockRejectedValueOnce(networkError());
+      completeSalesInvoice.mockResolvedValueOnce(completed as never);
+      const user = userEvent.setup({ delay: null });
+      await openDraftAndComplete(user);
+      expect(await screen.findByText(/did not get a reply/i)).toBeInTheDocument();
+      expect(screen.queryByText('Opened invoice 5')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /save & complete/i }));
+      await waitFor(() => expect(completeSalesInvoice).toHaveBeenCalledTimes(2));
+      expect(keyOf(1)).toBe(keyOf(0));
+    }, 60_000);
+
+    it('a lost reply on a retry that did commit does not update the completed invoice again', async () => {
+      completeSalesInvoice.mockRejectedValueOnce(networkError());
+      const user = userEvent.setup({ delay: null });
+      await openDraftAndComplete(user);
+      expect(await screen.findByText(/did not get a reply/i)).toBeInTheDocument();
+      const updatesBefore = updateSalesInvoice.mock.calls.length;
+      invoiceState.value = completed;
+      await user.click(screen.getByRole('button', { name: /save & complete/i }));
+      expect(await screen.findByText('Opened invoice 5')).toBeInTheDocument();
+      expect(updateSalesInvoice.mock.calls.length).toBe(updatesBefore);
+    }, 60_000);
+  });
+
   it('REVIEW-B2 two scans in a row both land, one line each', async () => {
     const user = userEvent.setup({ delay: null });
     renderPage();
@@ -709,6 +804,27 @@ describe('INV-MAIN default path', () => {
     expect(await screen.findByText('Nirma Soap')).toBeInTheDocument();
     expect(await screen.findByText('Rice')).toBeInTheDocument();
     expect(box).toHaveValue('');
+  }, 60_000);
+
+  it('REVIEW-B2 a code that matches nothing says so and still clears the box for the next scan', async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+    const box = await screen.findByPlaceholderText(/scan barcode or search sku/i);
+    await user.click(box);
+    await user.keyboard('NO-SUCH-CODE{Enter}');
+    expect(await screen.findByText(/no item matches that barcode or sku/i)).toBeInTheDocument();
+    expect(box).toHaveValue('');
+  }, 60_000);
+
+  it('REVIEW-B2 the same item scanned twice becomes quantity 2, not two lines', async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+    const box = await screen.findByPlaceholderText(/scan barcode or search sku/i);
+    await user.click(box);
+    await user.keyboard('RICE{Enter}RICE{Enter}');
+    expect(await screen.findByText('Rice')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('Rice')).toHaveLength(1));
+    await waitFor(() => expect(screen.getByDisplayValue('2')).toBeInTheDocument());
   }, 60_000);
 
   it('REVIEW-B3 Tab leaves the item box and never adds a line', async () => {
@@ -743,7 +859,7 @@ describe('INV-MAIN default path', () => {
     expect(within(region).getByDisplayValue('1')).toBeInTheDocument();
     expect(within(region).getByLabelText(/total amount/i)).toBeInTheDocument();
     const complete = await screen.findByRole('button', { name: /save & complete/i });
-    expect(complete).toBeEnabled();
+    await waitFor(() => expect(complete).toBeEnabled());
     complete.focus();
     await user.keyboard('{Enter}');
     expect(await screen.findByRole('heading', { name: /opened invoice 88/i })).toBeInTheDocument();

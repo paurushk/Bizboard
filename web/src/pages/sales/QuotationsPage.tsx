@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
+  cancelQuotation,
   convertQuotation,
   convertQuotationChain,
   convertQuotationToOrder,
@@ -87,7 +88,13 @@ export function QuotationsPage() {
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const debouncedQ = useDebouncedValue(filters.q, 300);
   const statusParam =
-    filters.status === 'OPEN' ? 'DRAFT' : filters.status === 'CLOSED' ? 'CONVERTED' : filters.status || undefined;
+    filters.status === 'OPEN'
+      ? 'DRAFT'
+      : filters.status === 'CLOSED'
+        ? 'CONVERTED'
+        : filters.status === 'CANCELLED'
+          ? 'CANCELLED'
+          : filters.status || undefined;
   const query = useQuery({
     queryKey: ['quotations', page, statusParam, debouncedQ, filters.dateFrom, filters.dateTo],
     queryFn: () =>
@@ -116,11 +123,13 @@ export function QuotationsPage() {
   const [pendingQty, setPendingQty] = useState('1');
   const [pendingUnitPrice, setPendingUnitPrice] = useState('');
   const [pendingDiscountPercent, setPendingDiscountPercent] = useState('0');
+  const [quotationDate, setQuotationDate] = useState(todayIso());
   const [validUntil, setValidUntil] = useState('');
   const [salesman, setSalesman] = useState('');
   const [salesChannel, setSalesChannel] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [isPartiallyConverted, setIsPartiallyConverted] = useState(false);
   const [expectedProfit, setExpectedProfit] = useState<unknown>(null);
   const [newPartyName, setNewPartyName] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -145,11 +154,13 @@ export function QuotationsPage() {
         if (cancelled) return;
         setEditingId(q.id);
         setOpen(true);
+        setQuotationDate(q.quotationDate || todayIso());
         setValidUntil(q.validUntil ?? '');
         setExpectedProfit(q.expectedProfit);
         setSalesman(q.salesman ? String(q.salesman) : '');
         setSalesChannel((q as { salesChannel?: string }).salesChannel ?? '');
         setDeliveryAddress((q as { deliveryAddress?: string }).deliveryAddress ?? '');
+        setIsPartiallyConverted((q.items ?? []).some((item) => toNumber(item.convertedQuantity) > 0));
         if (q.customer) {
           try {
             const c = await getCustomer(q.customer);
@@ -190,20 +201,24 @@ export function QuotationsPage() {
     setPendingQty('1');
     setPendingUnitPrice('');
     setPendingDiscountPercent('0');
+    setQuotationDate(todayIso());
     setValidUntil('');
     setSalesman('');
     setSalesChannel('');
     setDeliveryAddress('');
     setEditingId(null);
+    setIsPartiallyConverted(false);
     setExpectedProfit(null);
     setNewPartyName('');
     productSearch.setProductQuery('');
+    if (editParam) {
+      void navigate('/sales/quotations', { replace: true });
+    }
   };
 
   const addLine = () => {
     if (!pendingProduct) return;
-    // BUG-526: quantity must be a positive number, not 0/negative.
-    const qty = Math.max(1, Math.floor(Number(pendingQty)) || 1);
+    const qty = Math.max(0.001, toNumber(pendingQty) || 0.001);
     const unitPrice = Math.max(0, toNumber(pendingUnitPrice) || 0);
     const discountPercent = Math.min(100, Math.max(0, toNumber(pendingDiscountPercent) || 0));
     setLines((prev) => [
@@ -222,12 +237,20 @@ export function QuotationsPage() {
 
   const lineTotal = (l: DraftLine) => l.qty * l.unitPrice * (1 - l.discountPercent / 100);
 
+  const subtotal = lines.reduce((acc, l) => acc + lineTotal(l), 0);
+  const estimatedGst = lines.reduce(
+    (acc, l) => acc + lineTotal(l) * (toNumber(l.product.gstRate) / 100),
+    0,
+  );
+  const grandTotal = Math.round(subtotal + estimatedGst);
+
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (!customer?.id) throw new Error(t('billing.selectCustomerRequired', 'Select a customer before saving.'));
       if (lines.length === 0) throw new Error('Add at least one product');
       const payload = {
-        customer: customer?.id,
-        quotationDate: todayIso(),
+        customer: customer.id,
+        quotationDate: editingId ? quotationDate : todayIso(),
         validUntil: validUntil || null,
         salesman: salesman ? Number(salesman) : null,
         salesChannel,
@@ -247,9 +270,16 @@ export function QuotationsPage() {
     onSuccess: () => {
       setOpen(false);
       setMessage(editingId ? t('phase1.saved') : 'Quotation created');
-      // BUG-524: previously the dialog state was never reset, so reopening
-      // it showed the last quotation's customer/product/qty pre-filled.
       resetDialog();
+      void qc.invalidateQueries({ queryKey: ['quotations'] });
+    },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (id: number) => cancelQuotation(id),
+    onSuccess: () => {
+      setMessage(t('status.quotationCancelled', 'Quotation cancelled'));
       void qc.invalidateQueries({ queryKey: ['quotations'] });
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -261,8 +291,8 @@ export function QuotationsPage() {
     mode: 'invoice' | 'order';
   } | null>(null);
   const convertMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: ConvertLinePayload[] }) =>
-      convertQuotation(id, { items }),
+    mutationFn: ({ id, items, confirmExpired }: { id: number; items: ConvertLinePayload[]; confirmExpired?: boolean }) =>
+      convertQuotation(id, { items, confirmExpired }),
     onSuccess: async (invoice, vars) => {
       const remaining = quotationHasRemainingAfterConvert(
         convertTarget?.quotation.items ?? [],
@@ -295,8 +325,8 @@ export function QuotationsPage() {
   });
 
   const convertToOrderMutation = useMutation({
-    mutationFn: ({ id, items }: { id: number; items: ConvertLinePayload[] }) =>
-      convertQuotationToOrder(id, { items }),
+    mutationFn: ({ id, items, confirmExpired }: { id: number; items: ConvertLinePayload[]; confirmExpired?: boolean }) =>
+      convertQuotationToOrder(id, { items, confirmExpired }),
     onSuccess: async (order, vars) => {
       const remaining = quotationHasRemainingAfterConvert(
         convertTarget?.quotation.items ?? [],
@@ -344,6 +374,7 @@ export function QuotationsPage() {
         statusOptions={[
           { value: 'OPEN', label: t('status.OPEN') },
           { value: 'CLOSED', label: t('status.converted') },
+          { value: 'CANCELLED', label: t('status.cancelled', 'Cancelled') },
         ]}
       />
       {query.isLoading ? <LoadingState /> : null}
@@ -358,6 +389,7 @@ export function QuotationsPage() {
               <TableRow>
                 <TableCell>{t('common.number')}</TableCell>
                 <TableCell>{t('common.date')}</TableCell>
+                <TableCell>{t('billing.validUntil', 'Valid Until')}</TableCell>
                 <TableCell>{t('billing.customer')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('common.total')}</TableCell>
@@ -365,21 +397,106 @@ export function QuotationsPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {quotations.map((q) => (
-                <TableRow key={q.id}>
-                  <TableCell>{q.number ?? '—'}</TableCell>
-                  <TableCell>{q.quotationDate}</TableCell>
-                  <TableCell>{q.customerName ?? '—'}</TableCell>
-                  <TableCell>
-                    <StatusChip
-                      tone={documentStatusTone(q.status)}
-                      labelKey={statusLabelKey(q.status)}
-                    />
-                  </TableCell>
-                  <TableCell align="right">{formatMoney(q.grandTotal)}</TableCell>
-                  <TableCell align="right">
-                    {q.status === 'DRAFT' && canCreate ? (
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
+              {quotations.map((q) => {
+                const isExpired = Boolean(q.validUntil && q.validUntil < todayIso());
+                const isConvertible = q.status === 'DRAFT' && canCreate;
+                const canCancel =
+                  isConvertible &&
+                  (q.items ?? []).every((it) => toNumber((it as { convertedQuantity?: number | string }).convertedQuantity) === 0);
+
+                return (
+                  <TableRow key={q.id}>
+                    <TableCell>{q.number ?? '—'}</TableCell>
+                    <TableCell>{q.quotationDate}</TableCell>
+                    <TableCell>
+                      {q.validUntil ? (
+                        <Stack direction="row" spacing={0.5} alignItems="center">
+                          <span>{q.validUntil}</span>
+                          {isExpired && q.status === 'DRAFT' ? (
+                            <Typography variant="caption" sx={{ color: 'error.main', fontWeight: 'bold' }}>
+                              ({t('status.expired', 'Expired')})
+                            </Typography>
+                          ) : null}
+                        </Stack>
+                      ) : (
+                        '—'
+                      )}
+                    </TableCell>
+                    <TableCell>{q.customerName ?? '—'}</TableCell>
+                    <TableCell>
+                      <StatusChip
+                        tone={documentStatusTone(q.status)}
+                        labelKey={statusLabelKey(q.status)}
+                      />
+                    </TableCell>
+                    <TableCell align="right">{formatMoney(q.grandTotal)}</TableCell>
+                    <TableCell align="right">
+                      {isConvertible ? (
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => {
+                              void downloadSalesDocumentPdf('quotation', q.id)
+                                .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
+                                .catch((err) => setError(getErrorMessage(err)));
+                            }}
+                          >
+                            {t('common.download')}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="text"
+                            onClick={() => navigate(`/sales/quotations/${q.id}`)}
+                          >
+                            {t('common.edit')}
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={
+                              (convertMutation.isPending || convertToOrderMutation.isPending) &&
+                              convertingId === q.id
+                            }
+                            onClick={() => {
+                              setError(null);
+                              setConvertingId(q.id);
+                              setConvertTarget({ quotation: q, mode: 'order' });
+                            }}
+                          >
+                            {t('common.toOrder')}
+                          </Button>
+                          <Button
+                            size="small"
+                            disabled={
+                              (convertMutation.isPending || convertToOrderMutation.isPending) &&
+                              convertingId === q.id
+                            }
+                            onClick={() => {
+                              setError(null);
+                              setConvertingId(q.id);
+                              setConvertTarget({ quotation: q, mode: 'invoice' });
+                            }}
+                          >
+                            {t('common.convert')}
+                          </Button>
+                          {canCancel ? (
+                            <Button
+                              size="small"
+                              color="error"
+                              variant="text"
+                              disabled={cancelMutation.isPending}
+                              onClick={() => {
+                                if (window.confirm(t('common.confirmCancelQuotation', 'Are you sure you want to cancel this quotation?'))) {
+                                  cancelMutation.mutate(q.id);
+                                }
+                              }}
+                            >
+                              {t('common.cancel')}
+                            </Button>
+                          ) : null}
+                        </Stack>
+                      ) : (
                         <Button
                           size="small"
                           variant="text"
@@ -391,85 +508,11 @@ export function QuotationsPage() {
                         >
                           {t('common.download')}
                         </Button>
-                        <Button
-                          size="small"
-                          variant="text"
-                          onClick={() => navigate(`/sales/quotations/${q.id}`)}
-                        >
-                          {t('common.edit')}
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={
-                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
-                            convertingId === q.id
-                          }
-                          onClick={() => {
-                            setError(null);
-                            setConvertingId(q.id);
-                            setConvertTarget({ quotation: q, mode: 'order' });
-                          }}
-                        >
-                          {t('common.toOrder')}
-                        </Button>
-                        <Button
-                          size="small"
-                          disabled={
-                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
-                            convertingId === q.id
-                          }
-                          onClick={() => {
-                            setError(null);
-                            setConvertingId(q.id);
-                            setConvertTarget({ quotation: q, mode: 'invoice' });
-                          }}
-                        >
-                          {t('common.convert')}
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="text"
-                          disabled={
-                            (convertMutation.isPending || convertToOrderMutation.isPending) &&
-                            convertingId === q.id
-                          }
-                          onClick={() => {
-                            setError(null);
-                            setConvertingId(q.id);
-                            void convertQuotationChain(q.id, { stopStage: 'INVOICE' })
-                              .then((res) => {
-                                setConvertingId(null);
-                                const inv = res.invoice as { id?: number } | undefined;
-                                setMessage(inv?.id ? `Converted chain to draft invoice #${inv.id}` : 'Converted');
-                                void qc.invalidateQueries({ queryKey: ['quotations'] });
-                                if (inv?.id) void navigate('/sales/history', { state: { message: `Converted chain to draft invoice #${inv.id}` } });
-                              })
-                              .catch((err) => {
-                                setConvertingId(null);
-                                setError(getErrorMessage(err));
-                              });
-                          }}
-                        >
-                          {t('common.convert')} → SO → DC
-                        </Button>
-                      </Stack>
-                    ) : (
-                      <Button
-                        size="small"
-                        variant="text"
-                        onClick={() => {
-                          void downloadSalesDocumentPdf('quotation', q.id)
-                            .then((blob) => triggerBlobDownload(blob, `${q.number || q.id}.pdf`))
-                            .catch((err) => setError(getErrorMessage(err)));
-                        }}
-                      >
-                        {t('common.download')}
-                      </Button>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </Paper>
@@ -500,17 +543,23 @@ export function QuotationsPage() {
           resetDialog();
         }}
         fullWidth
-        maxWidth="sm"
+        maxWidth="md"
       >
         <DialogTitle>{editingId ? t('common.edit') : t('phase1.newQuotation')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             {error ? <HelpErrorAlert message={error} /> : null}
+            {isPartiallyConverted ? (
+              <Alert severity="info">
+                {t('billing.quotationLinesLocked', 'Line items are locked because this quotation has already been partially converted.')}
+              </Alert>
+            ) : null}
             <Autocomplete
               options={customerSearch.options}
               getOptionLabel={(o) => o.name}
               filterOptions={(opts) => opts}
               value={customer}
+              disabled={!canCreate}
               onChange={(_, v) => {
                 setCustomer(v);
                 if (v && !deliveryAddress) {
@@ -522,69 +571,93 @@ export function QuotationsPage() {
               renderInput={(params) => (
                 <TextField
                   {...params}
+                  required
                   label={t('billing.customer')}
                   helperText={!customerSearch.enabled ? t('common.typeToSearch') : undefined}
                 />
               )}
             />
-            <Stack direction="row" spacing={1}>
+            {canCreate ? (
+              <Stack direction="row" spacing={1}>
+                <TextField
+                  size="small"
+                  label={t('billing.addParty')}
+                  value={newPartyName}
+                  onChange={(e) => setNewPartyName(e.target.value)}
+                />
+                <Button
+                  size="small"
+                  disabled={!newPartyName.trim()}
+                  onClick={() => {
+                    void createCustomer({ name: newPartyName.trim(), status: 'ACTIVE' }).then((c) => {
+                      setCustomer(c);
+                      setNewPartyName('');
+                    }).catch((err) => setError(getErrorMessage(err)));
+                  }}
+                >
+                  {t('common.add')}
+                </Button>
+              </Stack>
+            ) : null}
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
               <TextField
+                type="date"
                 size="small"
-                label={t('billing.addParty')}
-                value={newPartyName}
-                onChange={(e) => setNewPartyName(e.target.value)}
+                sx={{ flex: 1 }}
+                label={t('common.date', 'Quotation Date')}
+                InputLabelProps={{ shrink: true }}
+                value={quotationDate}
+                disabled={!canCreate}
+                onChange={(e) => setQuotationDate(e.target.value)}
               />
-              <Button
+              <TextField
+                type="date"
                 size="small"
-                disabled={!newPartyName.trim()}
-                onClick={() => {
-                  void createCustomer({ name: newPartyName.trim(), status: 'ACTIVE' }).then((c) => {
-                    setCustomer(c);
-                    setNewPartyName('');
-                  }).catch((err) => setError(getErrorMessage(err)));
-                }}
-              >
-                {t('common.add')}
-              </Button>
+                sx={{ flex: 1 }}
+                label={t('billing.validUntil')}
+                InputLabelProps={{ shrink: true }}
+                value={validUntil}
+                disabled={!canCreate}
+                onChange={(e) => setValidUntil(e.target.value)}
+              />
             </Stack>
-            <TextField
-              type="date"
-              size="small"
-              label={t('billing.validUntil')}
-              InputLabelProps={{ shrink: true }}
-              value={validUntil}
-              onChange={(e) => setValidUntil(e.target.value)}
-            />
-            <TextField
-              select
-              size="small"
-              label={t('billing.salesman')}
-              value={salesman}
-              onChange={(e) => setSalesman(e.target.value)}
-            >
-              <MenuItem value="">{t('common.all')}</MenuItem>
-              {(employees.data ?? []).map((emp) => (
-                <MenuItem key={emp.id} value={emp.id}>{emp.name}</MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              size="small"
-              label={t('billing.salesChannel')}
-              value={salesChannel}
-              onChange={(e) => setSalesChannel(e.target.value)}
-            >
-              <MenuItem value="">{t('common.all')}</MenuItem>
-              <MenuItem value="WALK_IN">{t('billing.channelWalkIn')}</MenuItem>
-              <MenuItem value="ONLINE">{t('billing.channelOnline')}</MenuItem>
-              <MenuItem value="DISTRIBUTOR">{t('billing.channelDistributor')}</MenuItem>
-            </TextField>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+              <TextField
+                select
+                size="small"
+                sx={{ flex: 1 }}
+                label={t('billing.salesman')}
+                value={salesman}
+                disabled={!canCreate}
+                onChange={(e) => setSalesman(e.target.value)}
+              >
+                <MenuItem value="">{t('common.all')}</MenuItem>
+                {(employees.data ?? []).map((emp) => (
+                  <MenuItem key={emp.id} value={emp.id}>{emp.name}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                select
+                size="small"
+                sx={{ flex: 1 }}
+                label={t('billing.salesChannel')}
+                value={salesChannel}
+                disabled={!canCreate}
+                onChange={(e) => setSalesChannel(e.target.value)}
+              >
+                <MenuItem value="">{t('common.all')}</MenuItem>
+                <MenuItem value="WALK_IN">{t('billing.channelWalkIn')}</MenuItem>
+                <MenuItem value="ONLINE">{t('billing.channelOnline')}</MenuItem>
+                <MenuItem value="DISTRIBUTOR">{t('billing.channelDistributor')}</MenuItem>
+              </TextField>
+            </Stack>
             <TextField
               size="small"
               multiline
               minRows={2}
               label={t('billing.deliveryAddress')}
               value={deliveryAddress}
+              disabled={!canCreate}
               onChange={(e) => setDeliveryAddress(e.target.value)}
             />
             {expectedProfitAmount(expectedProfit) != null ? (
@@ -600,7 +673,7 @@ export function QuotationsPage() {
                     <TableCell>{t('nav.products')}</TableCell>
                     <TableCell align="right">{t('billing.qty')}</TableCell>
                     <TableCell align="right">{t('billing.unitPrice')}</TableCell>
-                    <TableCell align="right">{t('billing.expectedPrice')}</TableCell>
+                    <TableCell align="right">{t('billing.expectedPrice', 'Est. Cost')}</TableCell>
                     <TableCell align="right">{t('billing.discountPercent')}</TableCell>
                     <TableCell align="right">{t('common.total')}</TableCell>
                     <TableCell />
@@ -610,12 +683,23 @@ export function QuotationsPage() {
                   {lines.map((l) => (
                     <TableRow key={l.key}>
                       <TableCell>{l.product.name}</TableCell>
-                      <TableCell align="right">{l.qty}</TableCell>
+                      <TableCell align="right">
+                        <TextField
+                          size="small"
+                          type="number"
+                          value={l.qty}
+                          disabled={isPartiallyConverted || !canCreate}
+                          onChange={(e) => updateLine(l.key, { qty: Math.max(0.001, toNumber(e.target.value) || 0.001) })}
+                          sx={{ width: 90 }}
+                          inputProps={{ min: 0.001, step: 'any', 'aria-label': t('billing.qty') }}
+                        />
+                      </TableCell>
                       <TableCell align="right">
                         <TextField
                           size="small"
                           type="number"
                           value={l.unitPrice}
+                          disabled={isPartiallyConverted || !canCreate}
                           onChange={(e) => updateLine(l.key, { unitPrice: Math.max(0, toNumber(e.target.value) || 0) })}
                           sx={{ width: 100 }}
                           inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.unitPrice') }}
@@ -626,6 +710,7 @@ export function QuotationsPage() {
                           size="small"
                           type="number"
                           value={l.expectedPrice}
+                          disabled={isPartiallyConverted || !canCreate}
                           onChange={(e) => updateLine(l.key, { expectedPrice: Math.max(0, toNumber(e.target.value) || 0) })}
                           sx={{ width: 100 }}
                           inputProps={{ min: 0, step: '0.01', 'aria-label': t('billing.expectedPrice') }}
@@ -636,6 +721,7 @@ export function QuotationsPage() {
                           size="small"
                           type="number"
                           value={l.discountPercent}
+                          disabled={isPartiallyConverted || !canCreate}
                           onChange={(e) =>
                             updateLine(l.key, {
                               discountPercent: Math.min(100, Math.max(0, toNumber(e.target.value) || 0)),
@@ -650,6 +736,7 @@ export function QuotationsPage() {
                         <IconButton
                           size="small"
                           aria-label={t('common.remove')}
+                          disabled={isPartiallyConverted || !canCreate}
                           onClick={() => setLines((prev) => prev.filter((x) => x.key !== l.key))}
                         >
                           <DeleteIcon fontSize="small" />
@@ -661,64 +748,73 @@ export function QuotationsPage() {
               </Table>
             ) : null}
 
-            <Stack spacing={1}>
-              {cf.filterBar}
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Autocomplete
-                sx={{ flex: 1 }}
-                options={productSearch.options}
-                loading={productSearch.isFetching}
-                filterOptions={(opts) => opts}
-                inputValue={productSearch.productQuery}
-                onInputChange={(_, v, reason) => {
-                  if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
-                }}
-                getOptionLabel={(o) => `${o.name} · ${o.sku}`}
-                value={pendingProduct}
-                onChange={(_, v) => {
-                  setPendingProduct(v);
-                  // F2-039: pre-fill from the catalog price but leave it
-                  // editable below — a quotation needs to negotiate/volume-
-                  // price a line, not just echo the current catalog price.
-                  setPendingUnitPrice(v ? String(toNumber(v.sellingPrice)) : '');
-                }}
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    label={t('nav.products')}
-                    helperText={productSearch.helperText}
+            {canCreate && !isPartiallyConverted ? (
+              <Stack spacing={1}>
+                {cf.filterBar}
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Autocomplete
+                    sx={{ flex: 1 }}
+                    options={productSearch.options}
+                    loading={productSearch.isFetching}
+                    filterOptions={(opts) => opts}
+                    inputValue={productSearch.productQuery}
+                    onInputChange={(_, v, reason) => {
+                      if (reason === 'input' || reason === 'clear' || reason === 'reset') productSearch.setProductQuery(v);
+                    }}
+                    getOptionLabel={(o) => `${o.name} · ${o.sku}`}
+                    value={pendingProduct}
+                    onChange={(_, v) => {
+                      setPendingProduct(v);
+                      setPendingUnitPrice(v ? String(toNumber(v.sellingPrice)) : '');
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label={t('nav.products')}
+                        helperText={productSearch.helperText}
+                      />
+                    )}
                   />
-                )}
-              />
-              <TextField
-                type="number"
-                label={t('billing.qty')}
-                value={pendingQty}
-                onChange={(e) => setPendingQty(e.target.value)}
-                sx={{ width: 100 }}
-                inputProps={{ min: 1 }}
-              />
-              <TextField
-                type="number"
-                label={t('billing.unitPrice')}
-                value={pendingUnitPrice}
-                onChange={(e) => setPendingUnitPrice(e.target.value)}
-                sx={{ width: 110 }}
-                inputProps={{ min: 0, step: '0.01' }}
-              />
-              <TextField
-                type="number"
-                label={t('billing.discountPercent')}
-                value={pendingDiscountPercent}
-                onChange={(e) => setPendingDiscountPercent(e.target.value)}
-                sx={{ width: 90 }}
-                inputProps={{ min: 0, max: 100, step: '0.01' }}
-              />
-              <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>
-                {t('common.add')}
-              </Button>
-            </Stack>
-            </Stack>
+                  <TextField
+                    type="number"
+                    label={t('billing.qty')}
+                    value={pendingQty}
+                    onChange={(e) => setPendingQty(e.target.value)}
+                    sx={{ width: 100 }}
+                    inputProps={{ min: 0.001, step: 'any' }}
+                  />
+                  <TextField
+                    type="number"
+                    label={t('billing.unitPrice')}
+                    value={pendingUnitPrice}
+                    onChange={(e) => setPendingUnitPrice(e.target.value)}
+                    sx={{ width: 110 }}
+                    inputProps={{ min: 0, step: '0.01' }}
+                  />
+                  <TextField
+                    type="number"
+                    label={t('billing.discountPercent')}
+                    value={pendingDiscountPercent}
+                    onChange={(e) => setPendingDiscountPercent(e.target.value)}
+                    sx={{ width: 90 }}
+                    inputProps={{ min: 0, max: 100, step: '0.01' }}
+                  />
+                  <Button variant="outlined" disabled={!pendingProduct} onClick={addLine}>
+                    {t('common.add')}
+                  </Button>
+                </Stack>
+              </Stack>
+            ) : null}
+
+            {lines.length > 0 ? (
+              <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'background.default' }}>
+                <Stack spacing={0.5} alignItems="flex-end">
+                  <Typography variant="body2">{t('common.subtotal', 'Subtotal')}: {formatMoney(subtotal)}</Typography>
+                  <Typography variant="body2" color="text.secondary">{t('billing.estimatedTax', 'Est. GST')}: {formatMoney(estimatedGst)}</Typography>
+                  <Typography variant="subtitle1" fontWeight="bold">{t('common.total', 'Total')}: {formatMoney(grandTotal)}</Typography>
+                </Stack>
+              </Paper>
+            ) : null}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -730,13 +826,15 @@ export function QuotationsPage() {
           >
             {t('common.cancel')}
           </Button>
-          <Button
-            variant="contained"
-            disabled={lines.length === 0 || createMutation.isPending}
-            onClick={() => createMutation.mutate()}
-          >
-            {t('common.save')}
-          </Button>
+          {canCreate ? (
+            <Button
+              variant="contained"
+              disabled={!customer || lines.length === 0 || createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+            >
+              {t('common.save')}
+            </Button>
+          ) : null}
         </DialogActions>
       </Dialog>
       <ConvertQuotationDialog
@@ -748,12 +846,12 @@ export function QuotationsPage() {
           setConvertTarget(null);
           setConvertingId(null);
         }}
-        onConfirm={(items) => {
+        onConfirm={(items, confirmExpired) => {
           if (!convertTarget) return;
           if (convertTarget.mode === 'order') {
-            convertToOrderMutation.mutate({ id: convertTarget.quotation.id, items });
+            convertToOrderMutation.mutate({ id: convertTarget.quotation.id, items, confirmExpired });
           } else {
-            convertMutation.mutate({ id: convertTarget.quotation.id, items });
+            convertMutation.mutate({ id: convertTarget.quotation.id, items, confirmExpired });
           }
         }}
       />

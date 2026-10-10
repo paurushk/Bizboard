@@ -16,17 +16,28 @@ export function paidAwareStatus(
   status: string,
   balance?: string | number | null,
   paymentState?: string | null,
+  settlementState?: string | null,
 ): string {
   const normalized = String(status || '').toUpperCase();
   if (normalized !== 'COMPLETED') return normalized;
   const ps = String(paymentState || '').toUpperCase();
-  if (ps === 'PAID') return 'PAID';
   if (ps === 'PAID_PENDING_BOOKS') return 'PAID_PENDING_BOOKS';
-  if (balance != null && Number(balance) === 0) {
-    return 'PAID';
-  }
+  const settlement = String(settlementState || '').toUpperCase();
+  if (settlement === 'PAID' || settlement === 'PARTIAL' || settlement === 'UNPAID') return settlement;
+  // An old payload with no settlementState must not invent Partial from received.
+  if (balance != null && Number(balance) === 0) return 'PAID';
   if (balance != null && Number(balance) > 0) return 'UNPAID';
   return normalized;
+}
+
+/** The chip key for an invoice-shaped row. Every screen goes through here so they agree. */
+export function invoiceDisplayStatus(inv: {
+  status: string;
+  balance?: string | number | null;
+  paymentState?: string | null;
+  settlementState?: string | null;
+}): string {
+  return paidAwareStatus(inv.status, inv.balance, inv.paymentState, inv.settlementState);
 }
 
 export function documentStatusTone(status: DocumentStatus | string): ChipTone {
@@ -42,6 +53,7 @@ export function documentStatusTone(status: DocumentStatus | string): ChipTone {
     case 'RETURNED':
       return 'warning';
     case 'UNPAID':
+    case 'PARTIAL':
       return 'warning';
     case 'CANCELLED':
       return 'error';

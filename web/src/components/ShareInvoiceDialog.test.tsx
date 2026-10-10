@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ShareInvoiceDialog } from '@/components/ShareInvoiceDialog';
@@ -19,10 +19,13 @@ const { shareInvoice } = vi.hoisted(() => ({
   }),
 }));
 
+const createInvoicePublicLink = vi.hoisted(() => vi.fn(async () => ({ url: '' })));
+const downloadInvoicePdf = vi.hoisted(() => vi.fn(async () => new Blob(['pdf'])));
+
 vi.mock('@/api/resources', () => ({
   shareInvoice: (...args: unknown[]) => shareInvoice(...(args as [number, { channel: string; recipient: string }])),
-  createInvoicePublicLink: vi.fn(async () => ({ url: '' })),
-  downloadInvoicePdf: vi.fn(async () => new Blob(['pdf'])),
+  createInvoicePublicLink: (...args: unknown[]) => createInvoicePublicLink(...(args as [])),
+  downloadInvoicePdf: (...args: unknown[]) => downloadInvoicePdf(...(args as [])),
 }));
 
 let openWindow: ReturnType<typeof vi.spyOn>;
@@ -74,6 +77,56 @@ describe('ShareInvoiceDialog', () => {
     const url = String(openWindow.mock.calls[0]?.[0] ?? '');
     expect(url.startsWith('https://wa.me/?text=')).toBe(true);
     expect(url).not.toMatch(/wa\.me\/\d/);
+  });
+
+  it('REVIEW device share is one server request and never mints a link on its own', async () => {
+    createInvoicePublicLink.mockClear();
+    wrap(<ShareInvoiceDialog open invoiceId={7} defaultPhone="919812345678" onClose={() => undefined} />);
+    await userEvent.click(screen.getByRole('button', { name: /^whatsapp$/i }));
+    await userEvent.click(screen.getByRole('button', { name: /you choose the chat/i }));
+    expect(shareInvoice).toHaveBeenCalledTimes(1);
+    expect(createInvoicePublicLink).not.toHaveBeenCalled();
+    const url = String(openWindow.mock.calls[0]?.[0] ?? '');
+    expect(decodeURIComponent(url)).toContain('Hello');
+  });
+
+  it('REVIEW on a phone the PDF is fetched when WhatsApp is chosen and shared as a file', async () => {
+    downloadInvoicePdf.mockClear();
+    const share = vi.fn(async () => undefined);
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14) Mobile Safari');
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    try {
+      wrap(<ShareInvoiceDialog open invoiceId={7} defaultPhone="919812345678" onClose={() => undefined} />);
+      await userEvent.click(screen.getByRole('button', { name: /^whatsapp$/i }));
+      await waitFor(() => expect(downloadInvoicePdf).toHaveBeenCalledWith(7));
+      await userEvent.click(screen.getByRole('button', { name: /you choose the chat/i }));
+      await waitFor(() => expect(share).toHaveBeenCalledTimes(1));
+      const data = share.mock.calls[0]?.[0] as unknown as { files?: File[]; text?: string };
+      expect(data.files?.[0]?.type).toBe('application/pdf');
+      expect(openWindow).not.toHaveBeenCalled();
+    } finally {
+      ua.mockRestore();
+      delete (navigator as unknown as Record<string, unknown>).canShare;
+      delete (navigator as unknown as Record<string, unknown>).share;
+    }
+  });
+
+  it('REVIEW closing the phone share sheet is not an error', async () => {
+    const onError = vi.fn();
+    const dismissed = Object.assign(new Error('closed'), { name: 'AbortError' });
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0) Mobile');
+    Object.defineProperty(navigator, 'share', { value: vi.fn(async () => { throw dismissed; }), configurable: true });
+    try {
+      wrap(<ShareInvoiceDialog open invoiceId={7} defaultPhone="919812345678" onClose={() => undefined} onError={onError} />);
+      await userEvent.click(screen.getByRole('button', { name: /^whatsapp$/i }));
+      await userEvent.click(screen.getByRole('button', { name: /you choose the chat/i }));
+      await waitFor(() => expect(shareInvoice).toHaveBeenCalled());
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      ua.mockRestore();
+      delete (navigator as unknown as Record<string, unknown>).share;
+    }
   });
 
   it('posts the phone only for send from business number and does not open a share sheet', async () => {

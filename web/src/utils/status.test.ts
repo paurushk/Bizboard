@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documentStatusTone, paidAwareStatus, statusLabelKey } from './status';
+import { documentStatusTone, invoiceDisplayStatus, paidAwareStatus, statusLabelKey } from './status';
 
 describe('paidAwareStatus', () => {
   it('maps a completed zero-balance invoice to PAID', () => {
@@ -33,5 +33,12 @@ describe('paidAwareStatus', () => {
 
   it('keeps CANCELLED visible regardless of balance/payment state', () => {
     expect(paidAwareStatus('CANCELLED', 0, 'PAID')).toBe('CANCELLED');
+  });
+});
+
+describe('invoiceDisplayStatus', () => {
+  it('uses the server settlement bucket so every screen shows Partial for a part-paid bill', () => {
+    expect(invoiceDisplayStatus({ status: 'COMPLETED', balance: '40', paymentState: 'UNPAID', settlementState: 'PARTIAL' })).toBe('PARTIAL');
+    expect(invoiceDisplayStatus({ status: 'RETURNED', balance: '0', settlementState: 'PAID' })).toBe('RETURNED');
   });
 });

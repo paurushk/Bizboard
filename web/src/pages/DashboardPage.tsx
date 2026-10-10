@@ -29,7 +29,7 @@ import { useAuth } from '@/auth/AuthContext';
 import { t, useLocale } from '@/i18n';
 import type { DashboardKpis } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
-import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, invoiceDisplayStatus, statusLabelKey } from '@/utils/status';
 import { canViewPaymentSurfaces } from '@/utils/permissions';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
@@ -380,8 +380,8 @@ export function DashboardPage() {
                   <TableCell>
                     <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
                       <StatusChip
-                        tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
-                        labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+                        tone={documentStatusTone(invoiceDisplayStatus(inv))}
+                        labelKey={statusLabelKey(invoiceDisplayStatus(inv))}
                       />
                       {inv.returnState === 'PARTIAL' ? (
                         <StatusChip tone="warning" labelKey="status.PARTIALLY_RETURNED" />

@@ -26,6 +26,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { formatDocumentDate } from '@/utils/documentDate';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import {
   cancelPurchase,
@@ -255,7 +256,9 @@ export function PurchaseHistoryPage() {
                   ref={measureElement}
                   style={{ height: vRow.size }}
                 >
-                  <TableCell>{p.invoiceDate}</TableCell>
+                  <TableCell>
+                    <time dateTime={(p.invoiceDate || '').slice(0, 10)}>{formatDocumentDate(p.invoiceDate)}</time>
+                  </TableCell>
                   <TableCell>
                     <Typography
                       component={RouterLink}

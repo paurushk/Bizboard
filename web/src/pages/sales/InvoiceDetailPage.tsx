@@ -24,6 +24,7 @@ import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'rea
 import { getErrorCode, getErrorMessage } from '@/api/client';
 import { PageTitle } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { invalidateInvoiceSideEffects } from '@/pages/sales/invalidateInvoiceSideEffects';
 import {
   amendInvoiceFilingIdentity,
   cancelSalesInvoice,
@@ -74,7 +75,7 @@ import {
   canViewFinancialReports,
 } from '@/utils/permissions';
 import { isAllowedPaymentUrl, isAllowedShareUrl, openShareUrl } from '@/utils/safeUrl';
-import { documentStatusTone, paidAwareStatus, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, invoiceDisplayStatus, statusLabelKey } from '@/utils/status';
 import { canEditInvoiceLines, hasLiveIrn } from '@/utils/einvoiceLock';
 
 function defaultPromiseDate(): string {
@@ -209,12 +210,7 @@ export function InvoiceDetailPage() {
       setGstGuardIssues(null);
       setGstGuardOverrideReason('');
       setGstGuardWarnings(data?.gstGuardWarnings?.length ? data.gstGuardWarnings : null);
-      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
-      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
-      void qc.invalidateQueries({ queryKey: ['customers'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
-      void qc.invalidateQueries({ queryKey: ['products'] });
-      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      invalidateInvoiceSideEffects(qc, invoiceId);
     },
     onError: (err) => {
       if (getErrorCode(err) === 'below_cost' && user?.role === 'OWNER') {
@@ -238,19 +234,23 @@ export function InvoiceDetailPage() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => cancelSalesInvoice(invoiceId),
-    onSuccess: () => {
-      setMessage(t('billing.invoiceCancelled'));
-      void qc.invalidateQueries({ queryKey: ['sales-invoice', invoiceId] });
-      void qc.invalidateQueries({ queryKey: ['sales-invoices'] });
-      void qc.invalidateQueries({ queryKey: ['customers'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
-      void qc.invalidateQueries({ queryKey: ['products'] });
-      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+    mutationFn: (reason: string) => cancelSalesInvoice(invoiceId, { reason }),
+    onSuccess: (result) => {
+      if (result.outcome === 'pending') {
+        const pendingLabel = query.data?.number?.trim() || (query.data ? `Draft #${query.data.id}` : '');
+        setMessage(t('history.cancelPending', { label: pendingLabel }));
+      } else {
+        setMessage(t('billing.invoiceCancelled'));
+      }
+      setCancelOpen(false);
+      setCancelReason('');
+      invalidateInvoiceSideEffects(qc, invoiceId);
     },
     onError: (err) => captureError(err),
   });
 
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [shareLink, setShareLink] = useState<string | null>(null);
   const [upiQr, setUpiQr] = useState<Record<string, string> | null>(null);
   const [upiError, setUpiError] = useState<string | null>(null);
@@ -499,12 +499,18 @@ export function InvoiceDetailPage() {
           </PageTitle>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
             <StatusChip
-              tone={documentStatusTone(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
-              labelKey={statusLabelKey(paidAwareStatus(inv.status, inv.balance, inv.paymentState))}
+              tone={documentStatusTone(invoiceDisplayStatus(inv))}
+              labelKey={statusLabelKey(invoiceDisplayStatus(inv))}
             />
+            {inv.status === 'CANCELLED' && inv.cancelReason ? (
+              <Typography variant="body2" color="text.secondary">
+                {t('invoiceDetail.cancelReason', { reason: inv.cancelReason })}
+              </Typography>
+            ) : null}
             {inv.returnState === 'PARTIAL' ? (
               <StatusChip tone="warning" labelKey="status.PARTIALLY_RETURNED" />
             ) : null}
+            {inv.cancelApprovalPending ? <Chip size="small" label={t('history.cancelPendingChip')} /> : null}
             <Chip size="small" label={inv.invoiceType} variant="outlined" />
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
@@ -640,9 +646,11 @@ export function InvoiceDetailPage() {
                 id="invoice-cancel"
                 ref={cancelBtnRef}
                 onClick={() => {
-                setMoreAnchor(null);
-                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) cancelMutation.mutate();
-              }}>{t('common.cancel')}</MenuItem>
+                  setMoreAnchor(null);
+                  setCancelReason('');
+                  setCancelOpen(true);
+                }}
+              >{t('common.cancel')}</MenuItem>
             ) : null}
             {canAct ? (
               <MenuItem component={RouterLink} to={`/sales/credit-notes/new?fromInvoice=${inv.id}`} onClick={() => setMoreAnchor(null)}>{t('cog.returnGoods')}</MenuItem>
@@ -1264,6 +1272,50 @@ export function InvoiceDetailPage() {
         </Paper>
       ) : null}
 
+      <Dialog
+        open={cancelOpen}
+        onClose={() => {
+          setCancelOpen(false);
+          setCancelReason('');
+          moreBtnRef.current?.focus();
+        }}
+        aria-labelledby="detail-cancel-title"
+        aria-describedby="detail-cancel-body"
+      >
+        <DialogTitle id="detail-cancel-title">
+          {t('history.confirmCancelTitle', { label: inv.number?.trim() || `Draft #${inv.id}` })}
+        </DialogTitle>
+        <DialogContent>
+          <Typography id="detail-cancel-body" variant="body2" sx={{ mb: 2 }}>
+            {t('history.confirmCancelBody')}
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            required
+            label={t('history.cancelReason')}
+            value={cancelReason}
+            onChange={(event) => setCancelReason(event.target.value.slice(0, 500))}
+            inputProps={{ maxLength: 500 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            setCancelOpen(false);
+            setCancelReason('');
+            moreBtnRef.current?.focus();
+          }}
+          >{t('common.close')}</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={!cancelReason.trim() || cancelMutation.isPending}
+            onClick={() => cancelMutation.mutate(cancelReason.trim())}
+          >
+            {t('history.confirmCancelInvoice')}
+          </Button>
+        </DialogActions>
+      </Dialog>
       <RecordInvoicePaymentDialog
         invoice={inv}
         open={payOpen}
