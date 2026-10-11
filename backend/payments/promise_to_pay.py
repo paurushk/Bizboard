@@ -121,6 +121,79 @@ def promise_is_broken(promise: PaymentPromise, *, as_of: date | None = None) -> 
     return Decimal(str(received)) < promise.promised_amount
 
 
+def received_since_promise(promise: PaymentPromise) -> Decimal:
+    """What the customer has paid since the promise was made, against it (one invoice or any)."""
+    since = (
+        timezone.localtime(promise.created_at).date()
+        if promise.created_at
+        else promise.promised_date
+    )
+    receipts = CustomerReceipt.objects.filter(
+        company_id=promise.company_id,
+        customer_id=promise.customer_id,
+        status=ReceiptStatus.POSTED,
+        receipt_date__gte=since,
+    )
+    if getattr(promise.company, "cheque_allocation_on_clearance", False):
+        # This company does not count a cheque as received until it clears.
+        from payments.models import ChequeStatus, PaymentMode
+
+        receipts = receipts.exclude(
+            mode=PaymentMode.CHEQUE, cheque_status=ChequeStatus.PENDING_CLEARANCE
+        )
+    if promise.invoice_id:
+        from payments.models import PaymentAllocation
+
+        total = PaymentAllocation.objects.filter(
+            receipt__in=receipts, sales_invoice_id=promise.invoice_id, reversed_at__isnull=True,
+        ).aggregate(total=Sum("amount"))["total"]
+    else:
+        total = receipts.aggregate(total=Sum("amount"))["total"]
+    return Decimal(str(total or 0))
+
+
+def promise_is_kept(promise: PaymentPromise) -> bool:
+    """Open, has an amount, and receipts since it was made cover that amount."""
+    if promise.resolved or promise.promised_amount is None:
+        return False
+    return received_since_promise(promise) >= promise.promised_amount
+
+
+def close_kept_promises(company, customer, *, receipt=None, user=None) -> int:
+    """Close every open promise of this customer that the money received now covers."""
+    closed = 0
+    for promise in PaymentPromise.objects.filter(company=company, customer=customer, resolved=False):
+        if promise_is_kept(promise):
+            promise.auto_resolved_by_receipt = receipt
+            promise.save(update_fields=["auto_resolved_by_receipt", "updated_at"])
+            resolve_promise(promise, user=user)
+            closed += 1
+    return closed
+
+
+def reopen_unkept_promises(receipt, *, user=None) -> int:
+    """A void took money back: reopen the promises this receipt had closed, unless covered still."""
+    reopened = 0
+    for promise in PaymentPromise.objects.filter(auto_resolved_by_receipt=receipt, resolved=True):
+        promise.resolved = False
+        promise.resolved_at = None
+        promise.auto_resolved_by_receipt = None
+        promise.updated_by = user
+        promise.save(update_fields=[
+            "resolved", "resolved_at", "auto_resolved_by_receipt", "updated_by", "updated_at",
+        ])
+        if promise_is_kept(promise):
+            # Another receipt still covers it.
+            resolve_promise(promise, user=user)
+        else:
+            reopened += 1
+            AuditService.log(
+                company=promise.company, user=user, action="UPDATE", entity_type="PaymentPromise",
+                entity_id=promise.pk, description="Promise to pay reopened: its receipt was voided",
+            )
+    return reopened
+
+
 def broken_promise_total(company, *, as_of: date | None = None) -> Decimal:
     today = as_of or timezone.localdate()
     total = Decimal("0")

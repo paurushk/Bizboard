@@ -224,6 +224,9 @@ def test_live_invalid_gst_rate(tenant_a):
 
 
 def test_live_allocation_exceeds_and_party_mismatch(tenant_a):
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     product = make_product(tenant_a.company)
     add_stock(tenant_a, product, "100")
     customer = make_customer(tenant_a.company, state="Karnataka")

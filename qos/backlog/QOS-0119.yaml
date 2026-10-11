@@ -1,0 +1,27 @@
+id: "QOS-0119"
+category: "RELIABILITY_TRUST"
+title: "Money In: a receipt could be recorded in a way that misstates the money (CREDIT mode, a discount above the amount, bank money with no bank)"
+persona: ["P1", "P2"]
+journey: "Record a customer receipt"
+problem: "The service accepted mode CREDIT as a receipt, a settlement discount larger than the amount or the bill, and UPI, bank or card money with no bank account (which posted to the cash ledger). The new-receipt dialog also carried the previous customer's bill and applied amount across a customer change, and kept the last receipt's mode and payment details."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md"]
+  detail: "Delivered 2026-10-11 (Phase 2 WP-1, WP-2, WP-3): server refuses CREDIT, an out-of-range discount or TDS and bank-type money with no bank (the company default or its only bank is used); gateway, POS and import callers are exempt so money that has already moved is always recorded; cash of Rs 2,00,000 or more from one person in a day warns or blocks (s.269ST, company setting); the dialog clears the bill on a customer change, resets after a save, follows the amount, and can find archived customers; short searches are ignored by the API."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Audit trail and AR integrity on a money path."
+effort: "M"
+recommendation: "Done. Run report_receipt_anomalies once per tenant before deploying to list what the new rules would have refused."
+test_required: "backend/tests/test_money_in_phase2.py::test_credit_mode_is_refused_by_the_service_and_the_api"
+guard_ref:
+  test: "backend/tests/test_money_in_phase2.py::test_credit_mode_is_refused_by_the_service_and_the_api"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-11"

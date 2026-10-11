@@ -29,12 +29,14 @@ class CustomerLedgerListView(APIView):
         company = get_company_user(request).company
         # BUG-301: one bulk SQL aggregation instead of 3N+1 queries.
         outstanding_by_id = LedgerService.bulk_customer_outstanding(company)
+        uncleared_by_id = LedgerService.bulk_uncleared_cheques(company)
         rows = [
             {
                 "customer_id": c.id,
                 "customer_name": c.name,
                 "status": c.status,
                 "outstanding": outstanding_by_id.get(c.id, 0),
+                "uncleared_cheques": uncleared_by_id.get(c.id, 0),
             }
             for c in Customer.objects.filter(company=company)
         ]
@@ -56,6 +58,7 @@ class CustomerLedgerDetailView(APIView):
             "customer_id": customer.id,
             "customer_name": customer.name,
             "outstanding": LedgerService.customer_outstanding(company, customer),
+            "uncleared_cheques": LedgerService.uncleared_cheque_total(company, customer),
             "entries": entries,
         })
 

@@ -105,7 +105,8 @@ def _restore_peeled_receipt_allocations(note, user):
         return
     from ledgers.services import LedgerService
     from payments.models import CustomerReceipt, ReceiptStatus
-    from payments.services import PaymentService, _allocated_of_payment
+    from payments.receipt_math import cash_available
+    from payments.services import PaymentService
 
     inv = SalesInvoice.objects.select_for_update().get(
         pk=note.sales_invoice_id, company_id=note.company_id,
@@ -120,7 +121,7 @@ def _restore_peeled_receipt_allocations(note, user):
             continue
         want = Decimal(str(slice_.get("amount") or 0))
         outstanding = LedgerService.sales_invoice_outstanding(inv)
-        unallocated = Decimal(str(receipt.amount or 0)) - _allocated_of_payment("receipt", receipt)
+        unallocated = cash_available(receipt)
         apply_amt = min(want, outstanding, unallocated)
         if apply_amt > 0:
             try:

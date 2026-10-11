@@ -1010,6 +1010,106 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'receipt-customer-tds',
+    'Payments & banking',
+    'The customer paid less because they deducted TDS. How do I record it?',
+    ['tds', 'tax deducted', 'short payment', '194c', 'form 26as', 'tds receivable'],
+    [
+      'On **t:nav.receipts**, enter the cash you received as the amount. Under More options, enter the TDS the customer deducted and its section. The bill is settled for cash plus TDS, and the TDS sits as a receivable (account 1270) until you claim it.',
+      'See the **t:nav.tdsReceivable** report for one row per receipt, with PAN and section, to match against Form 26AS. TDS is not a discount, so do not enter it as one.',
+    ],
+  ),
+  faq(
+    'receipt-settlement-discount',
+    'Payments & banking',
+    'How do I give an early-payment discount on a receipt?',
+    ['settlement discount', 'cash discount', 'early payment', 'discount on receipt'],
+    [
+      'Enter the discount with the receipt. It is applied only when the receipt is allocated, in proportion to the cash applied to each bill, so the bill clears for cash plus discount. If you unallocate, the discount is freed for the next allocation.',
+      'The discount cannot be more than the amount, and needs a bill to apply to.',
+    ],
+  ),
+  faq(
+    'receipt-refund-advance',
+    'Payments & banking',
+    'How do I give back an advance a customer paid?',
+    ['refund advance', 'return advance', 'unallocated receipt', 'give money back'],
+    [
+      'Open the receipt’s row menu on **t:nav.receipts** and choose Refund advance. Pick cash, UPI or bank, enter the amount (up to what is still unapplied) and a reason. The receipt stays on record and shows the refund.',
+      'A receipt with TDS cannot be refunded this way. To void a receipt that has a refund, void the refund first.',
+    ],
+  ),
+  faq(
+    'receipt-void-or-edit',
+    'Payments & banking',
+    'I entered a receipt wrongly. Do I void it or edit it?',
+    ['void receipt', 'edit receipt', 'wrong amount', 'wrong customer', 'wrong date'],
+    [
+      'Edit changes only notes, reference, UTR and, for bank money not yet matched, the bank account. For anything else, void the receipt with a reason and enter a new one. Voiding reverses the books entry and reopens the bills it paid.',
+      'If the money is on the walk-in account, use Move to customer instead. A receipt matched to a bank line must be unmatched in Bank reconciliation before it can be voided.',
+    ],
+  ),
+  faq(
+    'receipt-walk-in-advance',
+    'Payments & banking',
+    'Why does it say a walk-in receipt must be applied in full?',
+    ['walk-in receipt', 'must be applied to invoices in full', 'unnamed customer', 'move to customer'],
+    [
+      'The walk-in account is shared by everyone, so it cannot hold an advance that belongs to one person. Apply the whole amount to bills, or choose the named customer who paid.',
+      'If walk-in money is already unapplied, use Move to customer on the receipt. A dated transfer entry is posted and the change is recorded. **t:nav.attention** lists walk-in receipts still unapplied.',
+    ],
+  ),
+  faq(
+    'receipt-cheque-clearing',
+    'Payments & banking',
+    'When does a cheque count as received, and what if it bounces?',
+    ['cheque', 'bounce', 'clearance', 'uncleared cheque', 'cheque advance'],
+    [
+      'A cheque counts as received when you enter it. If your company holds cheques as advances until they clear (Payment settings), it stays unapplied until you mark it cleared, and then your choice of bills is applied. Uncleared cheques show on the customer’s ledger, the invoice and the dashboard.',
+      'A bounced cheque is voided, its bills reopen, and any matching bank line is sent for review.',
+    ],
+  ),
+  faq(
+    'receipt-cash-269st',
+    'Payments & banking',
+    'It warned me about cash of ₹2,00,000 or more.',
+    ['269st', 'cash limit', '2 lakh', 'cash receipt limit'],
+    [
+      'Section 269ST does not allow taking ₹2,00,000 or more in cash from one person in a day. By default you see a warning; if your company chose to block, the receipt is refused.',
+      'Ask for a bank transfer, UPI or cheque for the amount over the limit. The Owner sets warn or block in Payment settings.',
+    ],
+  ),
+  faq(
+    'receipt-bulk-apply-send',
+    'Payments & banking',
+    'Can I apply many advances or send many vouchers at once?',
+    ['bulk', 'apply advances', 'send vouchers', 'oldest bills', 'select receipts'],
+    [
+      'Tick the receipts on **t:nav.receipts**. Apply to oldest bills sends each advance to its own customer’s oldest open bills, and Send vouchers shares each voucher. The result lists what was applied, skipped or failed for every row, and one failure never stops the rest.',
+      'Running it again is safe: nothing is applied twice.',
+    ],
+  ),
+  faq(
+    'receipt-offline',
+    'Payments & banking',
+    'I had no internet when I took a receipt. Is it lost?',
+    ['offline', 'no connection', 'waiting to send', 'outbox', 'queued receipt'],
+    [
+      'No. A cash or cheque receipt is saved on the device and sent when you are back online. **Receipts waiting to send** on the receipts page lets you send now or discard it.',
+      'If a queued receipt cannot be recorded, for example the customer was archived or the bill was cancelled, it is marked Needs attention with the reason. UPI and bank money is not queued, because it needs the bank account and UTR to be checked online.',
+    ],
+  ),
+  faq(
+    'receipt-export-voucher',
+    'Payments & banking',
+    'How do I export receipts or get a Hindi voucher?',
+    ['export receipts', 'csv', 'voucher pdf', 'hindi voucher', 'send voucher'],
+    [
+      'Filter the list, then use Export CSV (needs export permission). Open a receipt to download its voucher in English or Hindi, print it, or send it by WhatsApp or email.',
+      'Exports and prints are recorded in the audit trail.',
+    ],
+  ),
+  faq(
     'allocation-party-mismatch',
     'Payments & banking',
     'It says the party does not match.',

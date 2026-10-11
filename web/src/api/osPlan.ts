@@ -19,6 +19,8 @@ export type Customer360 = {
   pattern: string | null;
   recommendedNextStep: string | null;
   outstanding: string | null;
+  /** Cheques taken but not yet cleared (already counted as received in `outstanding`). */
+  unclearedCheques?: string | null;
   aging: Record<string, string> | null;
   profit: { rows?: unknown[]; totals?: Record<string, string> } | null;
   complaints?: { id: number; number: string; status: string; category: string }[];

@@ -440,6 +440,8 @@ class ReportService:
             "payables": ReportService._aging_total(payables_aging),
             "low_stock_count": low_stock,
             "receivables_aging": aging,
+            # Shown beside the ageing, never inside its buckets: cheques taken but not cleared.
+            "receivables_uncleared_cheques": LedgerService.uncleared_cheque_total(company),
             "payables_aging": payables_aging,
             "cash_position": ReportService.cash_position(company),
             "recent_invoices": [

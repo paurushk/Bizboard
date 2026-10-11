@@ -38,3 +38,17 @@ CA name: ________________  Date: ________  Sign-off (F9): ________
 B11 / F12 decision (tax additional charges / scope out): ________________  Initials: ________
 
 Staging build / commit SHA: ________________  PDF template freeze date: ________
+
+## Money In, Phase 2 (2026-10-11): items for the CA before they are switched on
+
+Each setting is **off or warn by default** and changes nothing until the owner turns it on (Payments settings). The plan is `docs/plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md`.
+
+| # | Setting | What the CA confirms | Initials |
+|---|---|---|---|
+| 1 | Customer TDS on receipts (account **1270** "TDS Receivable (deducted by customers)") | The account head suits how the firm claims TDS (Form 26AS / certificates); the register at Reports, TDS receivable matches the 26AS entries | |
+| 2 | **Advance GST** (`advance_gst_treatment = services`) | Services advances are taxable at receipt (Table 11A), adjusted at invoice (11B) including across months, and a refund of an advance needs a refund voucher (CGST s.31(3)(e)); the default rate; that the tax is **reported in GSTR-1 but not posted to the ledger** (the return page shows the difference) or that it should also be posted | |
+| 3 | **Cash limit** (`cash_269st_mode`): off / warn / block | Whether Rs 2,00,000 or more from one person in a day should only warn (default) or be refused (s.269ST) | |
+| 4 | Cheques held as advances until they clear (`cheque_allocation_on_clearance`) | The firm's practice on when a cheque counts as received | |
+| 5 | Settlement discount | The discount is cleared against the bill when money is applied and posts to 5150 Settlement Discounts, split to the paisa across partial allocations | |
+
+CA name: ________________  Date: ________  Sign-off: ________

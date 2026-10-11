@@ -348,6 +348,9 @@ def test_complete_cancel_allocate_amend_write_audit_events(tenant_a):
     """Document actions are not CompanyScopedViewSet CRUD — complete / cancel /
     allocate / amend must still leave an AuditEvent (core.handlers + payments
     allocation view). Freeze map: every mutation writes AuditEvent."""
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     from core.models import AuditEvent
     from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
 

@@ -438,6 +438,50 @@ export const SALES_HELP: ContextHelpPage[] = [
         'If require-payment-reference is on, UPI and bank need a UTR; cash does not.',
         'रेफरेंस अनिवार्य हो तो UPI/बैंक पर UTR चाहिए; नकद पर नहीं।',
       ],
+      [
+        'UPI, bank and card money must name the bank account it landed in; the default is filled in. CREDIT is not a way of being paid: leave the bill unpaid instead.',
+        'UPI, बैंक और कार्ड की रकम में वह बैंक खाता बताना ज़रूरी है जिसमें पैसा आया; डिफ़ॉल्ट भर जाता है। उधार (CREDIT) भुगतान का तरीका नहीं है: बिल को बकाया रहने दें।',
+      ],
+      [
+        '**Cheques.** A cheque counts as received the moment it is entered and can be applied to a bill. If your company holds cheques as advances until they clear (Payment settings), the cheque stays an advance until you mark it cleared; what you chose is then applied. A bounced cheque is voided and its bills reopen.',
+        '**चेक।** चेक दर्ज होते ही प्राप्त माना जाता है और बिल पर लग सकता है। यदि आपकी कंपनी चेक को क्लियर होने तक अग्रिम रखती है (पेमेंट सेटिंग्स), तो क्लियर चिह्नित करने तक वह अग्रिम रहता है; फिर आपका चुनाव लागू होता है। बाउंस चेक रद्द होता है और उसके बिल फिर खुल जाते हैं।',
+      ],
+      [
+        '**TDS deducted by the customer.** Under More options, enter the tax the customer deducted (and the section). The bill is settled for the amount received plus the TDS; the TDS waits as a receivable until the certificate arrives. A receipt with TDS cannot be refunded as an advance.',
+        '**ग्राहक द्वारा काटा गया TDS।** और विकल्प में ग्राहक द्वारा काटा गया कर (और धारा) लिखें। बिल मिली राशि और TDS के जोड़ से चुकता होता है; प्रमाणपत्र आने तक TDS प्राप्य रहता है। TDS वाली रसीद अग्रिम के रूप में वापस नहीं हो सकती।',
+      ],
+      [
+        '**Refund an advance** gives back money that was never applied to a bill, in cash, UPI or bank transfer, with a reason; the receipt stays on record. Void the refund first if the receipt itself must be voided.',
+        '**अग्रिम लौटाएँ** उस रकम को लौटाता है जो किसी बिल पर नहीं लगी, नकद, UPI या बैंक ट्रांसफर से, कारण के साथ; रसीद रिकॉर्ड में रहती है। रसीद ही रद्द करनी हो तो पहले वापसी रद्द करें।',
+      ],
+      [
+        '**Settlement discount.** An early-payment discount you allow is entered with the receipt and only counts once the receipt is applied to a bill. It is spread over the bills in proportion to the cash applied, so the bill clears for cash plus discount.',
+        '**सेटलमेंट डिस्काउंट।** जल्दी भुगतान पर दी गई छूट रसीद के साथ लिखी जाती है और रसीद बिल पर लगने पर ही गिनी जाती है। यह लगाई गई नकद के अनुपात में बिलों पर बँटती है, इसलिए बिल नकद और छूट के जोड़ से चुकता होता है।',
+      ],
+      [
+        '**Find and sort.** Search by receipt number, customer name, phone, UTR or reference (at least 3 characters). Click a column heading to sort, filter by date, mode, status or bank match, and use **Export CSV** if you have export permission. Totals above the list follow your filters.',
+        '**खोजें और क्रमबद्ध करें।** रसीद नंबर, ग्राहक का नाम, फ़ोन, UTR या संदर्भ से खोजें (कम से कम 3 अक्षर)। कॉलम शीर्षक दबाकर क्रम बदलें, तारीख, मोड, स्थिति या बैंक मिलान से छाँटें, और निर्यात अनुमति हो तो **Export CSV** लें। सूची के ऊपर के योग आपके फ़िल्टर के अनुसार होते हैं।',
+      ],
+      [
+        '**Apply to oldest bills.** Tick several advances and apply each to its own customer’s oldest open bills in one go. A receipt that fails never stops the others, and running it twice does not apply twice.',
+        '**सबसे पुराने बिलों पर लगाएँ।** कई अग्रिम चुनकर हर एक को उसी ग्राहक के सबसे पुराने खुले बिलों पर एक साथ लगाएँ। जो रसीद न लगे वह बाकी को नहीं रोकती, और दोबारा चलाने पर दो बार नहीं लगती।',
+      ],
+      [
+        '**Send the voucher.** Open the voucher to download it in English or Hindi, or use **Send** to share it by WhatsApp or email. Without the customer’s WhatsApp opt-in you get a link to send from your own phone, and nothing is recorded as delivered.',
+        '**वाउचर भेजें।** वाउचर खोलकर अंग्रेज़ी या हिंदी में डाउनलोड करें, या **Send** से WhatsApp या ईमेल पर भेजें। ग्राहक की WhatsApp सहमति न हो तो अपने फ़ोन से भेजने का लिंक मिलता है, और डिलीवर हुआ दर्ज नहीं होता।',
+      ],
+      [
+        '**Walk-in money.** The walk-in account cannot keep an advance, so the receipt must be applied to bills in full. If money landed there by mistake, use **Move to customer** to transfer it to whoever paid; a dated entry is posted and the change is recorded.',
+        '**वॉक-इन की रकम।** वॉक-इन खाता अग्रिम नहीं रख सकता, इसलिए रसीद पूरी तरह बिलों पर लगनी चाहिए। रकम गलती से वहाँ आ गई हो तो **Move to customer** से उसे भुगतान करने वाले ग्राहक पर भेजें; तारीख वाली एंट्री बनती है और बदलाव दर्ज होता है।',
+      ],
+      [
+        '**No connection.** A cash or cheque receipt is saved on this device and sent when you are back online. Open **Receipts waiting to send** to send now, discard, or see one that could not be recorded and why.',
+        '**कनेक्शन न होने पर।** नकद या चेक रसीद इसी डिवाइस पर सेव होती है और ऑनलाइन आने पर भेजी जाती है। **Receipts waiting to send** में तुरंत भेजें, हटाएँ, या देखें कि कोई रसीद क्यों दर्ज नहीं हो पाई।',
+      ],
+      [
+        'Edit changes only notes, reference, UTR and (for bank money not matched to a bank line) the bank account. Customer, amount, mode and date need a void and a new receipt.',
+        'संपादन से सिर्फ टिप्पणी, संदर्भ, UTR और (बैंक से न मिलाई गई बैंक रकम के लिए) बैंक खाता बदलता है। ग्राहक, राशि, मोड और तारीख के लिए रद्द करके नई रसीद बनाएँ।',
+      ],
     ],
     businessImpact: [
       [
@@ -448,15 +492,34 @@ export const SALES_HELP: ContextHelpPage[] = [
     keyRules: [
       ['The invoice must be completed or returned. Drafts cannot take allocations.', 'बिल पूर्ण या RETURNED होना चाहिए। ड्राफ्ट पर आवंटन नहीं।'],
       ['Gateway receipts are refunded in the gateway, not voided here.', 'गेटवे रसीद यहाँ डिलीट नहीं — गेटवे में रिफंड।'],
+      [
+        'Cash of ₹2,00,000 or more from one person in a day is not allowed (Section 269ST). You see a warning, or the receipt is refused if your company chose to block.',
+        'एक व्यक्ति से एक दिन में ₹2,00,000 या अधिक नकद लेना मना है (धारा 269ST)। चेतावनी दिखती है, या कंपनी ने रोकना चुना हो तो रसीद नहीं बनती।',
+      ],
+      [
+        'Voiding a receipt needs a reason, reverses its books entry and reopens the bills it paid. It is refused while an advance refund is live (void the refund first) or while the receipt is matched to a bank line (unmatch it in Bank reconciliation).',
+        'रसीद रद्द करने के लिए कारण चाहिए; इससे उसकी बही एंट्री उलटती है और उसके बिल फिर खुल जाते हैं। अग्रिम वापसी चालू हो (पहले वापसी रद्द करें) या रसीद बैंक लाइन से मिली हो (बैंक मिलान में अनमैच करें) तो रद्द नहीं होती।',
+      ],
+      [
+        'The same UTR on two receipts is flagged as a possible duplicate. If it is genuine, dismiss the alert and say why.',
+        'दो रसीदों पर एक ही UTR हो तो संभावित डुप्लिकेट का निशान लगता है। यदि वह सही है तो अलर्ट हटाएँ और कारण लिखें।',
+      ],
+      [
+        'A cash receipt counted in a closed till is corrected by a manager with Correct closed till; the till’s counted figures stay and the correction shows on its report.',
+        'बंद गल्ले में गिनी गई नकद रसीद को मैनेजर "बंद गल्ला सुधारें" से ठीक करता है; गल्ले की गिनी हुई रकम वैसी रहती है और सुधार उसकी रिपोर्ट में दिखता है।',
+      ],
     ],
     commonMistakes: [
       ['Taking a receipt against the wrong customer, then wondering why allocation says party mismatch.', 'गलत ग्राहक पर रसीद लेकर पार्टी मिसमैच।'],
+      ['Entering the TDS as a settlement discount. TDS is tax the customer deducted and is claimed later; a discount is something you gave away.', 'TDS को सेटलमेंट डिस्काउंट की तरह लिखना। TDS ग्राहक द्वारा काटा गया कर है जो बाद में दावा होता है; डिस्काउंट आप खुद छोड़ते हैं।'],
+      ['Voiding a receipt to change its amount or customer. Void it with a reason and enter a new one, or use Move to customer for walk-in money.', 'राशि या ग्राहक बदलने के लिए रसीद रद्द करना। कारण के साथ रद्द करके नई रसीद बनाएँ, या वॉक-इन की रकम के लिए Move to customer लें।'],
       ['Expecting UPI QR on the invoice to mark the bill paid by itself — still record a receipt or wait for a payment-link capture.', 'इनवॉइस का UPI QR खुद Paid नहीं करता — रसीद दर्ज करें या पेमेंट लिंक का इंतज़ार करें।'],
     ],
     relatedPages: [
       { path: '/sales/history', labelKey: 'nav.salesHistory' },
       { path: '/payments/links', labelKey: 'nav.paymentLinks' },
       { path: '/reports/customer-ledger', labelKey: 'nav.customerLedger' },
+      { path: '/reports/tds-receivable', labelKey: 'nav.tdsReceivable' },
     ],
     nextActions: [
       ['After saving a receipt, allocate it to the open invoices on that customer.', 'रसीद सेव के बाद उसी ग्राहक के खुले बिलों पर आवंटित करें।'],

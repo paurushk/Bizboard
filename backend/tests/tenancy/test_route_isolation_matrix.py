@@ -688,3 +688,58 @@ def test_public_quotation_link_never_crosses_tenants(tenant_a, tenant_b):
     for bad in ("x" * 43, token_a[:-1] + ("A" if token_a[-1] != "A" else "B")):
         for suffix in ("", "pdf/"):
             assert anon.get(f"/api/v1/public/quotations/{bad}/{suffix}").status_code == 404, (bad, suffix)
+
+
+def _money_in_receipt(tenant, customer, amount):
+    from decimal import Decimal
+
+    from payments.services import PaymentService
+
+    return PaymentService.create_receipt(
+        company=tenant.company, customer=customer, amount=Decimal(amount), mode="CASH", user=tenant.owner
+    )
+
+
+def test_public_receipt_voucher_never_crosses_tenants(tenant_a, tenant_b, client):
+    from django.core import signing
+
+    from payments.receipt_share import SALT, mint_voucher_token
+    from tests.conftest import make_customer
+
+    theirs = _money_in_receipt(tenant_b, make_customer(tenant_b.company), "10")
+    # A token minted for tenant B's receipt names tenant B; asking for it as tenant A's company, or
+    # with the company swapped, never resolves.
+    swapped = signing.dumps({"r": theirs.pk, "c": tenant_a.company.pk}, salt=SALT)
+    assert client.get(f"/api/v1/public/receipt-voucher/{swapped}/").status_code == 404
+    assert client.get(f"/api/v1/public/receipt-voucher/{mint_voucher_token(theirs)}/").status_code == 200
+
+
+def test_portal_receipt_voucher_never_crosses_customers_or_tenants(tenant_a, tenant_b):
+    from datetime import timedelta
+
+    from django.utils import timezone
+    from payments.models import CustomerPortalToken
+    from rest_framework.test import APIClient
+
+    from tests.conftest import make_customer
+
+    for tenant in (tenant_a, tenant_b):
+        tenant.company.feature_flags = {**(tenant.company.feature_flags or {}), "ENABLE_CUSTOMER_PORTAL": True}
+        tenant.company.save(update_fields=["feature_flags"])
+    mine = make_customer(tenant_a.company, name="Mine")
+    other_customer = make_customer(tenant_a.company, name="Someone else")
+    theirs = make_customer(tenant_b.company, name="Theirs")
+    own = _money_in_receipt(tenant_a, mine, "10")
+    others = _money_in_receipt(tenant_a, other_customer, "10")
+    foreign = _money_in_receipt(tenant_b, theirs, "10")
+    row = CustomerPortalToken.objects.create(
+        company=tenant_a.company, customer=mine, token="portal-iso-1",
+        expires_at=timezone.now() + timedelta(minutes=10),
+    )
+    anon = APIClient()
+    base = f"/api/v1/public/customer-portal/{row.token}/receipts"
+    if anon.get(f"/api/v1/public/customer-portal/{row.token}/").status_code == 404:
+        pytest.skip("customer portal flag not enabled in this configuration")
+    assert anon.get(f"{base}/{own.pk}/voucher/").status_code == 200
+    assert anon.get(f"{base}/{others.pk}/voucher/").status_code == 404  # another customer, same company
+    assert anon.get(f"{base}/{foreign.pk}/voucher/").status_code == 404  # another tenant

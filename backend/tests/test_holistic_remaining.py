@@ -238,6 +238,9 @@ def test_period_close_blocked_when_regular_company_has_no_gstin(tenant_a):
 def test_period_close_after_gst_purchase_receipt_return_and_residual_dn(tenant_a):
     """ARCH-03 money loop against GST invoices: inward + SI + partial receipt
     + full return + residual DN must still be closeable once GSTIN/HSN exist."""
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     from datetime import date
 
     _enable_books(tenant_a, gstin="29AAAAA0000A1ZY")

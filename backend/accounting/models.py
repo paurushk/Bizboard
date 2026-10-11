@@ -285,6 +285,31 @@ class CashShiftRegister(CompanyScopedModel):
         ]
 
 
+class CashShiftAdjustment(CompanyScopedModel):
+    """A manager's correction to a till that has already been counted and locked.
+
+    The shift's counted cash, expected cash and variance stay exactly as they were on the day.
+    The correction (a cash receipt voided after the count) is recorded here instead, so the shift
+    report can show what changed afterwards, by whom and why.
+    """
+
+    shift = models.ForeignKey(CashShiftRegister, on_delete=models.PROTECT, related_name="adjustments")
+    receipt = models.ForeignKey(
+        "payments.CustomerReceipt", on_delete=models.PROTECT, related_name="till_adjustments"
+    )
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    reason = models.CharField(max_length=500)
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="shift_adjustment_amount_positive"),
+        ]
+
+
 class CashDrop(CompanyScopedModel):
     """One removal of cash from an open drawer. `cash_dropped` on the shift is the cached sum."""
 

@@ -89,6 +89,7 @@ JSON_SECTIONS = (
     "file_assets",
     # R-014: every wipe target so restore/unbacked_live_counts stay honest.
     "bank_accounts",
+    "advance_refunds",
     "leads",
     "lead_activities",
     "opportunities",
@@ -227,6 +228,9 @@ def _wipe_target_sections(company) -> dict[str, list[dict]]:
         )
 
         extra["bank_accounts"] = _optional_rows(BankAccount, company)
+        from payments.models import CustomerAdvanceRefund
+
+        extra["advance_refunds"] = _optional_rows(CustomerAdvanceRefund, company)
         extra["payment_links"] = _optional_rows(PaymentLink, company)
         extra["gateway_payments"] = _optional_rows(GatewayPayment, company)
         extra["gateway_refund_outbox"] = _optional_rows(GatewayRefundOutbox, company)
@@ -735,6 +739,7 @@ def wipe_logical_tenant_rows(company) -> None:
     from payments.models import (
         BankStatement,
         BankStatementLine,
+        CustomerAdvanceRefund,
         CustomerReceipt,
         DunningReminder,
         GatewayPayment,
@@ -773,6 +778,7 @@ def wipe_logical_tenant_rows(company) -> None:
     DunningReminder.objects.filter(company=company).delete()
     GatewayRefundOutbox.objects.filter(company=company).delete()
     PaymentAllocation.objects.filter(company=company).delete()
+    CustomerAdvanceRefund.objects.filter(company=company).delete()
     GatewayPayment.objects.filter(company=company).delete()
     PaymentLink.objects.filter(company=company).delete()
     BankReconSession.objects.filter(company=company).delete()
@@ -1590,7 +1596,22 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
             kwargs.get("sales_invoice_id") or kwargs.get("purchase_invoice_id")
         )):
             continue
-        PaymentAllocation.objects.create(company=target_company, created_by=owner, updated_by=owner, **kwargs)
+        restored = PaymentAllocation(company=target_company, created_by=owner, updated_by=owner, **kwargs)
+        restored._shares_set = True  # the backup row already carries its discount and TDS slice
+        restored.save()
+
+    from payments.models import CustomerAdvanceRefund
+
+    for row in payload.get("advance_refunds") or []:
+        kwargs = _copy_model_fields(
+            CustomerAdvanceRefund,
+            row,
+            skip={"id", "company_id", "created_by_id", "updated_by_id", "bank_account_id", "shift_id", "voided_by_id"},
+            remap={"receipt_id": receipt_map},
+        )
+        if not kwargs.get("receipt_id"):
+            continue
+        CustomerAdvanceRefund.objects.create(company=target_company, created_by=owner, updated_by=owner, **kwargs)
 
     account_map: dict[Any, int] = {}
     pending_parents: list[tuple[Any, Any]] = []
@@ -1853,7 +1874,15 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
     from core.models import DocumentSeries, FileAsset
     from inventory.models import BatchLot, InventoryCostLayer, SerialNumber, StockBalance, StockMovement, Warehouse
     from masters.models import Customer, Product, Supplier
-    from payments.models import BankAccount, CustomerReceipt, PaymentAllocation, PaymentLink, ReconMatch, SupplierPayment
+    from payments.models import (
+        BankAccount,
+        CustomerAdvanceRefund,
+        CustomerReceipt,
+        PaymentAllocation,
+        PaymentLink,
+        ReconMatch,
+        SupplierPayment,
+    )
     from purchases.models import (
         BillOfEntry,
         PurchaseCreditNote,
@@ -1912,6 +1941,7 @@ def unbacked_live_counts(company, payload: dict[str, Any]) -> dict[str, int]:
         ("payment_links", PaymentLink),
         ("recon_matches", ReconMatch),
         ("bank_accounts", BankAccount),
+        ("advance_refunds", CustomerAdvanceRefund),
     )
     try:
         from accounting.models import FixedAsset

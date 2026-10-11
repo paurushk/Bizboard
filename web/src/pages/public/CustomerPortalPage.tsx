@@ -9,7 +9,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { downloadCustomerPortalInvoice, getCustomerPortal, startCustomerPortalPayment, submitPortalComplaint } from '@/api/resources';
+import { downloadCustomerPortalInvoice, downloadCustomerPortalReceipt, getCustomerPortal, startCustomerPortalPayment, submitPortalComplaint } from '@/api/resources';
 import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
@@ -113,6 +113,28 @@ export function CustomerPortalPage() {
                 ) : null}
               </Stack>
             ))}
+            {(data.receipts?.length ?? 0) > 0 ? (
+              <Stack spacing={1}>
+                <Typography variant="h6" component="h2">{t('receipts.portalReceipts')}</Typography>
+                {data.receipts!.map((receipt) => (
+                  <Stack key={receipt.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                    <Typography sx={{ flex: 1 }}>
+                      {receipt.number} · {receipt.receiptDate} · {formatMoney(receipt.amount)} · {receipt.mode}
+                    </Typography>
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        void downloadCustomerPortalReceipt(token, receipt.id).then((blob) => {
+                          triggerBlobDownload(blob, `receipt-${receipt.number || receipt.id}.pdf`);
+                        });
+                      }}
+                    >
+                      {t('receipts.portalDownloadReceipt')}
+                    </Button>
+                  </Stack>
+                ))}
+              </Stack>
+            ) : null}
             {data.complaintsEnabled ? (
               <Stack spacing={1}>
                 <Typography variant="h6">{t('portal.complaintTitle')}</Typography>

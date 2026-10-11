@@ -93,6 +93,26 @@ def _shift_cash_payments(company, cashier, business_date, shift):
     return stamped | unstamped
 
 
+def _shift_cash_advance_refunds(company, cashier, business_date, shift):
+    """Cash handed back out of an advance (Money In), paid from this till."""
+    from payments.models import AdvanceRefundStatus, CustomerAdvanceRefund, PaymentMode
+
+    base = CustomerAdvanceRefund.objects.filter(
+        company=company, mode=PaymentMode.CASH, status=AdvanceRefundStatus.POSTED,
+    )
+    if shift is None:
+        return base.filter(created_by=cashier, refund_date=business_date)
+    stamped = base.filter(shift=shift)
+    legacy = str(getattr(shift, "terminal_id", "") or "").startswith("legacy-")
+    if legacy:
+        unstamped = base.filter(shift__isnull=True, created_by=cashier, refund_date=business_date)
+    elif _sole_open_shift(company, shift):
+        unstamped = base.filter(shift__isnull=True, paid_from_till=True, refund_date=business_date)
+    else:
+        unstamped = base.none()
+    return stamped | unstamped
+
+
 def _shift_cash_refunds(company, cashier, business_date, shift):
     from sales.models import PosCounterRefund
 
@@ -124,6 +144,9 @@ def expected_system_cash(company, cashier, business_date, opening_float, cash_dr
         total=Sum("amount"),
     )["total"] or Decimal("0")
     refunded = _shift_cash_refunds(company, cashier, business_date, shift).aggregate(
+        total=Sum("amount"),
+    )["total"] or Decimal("0")
+    refunded += _shift_cash_advance_refunds(company, cashier, business_date, shift).aggregate(
         total=Sum("amount"),
     )["total"] or Decimal("0")
     if shift is not None:
@@ -170,6 +193,76 @@ def drop_cash(shift, amount, user, note: str = ""):
         metadata={"amount": str(dropped), "business_date": str(locked.business_date)},
     )
     return locked
+
+
+@transaction.atomic
+def correct_closed_till_receipt(receipt, reason, user):
+    """Void a cash receipt that was counted in a closed till, and record why against that till.
+
+    Only a manager or the owner may do this. The receipt is voided in the normal way (its
+    journal reversed, its allocations undone, on today's date, since the books for the till's
+    day may be closed). The shift's counted cash, expected cash and variance are NOT edited:
+    they are what was found on the day. The correction is a ``CashShiftAdjustment`` row that
+    the shift report shows beneath the day's figures.
+    """
+    from core.permissions import get_company_user  # noqa: F401  (role is read from membership below)
+    from payments.models import CustomerReceipt, PaymentMode
+    from payments.services import PaymentService
+
+    from .models import CashShiftAdjustment
+
+    rec = CustomerReceipt.objects.select_for_update(of=("self",)).select_related("shift").get(pk=receipt.pk)
+    if not rec.shift_id or rec.shift.status != CashShiftRegister.Status.CLOSED:
+        raise BusinessRuleError(
+            "This receipt was not counted in a closed till. Void it from the receipt instead.",
+            code="receipt_not_in_closed_till",
+        )
+    if rec.mode != PaymentMode.CASH:
+        raise BusinessRuleError(
+            "Only cash receipts are counted in a till.", code="receipt_not_in_closed_till"
+        )
+    from accounts.models import CompanyUser
+
+    membership = CompanyUser.objects.filter(company=rec.company, user=user, is_active=True).first()
+    if membership is None or membership.role not in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER):
+        raise BusinessRuleError(
+            "Only a manager or the owner can correct a closed till.", code="till_correction_forbidden"
+        )
+    shift = CashShiftRegister.objects.select_for_update().get(pk=rec.shift_id)
+    voided = PaymentService.void_receipt(
+        receipt=rec, user=user, reason=reason, allow_closed_till=True,
+    )
+    adjustment = CashShiftAdjustment.objects.create(
+        company=rec.company,
+        shift=shift,
+        receipt=voided,
+        amount=voided.amount,
+        reason=voided.void_reason,
+        approved_by=user,
+        created_by=user,
+        updated_by=user,
+    )
+    from core.services.audit import AuditService
+
+    AuditService.log(
+        company=rec.company, user=user, action="UPDATE", entity_type="CashShiftRegister",
+        entity_id=str(shift.pk), description="Closed till corrected",
+        metadata={"receipt_id": rec.pk, "amount": str(voided.amount), "reason": voided.void_reason},
+    )
+    return adjustment
+
+
+def adjusted_figures(shift):
+    """(adjustments total, expected cash after adjustments, variance after adjustments).
+
+    The day's stored figures are left alone; this is what they become once later corrections are
+    applied. A voided cash receipt lowers what the till should have held.
+    """
+    total = shift.adjustments.aggregate(total=Sum("amount"))["total"] or Decimal("0")
+    total = _money(total)
+    expected = (_money(shift.expected_cash) - total).quantize(Q2, rounding=ROUND_HALF_UP)
+    variance = (_money(shift.counted_cash) - expected).quantize(Q2, rounding=ROUND_HALF_UP)
+    return total, expected, variance
 
 
 @transaction.atomic

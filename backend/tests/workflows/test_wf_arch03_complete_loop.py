@@ -30,6 +30,9 @@ GSTIN_CU = "29AAAAA0000A1ZY"
 
 
 def test_wf_arch03_complete_business_loop(tenant_a, assert_consistent):
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     company = tenant_a.company
     company.accounting_enabled = True
     company.gstin = GSTIN_CO

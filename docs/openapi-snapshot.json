@@ -16737,6 +16737,126 @@
                 }
             }
         },
+        "/api/v1/payments/advance-refunds/": {
+            "get": {
+                "operationId": "payments_advance_refunds_list",
+                "description": "Advances handed back to customers. Created from a receipt (``refund-advance``); voided here.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedAdvanceRefundLineList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/advance-refunds/{id}/": {
+            "get": {
+                "operationId": "payments_advance_refunds_retrieve",
+                "description": "Advances handed back to customers. Created from a receipt (``refund-advance``); voided here.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer advance refund.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdvanceRefundLine"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/advance-refunds/{id}/void/": {
+            "post": {
+                "operationId": "payments_advance_refunds_void_create",
+                "description": "Advances handed back to customers. Created from a receipt (``refund-advance``); voided here.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer advance refund.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdvanceRefundLine"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/payments/allocations/": {
             "get": {
                 "operationId": "payments_allocations_list",
@@ -17955,6 +18075,54 @@
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
                 "parameters": [
                     {
+                        "in": "query",
+                        "name": "customer",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or after."
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_to",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or before."
+                    },
+                    {
+                        "in": "query",
+                        "name": "mode",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BANK",
+                                "CARD",
+                                "CASH",
+                                "CHEQUE",
+                                "CREDIT",
+                                "UPI"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap."
+                    },
+                    {
                         "name": "page",
                         "required": false,
                         "in": "query",
@@ -17970,6 +18138,34 @@
                         "description": "Number of results to return per page.",
                         "schema": {
                             "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Number, customer name, phone, UTR or reference (max 100 characters)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "reconciled",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: matched to a bank line; false: not matched."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "POSTED",
+                                "REFUNDED",
+                                "VOIDED"
+                            ]
                         }
                     }
                 ],
@@ -18068,6 +18264,209 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "payments_receipts_partial_update",
+                "description": "Edit the descriptive fields of a posted receipt (notes, reference, UTR, bank account).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCustomerReceipt"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCustomerReceipt"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedCustomerReceipt"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/{id}/correct-closed-till/": {
+            "post": {
+                "operationId": "payments_receipts_correct_closed_till_create",
+                "description": "Manager: void a cash receipt that was counted in a closed till and record why.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/{id}/reassign-customer/": {
+            "post": {
+                "operationId": "payments_receipts_reassign_customer_create",
+                "description": "Move money that landed on the walk-in account to the customer who paid.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/{id}/refund-advance/": {
+            "post": {
+                "operationId": "payments_receipts_refund_advance_create",
+                "description": "Hand back part or all of the unallocated money on this receipt, without voiding it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AdvanceRefundLine"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/{id}/send/": {
+            "post": {
+                "operationId": "payments_receipts_send_create",
+                "description": "Send the receipt voucher to the customer by WhatsApp or email, and log it.\n\nAn empty ``recipient`` with WhatsApp is a device share: the text and link come back and\nthe person picks the chat; nothing is recorded as delivered. Business-number (Cloud)\nsending needs the customer's WhatsApp opt-in, exactly as for invoices.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
                                 }
                             }
                         },
@@ -18190,6 +18589,304 @@
                 }
             }
         },
+        "/api/v1/payments/receipts/{id}/voucher/": {
+            "get": {
+                "operationId": "payments_receipts_voucher_retrieve",
+                "description": "Printable receipt voucher PDF. ``?layout=thermal`` for an 80 mm roll.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    },
+                    {
+                        "in": "query",
+                        "name": "lang",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "en",
+                                "hi"
+                            ]
+                        },
+                        "description": "Voucher language."
+                    },
+                    {
+                        "in": "query",
+                        "name": "layout",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "A4",
+                                "THERMAL"
+                            ]
+                        },
+                        "description": "Paper layout."
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/pdf": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/bulk-allocate/": {
+            "post": {
+                "operationId": "payments_receipts_bulk_allocate_create",
+                "description": "Apply several advances oldest-bill-first. One result per receipt; one failure stops nothing.\n\nReceipts are taken per customer in ``(receipt_date, id)`` order, so two advances of one\ncustomer never compete for the same bills in a different order on a retry.",
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/export/": {
+            "get": {
+                "operationId": "payments_receipts_export_retrieve",
+                "description": "CSV of every receipt that matches the list filters (not just one page).\n\nStreamed row by row, so a 20,000-row export never sits in memory.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "customer",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or after."
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_to",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or before."
+                    },
+                    {
+                        "in": "query",
+                        "name": "mode",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BANK",
+                                "CARD",
+                                "CASH",
+                                "CHEQUE",
+                                "CREDIT",
+                                "UPI"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Number, customer name, phone, UTR or reference (max 100 characters)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "reconciled",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: matched to a bank line; false: not matched."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "POSTED",
+                                "REFUNDED",
+                                "VOIDED"
+                            ]
+                        }
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/receipts/summary/": {
+            "get": {
+                "operationId": "payments_receipts_summary_retrieve",
+                "description": "Totals for the same filters as the list, across every page.\n\nVoided, refunded and bounced receipts are not money in hand. Cheques still\nwaiting to clear are reported apart from collected money. Advances handed back to\ncustomers are deducted from what is collected and from the advance.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "customer",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or after."
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_to",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        },
+                        "description": "Receipt date on or before."
+                    },
+                    {
+                        "in": "query",
+                        "name": "mode",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BANK",
+                                "CARD",
+                                "CASH",
+                                "CHEQUE",
+                                "CREDIT",
+                                "UPI"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "ordering",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap."
+                    },
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Number, customer name, phone, UTR or reference (max 100 characters)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "reconciled",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: matched to a bank line; false: not matched."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "POSTED",
+                                "REFUNDED",
+                                "VOIDED"
+                            ]
+                        }
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReceiptSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/payments/recon/": {
             "get": {
                 "operationId": "payments_recon_retrieve",
@@ -18249,6 +18946,44 @@
         "/api/v1/payments/recon/create-receipt-from-line/": {
             "post": {
                 "operationId": "payments_recon_create_receipt_from_line_create",
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/recon/match-return/": {
+            "post": {
+                "operationId": "payments_recon_match_return_create",
+                "description": "A bounced cheque reaches the statement as a second, DEBIT line; the credit stays.\n\nLink that debit line to the bounced receipt: the line is marked matched, the bank line\nof the bounce's reversal journal is reconciled to it, and the receipt's original match\nstops asking for review, so both statement lines reconcile and nothing is left over.",
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/recon/needs-review/": {
+            "get": {
+                "operationId": "payments_recon_needs_review_retrieve",
+                "description": "Matches whose receipt later bounced: the bank took the money back, so look again.",
                 "tags": [
                     "payments"
                 ],
@@ -21295,6 +22030,44 @@
                 }
             }
         },
+        "/api/v1/public/customer-portal/{token}/receipts/{receipt_id}/voucher/": {
+            "get": {
+                "operationId": "public_customer_portal_receipts_voucher_retrieve",
+                "description": "The receipt voucher PDF, read-only, through the same magic link as the invoices.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "receipt_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    },
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/public/customer-portal/request-link/": {
             "post": {
                 "operationId": "public_customer_portal_request_link_create",
@@ -21486,6 +22259,36 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/public/receipt-voucher/{token}/": {
+            "get": {
+                "operationId": "public_receipt_voucher_retrieve",
+                "description": "The receipt voucher PDF behind a signed link sent to the customer (no login).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "public"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    },
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -26023,6 +26826,44 @@
             "get": {
                 "operationId": "reports_tcs_worksheet_retrieve",
                 "description": "BB-000670: 27EQ worksheet aid CSV. Not a live IT portal upload.",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/tds-receivable/": {
+            "get": {
+                "operationId": "reports_tds_receivable_retrieve",
+                "description": "TDS deducted by customers on receipts (Form 26AS reconciliation).",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/tds-receivable/export/": {
+            "get": {
+                "operationId": "reports_tds_receivable_export_retrieve",
+                "description": "The register as a CSV (cells are neutralised against spreadsheet formulas).",
                 "tags": [
                     "reports"
                 ],
@@ -36286,6 +37127,92 @@
                     "accounting_enabled"
                 ]
             },
+            "AdvanceGstTreatmentEnum": {
+                "enum": [
+                    "none",
+                    "goods",
+                    "services"
+                ],
+                "type": "string",
+                "description": "* `none` - None\n* `goods` - Goods\n* `services` - Services"
+            },
+            "AdvanceRefundLine": {
+                "type": "object",
+                "description": "One advance refund paid out of a receipt (read-only, for the voucher and the list).",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModeEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "refund_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SupplierPaymentStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "utr": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "void_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "voided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "amount",
+                    "bank_account",
+                    "id",
+                    "mode",
+                    "number",
+                    "reason",
+                    "refund_date",
+                    "status",
+                    "utr",
+                    "void_reason",
+                    "voided_at"
+                ]
+            },
             "AssistantMessage": {
                 "type": "object",
                 "properties": {
@@ -37085,6 +38012,60 @@
                 "type": "string",
                 "description": "* `DIGITAL` - Digital\n* `REFERRAL` - Referral\n* `EVENT` - Event\n* `MARKET_VISIT` - Market Visit"
             },
+            "Cash269stModeEnum": {
+                "enum": [
+                    "off",
+                    "warn",
+                    "block"
+                ],
+                "type": "string",
+                "description": "* `off` - Off\n* `warn` - Warn\n* `block` - Block"
+            },
+            "CashShiftAdjustment": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "receipt": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "receipt_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "approved_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "amount",
+                    "approved_by_name",
+                    "created_at",
+                    "id",
+                    "reason",
+                    "receipt",
+                    "receipt_number"
+                ]
+            },
             "CashShiftRegister": {
                 "type": "object",
                 "properties": {
@@ -37166,6 +38147,25 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "adjustments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CashShiftAdjustment"
+                        },
+                        "readOnly": true
+                    },
+                    "adjustments_total": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "adjusted_expected_cash": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "adjusted_variance": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -37178,6 +38178,10 @@
                     }
                 },
                 "required": [
+                    "adjusted_expected_cash",
+                    "adjusted_variance",
+                    "adjustments",
+                    "adjustments_total",
                     "business_date",
                     "cash_dropped",
                     "cashier",
@@ -37429,12 +38433,45 @@
                     },
                     "item_custom_field_defs": {
                         "readOnly": true
+                    },
+                    "cheque_allocation_on_clearance": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "A pending cheque stays an advance until it clears; clearing then applies it."
+                    },
+                    "cash_269st_mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Cash269stModeEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Income Tax s.269ST: cash receipts of Rs 2,00,000 or more from one person in a day.\n\n* `off` - Off\n* `warn` - Warn\n* `block` - Block"
+                    },
+                    "advance_gst_treatment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AdvanceGstTreatmentEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "advance_gst_default_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "aato_turnover",
                     "accounting_enabled",
+                    "advance_gst_default_rate",
+                    "advance_gst_treatment",
                     "ai_features_enabled",
+                    "cash_269st_mode",
+                    "cheque_allocation_on_clearance",
                     "einvoice_enabled",
                     "eway_enabled",
                     "eway_threshold_amount",
@@ -38022,6 +39059,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "customer_is_walk_in": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "amount": {
                         "type": "string",
                         "format": "decimal",
@@ -38097,6 +39138,58 @@
                         "format": "double",
                         "readOnly": true
                     },
+                    "allocatable": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "refunded": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "advance_refunds": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvanceRefundLine"
+                        },
+                        "readOnly": true
+                    },
+                    "reconciled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "tds_deducted": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tds_section": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "allocate_on_clear": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "intended_sales_invoice": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "intended_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "advance_gst_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
                     "utr_warning": {
                         "type": "string",
                         "readOnly": true
@@ -38156,27 +39249,69 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "allocation_lines": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReceiptAllocationLine"
+                        },
+                        "readOnly": true
+                    },
+                    "review_flags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Derived warnings: nothing is stored for these.\n\n``invoice_returned_after_payment``: an invoice this receipt paid was later returned or\ncredit-noted, so the money may now be an advance that someone should look at.",
+                        "readOnly": true
+                    },
+                    "void_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "voided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "voided_by_name": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "advance_refunds",
+                    "allocatable",
+                    "allocate_on_clear",
                     "allocated",
+                    "allocation_lines",
                     "amount",
                     "bank_account_name",
                     "change_given",
                     "created_at",
                     "customer",
+                    "customer_is_walk_in",
                     "customer_name",
                     "dishonour_fee",
                     "gateway_payment",
                     "id",
+                    "intended_amount",
+                    "intended_sales_invoice",
                     "number",
+                    "reconciled",
+                    "refunded",
+                    "review_flags",
                     "section_138_notice",
                     "shift",
                     "source",
                     "status",
                     "tendered",
                     "unallocated",
-                    "utr_warning"
+                    "utr_warning",
+                    "void_reason",
+                    "voided_at",
+                    "voided_by_name"
                 ]
             },
             "CustomerReceiptStatusEnum": {
@@ -40825,6 +41960,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/AccountingPeriod"
+                        }
+                    }
+                }
+            },
+            "PaginatedAdvanceRefundLineList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvanceRefundLine"
                         }
                     }
                 }
@@ -43824,6 +44990,25 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "adjustments": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CashShiftAdjustment"
+                        },
+                        "readOnly": true
+                    },
+                    "adjustments_total": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "adjusted_expected_cash": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "adjusted_variance": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -44030,6 +45215,35 @@
                     },
                     "item_custom_field_defs": {
                         "readOnly": true
+                    },
+                    "cheque_allocation_on_clearance": {
+                        "type": "boolean",
+                        "readOnly": true,
+                        "description": "A pending cheque stays an advance until it clears; clearing then applies it."
+                    },
+                    "cash_269st_mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/Cash269stModeEnum"
+                            }
+                        ],
+                        "readOnly": true,
+                        "description": "Income Tax s.269ST: cash receipts of Rs 2,00,000 or more from one person in a day.\n\n* `off` - Off\n* `warn` - Warn\n* `block` - Block"
+                    },
+                    "advance_gst_treatment": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/AdvanceGstTreatmentEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "advance_gst_default_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 }
             },
@@ -44484,6 +45698,246 @@
                     },
                     "version": {
                         "type": "integer",
+                        "readOnly": true
+                    }
+                }
+            },
+            "PatchedCustomerReceipt": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer": {
+                        "type": "integer"
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer_is_walk_in": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tendered": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "change_given": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/ModeEnum"
+                    },
+                    "receipt_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reference": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "utr": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "bank_account_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
+                    "source": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/SourceEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "gateway_payment": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CustomerReceiptStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "allocated": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "unallocated": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "allocatable": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "refunded": {
+                        "type": "number",
+                        "format": "double",
+                        "readOnly": true
+                    },
+                    "advance_refunds": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AdvanceRefundLine"
+                        },
+                        "readOnly": true
+                    },
+                    "reconciled": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "tds_deducted": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tds_section": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "allocate_on_clear": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "intended_sales_invoice": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "intended_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "advance_gst_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "utr_warning": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "cheque_number": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
+                    "cheque_bank_name": {
+                        "type": "string",
+                        "maxLength": 100
+                    },
+                    "cheque_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "cheque_status": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ChequeStatusEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "cheque_image": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "paid_from_till": {
+                        "type": "boolean"
+                    },
+                    "shift": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "settlement_discount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "dishonour_fee": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "section_138_notice": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "allocation_lines": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReceiptAllocationLine"
+                        },
+                        "readOnly": true
+                    },
+                    "review_flags": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Derived warnings: nothing is stored for these.\n\n``invoice_returned_after_payment``: an invoice this receipt paid was later returned or\ncredit-noted, so the money may now be an advance that someone should look at.",
+                        "readOnly": true
+                    },
+                    "void_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "voided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "voided_by_name": {
+                        "type": "string",
                         "readOnly": true
                     }
                 }
@@ -47937,6 +49391,10 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "pending_cheque_amount": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -49085,6 +50543,18 @@
                         "format": "decimal",
                         "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
                     },
+                    "discount_applied": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "tds_applied": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
                     "reversed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -49100,8 +50570,10 @@
                 "required": [
                     "amount",
                     "created_at",
+                    "discount_applied",
                     "id",
-                    "reversed_at"
+                    "reversed_at",
+                    "tds_applied"
                 ]
             },
             "PaymentLink": {
@@ -51983,6 +53455,94 @@
                 "type": "string",
                 "description": "* `SALES_RETURN` - Goods return\n* `PURCHASE_RETURN` - Purchase return\n* `POST_SALE_DISCOUNT` - Post-purchase discount\n* `DEFICIENCY_IN_SERVICE` - Deficiency in service\n* `CORRECTION_OF_INVOICE` - Correction of invoice\n* `OTHERS` - Others"
             },
+            "ReceiptAllocationLine": {
+                "type": "object",
+                "description": "One live invoice allocation on a receipt (read-only, for the voucher).",
+                "properties": {
+                    "sales_invoice": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "invoice_number": {
+                        "type": "string"
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "discount_applied": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tds_applied": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "allocation_id": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "allocation_id",
+                    "amount",
+                    "discount_applied",
+                    "invoice_number",
+                    "sales_invoice",
+                    "tds_applied"
+                ]
+            },
+            "ReceiptSummary": {
+                "type": "object",
+                "description": "Totals for the receipt list filters, across every page.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "Receipts counted as money in hand."
+                    },
+                    "collected": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "cheques_pending": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "allocated": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "advance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "excluded_count": {
+                        "type": "integer",
+                        "description": "Matching receipts left out: voided, refunded or bounced."
+                    },
+                    "refunded": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "description": "Advances handed back to customers (live refunds)."
+                    }
+                },
+                "required": [
+                    "advance",
+                    "allocated",
+                    "cheques_pending",
+                    "collected",
+                    "count",
+                    "excluded_count",
+                    "refunded"
+                ]
+            },
             "RecurringInvoiceSchedule": {
                 "type": "object",
                 "properties": {
@@ -53341,6 +54901,10 @@
                         "type": "boolean",
                         "readOnly": true
                     },
+                    "pending_cheque_amount": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -53428,6 +54992,7 @@
                     "payment_state",
                     "pdf_file",
                     "pdf_status",
+                    "pending_cheque_amount",
                     "pos_assumed_local",
                     "rcm_cess",
                     "rcm_cgst",

@@ -4,3 +4,6 @@
 # entrypoint scripts.
 *.sh text eol=lf
 .githooks/* text eol=lf
+
+# Fonts are binary; never convert line endings.
+*.ttf binary

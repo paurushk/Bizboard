@@ -299,7 +299,9 @@ class AttentionDismissView(APIView):
         if not dedupe_key:
             return Response({"detail": "dedupe_key required."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            result = dismiss_attention_row(cu.company, cu, dedupe_key=dedupe_key)
+            result = dismiss_attention_row(
+                cu.company, cu, dedupe_key=dedupe_key, reason=str(request.data.get("reason") or "")
+            )
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(result)

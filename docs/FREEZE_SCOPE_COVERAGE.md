@@ -43,7 +43,7 @@ bullet prose (wording drifts; the id does not).
 | A7 | Purchase return / debit note | ✅ | `test_wf05_purchase_return`, `test_wf12_purchase_credit_note` (AP ↓ + ITC reversal), `test_wf16_purchase_order_to_purchase` (PO → invoice) |
 | A8 | Product lookup | ✅ | `test_pj_retail_sales_staff_boundary`, `test_pj_trader_sales_staff_boundary` (`products/?search=` allowed, company-scoped) |
 | A9 | Inventory movements & balances | ✅ | invariants `inventory.balance_equals_movements` / `running_cost_qty_matches_movements` (swept every strict test), `test_wf21_stock_transfer_between_godowns`, `test_pj_wholesale_owner_multi_godown_day`, `test_pj_retail_owner_normal_day` (write-off) |
-| A10 | Customer receipt + allocation | ✅ | `test_wf39_advance_payment_on_account`, `test_pj_service_owner_no_stock`, `test_pj_trader_owner_normal_day` |
+| A10 | Customer receipt + allocation | ✅ | `test_wf39_advance_payment_on_account`, `test_pj_service_owner_no_stock`, `test_pj_trader_owner_normal_day`, `tests/test_money_in_receipts.py` (filters, summary, export, voucher, void audit, walk-in rule, one-request allocation) |
 | A11 | Supplier payment + allocation | ✅ | `tests/workflows/test_a11_supplier_payment.py::test_a11_supplier_payment_partial_then_full_allocation`, `test_wf04_purchase_full_chain` (pay-in-one), `test_supplier_payment_allocation_flow`; debit-note AP enlarge is `test_wf13_purchase_debit_note` (TDS-on-purchase remains WF-35) |
 | A9b | Stock adjustment / write-off | ✅ | `test_wf22_stock_adjustment_writeoff` — on_hand + running-cost value fall by qty×cost; **no auto GL** (pilot: a write-off doesn't hit P&L until booked); movement log append-only |
 | A11b | Bank receipt → per-instrument GL | ✅ | `test_wf26_bank_receipt_to_gl` — a `bank_account`-tagged receipt posts to the `1500-<id>` child ledger; AR clears on allocation |
@@ -580,3 +580,46 @@ out of freeze scope.
 | FMEA-002, FMEA-003 | Dev command. Staging and production refused | 🚫 out of freeze | `test_fmea2_002_demo_refuses_staging`, `test_fmea2_003_demo_company_is_explicit` |
 | FMEA-015, FMEA-016, FMEA-017 | Shopify and AA. Off on the frozen host | 🚫 out of freeze | `test_fmea2_015_shopify_holds_large_delta`, `test_fmea2_016_shopify_domain_unique`, `test_fmea2_017_aa_live_fetch_closed` |
 
+## Money In hardening (2026-10-11)
+
+No new SUPPORTED feature and no frozen flag changes. These rows record what now gates
+the customer receipt screen. Tracked as QOS-0118; the plan is
+[`MONEY_IN_IMPLEMENTATION_PLAN.md`](../MONEY_IN_IMPLEMENTATION_PLAN.md).
+
+| Behaviour | Status | Gating test |
+|---|---|---|
+| Void needs a reason (3 to 500 characters), stored as `void_reason`, `voided_by`, `voided_at`, and in the audit event | ✅ gated | `test_money_in_receipts.py::test_void_requires_a_reason_on_the_server`, `::test_void_stores_structured_audit_fields_and_event` |
+| Void is refused for a bank-matched receipt and for a receipt counted in a closed till | ✅ gated | `::test_void_blocked_when_matched_to_a_bank_line`, `::test_void_blocked_when_counted_in_a_closed_till` |
+| Void restores invoices after a settlement discount or a partial reallocation | ✅ gated | `::test_void_restores_invoice_after_a_settlement_discount`, `::test_void_of_a_partly_reallocated_receipt_reverses_every_live_allocation` |
+| List filters validate input (400, not 500) and never cross tenants | ✅ gated | `::test_invalid_filter_values_are_a_400_not_a_500`, `::test_filters_never_leak_another_tenants_receipts` |
+| Totals cover every page and leave out voided, refunded and bounced receipts | ✅ gated | `::test_summary_covers_every_page_and_excludes_dead_money`, `::test_collected_total_ties_to_the_cash_ledger_and_customer_ledger` |
+| Walk-in customer cannot hold an advance (manual receipt and bank-line receipt) | ✅ gated | `::test_walk_in_receipt_without_allocation_is_refused_by_the_api`, `::test_bank_line_receipt_refuses_a_walk_in_customer_and_accepts_a_named_one` |
+| Receipt and invoice allocation commit together; future dates refused | ✅ gated | `::test_failed_atomic_allocation_leaves_no_receipt_behind`, `::test_create_rejects_a_future_receipt_date_but_allows_today_and_the_past` |
+| Voucher PDF in A4 and thermal, English and Hindi (shaped Devanagari), voided stamp | ✅ gated | `::test_voucher_pdf_a4_and_thermal`, `::test_devanagari_is_shaped_not_laid_out_in_logical_order`, `::test_voucher_in_hindi_renders_on_both_layouts` |
+| Gateway settlements are not blocked by the walk-in rule (the money has already moved) | 🚫 by design | none; `tests/test_w0_webhook_holding.py` covers the webhook path |
+
+
+## Money In, Phase 2 (2026-10-11)
+
+No new SUPPORTED feature and no frozen flag changes; the company settings it adds default to the
+old behaviour (`cheque_allocation_on_clearance` off, `cash_269st_mode` warn, `advance_gst_treatment`
+none). Tracked as QOS-0119 to QOS-0123; the plan is
+[`plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md`](plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md).
+
+| Work package | Behaviour | Status | Gating test |
+|---|---|---|---|
+| WP-1, WP-3 | CREDIT mode, a discount or TDS above the amount, a discount with no bill, and bank-type money with no bank account are refused; system callers are exempt; s.269ST cash check | ✅ gated | `test_money_in_phase2.py::test_credit_mode_is_refused_by_the_service_and_the_api`, `::test_discount_must_be_between_zero_and_the_amount`, `::test_bank_modes_need_a_bank_account_and_use_the_default`, `::test_system_callers_never_fail_on_the_bank_rule`, `::test_cash_269st_warns_by_default_and_blocks_when_asked` |
+| WP-2 | Dialog clears the bill on a customer change, follows the amount, resets after a save, finds archived customers | ✅ gated | `ReceiptsPage.test.tsx` ("Phase 2 input rules"), `test_inactive_customer_with_an_open_invoice_can_still_pay` |
+| WP-4 | Cheques held as advances until they clear (setting, off by default); uncleared cheques on the customer, invoice and dashboard | ✅ gated | `::test_flag_on_clearing_applies_what_the_person_asked_for`, `::test_flag_off_a_pending_cheque_can_be_applied_as_before`, `test_money_in_phase2_b.py::test_uncleared_cheques_show_on_the_customer_ledger_and_dashboard` |
+| WP-5 | Each allocation stores its own discount slice; GL and invoice balance move by the same amount | ✅ gated | `::test_partial_allocation_clears_the_same_amount_in_the_gl_and_on_the_invoice`, `::test_discount_and_tds_shares_add_up_exactly_over_any_split`, `::test_unallocating_frees_the_discount_for_the_next_allocation` |
+| WP-6 | Customer TDS: account 1270, settles the bill, no false advance-mismatch alert | ✅ gated | `::test_customer_tds_settles_the_invoice_and_ties_out`, `test_money_in_phase2_b.py::test_customer_outstanding_counts_the_tds_and_discount_a_receipt_cleared`, `e2e-golden/money-in-golden.spec.ts`, `::test_unallocated_receipt_with_tds_does_not_trip_the_advance_alert`, `::test_tds_is_prorated_over_partial_allocations_and_voids_cleanly` |
+| WP-7 | Receipt edit (notes, reference, UTR, bank) and advance refunds, every reader of "unallocated" in agreement | ✅ gated | `::test_edit_changes_only_the_allowed_fields_and_is_audited`, `::test_bank_account_edit_repoints_the_journal_and_survives_a_void`, `::test_refunding_part_of_an_advance_keeps_every_reader_consistent` |
+| WP-8 | Bank match review after a bounce; cheque-return debit line matches the bounced receipt; reconciled flag and filter | ✅ gated | `test_money_in_phase2_b.py::test_cheque_return_debit_line_matches_the_bounced_receipt`, `test_money_in_phase2.py::test_void_error_for_a_matched_receipt_names_the_line` |
+| WP-9 | Correct closed till (manager), counted figures untouched, adjustments on the shift report | ✅ gated | `::test_manager_corrects_a_closed_till_and_the_counted_figures_stay`, `::test_a_cashier_cannot_correct_a_closed_till_and_open_tills_are_not_eligible` |
+| WP-10 | GST on advances for services (setting, off by default): 11A, cross-period 11B, refund vouchers; reported, not posted | ✅ gated | `test_money_in_phase2_b.py::test_services_advance_is_taxed_inclusive_and_split_by_place_of_supply`, `::test_cross_period_adjustment_and_refund_voucher_reduce_the_later_period`. **CA sign-off required before the setting is turned on for any company** |
+| WP-11 | Kept promises close and reopen with receipts; void reopens payment links; returned-invoice flag | ✅ gated | `::test_a_kept_promise_closes_at_once_and_a_void_reopens_it`, `::test_voiding_the_receipt_that_paid_a_link_reopens_it`, `::test_receipt_row_flags_an_invoice_returned_after_payment` |
+| WP-12 | Walk-in and void-rate alerts, UTR-aware duplicate alert with a dismiss reason, move walk-in money to the payer, portal receipts | ✅ gated | `::test_walk_in_receipt_raises_an_alert_that_clears_when_applied`, `::test_walk_in_money_moves_to_a_named_customer_with_a_dated_transfer`, `::test_portal_lists_receipts_with_a_voucher_link` |
+| WP-13 | Sort, page size, bulk apply (ordered, idempotent), bulk send, send by WhatsApp or email, offline outbox for cash and cheque | ✅ gated | `test_money_in_phase2.py::test_ordering_allow_list_and_stable_pages`, `test_money_in_phase2_b.py::test_bulk_allocate_is_ordered_idempotent_and_reports_each_row`, `receiptOutbox.test.ts`, `ReceiptsPage.test.tsx` ("offline") |
+| WP-14 | Export needs `can_export`, streamed, throttled, audited; print audited; void and refund idempotent; Hindi voucher selectable (ActualText); invalid-index check | ✅ gated | `::test_export_needs_the_export_permission_and_is_audited`, `::test_voucher_print_is_audited`, `::test_void_is_idempotent_by_key`, `::test_hindi_voucher_text_can_be_selected_and_searched`, `::test_check_indexes_is_quiet_off_postgres` |
+| WP-15 | Totals in one aggregate, no per-row UTR queries, covering indexes | ✅ gated | `::test_a_list_page_of_upi_receipts_does_not_query_per_row`, `::test_summary_is_one_aggregate_over_the_receipts`; timings in the plan |
+| WP-16 | Cross-tenant, concurrency (Postgres), bounce and re-receive, void date, cross-module tie-out | ✅ gated | `::test_cross_module_tie_out_through_cheque_tds_discount_bounce_void_and_refund`, `::test_receipts_of_another_tenant_stay_invisible`, `::test_two_refunds_cannot_together_exceed_the_advance` |

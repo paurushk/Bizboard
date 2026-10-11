@@ -130,6 +130,8 @@ CHART = (
     ("2300", "Customer Advances", "LIABILITY", True),
     ("1250", "Supplier Advances", "ASSET", True),
     ("1260", "Employee Advances", "ASSET", True),
+    # Income tax the customer deducted at source (receipt TDS), awaiting its certificate.
+    ("1270", "TDS Receivable (deducted by customers)", "ASSET", True),
 )
 
 # Leaf GST accounts under their xx00 parent header.
@@ -147,6 +149,7 @@ _CHART_PARENTS = {
     "5150": "5000",
     "5250": "5000",
     "5450": "5000",
+    "1270": "1000",
 }
 
 
@@ -186,25 +189,6 @@ def reclass_rejected_itc(invoice, *, user=None):
     return PostingService.reclass_rejected_itc(invoice, user=user)
 
 
-def _settlement_discount_share(allocation) -> Decimal:
-    """Paise of this allocation's receipt discount that clears accounts receivable."""
-    from decimal import ROUND_HALF_UP
-
-    receipt = getattr(allocation, "receipt", None)
-    if receipt is None:
-        return Decimal("0")
-    discount = Decimal(str(getattr(receipt, "settlement_discount", 0) or 0))
-    base = Decimal(str(getattr(receipt, "amount", 0) or 0))
-    if discount <= 0 or base <= 0:
-        return Decimal("0")
-    share = (Decimal(str(allocation.amount or 0)) / base * discount).quantize(
-        Decimal("0.01"), rounding=ROUND_HALF_UP
-    )
-    if share > discount:
-        share = discount
-    return share
-
-
 class PostingService:
     """Creates immutable, idempotent projections of operational documents.
 
@@ -230,6 +214,7 @@ class PostingService:
             "5900",  # ACC-14 FX gain/loss
             "5150",  # settlement discount write-off
             "1260",  # employee advances recovered through payroll
+            "1270",  # customer-deducted TDS receivable
         )
         existing = set(
             Account.objects.filter(company=company, code__in=required, is_active=True)
@@ -1139,6 +1124,7 @@ class PostingService:
         else:
             bank_acct = cls._account(receipt.company, "1100")
         amount = Decimal(str(receipt.amount or 0))
+        tds = Decimal(str(getattr(receipt, "tds_deducted", 0) or 0))
         fee = Decimal("0")
         gp = getattr(receipt, "gateway_payment", None)
         if gp is not None:
@@ -1153,9 +1139,18 @@ class PostingService:
             lines.append({"account": cls._account(receipt.company, "5200"), "debit": fee})
         if not lines:
             lines.append({"account": bank_acct, "debit": amount})
+        if tds > 0:
+            # Tax the customer paid to the government on our behalf: an asset until the
+            # certificate (Form 16A / 26AS) lets us claim it. The customer still owes us
+            # ``amount + tds`` in total, so the advance is credited with both.
+            lines.append({
+                "account": cls._account(receipt.company, "1270"),
+                "debit": tds,
+                "customer": receipt.customer,
+            })
         lines.append({
             "account": cls._account(receipt.company, "2300"),
-            "credit": amount,
+            "credit": amount + tds,
             "customer": receipt.customer,
         })
         return cls.post(company=receipt.company, source_type="CUSTOMER_RECEIPT", source_id=receipt.id,
@@ -1211,6 +1206,97 @@ class PostingService:
         )
 
     @classmethod
+    def _money_out_account(cls, company, mode, bank_account, entry_date):
+        """The ledger a refund or payout leaves from: cash for CASH, else the bank instrument."""
+        if str(mode).upper() == "CASH" or bank_account is None:
+            return cls._account(company, "1100")
+        return cls._bank_gl_account(company, bank_account, entry_date)
+
+    @classmethod
+    def post_advance_refund(cls, refund, user=None):
+        """Money handed back out of an unallocated receipt: Dr 2300 Customer Advances, Cr cash or bank."""
+        cls._ensure_chart(refund.company)
+        amount = Decimal(str(refund.amount or 0))
+        if amount <= 0:
+            return None
+        company = refund.company
+        credit = cls._money_out_account(company, refund.mode, refund.bank_account, refund.refund_date)
+        return cls.post(
+            company=company,
+            source_type="CUSTOMER_ADVANCE_REFUND",
+            source_id=refund.id,
+            purpose="CREATE",
+            entry_date=refund.refund_date,
+            user=user,
+            narration=f"Advance refund {refund.number}",
+            lines=[
+                {"account": cls._account(company, "2300"), "debit": amount, "customer": refund.receipt.customer},
+                {"account": credit, "credit": amount},
+            ],
+        )
+
+    @classmethod
+    def post_receipt_party_transfer(cls, receipt, *, old_customer, new_customer, sequence, user=None):
+        """Move an unallocated receipt's advance from one customer to another.
+
+        Dr 2300 (old customer), Cr 2300 (new customer), dated today: the books for the receipt's
+        own day are left alone and the transfer shows up as its own, dated, auditable entry.
+        """
+        cls._ensure_chart(receipt.company)
+        company = receipt.company
+        amount = Decimal(str(receipt.amount or 0)) + Decimal(str(receipt.tds_deducted or 0))
+        if amount <= 0:
+            return None
+        account = cls._account(company, "2300")
+        return cls.post(
+            company=company,
+            source_type="CUSTOMER_RECEIPT",
+            source_id=receipt.id,
+            purpose=f"REASSIGN_{sequence}",
+            entry_date=timezone.localdate(),
+            user=user,
+            narration=f"Receipt {receipt.number} moved to {new_customer.name}",
+            lines=[
+                {"account": account, "debit": amount, "customer": old_customer},
+                {"account": account, "credit": amount, "customer": new_customer},
+            ],
+        )
+
+    @classmethod
+    def post_receipt_bank_repoint(cls, receipt, *, old_bank, new_bank, sequence, user=None):
+        """The bank a receipt was banked in was recorded wrongly: move it, keep the history.
+
+        Dr new bank, Cr old bank for the cash that was banked, dated the receipt's own date (the
+        caller has already checked that period is open). One journal per edit, ``sequence`` makes
+        each purpose unique so two edits never collide.
+        """
+        cls._ensure_chart(receipt.company)
+        company = receipt.company
+        amount = Decimal(str(receipt.amount or 0))
+        gp = getattr(receipt, "gateway_payment", None)
+        if gp is not None:
+            amount -= max(Decimal("0"), Decimal(str(getattr(gp, "fee", 0) or 0)))
+        if amount <= 0:
+            return None
+        old_acct = cls._money_out_account(company, "BANK", old_bank, receipt.receipt_date)
+        new_acct = cls._money_out_account(company, "BANK", new_bank, receipt.receipt_date)
+        if old_acct.pk == new_acct.pk:
+            return None
+        return cls.post(
+            company=company,
+            source_type="CUSTOMER_RECEIPT",
+            source_id=receipt.id,
+            purpose=f"BANK_REPOINT_{sequence}",
+            entry_date=receipt.receipt_date,
+            user=user,
+            narration=f"Bank account corrected on {receipt.number}",
+            lines=[
+                {"account": new_acct, "debit": amount},
+                {"account": old_acct, "credit": amount},
+            ],
+        )
+
+    @classmethod
     def post_receipt_allocation(cls, allocation, user=None):
         """BB-000382: move Advances → AR when receipt is allocated to an invoice."""
         amount = Decimal(str(allocation.amount or 0))
@@ -1221,12 +1307,13 @@ class PostingService:
         receipt = allocation.receipt if allocation.receipt_id else None
         customer = receipt.customer if receipt is not None else None
         entry_date = receipt.receipt_date if receipt is not None else timezone.localdate()
-        discount = _settlement_discount_share(allocation)
+        discount = Decimal(str(getattr(allocation, "discount_applied", 0) or 0))
+        tds = Decimal(str(getattr(allocation, "tds_applied", 0) or 0))
         lines = [
-            {"account": cls._account(company, "2300"), "debit": amount, "customer": customer},
+            {"account": cls._account(company, "2300"), "debit": amount + tds, "customer": customer},
             {
                 "account": cls._account(company, "1200"),
-                "credit": amount + discount,
+                "credit": amount + tds + discount,
                 "customer": customer,
             },
         ]
@@ -2568,15 +2655,23 @@ class BooksHealthService:
 
         # Customer advances liability 2300: credit-normal → -net is credit balance
         gl_cust_adv = -net("2300")
-        receipt_total = (
-            CustomerReceipt.objects.filter(company=company, status=ReceiptStatus.POSTED).aggregate(
-                t=Sum("amount")
-            )["t"]
-            or Decimal("0")
-        )
-        alloc_receipt = (
-            PaymentAllocation.objects.filter(
-                company=company, receipt__isnull=False, reversed_at__isnull=True
+        # Same definition as payments.receipt_math.receipt_unallocated, summed: receipts carry
+        # their customer-deducted TDS in 2300 too, and advance refunds debit 2300 without an
+        # allocation row.
+        receipt_agg = CustomerReceipt.objects.filter(
+            company=company, status=ReceiptStatus.POSTED
+        ).aggregate(t=Sum("amount"), tds=Sum("tds_deducted"))
+        receipt_total = (receipt_agg["t"] or Decimal("0")) + (receipt_agg["tds"] or Decimal("0"))
+        alloc_agg = PaymentAllocation.objects.filter(
+            company=company, receipt__isnull=False, reversed_at__isnull=True
+        ).aggregate(t=Sum("amount"), tds=Sum("tds_applied"))
+        alloc_receipt = (alloc_agg["t"] or Decimal("0")) + (alloc_agg["tds"] or Decimal("0"))
+        from payments.models import AdvanceRefundStatus, CustomerAdvanceRefund
+
+        alloc_receipt += (
+            CustomerAdvanceRefund.objects.filter(
+                company=company, status=AdvanceRefundStatus.POSTED,
+                receipt__status=ReceiptStatus.POSTED,
             ).aggregate(t=Sum("amount"))["t"]
             or Decimal("0")
         )

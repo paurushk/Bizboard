@@ -14,6 +14,7 @@ vi.mock('@/api/osPlan', () => ({
     pattern: 'on_time',
     recommendedNextStep: '',
     outstanding: '40',
+    unclearedCheques: '25.00',
     aging: { current: '10', '130': '20', '3160': '0', '6190': '0', '90Plus': '5' },
     profit: { totals: { margin: '15', revenue: '100', cogs: '85' } },
   }),
@@ -66,6 +67,11 @@ describe('Customer360Page', () => {
     listPaymentPromises.mockResolvedValue([]);
     createPaymentPromise.mockClear();
     resolvePaymentPromise.mockClear();
+  });
+
+  it('notes the cheques that are counted as received but have not cleared', async () => {
+    renderPage();
+    expect(await screen.findByText(/includes .*25\.00.* in cheques that have not cleared/i)).toBeInTheDocument();
   });
 
   it('shows aging buckets and profit from the margin total', async () => {

@@ -343,6 +343,7 @@ export const navigation: NavItem[] = [
       { id: 'report-sales', labelKey: 'nav.salesReports', path: '/reports/sales' },
       { id: 'report-purchases', labelKey: 'nav.purchaseReports', path: '/reports/purchases' },
       { id: 'report-discounts', labelKey: 'nav.discountReport', path: '/reports/discounts' },
+      { id: 'report-tds-receivable', labelKey: 'nav.tdsReceivable', path: '/reports/tds-receivable' },
       { id: 'report-invoice-profit', labelKey: 'nav.invoiceProfitReport', path: '/reports/invoice-profit' },
       { id: 'report-inventory', labelKey: 'nav.inventoryReports', path: '/reports/inventory' },
       { id: 'customer-ledger', labelKey: 'nav.customerLedger', path: '/reports/customer-ledger' },

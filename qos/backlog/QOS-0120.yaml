@@ -1,0 +1,27 @@
+id: "QOS-0120"
+category: "RELIABILITY_TRUST"
+title: "Money In books: discount split differently in ledger and invoice, TDS had no home, pending cheques counted as cleared"
+persona: ["P1", "P2"]
+journey: "Apply a receipt to invoices"
+problem: "The GL prorated a receipt's discount by the receipt amount and the invoice balance by the allocated total, so a partial allocation left the books and the invoices apart (a Rs 50 gap on a Rs 1,000 receipt with a Rs 100 discount, enough to trip the AR sub-ledger check at close). Tax deducted by the customer left the bill short-paid for ever. A cheque that had not cleared settled invoices and counted as the customer's credit with no way to see or change that."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md"]
+  detail: "Delivered 2026-10-11 (Phase 2 WP-4, WP-5, WP-6): each allocation stores its own discount and TDS slice, fixed once and read by both the GL and the ledger (payments.receipt_math); customer TDS is a receipt field posted to account 1270 and settles the bill with the cash; the advance tie-out, summary, export and statement use one definition of what a receipt still holds; an optional company setting holds cheques as advances until they clear and applies what the person chose on clearing; uncleared cheques are shown on the customer, the invoice and the dashboard."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Audit trail and AR integrity on a money path."
+effort: "L"
+recommendation: "Done. Ask the CA to confirm account 1270 before turning TDS on for a company that files with a different head."
+test_required: "backend/tests/test_money_in_phase2.py::test_partial_allocation_clears_the_same_amount_in_the_gl_and_on_the_invoice"
+guard_ref:
+  test: "backend/tests/test_money_in_phase2.py::test_partial_allocation_clears_the_same_amount_in_the_gl_and_on_the_invoice"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-11"

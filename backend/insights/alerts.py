@@ -663,26 +663,97 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             dedupe_key=f"ABNORMAL_STOCK_ADJUSTMENT:{mv.id}",
         ))
 
-    # Duplicate posted receipts: same customer, amount, date.
+    # Duplicate posted receipts: same customer, amount, date, AND the same payment identifier.
+    # Two receipts of the same amount on one day with different UTRs or references are two
+    # real payments (a customer paying two bills of the same size), not a duplicate; receipts
+    # with no identifier at all are still grouped, since nothing tells them apart.
+    from django.db.models import Value
+    from django.db.models.functions import Coalesce, NullIf
+
     dupes = (
         CustomerReceipt.objects.filter(company=company, status="POSTED")
-        .values("customer_id", "amount", "receipt_date")
+        .annotate(
+            ident=Coalesce(
+                NullIf("utr", Value("")), NullIf("reference", Value("")), Value("")
+            )
+        )
+        .values("customer_id", "amount", "receipt_date", "ident")
         .annotate(n=Count("id"))
         .filter(n__gte=2)[:20]
     )
     for d in dupes:
+        ident = d["ident"] or "none"
         rows.append(row_factory(
             code="DUPLICATE_PAYMENT",
             severity="warning",
             title="Possible duplicate receipt",
             money_impact_paise=rupees_to_paise(d["amount"]),
-            reason=f"{d['n']} receipts of ₹{d['amount']} on {d['receipt_date']}.",
+            reason=(
+                f"{d['n']} receipts of ₹{d['amount']} on {d['receipt_date']}"
+                + (f" with the same reference {d['ident']}." if d["ident"] else " and no reference to tell them apart.")
+            ),
             action_label="Review receipts",
             action_href="/sales/receipts",
             source_ticket="B-05",
             entity_type="customer",
             entity_id=d["customer_id"],
-            dedupe_key=f"DUPLICATE_PAYMENT:{d['customer_id']}:{d['receipt_date']}:{d['amount']}",
+            dedupe_key=f"DUPLICATE_PAYMENT:{d['customer_id']}:{d['receipt_date']}:{d['amount']}:{ident}",
+        ))
+
+    # A day on which an unusual share of receipts was voided. The count is a signal to look at who
+    # is voiding and why (the void reason is in the audit trail), not a verdict.
+    day_start = timezone.localdate()
+    recent = CustomerReceipt.objects.filter(company=company, receipt_date__gte=day_start - timedelta(days=1))
+    total_recent = recent.count()
+    voided_recent = recent.filter(status="VOIDED")
+    voided_count = voided_recent.count()
+    if voided_count >= 5 and total_recent and voided_count * 100 >= total_recent * 30:
+        rows.append(row_factory(
+            code="VOID_RATE_HIGH",
+            severity="warning",
+            title="Many receipts voided recently",
+            money_impact_paise=rupees_to_paise(voided_recent.aggregate(t=Sum("amount"))["t"] or 0),
+            reason=(
+                f"{voided_count} of {total_recent} receipts from the last two days were voided. "
+                "Check the void reasons in the audit trail."
+            ),
+            action_label="Review receipts",
+            action_href="/sales/receipts",
+            source_ticket="B-05",
+            entity_type="company",
+            entity_id=company.id,
+            dedupe_key=f"VOID_RATE_HIGH:{company.id}:{day_start.isoformat()}",
+        ))
+
+    # Money held on a walk-in account. A walk-in has no account to hold an advance, so this
+    # arrives from a gateway capture or an import and needs a person to say who paid.
+    for rec in (
+        CustomerReceipt.objects.filter(
+            company=company, status="POSTED", customer__is_pos_walk_in=True
+        )
+        .select_related("customer")
+        .order_by("-receipt_date", "-id")[:40]
+    ):
+        from payments.receipt_math import receipt_unallocated
+
+        left = receipt_unallocated(rec)
+        if left <= 0:
+            continue
+        rows.append(row_factory(
+            code="WALK_IN_UNALLOCATED_RECEIPT",
+            severity="warning",
+            title=f"Receipt {rec.number} is on the walk-in account",
+            money_impact_paise=rupees_to_paise(left),
+            reason=(
+                f"₹{left} received on {rec.receipt_date} sits on the walk-in customer. "
+                "Apply it to a bill, or move it to the customer who paid."
+            ),
+            action_label="Allocate or reassign",
+            action_href=f"/sales/receipts?q={rec.number}",
+            source_ticket="B-05",
+            entity_type="payment",
+            entity_id=rec.id,
+            dedupe_key=f"WALK_IN_UNALLOCATED_RECEIPT:{rec.id}",
         ))
 
     # Dead-stock money figure (on-hand × purchase_price) — complements the hint.

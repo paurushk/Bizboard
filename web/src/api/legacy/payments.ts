@@ -7,8 +7,17 @@ import {
   mockReceipts,
   mockReconLines,
 } from '@/mocks/data';
-import type { CustomerReceipt, PaymentAllocation, PaymentPromise, SupplierPayment } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import type {
+  AdvanceRefund,
+  BulkAllocateResult,
+  CustomerReceipt,
+  CustomerReceiptCreated,
+  PaymentAllocation,
+  PaymentPromise,
+  ReceiptSummary,
+  SupplierPayment,
+} from '@/types/domain';
+import { withMocks, fetchPage, fetchAllPagesMasters, toQueryParams, type PageResult, type PageParams } from './common';
 
 /** Open (unresolved) payment promises for the company, or all when `all: true`. */
 export async function listPaymentPromises(params?: {
@@ -91,16 +100,22 @@ export async function createReceipt(
     chequeDate?: string;
     chequeImage?: number;
     settlementDiscount?: number | string;
+    /** Income tax the customer deducted at source (194C/J/Q...). */
+    tdsDeducted?: number | string;
+    tdsSection?: string;
     allocateOldest?: boolean;
     paidFromTill?: boolean;
+    /** Apply to one invoice in the same transaction as the receipt. */
+    salesInvoice?: number;
+    allocateAmount?: number | string;
   },
   options?: { idempotencyKey?: string },
-): Promise<CustomerReceipt> {
+): Promise<CustomerReceiptCreated> {
   return withMocks(async () => {
     const { data } = await apiClient.post('/payments/receipts/', payload, {
       headers: idempotencyHeaders(options?.idempotencyKey),
     });
-    return unwrapData<CustomerReceipt>(data);
+    return unwrapData<CustomerReceiptCreated>(data);
   }, {
     id: Date.now(),
     customer: payload.customer,
@@ -112,9 +127,170 @@ export async function createReceipt(
   });
 }
 
-export async function voidReceipt(id: number, reason = ''): Promise<CustomerReceipt> {
-  const { data } = await apiClient.post(`/payments/receipts/${id}/void/`, reason ? { reason } : {});
+export async function voidReceipt(
+  id: number,
+  reason: string,
+  options?: { idempotencyKey?: string },
+): Promise<CustomerReceipt> {
+  const { data } = await apiClient.post(
+    `/payments/receipts/${id}/void/`,
+    { reason },
+    { headers: idempotencyHeaders(options?.idempotencyKey) },
+  );
   return unwrapData<CustomerReceipt>(data);
+}
+
+/** Correct the descriptive fields of a posted receipt. Money fields need void and re-enter. */
+export async function editReceipt(
+  id: number,
+  changes: { notes?: string; reference?: string; utr?: string; bankAccount?: number | null },
+): Promise<CustomerReceipt> {
+  const { data } = await apiClient.patch(`/payments/receipts/${id}/`, changes);
+  return unwrapData<CustomerReceipt>(data);
+}
+
+/** Hand back part or all of the unallocated money on a receipt, without voiding it. */
+export async function refundAdvance(
+  id: number,
+  payload: {
+    amount: number | string;
+    mode: 'CASH' | 'UPI' | 'BANK';
+    reason: string;
+    refundDate?: string;
+    bankAccount?: number;
+    utr?: string;
+    paidFromTill?: boolean;
+  },
+  options?: { idempotencyKey?: string },
+): Promise<AdvanceRefund> {
+  const { data } = await apiClient.post(`/payments/receipts/${id}/refund-advance/`, payload, {
+    headers: idempotencyHeaders(options?.idempotencyKey),
+  });
+  return unwrapData<AdvanceRefund>(data);
+}
+
+export async function voidAdvanceRefund(
+  id: number,
+  reason: string,
+  options?: { idempotencyKey?: string },
+): Promise<AdvanceRefund> {
+  const { data } = await apiClient.post(
+    `/payments/advance-refunds/${id}/void/`,
+    { reason },
+    { headers: idempotencyHeaders(options?.idempotencyKey) },
+  );
+  return unwrapData<AdvanceRefund>(data);
+}
+
+/** Manager: void a cash receipt that was counted in a closed till and record why on that till. */
+export async function correctClosedTill(id: number, reason: string): Promise<CustomerReceipt> {
+  const { data } = await apiClient.post(`/payments/receipts/${id}/correct-closed-till/`, { reason });
+  return unwrapData<CustomerReceipt>(data);
+}
+
+/** Move money that landed on the walk-in account to the customer who paid. */
+export async function reassignReceiptCustomer(
+  id: number,
+  payload: { customer: number; reason: string },
+): Promise<CustomerReceipt> {
+  const { data } = await apiClient.post(`/payments/receipts/${id}/reassign-customer/`, payload);
+  return unwrapData<CustomerReceipt>(data);
+}
+
+/** Apply several advances oldest-bill-first. One result row per receipt. */
+export async function bulkAllocateReceipts(
+  ids: number[],
+  options: { idempotencyKey: string },
+): Promise<BulkAllocateResult[]> {
+  const { data } = await apiClient.post(
+    '/payments/receipts/bulk-allocate/',
+    { ids },
+    { headers: idempotencyHeaders(options.idempotencyKey) },
+  );
+  return unwrapData<{ results: BulkAllocateResult[] }>(data).results;
+}
+
+export type ReceiptSendResult = {
+  mode: 'cloud' | 'link' | 'device' | string;
+  status?: string;
+  documentUrl?: string;
+  text?: string;
+  shareLink?: string;
+};
+
+/** Send the receipt voucher to the customer by WhatsApp or email. An empty recipient is a device share. */
+export async function sendReceipt(
+  id: number,
+  payload: { channel: 'whatsapp' | 'email'; recipient?: string },
+): Promise<ReceiptSendResult> {
+  const { data } = await apiClient.post(`/payments/receipts/${id}/send/`, payload);
+  return unwrapData<ReceiptSendResult>(data);
+}
+
+/** Same filter keys as listReceiptsPage (`q`, `mode`, `status`, `date_from`, `date_to`). */
+export type ReceiptFilterParams = Pick<PageParams, 'q'> & {
+  mode?: string;
+  status?: string;
+  date_from?: string;
+  date_to?: string;
+  /** `true`: matched to a bank line; `false`: not matched. */
+  reconciled?: string;
+  /** Sort column, `-` prefix for descending: receipt_date, amount, number, customer__name, status. */
+  ordering?: string;
+};
+
+export async function getReceiptsSummary(params?: ReceiptFilterParams): Promise<ReceiptSummary> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.get('/payments/receipts/summary/', { params: toQueryParams(params) });
+      return unwrapData<ReceiptSummary>(data);
+    },
+    () => {
+      const total = mockReceipts.reduce((sum, row) => sum + Number(row.amount), 0);
+      const allocated = mockReceipts.reduce((sum, row) => sum + Number(row.allocated), 0);
+      return {
+        count: mockReceipts.length,
+        collected: total,
+        chequesPending: 0,
+        allocated,
+        advance: Math.max(total - allocated, 0),
+        excludedCount: 0,
+      };
+    },
+  );
+}
+
+/** A blob request that fails comes back as a Blob; parse it so getErrorMessage can read the envelope. */
+async function getBlob(url: string, params?: Record<string, unknown>): Promise<Blob> {
+  try {
+    const { data } = await apiClient.get(url, { params, responseType: 'blob' });
+    return data as Blob;
+  } catch (err) {
+    const body = (err as { response?: { data?: unknown } })?.response?.data;
+    if (typeof Blob !== 'undefined' && body instanceof Blob) {
+      try {
+        (err as { response: { data: unknown } }).response.data = JSON.parse(await body.text());
+      } catch {
+        // not JSON; leave the original error
+      }
+    }
+    throw err;
+  }
+}
+
+export async function exportReceiptsCsv(params?: ReceiptFilterParams): Promise<Blob> {
+  return getBlob('/payments/receipts/export/', toQueryParams(params));
+}
+
+export type ReceiptVoucherLayout = 'A4' | 'THERMAL';
+export type ReceiptVoucherLang = 'en' | 'hi';
+
+export async function fetchReceiptVoucher(
+  id: number,
+  layout: ReceiptVoucherLayout = 'A4',
+  lang: ReceiptVoucherLang = 'en',
+): Promise<Blob> {
+  return getBlob(`/payments/receipts/${id}/voucher/`, { layout, lang });
 }
 
 export async function setReceiptChequeStatus(id: number, chequeStatus: string): Promise<CustomerReceipt> {
@@ -127,8 +303,11 @@ export async function setSupplierPaymentChequeStatus(id: number, chequeStatus: s
   return unwrapData<SupplierPayment>(data);
 }
 
-export async function unallocatePayment(id: number): Promise<PaymentAllocation> {
-  const { data } = await apiClient.post(`/payments/allocations/${id}/unallocate/`, {});
+export async function unallocatePayment(id: number, reason?: string): Promise<PaymentAllocation> {
+  const { data } = await apiClient.post(
+    `/payments/allocations/${id}/unallocate/`,
+    reason === undefined ? {} : { reason },
+  );
   return unwrapData<PaymentAllocation>(data);
 }
 
@@ -248,6 +427,25 @@ export const listRecon = () =>
       }),
     mockReconLines,
   );
+export type ReconReviewItem = {
+  match: number;
+  line: number;
+  lineDate: string;
+  lineAmount: string;
+  bankAccount: string;
+  receipt: number;
+  receiptNumber: string;
+  customerName: string;
+  reason: string;
+};
+/** Matches whose receipt later bounced: the bank took the money back, so they need another look. */
+export const listReconNeedsReview = () =>
+  apiClient
+    .get('/payments/recon/needs-review/')
+    .then(({ data }) => unwrapData<{ results: ReconReviewItem[] }>(data).results);
+/** Link the bank's cheque-return debit line to the bounced receipt. */
+export const matchReconReturn = (payload: { line: number; receipt: number }) =>
+  apiClient.post('/payments/recon/match-return/', payload).then(({ data }) => unwrapData(data));
 export const confirmRecon = (payload: Record<string, unknown>) => apiClient.post('/payments/recon/confirm/', payload).then(({ data }) => unwrapData(data));
 // QOS-0039: confirm every EXACT-class suggestion on the unmatched queue in one call.
 export const bulkAcceptExactMatches = () =>
@@ -280,7 +478,20 @@ export function getCustomerPortal(token: string) {
       outstanding: string;
       payPath: string | null;
     }>;
+    receipts?: Array<{
+      id: number;
+      number: string;
+      receiptDate: string;
+      amount: string;
+      mode: string;
+    }>;
   }>(data));
+}
+
+export function downloadCustomerPortalReceipt(token: string, receiptId: number, lang: 'en' | 'hi' = 'en') {
+  return apiClient
+    .get(`/public/customer-portal/${token}/receipts/${receiptId}/voucher/`, { params: { lang }, responseType: 'blob' })
+    .then(({ data }) => data as Blob);
 }
 
 export function downloadCustomerPortalInvoice(token: string, invoiceId: number) {

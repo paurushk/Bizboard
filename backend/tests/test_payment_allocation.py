@@ -9,6 +9,7 @@ from tests.conftest import (
     create_draft_invoice,
     create_draft_purchase,
     make_customer,
+    make_default_bank,
     make_product,
     make_supplier,
 )
@@ -30,6 +31,10 @@ def _completed_sale(tenant, amount_qty="50"):
 
 
 def _receipt(tenant, customer, amount):
+    from payments.models import BankAccount
+
+    if not BankAccount.objects.filter(company=tenant.company).exists():
+        make_default_bank(tenant.company)
     resp = tenant.client.post("/api/v1/payments/receipts/", {
         "customer": customer.id, "amount": amount, "mode": "UPI",
     }, format="json")

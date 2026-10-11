@@ -222,6 +222,11 @@ export function Customer360Page() {
               {body.outstanding != null ? (
                 <Typography variant="body2">{t('portal.outstanding')}: {formatMoney(body.outstanding)}</Typography>
               ) : null}
+              {body.unclearedCheques != null && Number(body.unclearedCheques) > 0 ? (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  {t('customer360.unclearedCheques', { amount: formatMoney(body.unclearedCheques) })}
+                </Typography>
+              ) : null}
               {body.profit?.totals ? (
                 <Typography variant="body2">
                   {t('osPlan.profit')}: {formatMoney(body.profit.totals.margin ?? 0)}

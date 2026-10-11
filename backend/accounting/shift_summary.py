@@ -53,10 +53,23 @@ def render_shift_summary(shift) -> bytes:
         f"Cheque: {by_mode.get(PaymentMode.CHEQUE, 0)}",
         f"Refunds: {refund_total}",
         f"Drops: {sum((row.amount for row in drops), Decimal('0'))}",
-        f"Expected cash: {expected}",
+        f"Expected cash: {shift.expected_cash if shift.status == 'CLOSED' else expected}",
         f"Counted: {shift.counted_cash}",
         f"Variance: {shift.variance}",
     ]
+    from accounting.cash_shifts import adjusted_figures
+
+    adjustments = list(shift.adjustments.select_related("receipt", "approved_by").order_by("created_at", "id"))
+    if adjustments:
+        total, adj_expected, adj_variance = adjusted_figures(shift)
+        lines.append("")
+        lines.append("Corrections after the till was closed (expected, counted and variance above are as counted):")
+        for adj in adjustments:
+            who = getattr(adj.approved_by, "full_name", "") or getattr(adj.approved_by, "email", "")
+            lines.append(f"  {adj.receipt.number}  -{adj.amount}  {adj.reason[:60]}  ({who})")
+        lines.append(f"Corrections total: -{total}")
+        lines.append(f"Expected cash after corrections: {adj_expected}")
+        lines.append(f"Variance after corrections: {adj_variance}")
     for line in lines:
         y -= 7 * mm
         pdf.drawString(20 * mm, y, line)

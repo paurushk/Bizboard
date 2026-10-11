@@ -1,0 +1,27 @@
+id: "QOS-0121"
+category: "RELIABILITY_TRUST"
+title: "Money In: a posted receipt could not be corrected, a customer's advance could not be given back, and a closed till could not be fixed"
+persona: ["P1", "P2"]
+journey: "Correct or refund a customer receipt"
+problem: "A wrong bank account, UTR or note on a posted receipt meant voiding it; a customer who wanted an advance back needed the receipt voided; a cash receipt counted in a closed till was refused with a message naming a flow that did not exist."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md"]
+  detail: "Delivered 2026-10-11 (Phase 2 WP-7, WP-9): edit of notes, reference, UTR and bank account (guarded by period, reconciliation and cheque state, with a re-point journal that a void also undoes); advance refunds (cash, UPI or bank) that lower the advance everywhere and are voidable; Correct closed till for managers, recorded as a shift adjustment while the day's counted figures stay; money on a walk-in account can be moved to the customer who paid."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Audit trail and AR integrity on a money path."
+effort: "XL"
+recommendation: "Done. Void and refund accept an Idempotency-Key; reasons are kept in the audit trail."
+test_required: "backend/tests/test_money_in_phase2.py::test_refunding_part_of_an_advance_keeps_every_reader_consistent"
+guard_ref:
+  test: "backend/tests/test_money_in_phase2.py::test_refunding_part_of_an_advance_keeps_every_reader_consistent"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-11"

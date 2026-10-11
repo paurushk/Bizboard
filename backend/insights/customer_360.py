@@ -62,6 +62,8 @@ def _can_see_money(company_user) -> bool:
 
 
 def customer_360(company, customer, company_user=None) -> dict | None:
+    from ledgers.services import LedgerService
+
     if not flag_enabled(company, "ENABLE_CUSTOMER_360"):
         return None
     from sales.models import SalesOrderItem
@@ -102,6 +104,10 @@ def customer_360(company, customer, company_user=None) -> dict | None:
         "pattern": _human_pattern(risk.get("collection_status")),
         "recommended_next_step": _human_next_step(risk.get("recommended_next_step")),
         "outstanding": risk.get("outstanding") if show_money else None,
+        # Cheques taken but not yet cleared: already counted as received above, so say so.
+        "uncleared_cheques": (
+            str(LedgerService.uncleared_cheque_total(company, customer)) if show_money else None
+        ),
         "aging": risk.get("ageing") if show_money else None,
         "profit": profit if show_money else None,
     }

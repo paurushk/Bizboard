@@ -19,6 +19,9 @@ from core.services.document_numbers import DocumentNumberService, resolve_series
 
 logger = logging.getLogger(__name__)
 
+MIN_VOID_REASON_LENGTH = 3
+MAX_VOID_REASON_LENGTH = 500
+
 
 def refund_idempotency_key(gateway_payment_id, amount, seq=None) -> str:
     """Stable provider key for sync + outbox so a timeout cannot double-refund.
@@ -75,11 +78,13 @@ _TERMINAL_HOLDING_REASONS = (
 
 from .gateway import decrypt_gateway_credentials, get_adapter
 from .models import (
+    AdvanceRefundStatus,
     BankAccount,
     BankLineMatchStatus,
     BankStatementLine,
     BankStatementStatus,
     ChequeStatus,
+    CustomerAdvanceRefund,
     CustomerReceipt,
     GatewayPayment,
     GatewayPaymentStatus,
@@ -91,6 +96,12 @@ from .models import (
     ReceiptStatus,
     SupplierPayment,
     SupplierPaymentStatus,
+)
+from .receipt_math import (
+    LiveTotals,
+    cash_available,
+    max_cash_for_balance,
+    shares_for,
 )
 from .upi import normalize_utr
 
@@ -193,6 +204,25 @@ def _reverse_money_document_journal(*, company, source_type, source_id, user=Non
         PostingService.reverse(entry, user=user, entry_date=entry_date)
 
 
+def _reverse_bank_repoints(receipt, *, user=None, entry_date=None):
+    """A void must undo any later correction journals (bank re-points, customer transfers) too."""
+    from accounting.models import JournalEntry
+    from accounting.services import PostingService
+
+    if not getattr(receipt.company, "accounting_enabled", False):
+        return
+    entries = JournalEntry.objects.filter(
+        company=receipt.company,
+        source_type="CUSTOMER_RECEIPT",
+        source_id=receipt.id,
+        status=JournalEntry.Status.POSTED,
+    ).filter(
+        Q(purpose__startswith="BANK_REPOINT_") | Q(purpose__startswith="REASSIGN_")
+    ).select_for_update()
+    for entry in list(entries):
+        PostingService.reverse(entry, user=user, entry_date=entry_date)
+
+
 def _check_utr_duplicate(*, company, utr: str, exclude_receipt_id=None, exclude_payment_id=None) -> str | None:
     """BB-000645: all-time unique (company, normalized UTR) across receipts and payments."""
     utr = normalize_utr(utr)
@@ -258,6 +288,76 @@ def cheque_fields_from_payload(data, *, company=None):
     }
 
 
+def _cheque_blocks_allocation(receipt) -> bool:
+    """With the company flag on, a cheque that has not cleared cannot be applied to invoices."""
+    return bool(
+        getattr(receipt.company, "cheque_allocation_on_clearance", False)
+        and receipt.mode == PaymentMode.CHEQUE
+        and receipt.cheque_status == ChequeStatus.PENDING_CLEARANCE
+    )
+
+
+def _count(event: str) -> None:
+    """Bump the process-local business-event counter shown on /metrics. Never fails a money write."""
+    try:
+        from core.ops_metrics import bump_event
+
+        bump_event(event)
+    except Exception:  # noqa: BLE001
+        logger.debug("ops_metrics.bump_failed event=%s", event)
+
+
+CASH_269ST_LIMIT = Decimal("200000.00")
+BANK_MODES = ("UPI", "BANK", "CARD")
+
+
+def default_receipt_bank_account(company):
+    """The bank account a UPI/BANK/CARD receipt lands in when the caller names none.
+
+    The company's default, else its only active bank account. A cash box is never a bank, and
+    ``None`` is returned (not created) when there is no unambiguous choice.
+    """
+    from payments.models import BankAccountType
+
+    accounts = BankAccount.objects.filter(company=company, is_active=True).exclude(
+        account_type=BankAccountType.CASH_BOX
+    )
+    default = accounts.filter(is_default=True).first()
+    if default is not None:
+        return default
+    first_two = list(accounts.order_by("id")[:2])
+    return first_two[0] if len(first_two) == 1 else None
+
+
+def _cash_269st_check(*, company, customer, amount, receipt_date, exclude_pk=None) -> str | None:
+    """Income Tax s.269ST: Rs 2,00,000 or more in cash from one person in a day.
+
+    Returns the warning text; raises when the company chose ``block``. Looks at this receipt plus
+    the customer's other live cash receipts on the same date.
+    """
+    mode = getattr(company, "cash_269st_mode", "warn") or "warn"
+    if mode == "off":
+        return None
+    qs = CustomerReceipt.objects.filter(
+        company=company, customer=customer, mode=PaymentMode.CASH,
+        receipt_date=receipt_date or timezone.localdate(),
+    ).exclude(status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED))
+    if exclude_pk:
+        qs = qs.exclude(pk=exclude_pk)
+    same_day = qs.aggregate(t=Sum("amount"))["t"] or Decimal("0")
+    total = same_day + amount
+    if total < CASH_269ST_LIMIT:
+        return None
+    message = (
+        f"Cash receipts from this customer total {total} on this date. Section 269ST of the "
+        "Income Tax Act does not allow Rs 2,00,000 or more in cash from one person in a day. "
+        "Ask for a bank transfer, cheque or UPI instead."
+    )
+    if mode == "block":
+        raise BusinessRuleError(message, code="cash_269st_limit")
+    return message
+
+
 class PaymentService:
     @staticmethod
     @transaction.atomic
@@ -284,11 +384,47 @@ class PaymentService:
         settlement_discount=Decimal("0"),
         tendered=None,
         change_given=None,
+        tds_deducted=Decimal("0"),
+        tds_section="",
+        require_bank_account=False,
+        allocate_on_clear=False,
+        intended_sales_invoice=None,
+        intended_amount=None,
+        advance_gst_rate=None,
     ):
+        """Record money received from a customer.
+
+        ``require_bank_account`` is for receipts a person types in (the Money In screen and the
+        invoice "record payment" action): UPI, bank and card money must name a bank account,
+        and the company's default is used when it is unambiguous. Gateway captures, POS tenders,
+        bank import and other system callers leave it off: money that has already moved must
+        always be recorded, so they never fail on this rule.
+        """
         # B4-035: normalise once — an internal caller may pass a float.
         amount = Decimal(str(amount)).quantize(Decimal("0.01"))
         if amount <= 0:
             raise BusinessRuleError("Receipt amount must be greater than zero.")
+        if str(mode).upper() == PaymentMode.CREDIT:
+            raise BusinessRuleError(
+                "Credit is not a way of being paid. Leave the invoice unpaid, or record the "
+                "cash, UPI, bank, card or cheque that came in.",
+                code="receipt_mode_invalid",
+            )
+        settlement_discount = Decimal(str(settlement_discount or 0)).quantize(Decimal("0.01"))
+        tds_deducted = Decimal(str(tds_deducted or 0)).quantize(Decimal("0.01"))
+        if settlement_discount < 0 or tds_deducted < 0:
+            raise BusinessRuleError(
+                "Discount and TDS cannot be negative.", code="settlement_discount_invalid"
+            )
+        if settlement_discount > amount:
+            raise BusinessRuleError(
+                "The settlement discount cannot be more than the amount received.",
+                code="settlement_discount_invalid",
+            )
+        if tds_deducted > amount:
+            raise BusinessRuleError(
+                "TDS deducted cannot be more than the amount received.", code="tds_invalid"
+            )
         if customer.company_id != company.id:
             raise BusinessRuleError("Invalid customer reference.")
         from reporting.gst_periods import assert_period_allows_money_amend
@@ -306,6 +442,20 @@ class PaymentService:
         _require_cheque_details(mode=mode, cheque_number=cheque_number, cheque_bank_name=cheque_bank_name)
         if bank_account and bank_account.company_id != company.id:
             raise BusinessRuleError("Invalid bank account.")
+        if require_bank_account and str(mode).upper() in BANK_MODES and bank_account is None:
+            bank_account = default_receipt_bank_account(company)
+            if bank_account is None:
+                raise BusinessRuleError(
+                    "Choose the bank account this money was received in. Add one under "
+                    "Settings, Bank accounts if you have none.",
+                    code="bank_account_required",
+                )
+        if str(mode).upper() == PaymentMode.CASH:
+            cash_warning = _cash_269st_check(
+                company=company, customer=customer, amount=amount, receipt_date=receipt_date,
+            )
+        else:
+            cash_warning = None
         if warn_utr_duplicate:
             warn = _check_utr_duplicate(company=company, utr=utr_n)
         else:
@@ -331,7 +481,13 @@ class PaymentService:
             cheque_date=cheque_date,
             cheque_image=cheque_image,
             cheque_status=ChequeStatus.PENDING_CLEARANCE if str(mode).upper() == PaymentMode.CHEQUE else "",
-            settlement_discount=Decimal(str(settlement_discount or 0)),
+            settlement_discount=settlement_discount,
+            tds_deducted=tds_deducted,
+            tds_section=str(tds_section or "").strip()[:16],
+            allocate_on_clear=bool(allocate_on_clear),
+            intended_sales_invoice=intended_sales_invoice,
+            intended_amount=intended_amount,
+            advance_gst_rate=advance_gst_rate,
             tendered=Decimal(str(tendered if tendered is not None else amount)).quantize(Decimal("0.01")),
             change_given=Decimal(str(change_given or 0)).quantize(Decimal("0.01")),
             number=DocumentNumberService.next_number(
@@ -350,8 +506,11 @@ class PaymentService:
             PostingService.post_receipt(receipt, user)
         record_document_event(document=receipt, user=user, event="customer_receipt.created")
         emit("document.completed", document=receipt, user=user, event="customer_receipt.created")
+        emit("customer_receipt.created", receipt=receipt, user=user)
+        _count("money_in_receipt_created")
         logger.info("customer_receipt.created id=%s", receipt.pk)
         receipt._utr_warning = warn  # transient for API
+        receipt._cash_limit_warning = cash_warning
         return receipt
 
     @staticmethod
@@ -515,25 +674,39 @@ class PaymentService:
         if receipt.status != ReceiptStatus.POSTED:
             raise BusinessRuleError("Only posted receipts can be allocated.")
 
-        unallocated = receipt.amount - _allocated_of_payment("receipt", receipt)
+        if _cheque_blocks_allocation(receipt):
+            raise BusinessRuleError(
+                "This cheque has not cleared yet. It can be applied to invoices once it clears.",
+                code="cheque_not_cleared",
+            )
+        live = LiveTotals.from_db(receipt)
+        unallocated = cash_available(receipt, live)
         if amount > unallocated:
             raise BusinessRuleError(
                 f"Allocation {amount} exceeds unallocated receipt amount {unallocated}.",
                 code=HelpCode.ALLOCATION_EXCEEDS_UNALLOCATED,
             )
+        # The discount and TDS this slice clears are fixed here, once, and stored on the row.
+        discount_share, tds_share = shares_for(receipt, amount, live)
         open_outstanding = LedgerService.sales_invoice_outstanding(sales_invoice)
-        if amount > open_outstanding:
+        if amount + discount_share + tds_share > open_outstanding:
             raise BusinessRuleError(
-                f"Allocation {amount} exceeds invoice open outstanding {open_outstanding}."
+                f"Allocation {amount} plus discount {discount_share} and TDS {tds_share} "
+                f"exceeds invoice open outstanding {open_outstanding}.",
+                code="allocation_exceeds_outstanding",
             )
-        alloc = PaymentAllocation.objects.create(
+        alloc = PaymentAllocation(
             company=receipt.company,
             receipt=receipt,
             sales_invoice=sales_invoice,
             amount=amount,
+            discount_applied=discount_share,
+            tds_applied=tds_share,
             created_by=user,
             updated_by=user,
         )
+        alloc._shares_set = True
+        alloc.save()
         if receipt.company.accounting_enabled:
             from accounting.services import PostingService
 
@@ -612,12 +785,18 @@ class PaymentService:
 
     @staticmethod
     def allocate_receipt_oldest_first(*, receipt, user=None):
-        """Spread one receipt across the customer's open invoices, oldest due first."""
+        """Spread one receipt across the customer's open invoices, oldest due first.
+
+        Each invoice takes as much cash as it can together with the discount and TDS that cash
+        carries, so a receipt of 100 with a discount of 10 settles an invoice of 110 exactly.
+        """
         from ledgers.services import LedgerService
         from sales.models import SalesInvoice
         from sales.status_semantics import OPEN_SALES_STATUSES
 
-        remaining = receipt.amount - _allocated_of_payment("receipt", receipt)
+        if _cheque_blocks_allocation(receipt):
+            return []
+        remaining = cash_available(receipt)
         invoices = SalesInvoice.objects.filter(
             company_id=receipt.company_id,
             customer_id=receipt.customer_id,
@@ -630,7 +809,7 @@ class PaymentService:
             owed = LedgerService.sales_invoice_outstanding(invoice)
             if owed <= 0:
                 continue
-            take = min(remaining, owed).quantize(Decimal("0.01"))
+            take = max_cash_for_balance(receipt, owed, remaining, LiveTotals.from_db(receipt))
             if take <= 0:
                 continue
             created.append(
@@ -729,15 +908,62 @@ class PaymentService:
 
     @staticmethod
     @transaction.atomic
-    def void_receipt(*, receipt, user=None, reason=""):
-        """BB-000650: VOID receipt — reverse allocations + CREATE JE; never hard-delete."""
+    def void_receipt(
+        *, receipt, user=None, reason="", allow_bank_matched=False, allow_closed_till=False,
+    ):
+        """BB-000650: VOID receipt — reverse allocations + CREATE JE; never hard-delete.
+
+        A void needs a reason (audit). It is refused once the money has been
+        reconciled to a bank line or counted in a closed till. ``allow_bank_matched`` is for a
+        cheque that bounced after it was reconciled: the bank has taken the money back, so the
+        receipt must be reversible even though it is matched.
+        """
         rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
         if rec.status == ReceiptStatus.VOIDED:
             return rec
+        reason = " ".join(str(reason or "").split())
+        if len(reason) < MIN_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"Enter a reason of at least {MIN_VOID_REASON_LENGTH} characters to void a receipt.",
+                code="void_reason_required",
+            )
+        if len(reason) > MAX_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"The void reason can be at most {MAX_VOID_REASON_LENGTH} characters.",
+                code="void_reason_too_long",
+            )
         if rec.status == ReceiptStatus.REFUNDED:
             raise BusinessRuleError("Refunded receipts cannot be voided.")
         if rec.gateway_payment_id or rec.source == PaymentSource.GATEWAY:
             raise BusinessRuleError("Gateway receipts must be refunded, not voided.")
+        if rec.advance_refunds.filter(status=AdvanceRefundStatus.POSTED).exists():
+            raise BusinessRuleError(
+                "Part of this receipt was handed back as an advance refund. Void the refund "
+                "first, then void the receipt.",
+                code="receipt_has_refunds",
+            )
+        if not allow_bank_matched and (rec.recon_matches.exists() or rec.aa_transactions.exists()):
+            match = rec.recon_matches.select_related("line").first()
+            extra = {}
+            where = "Open Bank reconciliation, unmatch the line, then void this receipt."
+            if match is not None:
+                extra = {"line_id": match.line_id, "statement_id": match.line.statement_id}
+                where = (
+                    f"Open Bank reconciliation, unmatch line {match.line_id}, then void this receipt."
+                )
+            raise BusinessRuleError(
+                f"This receipt is matched to a bank statement line. {where}",
+                code="receipt_bank_matched",
+                extra=extra,
+            )
+        if rec.shift_id and rec.shift.status == "CLOSED" and not allow_closed_till:
+            raise BusinessRuleError(
+                f"This cash receipt was counted in the till of {rec.shift.business_date}, which is "
+                "closed. A manager can use Correct closed till on the receipt; the till's counted "
+                "figures stay as they were and the correction is listed on the shift report.",
+                code="receipt_till_closed",
+                extra={"shift_id": rec.shift_id, "business_date": str(rec.shift.business_date)},
+            )
         from reporting.gst_periods import assert_period_allows_money_amend
 
         assert_period_allows_money_amend(rec.company, rec.receipt_date, allow_soft_closed=True)
@@ -745,22 +971,371 @@ class PaymentService:
             PaymentService.reverse_allocation(allocation=alloc, user=user)
         # R2-004 / CR-061: a void is a fresh event — reverse on today's date, not the
         # original receipt date (which may sit in a soft-closed period).
+        void_date = timezone.localdate()
         _reverse_money_document_journal(
             company=rec.company,
             source_type="CUSTOMER_RECEIPT",
             source_id=rec.id,
             user=user,
-            entry_date=timezone.localdate(),
+            entry_date=void_date,
         )
-        note = (rec.notes or "").strip()
-        void_note = f"VOIDED{(': ' + reason) if reason else ''}"
-        rec.notes = f"{note}\n{void_note}".strip() if note else void_note
+        _reverse_bank_repoints(rec, user=user, entry_date=void_date)
         rec.status = ReceiptStatus.VOIDED
+        rec.void_reason = reason
+        rec.voided_at = timezone.now()
+        rec.voided_by = user if getattr(user, "pk", None) else None
         rec.updated_by = user
-        rec.save(update_fields=["notes", "status", "updated_by", "updated_at"])
-        record_document_event(document=rec, user=user, event="customer_receipt.voided")
+        rec.save(update_fields=[
+            "status", "void_reason", "voided_at", "voided_by", "updated_by", "updated_at",
+        ])
+        record_document_event(
+            document=rec, user=user, event="customer_receipt.voided",
+            metadata={"reason": reason, "reversal_date": void_date.isoformat()},
+        )
         emit("document.voided", document=rec, user=user, event="customer_receipt.voided")
+        emit("customer_receipt.voided", receipt=rec, user=user)
+        _count("money_in_receipt_voided")
         return rec
+
+    EDITABLE_RECEIPT_FIELDS = ("notes", "reference", "bank_account", "utr")
+
+    @staticmethod
+    @transaction.atomic
+    def reassign_receipt_customer(*, receipt, new_customer, reason, user=None):
+        """Give money that arrived on the walk-in account to the customer who actually paid.
+
+        Only an unallocated receipt on a walk-in customer can move (a walk-in has no account to
+        hold an advance, so this is the one way out). The original posting is not rewritten: a
+        dated transfer journal moves the advance, and the change is recorded with who and why.
+        """
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        rec = CustomerReceipt.objects.select_for_update().select_related("customer").get(pk=receipt.pk)
+        reason = " ".join(str(reason or "").split())
+        if len(reason) < MIN_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"Enter a reason of at least {MIN_VOID_REASON_LENGTH} characters.",
+                code="reassign_reason_required",
+            )
+        if len(reason) > MAX_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"The reason can be at most {MAX_VOID_REASON_LENGTH} characters.",
+                code="reassign_reason_too_long",
+            )
+        if rec.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only a posted receipt can be moved.", code="reassign_status")
+        if not rec.customer.is_pos_walk_in:
+            raise BusinessRuleError(
+                "Only money on the walk-in account can be moved to another customer.",
+                code="reassign_not_walk_in",
+            )
+        if new_customer.company_id != rec.company_id or new_customer.is_pos_walk_in:
+            raise BusinessRuleError("Choose a named customer of this company.", code="reassign_customer")
+        if rec.allocations.filter(reversed_at__isnull=True).exists() or rec.advance_refunds.filter(
+            status=AdvanceRefundStatus.POSTED
+        ).exists():
+            raise BusinessRuleError(
+                "This receipt has been applied or refunded already. Unallocate it first.",
+                code="reassign_applied",
+            )
+        # The GST return of the receipt's own period reads the customer's place of supply.
+        assert_period_allows_money_amend(rec.company, rec.receipt_date)
+        old_customer = rec.customer
+        if rec.company.accounting_enabled:
+            from accounting.models import JournalEntry
+            from accounting.services import PostingService
+
+            sequence = (
+                JournalEntry.objects.filter(
+                    company=rec.company, source_type="CUSTOMER_RECEIPT", source_id=rec.pk,
+                    purpose__startswith="REASSIGN_",
+                ).count()
+                + 1
+            )
+            PostingService.post_receipt_party_transfer(
+                rec, old_customer=old_customer, new_customer=new_customer, sequence=sequence, user=user,
+            )
+        rec.customer = new_customer
+        rec.updated_by = user
+        rec.save(update_fields=["customer", "updated_by", "updated_at"])
+        record_document_event(
+            document=rec, user=user, event="customer_receipt.reassigned",
+            before={"customer": old_customer.pk},
+            metadata={"to_customer": new_customer.pk, "reason": reason},
+        )
+        return rec
+
+    @staticmethod
+    @transaction.atomic
+    def edit_receipt(*, receipt, changes: dict, user=None):
+        """Correct the descriptive fields of a posted receipt. Money fields need void and re-enter.
+
+        Editable: ``notes``, ``reference``, ``utr`` (re-checked for duplicates) and
+        ``bank_account`` (only for bank-type modes, not reconciled, cheque not yet cleared,
+        original date in an open period). Customer, amount, mode and date are never editable.
+        """
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        rec = CustomerReceipt.objects.select_for_update(of=("self",)).select_related("customer", "bank_account").get(pk=receipt.pk)
+        unknown = sorted(set(changes) - set(PaymentService.EDITABLE_RECEIPT_FIELDS))
+        if unknown:
+            raise BusinessRuleError(
+                f"These fields cannot be changed on a posted receipt: {', '.join(unknown)}. "
+                "Void it and enter it again.",
+                code="receipt_field_not_editable",
+            )
+        if rec.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only a posted receipt can be edited.", code="receipt_not_editable")
+        before = {
+            "notes": rec.notes, "reference": rec.reference, "utr": rec.utr,
+            "bank_account": rec.bank_account_id,
+        }
+        reconciled = rec.recon_matches.exists() or rec.aa_transactions.exists()
+        update_fields = []
+
+        if "notes" in changes:
+            rec.notes = str(changes["notes"] or "")[:5000]
+            update_fields.append("notes")
+        if "reference" in changes:
+            rec.reference = str(changes["reference"] or "").strip()[:100]
+            update_fields.append("reference")
+        if "utr" in changes:
+            new_utr = normalize_utr(changes["utr"] or "")
+            if new_utr != rec.utr:
+                if reconciled:
+                    raise BusinessRuleError(
+                        "This receipt is matched to a bank line, so its UTR cannot change. "
+                        "Unmatch it in Bank reconciliation first.",
+                        code="receipt_reconciled",
+                    )
+                _assert_utr_unique(company=rec.company, utr=new_utr, exclude_receipt_id=rec.pk)
+                rec.utr = new_utr
+                update_fields.append("utr")
+        repoint = None
+        if "bank_account" in changes:
+            new_bank = changes["bank_account"]
+            if new_bank is not None and not isinstance(new_bank, BankAccount):
+                new_bank = BankAccount.objects.filter(company=rec.company, pk=new_bank).first()
+                if new_bank is None:
+                    raise BusinessRuleError("Invalid bank account.")
+            if new_bank is not None and new_bank.company_id != rec.company_id:
+                raise BusinessRuleError("Invalid bank account.")
+            if (new_bank.pk if new_bank else None) != rec.bank_account_id:
+                if rec.mode == PaymentMode.CASH:
+                    raise BusinessRuleError(
+                        "A cash receipt has no bank account to change.", code="receipt_bank_edit_refused"
+                    )
+                if new_bank is None:
+                    raise BusinessRuleError(
+                        "Choose a bank account for this receipt.", code="receipt_bank_edit_refused"
+                    )
+                if not new_bank.is_active:
+                    raise BusinessRuleError("That bank account is not active.", code="receipt_bank_edit_refused")
+                if rec.source == PaymentSource.GATEWAY or rec.gateway_payment_id:
+                    raise BusinessRuleError(
+                        "A gateway receipt's bank account is set by the gateway.",
+                        code="receipt_bank_edit_refused",
+                    )
+                if reconciled:
+                    raise BusinessRuleError(
+                        "This receipt is matched to a bank line, so its bank account cannot change. "
+                        "Unmatch it in Bank reconciliation first.",
+                        code="receipt_reconciled",
+                    )
+                if rec.mode == PaymentMode.CHEQUE and rec.cheque_status == ChequeStatus.CLEARED:
+                    raise BusinessRuleError(
+                        "This cheque has already cleared, so its bank account cannot change. "
+                        "Void the receipt and enter it again.",
+                        code="receipt_bank_edit_refused",
+                    )
+                # Same gate as creating the receipt on its own date: a closed month is not reopened.
+                assert_period_allows_money_amend(rec.company, rec.receipt_date)
+                repoint = (rec.bank_account, new_bank)
+                rec.bank_account = new_bank
+                update_fields.append("bank_account")
+
+        if not update_fields:
+            return rec
+        if repoint is not None and rec.company.accounting_enabled:
+            from accounting.models import JournalEntry
+            from accounting.services import PostingService
+
+            sequence = (
+                JournalEntry.objects.filter(
+                    company=rec.company, source_type="CUSTOMER_RECEIPT", source_id=rec.pk,
+                    purpose__startswith="BANK_REPOINT_",
+                ).count()
+                + 1
+            )
+            PostingService.post_receipt_bank_repoint(
+                rec, old_bank=repoint[0], new_bank=repoint[1], sequence=sequence, user=user,
+            )
+        rec.updated_by = user
+        rec.save(update_fields=[*update_fields, "updated_by", "updated_at"])
+        after = {
+            "notes": rec.notes, "reference": rec.reference, "utr": rec.utr,
+            "bank_account": rec.bank_account_id,
+        }
+        changed = [name for name in after if after[name] != before[name]]
+        _count("money_in_receipt_edited")
+        record_document_event(
+            document=rec, user=user, event="customer_receipt.edited",
+            before={k: before[k] for k in changed},
+            metadata={"changed": changed, "after_values": {k: after[k] for k in changed}},
+        )
+        return rec
+
+    @staticmethod
+    @transaction.atomic
+    def refund_advance(
+        *, receipt, amount, mode, reason, refund_date=None, bank_account=None, utr="",
+        paid_from_till=False, user=None,
+    ):
+        """Hand back part or all of the unallocated money on a receipt, without voiding it."""
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        rec = CustomerReceipt.objects.select_for_update().select_related("customer").get(pk=receipt.pk)
+        amount = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amount <= 0:
+            raise BusinessRuleError("The refund must be more than zero.", code="advance_refund_amount")
+        reason = " ".join(str(reason or "").split())
+        if len(reason) < MIN_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"Enter a reason of at least {MIN_VOID_REASON_LENGTH} characters for the refund.",
+                code="advance_refund_reason_required",
+            )
+        if len(reason) > MAX_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"The reason can be at most {MAX_VOID_REASON_LENGTH} characters.",
+                code="advance_refund_reason_too_long",
+            )
+        mode = str(mode or PaymentMode.CASH).upper()
+        if mode not in (PaymentMode.CASH, PaymentMode.UPI, PaymentMode.BANK):
+            raise BusinessRuleError(
+                "Refund an advance in cash, UPI or by bank transfer.", code="advance_refund_mode"
+            )
+        if rec.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only a posted receipt can be refunded.", code="advance_refund_status")
+        if rec.gateway_payment_id or rec.source == PaymentSource.GATEWAY:
+            raise BusinessRuleError(
+                "Refund a gateway payment through the gateway.", code="advance_refund_gateway"
+            )
+        if rec.customer.is_pos_walk_in:
+            raise BusinessRuleError(
+                "A walk-in customer holds no advance.", code="advance_refund_walk_in"
+            )
+        if rec.mode == PaymentMode.CHEQUE and rec.cheque_status != ChequeStatus.CLEARED:
+            raise BusinessRuleError(
+                "This cheque has not cleared, so the money has not been received yet.",
+                code="advance_refund_cheque",
+            )
+        if Decimal(str(rec.tds_deducted or 0)) > 0:
+            raise BusinessRuleError(
+                "This receipt carries TDS deducted by the customer. Apply it to invoices, or void "
+                "it and enter it again.",
+                code="advance_refund_tds",
+            )
+        available = cash_available(rec, LiveTotals.from_db(rec))
+        if amount > available:
+            raise BusinessRuleError(
+                f"Only {available} of this receipt is still unallocated.",
+                code="advance_refund_exceeds",
+            )
+        today = timezone.localdate()
+        refund_date = refund_date or today
+        if refund_date > today:
+            raise BusinessRuleError("A refund cannot be dated in the future.", code="advance_refund_date")
+        if refund_date < rec.receipt_date:
+            raise BusinessRuleError(
+                "A refund cannot be dated before the receipt.", code="advance_refund_date"
+            )
+        assert_period_allows_money_amend(rec.company, refund_date)
+        bank = None
+        if mode != PaymentMode.CASH:
+            bank = bank_account or default_receipt_bank_account(rec.company)
+            if bank is None:
+                raise BusinessRuleError(
+                    "Choose the bank account the refund was paid from.", code="bank_account_required"
+                )
+            if bank.company_id != rec.company_id:
+                raise BusinessRuleError("Invalid bank account.")
+        gstin_key = resolve_series_gstin(rec.company)
+        refund = CustomerAdvanceRefund.objects.create(
+            company=rec.company,
+            receipt=rec,
+            number=DocumentNumberService.next_number(
+                rec.company, "CUSTOMER_ADVANCE_REFUND", gstin=gstin_key,
+                on_date=refund_date if gstin_key else None,
+            ),
+            amount=amount,
+            mode=mode,
+            refund_date=refund_date,
+            bank_account=bank,
+            utr=normalize_utr(utr or ""),
+            reason=reason,
+            created_by=user,
+            updated_by=user,
+        )
+        if mode == PaymentMode.CASH and paid_from_till:
+            from sales.pos_shift import mark_paid_from_till
+
+            mark_paid_from_till(refund, rec.company, user)
+        if rec.company.accounting_enabled:
+            from accounting.services import PostingService
+
+            PostingService.post_advance_refund(refund, user)
+        _count("money_in_advance_refunded")
+        record_document_event(
+            document=refund, user=user, event="customer_advance_refund.created",
+            metadata={"receipt_id": rec.pk, "amount": str(amount), "reason": reason},
+        )
+        record_document_event(
+            document=rec, user=user, event="customer_receipt.advance_refunded",
+            metadata={"refund_id": refund.pk, "amount": str(amount)},
+        )
+        return refund
+
+    @staticmethod
+    @transaction.atomic
+    def void_advance_refund(*, refund, user=None, reason=""):
+        """Undo an advance refund (the money came back, or it was entered wrongly)."""
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        row = CustomerAdvanceRefund.objects.select_for_update().select_related("receipt").get(pk=refund.pk)
+        if row.status == AdvanceRefundStatus.VOIDED:
+            return row
+        reason = " ".join(str(reason or "").split())
+        if len(reason) < MIN_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"Enter a reason of at least {MIN_VOID_REASON_LENGTH} characters to void a refund.",
+                code="void_reason_required",
+            )
+        if len(reason) > MAX_VOID_REASON_LENGTH:
+            raise BusinessRuleError(
+                f"The void reason can be at most {MAX_VOID_REASON_LENGTH} characters.",
+                code="void_reason_too_long",
+            )
+        if row.shift_id and row.shift.status == "CLOSED":
+            raise BusinessRuleError(
+                "This refund was paid from a till that is now closed.", code="receipt_till_closed"
+            )
+        assert_period_allows_money_amend(row.company, row.refund_date, allow_soft_closed=True)
+        _reverse_money_document_journal(
+            company=row.company, source_type="CUSTOMER_ADVANCE_REFUND", source_id=row.id,
+            user=user, entry_date=timezone.localdate(),
+        )
+        row.status = AdvanceRefundStatus.VOIDED
+        row.void_reason = reason
+        row.voided_at = timezone.now()
+        row.voided_by = user if getattr(user, "pk", None) else None
+        row.updated_by = user
+        row.save(update_fields=[
+            "status", "void_reason", "voided_at", "voided_by", "updated_by", "updated_at",
+        ])
+        record_document_event(
+            document=row, user=user, event="customer_advance_refund.voided", metadata={"reason": reason},
+        )
+        return row
 
     @staticmethod
     def _dishonour_fee_amount(company, bank_charge) -> Decimal:
@@ -881,7 +1456,16 @@ class PaymentService:
         if cheque_status == ChequeStatus.BOUNCED:
             if rec.cheque_status == ChequeStatus.BOUNCED:
                 raise BusinessRuleError("This cheque receipt has already been bounced.")
-            PaymentService.void_receipt(receipt=rec, user=user, reason="Cheque bounced")
+            matched = list(rec.recon_matches.all())
+            PaymentService.void_receipt(
+                receipt=rec, user=user, reason="Cheque bounced", allow_bank_matched=True,
+            )
+            for match in matched:
+                # The bank has taken the money back. The match must not keep pointing at a voided
+                # receipt as if it were settled, so it goes back for a person to look at.
+                match.needs_review = True
+                match.review_reason = "Cheque bounced after it was matched to this bank line."
+                match.save(update_fields=["needs_review", "review_reason", "updated_at"])
             rec = CustomerReceipt.objects.select_for_update().select_related("customer").get(pk=receipt.pk)
             fee = PaymentService._dishonour_fee_amount(rec.company, bank_charge)
             # The fee is posted whole to the recovery account. Grossing it up for GST here
@@ -927,10 +1511,58 @@ class PaymentService:
         # while the money was never actually received.
         if rec.cheque_status == ChequeStatus.BOUNCED:
             raise BusinessRuleError("This cheque already bounced and cannot be re-cleared.")
+        was_pending = rec.cheque_status == ChequeStatus.PENDING_CLEARANCE
         rec.cheque_status = cheque_status
         rec.updated_by = user
         rec.save(update_fields=["cheque_status", "updated_by", "updated_at"])
+        if cheque_status == ChequeStatus.CLEARED and was_pending and rec.status == ReceiptStatus.POSTED:
+            if getattr(rec.company, "cheque_allocation_on_clearance", False):
+                if rec.allocate_on_clear:
+                    # Clearing must always succeed: the bank has paid. If the bill cannot take
+                    # the money now (period closed, bill paid or cancelled meanwhile) it simply
+                    # stays an advance for a person to apply.
+                    try:
+                        with transaction.atomic():
+                            PaymentService.apply_intent_on_clear(receipt=rec, user=user)
+                    except BusinessRuleError as exc:
+                        logger.warning(
+                            "cheque.clear_apply_skipped receipt=%s reason=%s", rec.pk, exc
+                        )
+                # The cheque now counts as money received: a promise it covers is kept.
+                emit("customer_receipt.created", receipt=rec, user=user)
         return rec
+
+    @staticmethod
+    def apply_intent_on_clear(*, receipt, user=None):
+        """Apply a cheque that has just cleared the way the person entering it asked.
+
+        A named invoice (if it is still open) takes what it can, the rest staying as an advance;
+        with no named invoice the cheque goes oldest-first. A bill that was paid by someone else
+        in the meantime is not an error: the money simply stays an advance.
+        """
+        from ledgers.services import LedgerService
+        from sales.models import SalesInvoice
+        from sales.status_semantics import OPEN_SALES_STATUSES
+
+        invoice = None
+        if receipt.intended_sales_invoice_id:
+            invoice = SalesInvoice.objects.filter(
+                pk=receipt.intended_sales_invoice_id, company_id=receipt.company_id,
+                customer_id=receipt.customer_id, status__in=OPEN_SALES_STATUSES,
+            ).first()
+            if invoice is None:
+                return []
+            want = receipt.intended_amount if receipt.intended_amount else receipt.amount
+            owed = LedgerService.sales_invoice_outstanding(invoice)
+            take = max_cash_for_balance(
+                receipt, owed, min(Decimal(str(want)), cash_available(receipt)), LiveTotals.from_db(receipt)
+            )
+            if take <= 0:
+                return []
+            return [PaymentService.allocate_receipt(
+                receipt=receipt, sales_invoice=invoice, amount=take, user=user,
+            )]
+        return PaymentService.allocate_receipt_oldest_first(receipt=receipt, user=user)
 
     @staticmethod
     @transaction.atomic
@@ -1235,7 +1867,7 @@ class PaymentService:
             if link and link.sales_invoice_id and receipt:
                 try:
                     outstanding = LedgerService.sales_invoice_outstanding(link.sales_invoice)
-                    unalloc = Decimal(str(receipt.amount or 0)) - _allocated_of_payment("receipt", receipt)
+                    unalloc = cash_available(receipt)
                     alloc_amt = min(unalloc, outstanding)
                     if alloc_amt > 0:
                         PaymentService.allocate_receipt(

@@ -1164,6 +1164,7 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "at": at_table,
         "atadj": atadj_table,
         "txpd": txpd_table,
+        "advance_gst": _advance_gst_tie_out(company, at_table, atadj_table),
         "supecom": {
             "supported": False,
             "table": "15",
@@ -1317,6 +1318,234 @@ def _gstr1_doc_table(
     return rows
 
 
+# --------------------------------------------------------------------------- GST on advances
+#
+# Services: tax is due when an advance is received (Table 11A), and is taken off again when the
+# invoice is issued (Table 11B). Receipts allocated to an invoice of the same period never
+# appear. An advance reported in one period and adjusted in a later one reduces the later
+# period's liability, so tax is not paid on both the advance and the invoice. A refund of an
+# advance on which tax was reported needs a refund voucher (CGST s.31(3)(e)). Goods advances
+# are not taxed at receipt, and with the company switch off these tables stay the honest aids.
+# These figures are reported, not posted to the ledger: see the GST tie-out note on the return.
+
+
+def _advance_gst_on(company) -> bool:
+    return getattr(company, "advance_gst_treatment", "none") == "services"
+
+
+def _non_primary_gstin(company, company_gstin_id) -> bool:
+    from accounts.models import CompanyGstin
+
+    primary = CompanyGstin.objects.filter(company=company, is_primary=True, is_active=True).first()
+    return primary is not None and primary.id != company_gstin_id
+
+
+def _advance_rate(company, receipt):
+    rate = receipt.advance_gst_rate if receipt.advance_gst_rate is not None else company.advance_gst_default_rate
+    return None if rate is None else Decimal(str(rate))
+
+
+def _advance_tax_split(company, receipt, gross: Decimal, rate: Decimal) -> dict:
+    """Tax contained in a tax-inclusive advance, split by place of supply."""
+    from decimal import ROUND_HALF_UP
+
+    from core.services.billing import extract_state_code
+
+    q2 = Decimal("0.01")
+    tax = (gross * rate / (Decimal("100") + rate)).quantize(q2, rounding=ROUND_HALF_UP)
+    customer = receipt.customer
+    pos = (
+        extract_state_code(getattr(customer, "gstin", "") or "")
+        or extract_state_code(getattr(customer, "state", "") or "")
+        or ""
+    )
+    own = extract_state_code(getattr(company, "gstin", "") or "") or extract_state_code(
+        getattr(company, "state", "") or ""
+    )
+    cgst = sgst = igst = Decimal("0.00")
+    if pos and own and pos != own:
+        igst = tax
+    else:
+        cgst = (tax / 2).quantize(q2, rounding=ROUND_HALF_UP)
+        sgst = tax - cgst
+    return {
+        "place_of_supply": pos,
+        "rate": _money(rate),
+        "taxable_value": _money(gross - tax),
+        "cgst": _money(cgst),
+        "sgst": _money(sgst),
+        "igst": _money(igst),
+        "tax": _money(tax),
+    }
+
+
+def _advance_received_in_hand(receipt) -> bool:
+    """A cheque that has not cleared is not received yet, and a bounced one never was."""
+    from payments.models import ChequeStatus, PaymentMode
+
+    if receipt.mode == PaymentMode.CHEQUE:
+        return receipt.cheque_status == ChequeStatus.CLEARED
+    return True
+
+
+def _advance_gst_at_rows(company, date_from, date_to) -> list[dict]:
+    """Table 11A: advances received in the period and still not invoiced at its end."""
+    from django.db.models import Sum as DjSum
+
+    from payments.models import (
+        AdvanceRefundStatus,
+        CustomerAdvanceRefund,
+        CustomerReceipt,
+        PaymentAllocation,
+        ReceiptStatus,
+    )
+
+    rows = []
+    receipts = CustomerReceipt.objects.filter(
+        company=company,
+        receipt_date__gte=date_from,
+        receipt_date__lte=date_to,
+        status=ReceiptStatus.POSTED,
+    ).select_related("customer")
+    for rec in receipts:
+        if not _advance_received_in_hand(rec):
+            continue
+        applied = PaymentAllocation.objects.filter(
+            receipt=rec, reversed_at__isnull=True, sales_invoice__invoice_date__lte=date_to
+        ).aggregate(c=DjSum("amount"), t=DjSum("tds_applied"))
+        refunded = CustomerAdvanceRefund.objects.filter(
+            receipt=rec, status=AdvanceRefundStatus.POSTED, refund_date__lte=date_to
+        ).aggregate(t=DjSum("amount"))["t"] or Decimal("0")
+        advance = (
+            Decimal(str(rec.amount or 0)) + Decimal(str(rec.tds_deducted or 0))
+            - Decimal(str(applied["c"] or 0)) - Decimal(str(applied["t"] or 0)) - Decimal(str(refunded))
+        )
+        if advance <= 0:
+            continue
+        rate = _advance_rate(company, rec)
+        if rate is None:
+            rows.append({
+                "receipt_number": rec.number,
+                "receipt_date": rec.receipt_date.isoformat(),
+                "gross_advance": _money(advance),
+                "rate": "0.00", "cgst": "0.00", "sgst": "0.00", "igst": "0.00",
+                "tax_status": "rate_unknown",
+                "aid_kind": "unallocated_receipt",
+                "note": "No GST rate set for this advance: add a default rate in settings or a rate on the receipt.",
+                "honesty": "rate_unknown_do_not_file_as_at",
+            })
+            continue
+        split = _advance_tax_split(company, rec, advance, rate)
+        rows.append({
+            "receipt_number": rec.number,
+            "receipt_date": rec.receipt_date.isoformat(),
+            "gross_advance": _money(advance),
+            "tax_status": "computed",
+            "aid_kind": "advance_received",
+            "note": "Tax on an advance for services (Table 11A), inclusive of the rate. Reported, not posted to the ledger.",
+            **split,
+        })
+    return rows
+
+
+def _advance_gst_adjustment_rows(company, date_from, date_to) -> list[dict]:
+    """Table 11B plus refund vouchers: what takes earlier advance tax off this period's liability."""
+    from payments.models import AdvanceRefundStatus, CustomerAdvanceRefund, PaymentAllocation
+
+    rows = []
+    allocs = PaymentAllocation.objects.filter(
+        company=company,
+        receipt__isnull=False,
+        sales_invoice__isnull=False,
+        reversed_at__isnull=True,
+        sales_invoice__invoice_date__gte=date_from,
+        sales_invoice__invoice_date__lte=date_to,
+        receipt__receipt_date__lt=date_from,
+    ).select_related("receipt", "receipt__customer", "sales_invoice")
+    for alloc in allocs:
+        rec = alloc.receipt
+        if not _advance_received_in_hand(rec):
+            continue
+        rate = _advance_rate(company, rec)
+        adjusted = Decimal(str(alloc.amount or 0)) + Decimal(str(alloc.tds_applied or 0))
+        row = {
+            "receipt_number": rec.number,
+            "receipt_date": rec.receipt_date.isoformat(),
+            "invoice_number": alloc.sales_invoice.number,
+            "invoice_date": alloc.sales_invoice.invoice_date.isoformat(),
+            "adjusted_amount": _money(adjusted),
+            "aid_kind": "atadj_cross_period",
+        }
+        if rate is None:
+            row.update(tax_status="rate_unknown", note="No GST rate on this advance; adjust it by hand.")
+        else:
+            row.update(
+                tax_status="computed",
+                note="Advance reported in an earlier period, now invoiced: reduces this period's liability (Table 11B).",
+                **_advance_tax_split(company, rec, adjusted, rate),
+            )
+        rows.append(row)
+    refunds = CustomerAdvanceRefund.objects.filter(
+        company=company,
+        status=AdvanceRefundStatus.POSTED,
+        refund_date__gte=date_from,
+        refund_date__lte=date_to,
+        receipt__receipt_date__lt=date_from,
+    ).select_related("receipt", "receipt__customer")
+    for refund in refunds:
+        rec = refund.receipt
+        rate = _advance_rate(company, rec)
+        row = {
+            "receipt_number": rec.number,
+            "receipt_date": rec.receipt_date.isoformat(),
+            "refund_voucher_number": refund.number,
+            "refund_date": refund.refund_date.isoformat(),
+            "adjusted_amount": _money(refund.amount),
+            "aid_kind": "advance_refund_voucher",
+        }
+        if rate is None:
+            row.update(tax_status="rate_unknown", note="Refund voucher needed; no GST rate on the advance.")
+        else:
+            row.update(
+                tax_status="computed",
+                note="Refund voucher for an advance on which tax was reported (CGST s.31(3)(e)); reduces this period's liability.",
+                **_advance_tax_split(company, rec, Decimal(str(refund.amount)), rate),
+            )
+        rows.append(row)
+    return rows
+
+
+def _advance_gst_tie_out(company, at_rows: list[dict], adj_rows: list[dict]) -> dict:
+    """What the advance tables report as tax, and the fact that the books do not carry it.
+
+    Advance tax is reported here, not posted to the ledger (a decision for the CA, plan D-5), so
+    the output-tax accounts differ from GSTR-1 by exactly ``difference``. Listing it keeps the
+    gap explained instead of leaving someone to find it at filing time.
+    """
+    from decimal import Decimal as D
+
+    def tax(rows):
+        return sum((D(r["tax"]) for r in rows if r.get("tax_status") == "computed" and "tax" in r), D("0"))
+
+    reported = tax(at_rows)
+    adjusted = tax(adj_rows)
+    net = reported - adjusted
+    on = _advance_gst_on(company)
+    return {
+        "enabled": on,
+        "tax_reported": _money(reported),
+        "tax_adjusted": _money(adjusted),
+        "difference_from_books": _money(net) if on else "0.00",
+        "posted_to_books": False,
+        "note": (
+            "Tax on advances is reported in these tables but not posted to the ledger, so the output "
+            "tax accounts differ from GSTR-1 by the amount shown."
+            if on
+            else "Advance GST is not computed for this company."
+        ),
+    }
+
+
 def _gstr1_at_table(company, date_from, date_to, *, company_gstin_id=None) -> list[dict]:
     """GSTR-1 AT aid: unallocated customer receipts in period (advances).
 
@@ -1346,6 +1575,9 @@ def _gstr1_at_table(company, date_from, date_to, *, company_gstin_id=None) -> li
         ).first()
         if primary is not None and primary.id != company_gstin_id:
             return _gstr1_at_unattributable_rows(company, date_from, date_to)
+
+    if _advance_gst_on(company):
+        return _advance_gst_at_rows(company, date_from, date_to)
 
     rows = []
     receipts = CustomerReceipt.objects.filter(
@@ -1430,6 +1662,12 @@ def _gstr1_atadj_table(company, date_from, date_to, *, company_gstin_id=None) ->
     """BB-000621: ATADJ aid when advances are allocated to invoices."""
     from payments.models import PaymentAllocation
 
+    if _advance_gst_on(company) and (
+        company_gstin_id is None
+        or not _non_primary_gstin(company, company_gstin_id)
+    ):
+        return _advance_gst_adjustment_rows(company, date_from, date_to)
+
     rows = []
     allocs = (
         PaymentAllocation.objects.filter(
@@ -1466,6 +1704,8 @@ def _gstr1_atadj_table(company, date_from, date_to, *, company_gstin_id=None) ->
 def _gstr1_txpd_table(company, date_from, date_to, *, company_gstin_id=None) -> list[dict]:
     """TXPD aid mirrors AT advances — tax rate unknown until invoiced."""
     at_rows = _gstr1_at_table(company, date_from, date_to, company_gstin_id=company_gstin_id)
+    if _advance_gst_on(company) and at_rows and all(r.get("tax_status") == "computed" for r in at_rows):
+        return [{**row, "aid_kind": "txpd_from_at", "note": "Mirrors the computed advance (AT) rows."} for row in at_rows]
     if not at_rows:
         return [{
             "aid_kind": "txpd_none",

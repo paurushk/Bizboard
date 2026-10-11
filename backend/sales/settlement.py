@@ -72,17 +72,8 @@ def annotate_live_settlement(qs):
         ),
         "amount",
     )
-    # Settlement (early-payment) discount counts as settled, as the ledger counts it: each
-    # allocation carries its share of its receipt's discount, by share of the receipt's allocations.
-    receipt_alloc_total = Subquery(
-        PaymentAllocation.objects.filter(
-            receipt_id=OuterRef("receipt_id"),
-            receipt__isnull=False,
-            supplier_payment__isnull=True,
-            reversed_at__isnull=True,
-        ).values("receipt_id").annotate(t=Sum("amount")).values("t")[:1],
-        output_field=money,
-    )
+    # Settlement (early-payment) discount and customer-deducted TDS count as settled, as the
+    # ledger counts them: each allocation carries its own fixed slice of both.
     discount_share = Coalesce(
         Subquery(
             PaymentAllocation.objects.filter(
@@ -93,7 +84,7 @@ def annotate_live_settlement(qs):
             ).values("sales_invoice_id").annotate(
                 d=Sum(
                     ExpressionWrapper(
-                        F("receipt__settlement_discount") * F("amount") / receipt_alloc_total,
+                        F("discount_applied") + F("tds_applied"),
                         output_field=money,
                     )
                 )

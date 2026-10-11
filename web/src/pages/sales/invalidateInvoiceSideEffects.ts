@@ -15,6 +15,7 @@ export function invalidateInvoiceSideEffects(qc: QueryClient, invoiceId?: number
   void qc.invalidateQueries({ queryKey: ['stock-balance'] });
   void qc.invalidateQueries({ queryKey: ['stock'] });
   void qc.invalidateQueries({ queryKey: ['receipts'] });
+  void qc.invalidateQueries({ queryKey: ['receipts-summary'] });
   void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
   void qc.invalidateQueries({ queryKey: ['receipt-allocate-invoices'] });
   void qc.invalidateQueries({ queryKey: ['sales-returns'] });

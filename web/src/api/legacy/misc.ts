@@ -535,8 +535,8 @@ export async function snoozeAttentionRow(dedupeKey: string, reason: string, days
   await apiClient.post('/insights/attention/snooze/', { dedupeKey, reason, days });
 }
 
-export async function dismissAttentionRow(dedupeKey: string): Promise<void> {
-  await apiClient.post('/insights/attention/dismiss/', { dedupeKey });
+export async function dismissAttentionRow(dedupeKey: string, reason?: string): Promise<void> {
+  await apiClient.post('/insights/attention/dismiss/', reason ? { dedupeKey, reason } : { dedupeKey });
 }
 
 export async function getLearningReport(): Promise<{

@@ -7,10 +7,14 @@ import { CustomerPortalPage } from '@/pages/public/CustomerPortalPage';
 
 const getCustomerPortal = vi.fn();
 const submitPortalComplaint = vi.fn();
+const downloadCustomerPortalReceipt = vi.fn(async (..._args: unknown[]) => new Blob(['%PDF'], { type: 'application/pdf' }));
+const { triggerBlobDownload } = vi.hoisted(() => ({ triggerBlobDownload: vi.fn() }));
+vi.mock('@/utils/blob', () => ({ triggerBlobDownload: (...args: unknown[]) => triggerBlobDownload(...args) }));
 
 vi.mock('@/api/resources', () => ({
   getCustomerPortal: (...args: unknown[]) => getCustomerPortal(...args),
   downloadCustomerPortalInvoice: vi.fn(),
+  downloadCustomerPortalReceipt: (...args: unknown[]) => downloadCustomerPortalReceipt(...args),
   startCustomerPortalPayment: vi.fn(),
   submitPortalComplaint: (...args: unknown[]) => submitPortalComplaint(...args),
 }));
@@ -69,5 +73,32 @@ describe('CustomerPortalPage complaints', () => {
     const firstKey = submitPortalComplaint.mock.calls[0][2];
     await user.click(screen.getByRole('button', { name: 'Submit complaint' }));
     expect(submitPortalComplaint.mock.calls[1][2]).not.toBe(firstKey);
+  });
+});
+
+describe('CustomerPortalPage receipts', () => {
+  it('lists receipts and downloads a voucher through the same link', async () => {
+    getCustomerPortal.mockResolvedValue({
+      customerName: 'Ravi',
+      expiresAt: '2026-09-29T00:00:00Z',
+      complaintsEnabled: false,
+      invoices: [],
+      receipts: [{ id: 7, number: 'RCT-0007', receiptDate: '2026-10-01', amount: '500.00', mode: 'UPI' }],
+    });
+    const user = userEvent.setup();
+    wrap();
+    expect(await screen.findByText(/RCT-0007/)).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: /download receipt/i }));
+    await vi.waitFor(() => expect(downloadCustomerPortalReceipt).toHaveBeenCalledWith('tok', 7));
+    await vi.waitFor(() => expect(triggerBlobDownload).toHaveBeenCalled());
+  });
+
+  it('shows no receipts section when there are none', async () => {
+    getCustomerPortal.mockResolvedValue({
+      customerName: 'Ravi', expiresAt: '2026-09-29T00:00:00Z', complaintsEnabled: false, invoices: [],
+    });
+    wrap();
+    expect(await screen.findByText('Ravi')).toBeTruthy();
+    expect(screen.queryByText('Receipts')).toBeNull();
   });
 });

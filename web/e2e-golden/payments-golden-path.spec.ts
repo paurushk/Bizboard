@@ -62,22 +62,18 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   await expect(page.getByText('₹100.00').first()).toBeVisible();
 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
-  await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
-  const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
-  await expect(invoiceRow).toContainText('Unpaid');
-  const textCells = await invoiceRow.locator('td').allTextContents();
-  const invoiceNumber = textCells
-    .map((c) => c.trim())
-    .find((c) => /^INV-/.test(c))
-    ?.split('·')[0]
-    .trim();
+  // A completed invoice opens its detail page, whose heading is the invoice number.
+  const heading = page.getByRole('heading', { level: 1, name: /^INV-/ });
+  await expect(heading).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Unpaid').first()).toBeVisible();
+  const invoiceNumber = ((await heading.textContent()) ?? '').trim();
   expect(invoiceNumber).toMatch(/^INV-/);
 
   // 7. Receive a CASH receipt and allocate it to the invoice in one step.
   await page.goto('/sales/receipts');
   await page.getByRole('button', { name: 'New receipt' }).click();
   await selectReceiptCustomer(page, customerName);
-  await page.getByLabel('Amount').fill('100');
+  await page.getByLabel('Amount', { exact: true }).fill('100');
   // Mode defaults to CASH -> PostingService.post_receipt debits account 1100
   // (Cash), not a specific bank account -> a stable, always-true assertion below.
   const allocateCombo = page.getByRole('combobox', { name: 'Apply to specific invoice (optional)' });

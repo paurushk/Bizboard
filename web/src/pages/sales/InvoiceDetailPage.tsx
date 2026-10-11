@@ -698,6 +698,11 @@ export function InvoiceDetailPage() {
               <Typography>{t('billing.balance')}</Typography>
               <Typography fontWeight={600}>{formatMoney(inv.balance)}</Typography>
             </Stack>
+            {toNumber(inv.pendingChequeAmount) > 0 ? (
+              <Typography variant="body2" color="warning.main">
+                {t('billing.chequePendingOnBill', { amount: formatMoney(inv.pendingChequeAmount ?? 0) })}
+              </Typography>
+            ) : null}
           </Stack>
         </Paper>
         <Paper sx={{ p: 2, flex: 1 }}>

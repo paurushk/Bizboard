@@ -1,8 +1,17 @@
 
+import csv
+import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
+from django.db.models import Count, Exists, OuterRef, Subquery, Sum
+from django.db.models.functions import Coalesce
+from django.http import HttpResponse, StreamingHttpResponse
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -11,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from billing.permissions import SubscriptionWritesAllowed
+from core.csv_utils import csv_safe
 from core.exceptions import BusinessRuleError
 from core.idempotency import (
     begin_record,
@@ -22,6 +32,7 @@ from core.idempotency import (
 )
 from core.permissions import (
     CanCancelDocuments,
+    CanExport,
     CanCreatePayments,
     CanViewPaymentSurfaces,
     HasCompany,
@@ -29,7 +40,9 @@ from core.permissions import (
     IsOwnerManagerOrAccountant,
     get_company_user,
 )
+from core.rls import stream_with_rls
 from core.services.audit import AuditService
+from core.throttles import CompanyRateThrottle
 from core.viewsets import CompanyScopedViewSet
 
 from .gateway import (
@@ -37,18 +50,23 @@ from .gateway import (
     encrypt_gateway_credentials,
 )
 from .models import (
+    AdvanceRefundStatus,
     BankAccount,
     BankLineMatchStatus,
     BankStatement,
     BankStatementLine,
     BankStatementStatus,
+    ChequeStatus,
+    CustomerAdvanceRefund,
     CustomerReceipt,
     GatewayPayment,
     PaymentAllocation,
     PaymentLink,
     PaymentLinkStatus,
+    PaymentMode,
     PaymentPromise,
     PaymentSource,
+    ReceiptStatus,
     ReconMatch,
     SupplierPayment,
     SupplierPaymentStatus,
@@ -60,7 +78,9 @@ from .serializers import (
     BankAccountSerializer,
     BankStatementLineSerializer,
     BankStatementSerializer,
+    AdvanceRefundLineSerializer,
     CustomerReceiptSerializer,
+    ReceiptSummarySerializer,
     GatewayPaymentSerializer,
     PaymentAllocationSerializer,
     PaymentLinkSerializer,
@@ -127,29 +147,436 @@ class BankAccountViewSet(CompanyScopedViewSet):
             )
 
 
+RECEIPT_FILTER_PARAMETERS = [
+    OpenApiParameter("q", str, description="Number, customer name, phone, UTR or reference (max 100 characters)."),
+    OpenApiParameter("mode", str, enum=list(PaymentMode.values)),
+    OpenApiParameter("status", str, enum=list(ReceiptStatus.values)),
+    OpenApiParameter("date_from", OpenApiTypes.DATE, description="Receipt date on or after."),
+    OpenApiParameter("date_to", OpenApiTypes.DATE, description="Receipt date on or before."),
+    OpenApiParameter("customer", int),
+    OpenApiParameter("reconciled", bool, description="true: matched to a bank line; false: not matched."),
+    OpenApiParameter(
+        "ordering", str,
+        description="Sort column, with a leading '-' for descending: receipt_date, amount, number, "
+        "customer__name or status. Ties are broken by id so pages never overlap.",
+    ),
+]
+RECEIPT_SEARCH_MAX_LENGTH = 100
+# A trigram index needs at least three characters; shorter terms would scan every branch.
+RECEIPT_SEARCH_MIN_LENGTH = 3
+RECEIPT_SEARCH_ID_CAP = 5000
+RECEIPT_ORDERING_FIELDS = ("receipt_date", "amount", "number", "customer__name", "status")
+RECEIPT_EXPORT_MAX_ROWS = 20000
+_PHONE_LIKE = re.compile(r"^[\d\s+\-]{3,}$")
+
+
+def _utr_duplicates_for_page(company, rows) -> dict:
+    """{receipt id: warning} for the receipts of one page, in two queries.
+
+    Same rule as ``payments.services._check_utr_duplicate`` (another live receipt or a live
+    supplier payment carries the same UTR), looked up for every UTR on the page at once.
+    """
+    utrs = {row.utr for row in rows if row.utr}
+    if not utrs:
+        return {}
+    live_receipts = CustomerReceipt.objects.filter(company=company, utr__in=utrs).exclude(
+        status__in=(ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED)
+    )
+    receipts_by_utr: dict[str, list[int]] = {}
+    for pk, utr in live_receipts.values_list("pk", "utr"):
+        receipts_by_utr.setdefault(utr, []).append(pk)
+    payment_utrs = set(
+        SupplierPayment.objects.filter(company=company, utr__in=utrs)
+        .exclude(status=SupplierPaymentStatus.VOIDED)
+        .values_list("utr", flat=True)
+    )
+    out = {}
+    for row in rows:
+        if not row.utr:
+            continue
+        if any(pk != row.pk for pk in receipts_by_utr.get(row.utr, ())):
+            out[row.pk] = f"UTR {row.utr} was already used on another receipt."
+        elif row.utr in payment_utrs:
+            out[row.pk] = f"UTR {row.utr} was already used on a supplier payment."
+    return out
+
+
+def _query_date(params, key):
+    raw = str(params.get(key) or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = parse_date(raw)
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        raise ValidationError({key: "Use a valid date in YYYY-MM-DD format."})
+    return parsed
+
+
+def _query_choice(params, key, choices):
+    raw = (params.get(key) or "").strip().upper()
+    if not raw:
+        return None
+    if raw not in choices:
+        raise ValidationError({key: f"Choose one of: {', '.join(sorted(choices))}."})
+    return raw
+
+
 class CustomerReceiptViewSet(CompanyScopedViewSet):
-    queryset = CustomerReceipt.objects.select_related("customer", "bank_account").prefetch_related(
-        "allocations"
+    queryset = (
+        CustomerReceipt.objects.select_related("customer", "bank_account", "voided_by")
+        .prefetch_related(
+            "allocations__sales_invoice__credit_notes", "advance_refunds", "recon_matches",
+            "aa_transactions",
+        )
     )
     serializer_class = CustomerReceiptSerializer
-    http_method_names = ["get", "post"]
+    http_method_names = ["get", "post", "patch"]
+    # These actions read the filtered list; everything else addresses one row by id.
+    _LIST_ACTIONS = ("list", "summary", "export")
 
     def get_permissions(self):
         if self.action == "create":
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
-        if self.action == "void":
+        if self.action in ("void", "refund_advance", "correct_closed_till", "reassign_customer"):
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
-        if self.action == "set_cheque_status":
+        if self.action in ("set_cheque_status", "partial_update", "bulk_allocate", "send"):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
-        if self.action in ("list", "retrieve"):
+        if self.action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces(), CanExport()]
+        if self.action in ("list", "retrieve", "summary", "voucher"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
 
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        if self.action == "export":
+            throttles.append(CompanyRateThrottle("receipts_export"))
+        elif self.action == "summary":
+            throttles.append(CompanyRateThrottle("receipts_summary"))
+        return throttles
+
+    @extend_schema(parameters=RECEIPT_FILTER_PARAMETERS)
+    def list(self, request, *args, **kwargs):
+        import logging
+        import time
+
+        started = time.monotonic()
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else list(queryset)
+        searched = (request.query_params.get("q") or "").strip()
+        if searched:
+            # For the slow-query review: how long a search took, never what was searched for.
+            logging.getLogger("payments.receipt_search").info(
+                "receipt.search q_len=%s rows=%s ms=%s",
+                len(searched), len(rows), int((time.monotonic() - started) * 1000),
+            )
+        # Duplicate-UTR warnings for the whole page in two queries, not two per row.
+        self._utr_duplicates = _utr_duplicates_for_page(self.company, rows)
+        serializer = self.get_serializer(rows, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        page_map = getattr(self, "_utr_duplicates", None)
+        if page_map is not None:
+            context["utr_duplicates"] = page_map
+        return context
+
+    @staticmethod
+    def _apply_ordering(qs, params):
+        raw = (params.get("ordering") or "").strip()
+        if not raw:
+            return qs
+        field = raw.lstrip("-")
+        if field not in RECEIPT_ORDERING_FIELDS:
+            raise ValidationError(
+                {"ordering": f"Sort by one of: {', '.join(RECEIPT_ORDERING_FIELDS)}."}
+            )
+        direction = "-" if raw.startswith("-") else ""
+        # `id` as the last key keeps the order total, so a page boundary never repeats a row.
+        return qs.order_by(f"{direction}{field}", f"{direction}id")
+
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.query_params.get("customer"):
-            qs = qs.filter(customer_id=self.request.query_params["customer"])
+        params = self.request.query_params
+        if params.get("customer"):
+            if not params["customer"].isdigit():
+                raise ValidationError({"customer": "Use a customer id."})
+            qs = qs.filter(customer_id=int(params["customer"]))
+        if getattr(self, "action", None) in self._LIST_ACTIONS:
+            qs = self._apply_list_filters(qs, params, self.company.id)
+        if getattr(self, "action", None) in ("list", "export"):
+            qs = self._apply_ordering(qs, params)
         return qs
+
+    @staticmethod
+    def _apply_list_filters(qs, params, company_id):
+        mode = _query_choice(params, "mode", set(PaymentMode.values))
+        if mode:
+            qs = qs.filter(mode=mode)
+        status_value = _query_choice(params, "status", set(ReceiptStatus.values))
+        if status_value:
+            qs = qs.filter(status=status_value)
+        date_from = _query_date(params, "date_from")
+        date_to = _query_date(params, "date_to")
+        if date_from and date_to and date_from > date_to:
+            raise ValidationError({"date_from": "The start date must be on or before the end date."})
+        if date_from:
+            qs = qs.filter(receipt_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(receipt_date__lte=date_to)
+        reconciled = (params.get("reconciled") or "").strip().lower()
+        if reconciled in ("true", "false", "1", "0"):
+            from banking.models import AaTransaction
+
+            matched = Exists(ReconMatch.objects.filter(receipt=OuterRef("pk"))) | Exists(
+                AaTransaction.objects.filter(matched_payment=OuterRef("pk"))
+            )
+            qs = qs.filter(matched) if reconciled in ("true", "1") else qs.exclude(matched)
+        elif reconciled:
+            raise ValidationError({"reconciled": "Use true or false."})
+        query = (params.get("q") or "").strip()[:RECEIPT_SEARCH_MAX_LENGTH]
+        if 0 < len(query) < RECEIPT_SEARCH_MIN_LENGTH:
+            # Too short for any index, so a contains-search would read the whole table.
+            # Only an exact receipt number is looked up.
+            qs = qs.filter(number__iexact=query)
+        elif query:
+            # One indexable branch per field, combined by UNION. A single OR across the receipt
+            # columns and a customer join (or subquery) cannot use any index, so the planner read
+            # the whole receipts table for every search.
+            from masters.models import Customer
+
+            payer = models.Q(name__icontains=query)
+            if _PHONE_LIKE.match(query):
+                payer |= models.Q(phone__icontains=query)
+            payers = Customer.all_objects.filter(payer, company_id=company_id).values("pk")
+            base = CustomerReceipt.objects.filter(company_id=company_id)
+            branches = [
+                base.filter(number__icontains=query),
+                base.filter(utr__istartswith=query),
+                base.filter(reference__istartswith=query),
+                base.filter(customer_id__in=payers),
+            ]
+            matched = branches[0].order_by().values("pk").union(
+                *(branch.order_by().values("pk") for branch in branches[1:])
+            )
+            # Read the matching ids first (the trigram indexes make this cheap) when there are not
+            # many: the planner then drives the page from a short id list instead of choosing to
+            # scan and hash-join every receipt of the company. A search that matches a great many
+            # rows keeps the subquery, which is the only exact way to count them.
+            ids = list(matched.values_list("pk", flat=True)[: RECEIPT_SEARCH_ID_CAP + 1])
+            qs = qs.filter(pk__in=ids if len(ids) <= RECEIPT_SEARCH_ID_CAP else matched)
+        return qs
+
+    @extend_schema(parameters=RECEIPT_FILTER_PARAMETERS, responses=ReceiptSummarySerializer)
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Totals for the same filters as the list, across every page.
+
+        Voided, refunded and bounced receipts are not money in hand. Cheques still
+        waiting to clear are reported apart from collected money. Advances handed back to
+        customers are deducted from what is collected and from the advance.
+        """
+        qs = self.get_queryset().prefetch_related(None).order_by()
+        live = ~models.Q(status__in=[ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED]) & ~models.Q(
+            cheque_status=ChequeStatus.BOUNCED
+        )
+        pending_q = models.Q(mode=PaymentMode.CHEQUE, cheque_status=ChequeStatus.PENDING_CLEARANCE)
+        # One pass: the rows counted as money in hand, the pending cheques, and every matching row.
+        agg = qs.aggregate(
+            rows=Count("id"),
+            n=Count("id", filter=live),
+            total=Sum("amount", filter=live),
+            pending=Sum("amount", filter=live & pending_q),
+            tds=Sum("tds_deducted", filter=live),
+        )
+        counted = qs.filter(live)
+        total = agg["total"] or Decimal("0")
+        pending = agg["pending"] or Decimal("0")
+        tds = agg["tds"] or Decimal("0")
+        alloc = PaymentAllocation.objects.filter(
+            company=self.company,
+            reversed_at__isnull=True,
+            receipt__in=counted.values("pk"),
+        ).aggregate(cash=Sum("amount"), tds=Sum("tds_applied"))
+        allocated = alloc["cash"] or Decimal("0")
+        tds_applied = alloc["tds"] or Decimal("0")
+        refunded = CustomerAdvanceRefund.objects.filter(
+            company=self.company,
+            status=AdvanceRefundStatus.POSTED,
+            receipt__in=counted.values("pk"),
+        ).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        return Response({
+            "count": agg["n"],
+            "collected": total - pending - refunded,
+            "cheques_pending": pending,
+            "allocated": allocated,
+            "advance": max(total + tds - allocated - tds_applied - refunded, Decimal("0")),
+            "excluded_count": agg["rows"] - agg["n"],
+            "refunded": refunded,
+        })
+
+    @extend_schema(
+        parameters=RECEIPT_FILTER_PARAMETERS,
+        responses={(200, "text/csv"): OpenApiTypes.BINARY},
+    )
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        """CSV of every receipt that matches the list filters (not just one page).
+
+        Streamed row by row, so a 20,000-row export never sits in memory.
+        """
+        qs = self.get_queryset().prefetch_related(None)
+        total_rows = qs.count()
+        if total_rows > RECEIPT_EXPORT_MAX_ROWS:
+            raise BusinessRuleError(
+                f"Too many receipts to export at once (limit {RECEIPT_EXPORT_MAX_ROWS}). Narrow the date range.",
+                code="export_too_large",
+            )
+
+        def per_receipt(model, value):
+            # A correlated sub-select per receipt: summing over several joined tables at once
+            # would multiply the rows of each.
+            return Coalesce(
+                Subquery(
+                    model.objects.filter(receipt=OuterRef("pk"), **value["where"])
+                    .values("receipt")
+                    .annotate(t=Sum(value["field"]))
+                    .values("t")[:1]
+                ),
+                Decimal("0"),
+                output_field=models.DecimalField(max_digits=14, decimal_places=2),
+            )
+
+        rows = qs.annotate(
+            live_allocated=per_receipt(PaymentAllocation, {"field": "amount", "where": {"reversed_at__isnull": True}}),
+            live_tds_applied=per_receipt(
+                PaymentAllocation, {"field": "tds_applied", "where": {"reversed_at__isnull": True}}
+            ),
+            live_refunded=per_receipt(
+                CustomerAdvanceRefund, {"field": "amount", "where": {"status": AdvanceRefundStatus.POSTED}}
+            ),
+        ).order_by("receipt_date", "id")
+        if not (request.query_params.get("ordering") or "").strip():
+            rows = rows.order_by("receipt_date", "id")
+        else:
+            rows = self._apply_ordering(rows, request.query_params)
+
+        class _Echo:
+            def write(self, value):
+                return value
+
+        writer = csv.writer(_Echo())
+
+        def lines():
+            yield writer.writerow([
+                "Number", "Date", "Customer", "Mode", "Status", "Amount", "Allocated", "Advance",
+                "UTR", "Reference", "Cheque no", "Cheque status", "Bank account", "Void reason",
+                "TDS deducted", "TDS section", "Refunded",
+            ])
+            two = Decimal("0.01")
+            for row in rows.select_related("customer", "bank_account").iterator(chunk_size=500):
+                allocated = Decimal(str(row.live_allocated or 0)).quantize(two)
+                refunded = Decimal(str(row.live_refunded or 0)).quantize(two)
+                tds_applied = Decimal(str(row.live_tds_applied or 0))
+                dead = row.status in (ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED)
+                advance = Decimal("0") if dead else (
+                    row.amount + row.tds_deducted - allocated - tds_applied - refunded
+                ).quantize(two)
+                yield writer.writerow([
+                    csv_safe(v) for v in (
+                        row.number, row.receipt_date.isoformat(), row.customer.name, row.mode, row.status,
+                        row.amount, allocated, advance, row.utr, row.reference, row.cheque_number,
+                        row.cheque_status, row.bank_account.name if row.bank_account_id else "", row.void_reason,
+                        row.tds_deducted, row.tds_section, refunded,
+                    )
+                ])
+
+        AuditService.log(
+            company=self.company, user=request.user, action="EXPORT",
+            entity_type="CustomerReceipt", entity_id="list",
+            metadata={"filters": {k: v for k, v in request.query_params.items()}, "rows": total_rows},
+        )
+        response = StreamingHttpResponse(
+            stream_with_rls(self.company.id, lines()), content_type="text/csv; charset=utf-8"
+        )
+        response["Content-Disposition"] = 'attachment; filename="customer-receipts.csv"'
+        return response
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("layout", str, enum=["A4", "THERMAL"], description="Paper layout."),
+            OpenApiParameter("lang", str, enum=["en", "hi"], description="Voucher language."),
+        ],
+        responses={(200, "application/pdf"): OpenApiTypes.BINARY},
+    )
+    @action(detail=True, methods=["get"])
+    def voucher(self, request, pk=None):
+        """Printable receipt voucher PDF. ``?layout=thermal`` for an 80 mm roll."""
+        from .receipt_voucher import render_receipt_voucher_pdf
+
+        receipt = self.get_object()
+        layout = (request.query_params.get("layout") or "A4").upper()
+        if layout not in ("A4", "THERMAL"):
+            raise ValidationError({"layout": "Use A4 or THERMAL."})
+        lang = (request.query_params.get("lang") or "en").lower()
+        if lang not in ("en", "hi"):
+            raise ValidationError({"lang": "Use en or hi."})
+        content = render_receipt_voucher_pdf(receipt, layout=layout, lang=lang)
+        AuditService.log(
+            company=self.company, user=request.user, action="PRINT",
+            entity_type="CustomerReceipt", entity_id=receipt.pk,
+            metadata={"layout": layout, "lang": lang, "number": receipt.number},
+        )
+        safe_number = re.sub(r"[^A-Za-z0-9._-]", "_", receipt.number or str(receipt.pk))
+        response = HttpResponse(content, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="receipt-{safe_number}.pdf"'
+        return response
+
+    def _resolve_target_invoice(self, request, receipt_amount, allocate_oldest):
+        """Optional single-invoice allocation, applied in the same transaction as the receipt."""
+        raw_invoice = request.data.get("sales_invoice")
+        if raw_invoice in (None, ""):
+            return None, None
+        if allocate_oldest:
+            raise ValidationError("Choose either 'allocate_oldest' or 'sales_invoice', not both.")
+        from sales.models import SalesInvoice
+
+        try:
+            invoice = SalesInvoice.objects.get(company=self.company, pk=int(raw_invoice))
+        except (TypeError, ValueError, SalesInvoice.DoesNotExist):
+            raise ValidationError({"sales_invoice": "Invalid sales invoice."}) from None
+        raw_amount = request.data.get("allocate_amount")
+        try:
+            amount = Decimal(str(raw_amount)) if raw_amount not in (None, "") else Decimal(str(receipt_amount))
+        except InvalidOperation:
+            raise ValidationError({"allocate_amount": "Enter a valid amount."}) from None
+        if amount <= 0 or amount > Decimal(str(receipt_amount)):
+            raise ValidationError(
+                {"allocate_amount": "The amount applied must be more than 0 and no more than the receipt."}
+            )
+        return invoice, amount
+
+    @staticmethod
+    def _assert_walk_in_fully_applied(receipt):
+        """A walk-in has no account to hold an advance, so it must settle bills in full."""
+        if not receipt.customer.is_pos_walk_in:
+            return
+        applied = sum(
+            (row.amount for row in receipt.allocations.filter(reversed_at__isnull=True)),
+            Decimal("0"),
+        )
+        if applied != receipt.amount:
+            raise BusinessRuleError(
+                "A walk-in customer's payment must be applied to invoices in full. "
+                "Pick a named customer to keep an advance.",
+                code="walkin_full_allocation_required",
+            )
 
     def create(self, request, *args, **kwargs):
         """BB-000610 / BB-000654: durable idempotency + period gate."""
@@ -168,9 +595,32 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             from reporting.gst_periods import assert_period_allows_money_amend, period_complete_warning
 
             receipt_date = serializer.validated_data.get("receipt_date")
+            if receipt_date and receipt_date > timezone.localdate():
+                raise ValidationError({"receipt_date": "A receipt cannot be dated in the future."})
             assert_period_allows_money_amend(self.company, receipt_date)
             warning = period_complete_warning(self.company, receipt_date)
             bank_account = serializer.validated_data.get("bank_account")
+            allocate_oldest = request.data.get("allocate_oldest") in (True, "true", "True", 1, "1")
+            target_invoice, target_amount = self._resolve_target_invoice(
+                request, serializer.validated_data["amount"], allocate_oldest
+            )
+            data_in = serializer.validated_data
+            mode_in = str(data_in.get("mode", "CASH")).upper()
+            if (data_in.get("settlement_discount") or 0) > 0 and not (allocate_oldest or target_invoice):
+                # The discount is cleared against an invoice when the money is applied. With no
+                # invoice to apply it to, it would sit on the receipt and never reach the books.
+                raise BusinessRuleError(
+                    "A settlement discount needs an invoice to apply to. Pick the invoice, or "
+                    "apply the receipt to the oldest bills first.",
+                    code="settlement_discount_needs_invoice",
+                )
+            # A cheque that has not cleared stays an advance when the company asks for that; what
+            # the person chose is remembered and applied when the cheque clears.
+            hold_cheque = (
+                mode_in == "CHEQUE"
+                and bool(getattr(self.company, "cheque_allocation_on_clearance", False))
+                and (allocate_oldest or target_invoice is not None)
+            )
             # One transaction: if the oldest-first allocation fails (closed period,
             # invoice changed underneath), the receipt must roll back too. Otherwise
             # the idempotency key is released below and a retry posts a second receipt.
@@ -191,6 +641,13 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
                     cheque_date=serializer.validated_data.get("cheque_date"),
                     cheque_image=serializer.validated_data.get("cheque_image"),
                     settlement_discount=serializer.validated_data.get("settlement_discount") or 0,
+                    tds_deducted=serializer.validated_data.get("tds_deducted") or 0,
+                    tds_section=serializer.validated_data.get("tds_section", ""),
+                    advance_gst_rate=serializer.validated_data.get("advance_gst_rate"),
+                    require_bank_account=True,
+                    allocate_on_clear=hold_cheque,
+                    intended_sales_invoice=target_invoice if hold_cheque else None,
+                    intended_amount=target_amount if hold_cheque else None,
                 )
                 if (
                     str(serializer.validated_data.get("mode", "CASH")).upper() == "CASH"
@@ -199,16 +656,27 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
                     from sales.pos_shift import mark_paid_from_till
 
                     mark_paid_from_till(receipt, self.company, request.user)
-                if request.data.get("allocate_oldest") in (True, "true", "True", 1, "1"):
+                if hold_cheque:
+                    pass
+                elif allocate_oldest:
                     PaymentService.allocate_receipt_oldest_first(receipt=receipt, user=request.user)
+                elif target_invoice is not None:
+                    PaymentService.allocate_receipt(
+                        receipt=receipt,
+                        sales_invoice=target_invoice,
+                        amount=target_amount,
+                        user=request.user,
+                    )
+                self._assert_walk_in_fully_applied(receipt)
         except Exception:
             if raw_key:
                 release_record(company=self.company, scope="receipt_create", raw_key=raw_key)
             raise
         self._audit("CREATE", receipt)
         data = self.get_serializer(receipt).data
-        if warning:
-            data["warnings"] = [warning]
+        warnings = [w for w in (warning, getattr(receipt, "_cash_limit_warning", None)) if w]
+        if warnings:
+            data["warnings"] = warnings
         response = Response(data, status=status.HTTP_201_CREATED)
         if raw_key:
             store_record(
@@ -222,13 +690,238 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def void(self, request, pk=None):
-        receipt = PaymentService.void_receipt(
-            receipt=self.get_object(),
-            user=request.user,
-            reason=(request.data.get("reason") or "").strip(),
+        receipt = self.get_object()
+
+        def run():
+            voided = PaymentService.void_receipt(
+                receipt=receipt, user=request.user, reason=request.data.get("reason") or "",
+            )
+            self._audit("VOID", voided)
+            return Response(self.get_serializer(voided).data)
+
+        # A retried void with the same key returns the first answer instead of failing on an
+        # already-voided receipt or posting twice.
+        return wrap_idempotent(request=request, company=self.company, scope="receipt_void", build=run)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Edit the descriptive fields of a posted receipt (notes, reference, UTR, bank account)."""
+        receipt = self.get_object()
+        payload = {
+            key: value for key, value in request.data.items()
+            if key not in ("csrfmiddlewaretoken",)
+        }
+        changes = {}
+        for key, value in payload.items():
+            if key == "bankAccount":
+                key = "bank_account"
+            changes[key] = value
+        if not changes:
+            raise ValidationError("Send the fields to change.")
+        if "bank_account" in changes and changes["bank_account"] in ("", None):
+            changes["bank_account"] = None
+        elif "bank_account" in changes:
+            try:
+                changes["bank_account"] = int(changes["bank_account"])
+            except (TypeError, ValueError):
+                raise ValidationError({"bank_account": "Choose a bank account."}) from None
+        receipt = PaymentService.edit_receipt(receipt=receipt, changes=changes, user=request.user)
+        self._audit("UPDATE", receipt)
+        return Response(self.get_serializer(self.get_queryset().get(pk=receipt.pk)).data)
+
+    @extend_schema(request=None, responses={200: OpenApiTypes.OBJECT})
+    @action(detail=True, methods=["post"])
+    def send(self, request, pk=None):
+        """Send the receipt voucher to the customer by WhatsApp or email, and log it.
+
+        An empty ``recipient`` with WhatsApp is a device share: the text and link come back and
+        the person picks the chat; nothing is recorded as delivered. Business-number (Cloud)
+        sending needs the customer's WhatsApp opt-in, exactly as for invoices.
+        """
+        from core.models import Notification
+        from core.serializers import NotificationSerializer
+        from core.services.audit import record_document_event
+        from core.services.notifications import NotificationService
+        from sales.whatsapp_send import cloud_allowed_for_recipient
+
+        from .receipt_share import compose_receipt_message, public_voucher_url
+
+        receipt = self.get_object()
+        if receipt.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only a posted receipt can be sent.", code="receipt_not_sendable")
+        channel = str(request.data.get("channel") or "").upper()
+        if channel not in (Notification.Channel.EMAIL, Notification.Channel.WHATSAPP):
+            raise BusinessRuleError("channel must be 'email' or 'whatsapp'.")
+        url = public_voucher_url(receipt, request)
+        text = compose_receipt_message(receipt, url)
+        customer = receipt.customer
+        device = (
+            channel == Notification.Channel.WHATSAPP
+            and "recipient" in request.data
+            and not str(request.data.get("recipient") or "").strip()
         )
+        if device:
+            record_document_event(
+                document=receipt, user=request.user, event="customer_receipt.shared",
+                metadata={"channel": channel, "mode": "device"},
+            )
+            return Response({"mode": "device", "text": text, "document_url": url, "status": "OPENED"})
+        recipient = request.data.get("recipient") or (
+            customer.email if channel == Notification.Channel.EMAIL else customer.phone
+        )
+        if not recipient:
+            raise BusinessRuleError("No recipient available for this channel.", code="no_recipient")
+        allow_cloud = (
+            cloud_allowed_for_recipient(customer, recipient) if channel == Notification.Channel.WHATSAPP else False
+        )
+        notification = NotificationService.send(
+            company=receipt.company,
+            channel=channel,
+            recipient=recipient,
+            subject=f"Receipt {receipt.number}",
+            body=text,
+            user=request.user,
+            allow_cloud=allow_cloud,
+        )
+        mode = getattr(notification, "delivery_mode", None) or (
+            "cloud" if notification.status == Notification.Status.SENT else "link"
+        )
+        record_document_event(
+            document=receipt, user=request.user, event="customer_receipt.sent",
+            metadata={"channel": channel, "mode": mode, "recipient": str(recipient)[:64]},
+        )
+        data = NotificationSerializer(notification).data
+        data["mode"] = mode
+        data["document_url"] = url
+        return Response(data)
+
+    @extend_schema(request=None, responses=CustomerReceiptSerializer)
+    @action(detail=True, methods=["post"], url_path="reassign-customer")
+    def reassign_customer(self, request, pk=None):
+        """Move money that landed on the walk-in account to the customer who paid."""
+        from masters.models import Customer
+
+        receipt = self.get_object()
+        try:
+            target = Customer.objects.get(company=self.company, pk=int(request.data.get("customer")))
+        except (TypeError, ValueError, Customer.DoesNotExist):
+            raise ValidationError({"customer": "Choose the customer who paid."}) from None
+        PaymentService.reassign_receipt_customer(
+            receipt=receipt, new_customer=target, reason=request.data.get("reason") or "", user=request.user,
+        )
+        self._audit("UPDATE", receipt)
+        return Response(self.get_serializer(self.get_queryset().get(pk=receipt.pk)).data)
+
+    @extend_schema(request=None, responses=CustomerReceiptSerializer)
+    @action(detail=True, methods=["post"], url_path="correct-closed-till")
+    def correct_closed_till(self, request, pk=None):
+        """Manager: void a cash receipt that was counted in a closed till and record why."""
+        from accounting.cash_shifts import correct_closed_till_receipt
+
+        receipt = self.get_object()
+        correct_closed_till_receipt(receipt, request.data.get("reason") or "", request.user)
         self._audit("VOID", receipt)
-        return Response(self.get_serializer(receipt).data)
+        return Response(self.get_serializer(self.get_queryset().get(pk=receipt.pk)).data)
+
+    @extend_schema(request=None, responses=AdvanceRefundLineSerializer)
+    @action(detail=True, methods=["post"], url_path="refund-advance")
+    def refund_advance(self, request, pk=None):
+        """Hand back part or all of the unallocated money on this receipt, without voiding it."""
+        receipt = self.get_object()
+
+        def run():
+            data = request.data
+            raw_bank = data.get("bank_account")
+            bank = None
+            if raw_bank not in (None, ""):
+                try:
+                    bank = BankAccount.objects.filter(company=self.company, pk=int(raw_bank)).first()
+                except (TypeError, ValueError):
+                    bank = None
+                if bank is None:
+                    raise ValidationError({"bank_account": "Invalid bank account."})
+            refund_date = _query_date(data, "refund_date") if data.get("refund_date") else None
+            try:
+                amount = Decimal(str(data.get("amount") or 0))
+                if not amount.is_finite():
+                    raise InvalidOperation
+            except InvalidOperation:
+                raise ValidationError({"amount": "Enter a valid amount."}) from None
+            refund = PaymentService.refund_advance(
+                receipt=receipt,
+                amount=amount,
+                mode=data.get("mode") or "CASH",
+                reason=data.get("reason") or "",
+                refund_date=refund_date,
+                bank_account=bank,
+                utr=data.get("utr") or "",
+                paid_from_till=data.get("paid_from_till") in (True, "true", "True", 1, "1"),
+                user=request.user,
+            )
+            self._audit("REFUND_ADVANCE", receipt)
+            return Response(AdvanceRefundLineSerializer(refund).data, status=status.HTTP_201_CREATED)
+
+        return wrap_idempotent(
+            request=request, company=self.company, scope="receipt_refund_advance", build=run,
+        )
+
+    @extend_schema(request=None, responses={200: OpenApiTypes.OBJECT})
+    @action(detail=False, methods=["post"], url_path="bulk-allocate")
+    def bulk_allocate(self, request):
+        """Apply several advances oldest-bill-first. One result per receipt; one failure stops nothing.
+
+        Receipts are taken per customer in ``(receipt_date, id)`` order, so two advances of one
+        customer never compete for the same bills in a different order on a retry.
+        """
+        raw_key = require_idempotency_key(request)
+        raw_ids = request.data.get("ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValidationError({"ids": "Send the receipt ids to apply."})
+        if len(raw_ids) > 100:
+            raise ValidationError({"ids": "Apply at most 100 receipts at a time."})
+        try:
+            ids = sorted({int(v) for v in raw_ids})
+        except (TypeError, ValueError):
+            raise ValidationError({"ids": "Receipt ids must be whole numbers."}) from None
+        company = self.company
+
+        def run():
+            receipts = list(
+                CustomerReceipt.objects.filter(company=company, pk__in=ids)
+                .select_related("customer")
+                .order_by("customer_id", "receipt_date", "id")
+            )
+            found = {r.pk for r in receipts}
+            results = [
+                {"id": missing, "status": "failed", "allocated": "0.00", "message": "Receipt not found."}
+                for missing in ids if missing not in found
+            ]
+            for receipt in receipts:
+                try:
+                    with transaction.atomic():
+                        if receipt.status != ReceiptStatus.POSTED:
+                            raise BusinessRuleError("Only a posted receipt can be applied.")
+                        created = PaymentService.allocate_receipt_oldest_first(
+                            receipt=receipt, user=request.user,
+                        )
+                    total = sum((row.amount for row in created), Decimal("0"))
+                    results.append({
+                        "id": receipt.pk,
+                        "number": receipt.number,
+                        "status": "applied" if created else "skipped",
+                        "allocated": str(total),
+                        "message": "" if created else "No open invoice to apply it to.",
+                    })
+                except (BusinessRuleError, ValidationError, IntegrityError) as exc:
+                    detail = getattr(exc, "detail", None)
+                    message = str(detail if detail is not None else exc)
+                    results.append({
+                        "id": receipt.pk, "number": receipt.number, "status": "failed",
+                        "allocated": "0.00", "message": message,
+                    })
+            self._audit_raw("BULK_ALLOCATE", ",".join(str(i) for i in ids)[:200])
+            return Response({"results": sorted(results, key=lambda r: r["id"])})
+
+        return wrap_idempotent(request=request, company=company, scope="receipt_bulk_allocate", build=run)
 
     @action(detail=True, methods=["post"], url_path="set-cheque-status")
     def set_cheque_status(self, request, pk=None):
@@ -247,6 +940,51 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
         )
         self._audit("CHEQUE_STATUS", receipt)
         return Response(self.get_serializer(receipt).data)
+
+
+class CustomerAdvanceRefundViewSet(
+    mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet
+):
+    """Advances handed back to customers. Created from a receipt (``refund-advance``); voided here."""
+
+    queryset = CustomerAdvanceRefund.objects.select_related("receipt", "bank_account")
+    serializer_class = AdvanceRefundLineSerializer
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def get_permissions(self):
+        if self.action == "void":
+            return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
+        return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
+
+    @property
+    def company(self):
+        return get_company_user(self.request).company
+
+    def get_queryset(self):
+        qs = self.queryset.filter(company=self.company)
+        receipt = self.request.query_params.get("receipt")
+        if receipt:
+            if not receipt.isdigit():
+                raise ValidationError({"receipt": "Use a receipt id."})
+            qs = qs.filter(receipt_id=int(receipt))
+        return qs
+
+    @extend_schema(request=None, responses=AdvanceRefundLineSerializer)
+    @action(detail=True, methods=["post"])
+    def void(self, request, pk=None):
+        refund = self.get_object()
+
+        def run():
+            voided = PaymentService.void_advance_refund(
+                refund=refund, user=request.user, reason=request.data.get("reason") or "",
+            )
+            AuditService.log(
+                company=self.company, user=request.user, action="VOID",
+                entity_type="CustomerAdvanceRefund", entity_id=voided.pk,
+            )
+            return Response(AdvanceRefundLineSerializer(voided).data)
+
+        return wrap_idempotent(request=request, company=self.company, scope="advance_refund_void", build=run)
 
 
 class SupplierPaymentViewSet(CompanyScopedViewSet):
@@ -502,6 +1240,12 @@ class PaymentAllocationViewSet(
                 return record_or_response
 
         try:
+            reason = None
+            if "reason" in request.data:
+                # The receipts screen always sends one. When it is sent it must say something.
+                reason = " ".join(str(request.data.get("reason") or "").split())
+                if not (3 <= len(reason) <= 500):
+                    raise ValidationError({"reason": "Enter a reason of 3 to 500 characters."})
             allocation = PaymentService.reverse_allocation(allocation=self.get_object(), user=request.user)
         except Exception:
             if raw_key:
@@ -514,6 +1258,7 @@ class PaymentAllocationViewSet(
             action="UNALLOCATE",
             entity_type="PaymentAllocation",
             entity_id=allocation.id,
+            metadata={"reason": reason} if reason else None,
         )
         response = Response(self.get_serializer(allocation).data)
         if raw_key:
@@ -1210,6 +1955,96 @@ class ReconViewSet(viewsets.ViewSet):
             accepted.append({"line": line.id, "match": match.id})
         return Response({"accepted": accepted, "accepted_count": len(accepted)})
 
+    @action(detail=False, methods=["get"], url_path="needs-review")
+    def needs_review(self, request):
+        """Matches whose receipt later bounced: the bank took the money back, so look again."""
+        rows = (
+            ReconMatch.objects.filter(company=self.company, needs_review=True, receipt__isnull=False)
+            .select_related("line", "line__statement__bank_account", "receipt", "receipt__customer")
+            .order_by("-matched_at")[:200]
+        )
+        return Response({
+            "results": [
+                {
+                    "match": m.id,
+                    "line": m.line_id,
+                    "line_date": m.line.txn_date,
+                    "line_amount": str(m.line.amount),
+                    "bank_account": m.line.statement.bank_account.name,
+                    "receipt": m.receipt_id,
+                    "receipt_number": m.receipt.number,
+                    "customer_name": m.receipt.customer.name,
+                    "reason": m.review_reason,
+                }
+                for m in rows
+            ]
+        })
+
+    @action(detail=False, methods=["post"], url_path="match-return")
+    def match_return(self, request):
+        """A bounced cheque reaches the statement as a second, DEBIT line; the credit stays.
+
+        Link that debit line to the bounced receipt: the line is marked matched, the bank line
+        of the bounce's reversal journal is reconciled to it, and the receipt's original match
+        stops asking for review, so both statement lines reconcile and nothing is left over.
+        """
+        from accounting.models import JournalEntry, JournalLine
+
+        line_id = request.data.get("line")
+        receipt_id = request.data.get("receipt")
+        with transaction.atomic():
+            line = (
+                BankStatementLine.objects.select_for_update()
+                .filter(company=self.company, pk=line_id)
+                .first()
+            )
+            receipt = CustomerReceipt.objects.filter(company=self.company, pk=receipt_id).first()
+            if line is None or receipt is None:
+                raise BusinessRuleError("Statement line and receipt are required.")
+            if receipt.mode != PaymentMode.CHEQUE or receipt.cheque_status != ChequeStatus.BOUNCED:
+                raise BusinessRuleError(
+                    "Only a bounced cheque has a return line.", code="match_return_not_bounced"
+                )
+            if line.amount >= 0:
+                raise BusinessRuleError(
+                    "A cheque return is a debit line (a negative amount) on the statement.",
+                    code="match_return_not_debit",
+                )
+            if abs(abs(line.amount) - receipt.amount) > Decimal("0.01"):
+                raise BusinessRuleError(
+                    "The return line must equal the cheque amount.", code="match_return_amount"
+                )
+            if line.match_status == BankLineMatchStatus.MATCHED:
+                raise BusinessRuleError("This statement line is already matched.")
+            if receipt.company.accounting_enabled:
+                create_entry = JournalEntry.objects.filter(
+                    company=self.company, source_type="CUSTOMER_RECEIPT", source_id=receipt.pk,
+                    purpose="CREATE",
+                ).exclude(reversed_entry__isnull=True).first()
+                if create_entry is not None:
+                    reversal = create_entry.reversed_entry
+                    bank_line = (
+                        JournalLine.objects.filter(entry=reversal, credit__gt=0)
+                        .exclude(account__code__in=("2300", "5200", "1270"))
+                        .order_by("id")
+                        .first()
+                    )
+                    if bank_line is not None and bank_line.bank_statement_line_id is None:
+                        bank_line.bank_statement_line = line
+                        bank_line.reconciled_at = timezone.now()
+                        bank_line.save(update_fields=["bank_statement_line", "reconciled_at"])
+            line.match_status = BankLineMatchStatus.MATCHED
+            line.updated_by = request.user
+            line.save(update_fields=["match_status", "updated_by", "updated_at"])
+            cleared = ReconMatch.objects.filter(
+                company=self.company, receipt=receipt, needs_review=True
+            ).update(needs_review=False, review_reason="")
+        AuditService.log(
+            company=self.company, user=request.user, action="UPDATE", entity_type="BankStatementLine",
+            entity_id=line.pk, description=f"Cheque return matched to receipt {receipt.number}",
+        )
+        return Response({"line": line.pk, "receipt": receipt.pk, "cleared_reviews": cleared})
+
     @action(detail=False, methods=["post"], url_path="unmatch")
     def unmatch(self, request):
         """B4-016: undo a confirmed match -- an operator who confirmed the
@@ -1257,6 +2092,12 @@ class ReconViewSet(viewsets.ViewSet):
         customer = Customer.objects.filter(company=self.company, pk=customer_id).first()
         if not customer:
             raise BusinessRuleError("Customer required.")
+        if customer.is_pos_walk_in:
+            # A walk-in has no account to hold the money. Pick the customer who actually paid.
+            raise BusinessRuleError(
+                "A walk-in customer cannot hold an advance. Pick the customer who paid this amount.",
+                code="walkin_full_allocation_required",
+            )
         from django.db import transaction
 
         with transaction.atomic():
@@ -1312,6 +2153,13 @@ class GatewaySettingsView(APIView):
                 "credentials_configured": bool(company.payment_gateway_credentials_encrypted),
                 "require_payment_reference": company.require_payment_reference,
                 "auto_match_bank_exact": company.auto_match_bank_exact,
+                "cheque_allocation_on_clearance": company.cheque_allocation_on_clearance,
+                "cash_269st_mode": company.cash_269st_mode,
+                "advance_gst_treatment": company.advance_gst_treatment,
+                "advance_gst_default_rate": (
+                    str(Decimal(str(company.advance_gst_default_rate)).quantize(Decimal("0.01")))
+                    if company.advance_gst_default_rate is not None else None
+                ),
                 "enabled_providers": enabled,
                 "disabled_providers": disabled,
                 "webhook_paths": {
@@ -1352,6 +2200,34 @@ class GatewaySettingsView(APIView):
         if "auto_match_bank_exact" in request.data:
             company.auto_match_bank_exact = bool(request.data.get("auto_match_bank_exact"))
             touched.add("auto_match_bank_exact")
+        if "cheque_allocation_on_clearance" in request.data:
+            company.cheque_allocation_on_clearance = bool(request.data.get("cheque_allocation_on_clearance"))
+            touched.add("cheque_allocation_on_clearance")
+        if "cash_269st_mode" in request.data:
+            mode = str(request.data.get("cash_269st_mode") or "").lower()
+            if mode not in ("off", "warn", "block"):
+                raise BusinessRuleError("Cash limit check must be off, warn or block.")
+            company.cash_269st_mode = mode
+            touched.add("cash_269st_mode")
+        if "advance_gst_treatment" in request.data:
+            treatment = str(request.data.get("advance_gst_treatment") or "").lower()
+            if treatment not in ("none", "goods", "services"):
+                raise BusinessRuleError("Advance GST treatment must be none, goods or services.")
+            company.advance_gst_treatment = treatment
+            touched.add("advance_gst_treatment")
+        if "advance_gst_default_rate" in request.data:
+            raw_rate = request.data.get("advance_gst_default_rate")
+            if raw_rate in (None, ""):
+                company.advance_gst_default_rate = None
+            else:
+                try:
+                    rate = Decimal(str(raw_rate))
+                except InvalidOperation:
+                    raise BusinessRuleError("The advance GST rate must be a number.") from None
+                if rate < 0 or rate > 40:
+                    raise BusinessRuleError("The advance GST rate must be between 0 and 40.")
+                company.advance_gst_default_rate = rate
+            touched.add("advance_gst_default_rate")
         if request.data.get("clear_credentials"):
             company.payment_gateway_credentials_encrypted = ""
             touched.add("payment_gateway_credentials_encrypted")

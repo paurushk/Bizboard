@@ -255,6 +255,15 @@ def map_pos_tender(company, mode, name=None):
     return bank
 
 
+def make_default_bank(company, name="Test Current Account"):
+    """A default current account, so UPI / bank / card receipts have somewhere to land."""
+    from payments.models import BankAccount
+
+    return BankAccount.objects.create(
+        company=company, name=name, account_type="CURRENT", is_default=True, is_active=True
+    )
+
+
 def make_supplier(company, name="Mega Suppliers", state="Karnataka", **kwargs):
     return Supplier.objects.create(company=company, name=name, state=state, **kwargs)
 

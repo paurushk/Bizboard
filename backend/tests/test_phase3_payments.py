@@ -392,6 +392,9 @@ def test_ambiguous_match_does_not_auto_apply(tenant_a):
 
 
 def test_require_payment_reference(tenant_a):
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)
     customer = make_customer(tenant_a.company)
     tenant_a.company.require_payment_reference = True
     tenant_a.company.save(update_fields=["require_payment_reference"])

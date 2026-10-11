@@ -67,6 +67,9 @@ def test_customer_custom_fields_round_trip_through_the_api_and_reject_unknown_ke
 
 
 def test_credit_exposure_is_the_same_on_the_list_and_the_detail_and_nets_advances(tenant_a):
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     product = make_product(tenant_a.company, sku="EXP-1", hsn_code="3004", gst_rate="18")
     add_stock(tenant_a, product, "5")
     customer = make_customer(tenant_a.company, name="Exposure Buyer", state="Karnataka")

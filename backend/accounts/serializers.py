@@ -174,6 +174,7 @@ class CompanySerializer(serializers.ModelSerializer):
             "ai_features_enabled", "ai_monthly_token_budget",
             "opening_cash_balance", "opening_cash_as_of", "daily_summary_email_enabled",
             "require_payment_reference", "payment_gateway_provider", "payment_gateway_test_mode",
+            "cheque_allocation_on_clearance", "cash_269st_mode", "advance_gst_treatment", "advance_gst_default_rate",
             "auto_match_bank_exact", "inventory_valuation_method", "valuation_business_date_order",
             "recompute_tax_on_complete",
             "block_expired_stock",
@@ -206,6 +207,8 @@ class CompanySerializer(serializers.ModelSerializer):
             "ai_features_enabled", "ai_monthly_token_budget",
             # BB-000259 / BB-000286 / BB-000573: gateway + e-Way/GSP mutate only via gated settings.
             "payment_gateway_provider", "payment_gateway_test_mode",
+            # Money In rules change only through the owner-only payments settings endpoint.
+            "cheque_allocation_on_clearance", "cash_269st_mode", "advance_gst_treatment", "advance_gst_default_rate",
             "eway_enabled", "gsp_provider",
             # BB-000715: expose on GET; Owner must not mutate via company PATCH.
             "feature_flags",
@@ -442,12 +445,14 @@ class CompanySerializerStaff(serializers.ModelSerializer):
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "ai_features_enabled",
             "item_custom_field_defs",
+            "cheque_allocation_on_clearance", "cash_269st_mode", "advance_gst_treatment", "advance_gst_default_rate",
         ]
         read_only_fields = [
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "einvoice_enabled", "eway_enabled", "eway_threshold_amount", "aato_turnover",
             "ai_features_enabled", "accounting_enabled",
             "item_custom_field_defs",
+            "cheque_allocation_on_clearance", "cash_269st_mode", "advance_gst_treatment", "advance_gst_default_rate",
         ]
 
     def get_series_gstin(self, obj) -> str:

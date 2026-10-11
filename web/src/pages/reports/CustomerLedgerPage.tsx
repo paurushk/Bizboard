@@ -93,6 +93,13 @@ export function CustomerLedgerPage() {
     }
     return kpis.totalReceivable;
   })();
+  const unclearedCheques = (() => {
+    const raw = ledger.data?.statement;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return toNumber((raw as { unclearedCheques?: string | number }).unclearedCheques);
+    }
+    return 0;
+  })();
   const itemWise = useMemo(
     () => (ledger.data?.itemWise as Record<string, unknown>[]) ?? [],
     [ledger.data],
@@ -233,6 +240,11 @@ export function CustomerLedgerPage() {
               </Paper>
             ))}
           </Stack>
+          {unclearedCheques > 0 ? (
+            <Typography variant="caption" color="text.secondary">
+              {t('customer360.unclearedCheques', { amount: formatMoney(unclearedCheques) })}
+            </Typography>
+          ) : null}
           <Tabs value={tab} onChange={(_, v) => setTab(v)}>
             <Tab label={t('ledger.transactions')} />
             <Tab label={t('ledger.profile')} />

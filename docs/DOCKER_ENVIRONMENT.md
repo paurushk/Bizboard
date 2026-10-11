@@ -52,7 +52,20 @@ docker compose up -d            # still valid — project `bizboard`
 .\scripts\compose-env.ps1 dev up -d
 
 docker compose --profile migrate run --rm migrate
+```
+
+Rebuild the `migrate` image together with `api worker beat web` (`docker compose --profile migrate build migrate`). It has its own image, and a stale one reports "No migrations to apply" while the database is behind.
+
+```sh
 docker compose exec api python manage.py seed_demo
+```
+
+After a migration that builds an index (for example `payments.0039`, `0042`, `0043`), check that
+none was left invalid by an interrupted build, and rebuild any that were:
+
+```sh
+docker compose exec api python manage.py check_indexes          # exit 1 and a list if any is invalid
+docker compose exec api python manage.py check_indexes --fix    # drop them, then run the migrate step again
 ```
 
 Open **http://127.0.0.1** (or http://localhost). Demo login after `seed_demo`:

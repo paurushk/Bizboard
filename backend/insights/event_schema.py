@@ -44,6 +44,8 @@ EVENT_SOURCES = {
     "GST_GUARDRAIL": {"kind": "gst", "entity": "invoice"},
     "GST_RATE_EXPOSURE": {"kind": "gst", "entity": "product"},
     "DUPLICATE_PAYMENT": {"kind": "payment", "entity": "payment"},
+    "WALK_IN_UNALLOCATED_RECEIPT": {"kind": "payment", "entity": "payment"},
+    "VOID_RATE_HIGH": {"kind": "payment", "entity": "company"},
     "OVERDUE_CONCENTRATION": {"kind": "receivable", "entity": "customer"},
     "PAID_PENDING_BOOKS": {"kind": "books", "entity": "payment"},
     "LOW_STOCK_FAST_MOVER": {"kind": "stock", "entity": "product"},

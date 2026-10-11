@@ -107,7 +107,7 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0092](../qos/backlog/QOS-0092.yaml) | Won opportunity amount is not shown next to invoices | P2 | Pipeline | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
 
-## 6. 🟤 Reliability & trust issues  (3 open / 25 tracked)
+## 6. 🟤 Reliability & trust issues  (3 open / 31 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -118,6 +118,12 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0056](../qos/backlog/QOS-0056.yaml) | Online POS reload mid-settlement can mint a second COMPLETED invoice (CR-091) | P2 | POS: complete succeeds, tab is reloaded before the receipt is recorded | P1 | M | heuristic | Medium | web | verified |
 | [QOS-0105](../qos/backlog/QOS-0105.yaml) | CI tested one Python/Node while the images shipped another | P1 | Deploy the image CI approved | P1 | S | measured | Medium | devops | fixed |
 | [QOS-0112](../qos/backlog/QOS-0112.yaml) | Converted quantity stayed locked when the order or invoice was deleted or cancelled | P1,P2 | Delete a draft invoice that was made from a quotation | P1 | M | heuristic | Medium | backend | fixed |
+| [QOS-0118](../qos/backlog/QOS-0118.yaml) | Money In: a receipt could be voided with no reason, walk-in advances were only guarded in the browser, and the totals were wrong | P1,P2 | Record, find, print and void a customer receipt | P1 | L | heuristic | High | web | fixed |
+| [QOS-0119](../qos/backlog/QOS-0119.yaml) | Money In: a receipt could be recorded in a way that misstates the money (CREDIT mode, a discount above the amount, bank money with no bank) | P1,P2 | Record a customer receipt | P1 | M | heuristic | High | web | fixed |
+| [QOS-0120](../qos/backlog/QOS-0120.yaml) | Money In books: discount split differently in ledger and invoice, TDS had no home, pending cheques counted as cleared | P1,P2 | Apply a receipt to invoices | P1 | L | heuristic | High | web | fixed |
+| [QOS-0121](../qos/backlog/QOS-0121.yaml) | Money In: a posted receipt could not be corrected, a customer's advance could not be given back, and a closed till could not be fixed | P1,P2 | Correct or refund a customer receipt | P1 | XL | heuristic | High | web | fixed |
+| [QOS-0122](../qos/backlog/QOS-0122.yaml) | Money In did not agree with its neighbours: bank reconciliation, GST on advances, promises, payment links, alerts and the customer portal | P1,P2 | Reconcile and report customer receipts | P1 | XL | heuristic | High | web | fixed |
+| [QOS-0123](../qos/backlog/QOS-0123.yaml) | Money In screen and operations: no sorting or bulk actions, open export, no offline entry, unsearchable Hindi voucher | P1,P2 | Work through the receipts list | P1 | XL | heuristic | High | web | fixed |
 | [QOS-0057](../qos/backlog/QOS-0057.yaml) | Re-status the CR-090..CR-104 findings that still carry a stale 'OPEN' label | P5 | Reconciling the functional code review against the current tree | P1-investigate | M | heuristic | Medium | backend | fixed |
 | [QOS-0097](../qos/backlog/QOS-0097.yaml) | UX fixes and claims have not been verified on a real backend | P1 | Dashboard, POS and editors against real data | P1-investigate | M | hypothesis | Medium | web | investigating |
 | [QOS-0018](../qos/backlog/QOS-0018.yaml) | determinism-probe stays advisory - 5 clock-brittle test fixtures | P5 | Suite determinism under a frozen clock | P2 | S | heuristic | Low | backend | fixed |

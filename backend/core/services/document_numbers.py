@@ -37,6 +37,7 @@ DEFAULT_PREFIXES = {
     "EXPENSE": "EXP",
     "DELIVERY_ROUTE": "DR",
     "DELIVERY_CHALLAN_RETURN": "DCR",
+    "CUSTOMER_ADVANCE_REFUND": "ARF",
 }
 
 
@@ -161,7 +162,7 @@ class DocumentNumberService:
         # __import__() special-casing.
         from accounting.models import Expense, JournalEntry
         from inventory.models import StockTransfer
-        from payments.models import CustomerReceipt, SupplierPayment
+        from payments.models import CustomerAdvanceRefund, CustomerReceipt, SupplierPayment
         from purchases.models import (
             PurchaseCreditNote,
             PurchaseDebitNote,
@@ -189,6 +190,7 @@ class DocumentNumberService:
             "PURCHASE_RETURN": PurchaseReturn.objects.filter(company=company).exclude(number=""),
             "CUSTOMER_RECEIPT": CustomerReceipt.objects.filter(company=company).exclude(number=""),
             "SUPPLIER_PAYMENT": SupplierPayment.objects.filter(company=company).exclude(number=""),
+            "CUSTOMER_ADVANCE_REFUND": CustomerAdvanceRefund.objects.filter(company=company).exclude(number=""),
             "SALES_CREDIT_NOTE": SalesCreditNote.objects.filter(company=company).exclude(number=""),
             "SALES_DEBIT_NOTE": SalesDebitNote.objects.filter(company=company).exclude(number=""),
             "PURCHASE_CREDIT_NOTE": PurchaseCreditNote.objects.filter(company=company).exclude(number=""),

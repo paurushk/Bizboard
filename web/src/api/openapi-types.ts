@@ -5546,6 +5546,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payments/advance-refunds/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Advances handed back to customers. Created from a receipt (``refund-advance``); voided here. */
+        get: operations["payments_advance_refunds_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/advance-refunds/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Advances handed back to customers. Created from a receipt (``refund-advance``); voided here. */
+        get: operations["payments_advance_refunds_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/advance-refunds/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Advances handed back to customers. Created from a receipt (``refund-advance``); voided here. */
+        post: operations["payments_advance_refunds_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/allocations/": {
         parameters: {
             query?: never;
@@ -5990,6 +6041,81 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /** @description Edit the descriptive fields of a posted receipt (notes, reference, UTR, bank account). */
+        patch: operations["payments_receipts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/correct-closed-till/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Manager: void a cash receipt that was counted in a closed till and record why. */
+        post: operations["payments_receipts_correct_closed_till_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/reassign-customer/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Move money that landed on the walk-in account to the customer who paid. */
+        post: operations["payments_receipts_reassign_customer_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/refund-advance/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Hand back part or all of the unallocated money on this receipt, without voiding it. */
+        post: operations["payments_receipts_refund_advance_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/send/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Send the receipt voucher to the customer by WhatsApp or email, and log it.
+         *
+         *     An empty ``recipient`` with WhatsApp is a device share: the text and link come back and
+         *     the person picks the chat; nothing is recorded as delivered. Business-number (Cloud)
+         *     sending needs the customer's WhatsApp opt-in, exactly as for invoices.
+         */
+        post: operations["payments_receipts_send_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -6027,6 +6153,89 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["payments_receipts_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/{id}/voucher/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Printable receipt voucher PDF. ``?layout=thermal`` for an 80 mm roll. */
+        get: operations["payments_receipts_voucher_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/bulk-allocate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Apply several advances oldest-bill-first. One result per receipt; one failure stops nothing.
+         *
+         *     Receipts are taken per customer in ``(receipt_date, id)`` order, so two advances of one
+         *     customer never compete for the same bills in a different order on a retry.
+         */
+        post: operations["payments_receipts_bulk_allocate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description CSV of every receipt that matches the list filters (not just one page).
+         *
+         *     Streamed row by row, so a 20,000-row export never sits in memory.
+         */
+        get: operations["payments_receipts_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/receipts/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Totals for the same filters as the list, across every page.
+         *
+         *     Voided, refunded and bounced receipts are not money in hand. Cheques still
+         *     waiting to clear are reported apart from collected money. Advances handed back to
+         *     customers are deducted from what is collected and from the advance.
+         */
+        get: operations["payments_receipts_summary_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6100,6 +6309,46 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["payments_recon_create_receipt_from_line_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/recon/match-return/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description A bounced cheque reaches the statement as a second, DEBIT line; the credit stays.
+         *
+         *     Link that debit line to the bounced receipt: the line is marked matched, the bank line
+         *     of the bounce's reversal journal is reconciled to it, and the receipt's original match
+         *     stops asking for review, so both statement lines reconcile and nothing is left over.
+         */
+        post: operations["payments_recon_match_return_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/recon/needs-review/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Matches whose receipt later bounced: the bank took the money back, so look again. */
+        get: operations["payments_recon_needs_review_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7365,6 +7614,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/public/customer-portal/{token}/receipts/{receipt_id}/voucher/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The receipt voucher PDF, read-only, through the same magic link as the invoices. */
+        get: operations["public_customer_portal_receipts_voucher_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/public/customer-portal/request-link/": {
         parameters: {
             query?: never;
@@ -7470,6 +7736,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["public_quotations_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/public/receipt-voucher/{token}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The receipt voucher PDF behind a signed link sent to the customer (no login). */
+        get: operations["public_receipt_voucher_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9097,6 +9380,40 @@ export interface paths {
         };
         /** @description BB-000670: 27EQ worksheet aid CSV. Not a live IT portal upload. */
         get: operations["reports_tcs_worksheet_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/tds-receivable/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description TDS deducted by customers on receipts (Form 26AS reconciliation). */
+        get: operations["reports_tds_receivable_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/tds-receivable/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The register as a CSV (cells are neutralised against spreadsheet formulas). */
+        get: operations["reports_tds_receivable_export_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -12326,6 +12643,30 @@ export interface components {
             accountingEnabled: boolean;
             readonly accountingBackfillNeeded: boolean;
         };
+        /**
+         * @description * `none` - None
+         *     * `goods` - Goods
+         *     * `services` - Services
+         * @enum {string}
+         */
+        AdvanceGstTreatmentEnum: "none" | "goods" | "services";
+        /** @description One advance refund paid out of a receipt (read-only, for the voucher and the list). */
+        AdvanceRefundLine: {
+            readonly id: number;
+            readonly number: string;
+            /** Format: decimal */
+            readonly amount: string;
+            readonly mode: components["schemas"]["ModeEnum"];
+            /** Format: date */
+            readonly refundDate: string;
+            readonly reason: string;
+            readonly status: components["schemas"]["SupplierPaymentStatusEnum"];
+            readonly utr: string;
+            readonly bankAccount: number | null;
+            readonly voidReason: string;
+            /** Format: date-time */
+            readonly voidedAt: string | null;
+        };
         AssistantMessage: {
             readonly id: number;
             role: components["schemas"]["AssistantMessageRoleEnum"];
@@ -12595,6 +12936,24 @@ export interface components {
          * @enum {string}
          */
         CampaignTypeEnum: "DIGITAL" | "REFERRAL" | "EVENT" | "MARKET_VISIT";
+        /**
+         * @description * `off` - Off
+         *     * `warn` - Warn
+         *     * `block` - Block
+         * @enum {string}
+         */
+        Cash269stModeEnum: "off" | "warn" | "block";
+        CashShiftAdjustment: {
+            readonly id: number;
+            readonly receipt: number;
+            readonly receiptNumber: string;
+            /** Format: decimal */
+            readonly amount: string;
+            readonly reason: string;
+            readonly approvedByName: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
         CashShiftRegister: {
             readonly id: number;
             readonly cashier: number;
@@ -12620,6 +12979,10 @@ export interface components {
             readonly openedAt: string | null;
             /** Format: date-time */
             readonly closedAt: string | null;
+            readonly adjustments: components["schemas"]["CashShiftAdjustment"][];
+            readonly adjustmentsTotal: string;
+            readonly adjustedExpectedCash: string;
+            readonly adjustedVariance: string;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -12705,6 +13068,19 @@ export interface components {
             readonly gstinVerifiedAt: string | null;
             readonly aiFeaturesEnabled: boolean;
             readonly itemCustomFieldDefs: unknown;
+            /** @description A pending cheque stays an advance until it clears; clearing then applies it. */
+            readonly chequeAllocationOnClearance: boolean;
+            /**
+             * @description Income Tax s.269ST: cash receipts of Rs 2,00,000 or more from one person in a day.
+             *
+             *     * `off` - Off
+             *     * `warn` - Warn
+             *     * `block` - Block
+             */
+            readonly cash269stMode: components["schemas"]["Cash269stModeEnum"];
+            readonly advanceGstTreatment: components["schemas"]["AdvanceGstTreatmentEnum"];
+            /** Format: decimal */
+            readonly advanceGstDefaultRate: string | null;
         };
         /** @description D15 / QOS-0027: ARCH-05 drug-licence (20B/21B) + FSSAI registrations. */
         CompanyStatutoryLicence: {
@@ -12883,6 +13259,7 @@ export interface components {
             readonly number: string;
             customer: number;
             readonly customerName: string;
+            readonly customerIsWalkIn: boolean;
             /** Format: decimal */
             amount: string;
             /** Format: decimal */
@@ -12905,6 +13282,21 @@ export interface components {
             readonly allocated: number;
             /** Format: double */
             readonly unallocated: number;
+            /** Format: double */
+            readonly allocatable: number;
+            /** Format: double */
+            readonly refunded: number;
+            readonly advanceRefunds: components["schemas"]["AdvanceRefundLine"][];
+            readonly reconciled: boolean;
+            /** Format: decimal */
+            tdsDeducted?: string;
+            tdsSection?: string;
+            readonly allocateOnClear: boolean;
+            readonly intendedSalesInvoice: number | null;
+            /** Format: decimal */
+            readonly intendedAmount: string | null;
+            /** Format: decimal */
+            advanceGstRate?: string | null;
             readonly utrWarning: string;
             /** Format: date-time */
             readonly createdAt: string;
@@ -12921,6 +13313,18 @@ export interface components {
             /** Format: decimal */
             readonly dishonourFee: string;
             readonly section138Notice: number | null;
+            readonly allocationLines: components["schemas"]["ReceiptAllocationLine"][];
+            /**
+             * @description Derived warnings: nothing is stored for these.
+             *
+             *     ``invoice_returned_after_payment``: an invoice this receipt paid was later returned or
+             *     credit-noted, so the money may now be an advance that someone should look at.
+             */
+            readonly reviewFlags: string[];
+            readonly voidReason: string;
+            /** Format: date-time */
+            readonly voidedAt: string | null;
+            readonly voidedByName: string;
         };
         /**
          * @description * `POSTED` - Posted
@@ -13815,6 +14219,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["AccountingPeriod"][];
+        };
+        PaginatedAdvanceRefundLineList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["AdvanceRefundLine"][];
         };
         PaginatedAssistantThreadListList: {
             /** @example 123 */
@@ -15187,6 +15606,10 @@ export interface components {
             readonly openedAt?: string | null;
             /** Format: date-time */
             readonly closedAt?: string | null;
+            readonly adjustments?: components["schemas"]["CashShiftAdjustment"][];
+            readonly adjustmentsTotal?: string;
+            readonly adjustedExpectedCash?: string;
+            readonly adjustedVariance?: string;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -15247,6 +15670,19 @@ export interface components {
             readonly gstinVerifiedAt?: string | null;
             readonly aiFeaturesEnabled?: boolean;
             readonly itemCustomFieldDefs?: unknown;
+            /** @description A pending cheque stays an advance until it clears; clearing then applies it. */
+            readonly chequeAllocationOnClearance?: boolean;
+            /**
+             * @description Income Tax s.269ST: cash receipts of Rs 2,00,000 or more from one person in a day.
+             *
+             *     * `off` - Off
+             *     * `warn` - Warn
+             *     * `block` - Block
+             */
+            readonly cash269stMode?: components["schemas"]["Cash269stModeEnum"];
+            readonly advanceGstTreatment?: components["schemas"]["AdvanceGstTreatmentEnum"];
+            /** Format: decimal */
+            readonly advanceGstDefaultRate?: string | null;
         };
         /** @description D15 / QOS-0027: ARCH-05 drug-licence (20B/21B) + FSSAI registrations. */
         PatchedCompanyStatutoryLicence: {
@@ -15384,6 +15820,78 @@ export interface components {
             readonly outstanding?: string;
             readonly creditExposure?: string;
             readonly version?: number;
+        };
+        PatchedCustomerReceipt: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            readonly customerName?: string;
+            readonly customerIsWalkIn?: boolean;
+            /** Format: decimal */
+            amount?: string;
+            /** Format: decimal */
+            readonly tendered?: string;
+            /** Format: decimal */
+            readonly changeGiven?: string;
+            mode?: components["schemas"]["ModeEnum"];
+            /** Format: date */
+            receiptDate?: string;
+            reference?: string;
+            utr?: string;
+            notes?: string;
+            bankAccount?: number | null;
+            /** @default  */
+            readonly bankAccountName: string;
+            readonly source?: components["schemas"]["SourceEnum"];
+            readonly gatewayPayment?: number | null;
+            readonly status?: components["schemas"]["CustomerReceiptStatusEnum"];
+            /** Format: double */
+            readonly allocated?: number;
+            /** Format: double */
+            readonly unallocated?: number;
+            /** Format: double */
+            readonly allocatable?: number;
+            /** Format: double */
+            readonly refunded?: number;
+            readonly advanceRefunds?: components["schemas"]["AdvanceRefundLine"][];
+            readonly reconciled?: boolean;
+            /** Format: decimal */
+            tdsDeducted?: string;
+            tdsSection?: string;
+            readonly allocateOnClear?: boolean;
+            readonly intendedSalesInvoice?: number | null;
+            /** Format: decimal */
+            readonly intendedAmount?: string | null;
+            /** Format: decimal */
+            advanceGstRate?: string | null;
+            readonly utrWarning?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            chequeNumber?: string;
+            chequeBankName?: string;
+            /** Format: date */
+            chequeDate?: string | null;
+            chequeStatus?: components["schemas"]["ChequeStatusEnum"] | components["schemas"]["BlankEnum"];
+            chequeImage?: number | null;
+            paidFromTill?: boolean;
+            readonly shift?: number | null;
+            /** Format: decimal */
+            settlementDiscount?: string;
+            /** Format: decimal */
+            readonly dishonourFee?: string;
+            readonly section138Notice?: number | null;
+            readonly allocationLines?: components["schemas"]["ReceiptAllocationLine"][];
+            /**
+             * @description Derived warnings: nothing is stored for these.
+             *
+             *     ``invoice_returned_after_payment``: an invoice this receipt paid was later returned or
+             *     credit-noted, so the money may now be an advance that someone should look at.
+             */
+            readonly reviewFlags?: string[];
+            readonly voidReason?: string;
+            /** Format: date-time */
+            readonly voidedAt?: string | null;
+            readonly voidedByName?: string;
         };
         PatchedDeliveryChallan: {
             readonly id?: number;
@@ -16445,6 +16953,7 @@ export interface components {
             readonly cancelApprovalPending?: string;
             readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer?: boolean;
+            readonly pendingChequeAmount?: string;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
@@ -16803,6 +17312,10 @@ export interface components {
             purchaseInvoice?: number | null;
             /** Format: decimal */
             amount: string;
+            /** Format: decimal */
+            readonly discountApplied: string;
+            /** Format: decimal */
+            readonly tdsApplied: string;
             /** Format: date-time */
             readonly reversedAt: string | null;
             /** Format: date-time */
@@ -17696,6 +18209,38 @@ export interface components {
          * @enum {string}
          */
         Reason9b6Enum: "SALES_RETURN" | "PURCHASE_RETURN" | "POST_SALE_DISCOUNT" | "DEFICIENCY_IN_SERVICE" | "CORRECTION_OF_INVOICE" | "OTHERS";
+        /** @description One live invoice allocation on a receipt (read-only, for the voucher). */
+        ReceiptAllocationLine: {
+            salesInvoice: number | null;
+            invoiceNumber: string;
+            /** Format: decimal */
+            amount: string;
+            /** Format: decimal */
+            discountApplied: string;
+            /** Format: decimal */
+            tdsApplied: string;
+            allocationId: number;
+        };
+        /** @description Totals for the receipt list filters, across every page. */
+        ReceiptSummary: {
+            /** @description Receipts counted as money in hand. */
+            count: number;
+            /** Format: decimal */
+            collected: string;
+            /** Format: decimal */
+            chequesPending: string;
+            /** Format: decimal */
+            allocated: string;
+            /** Format: decimal */
+            advance: string;
+            /** @description Matching receipts left out: voided, refunded or bounced. */
+            excludedCount: number;
+            /**
+             * Format: decimal
+             * @description Advances handed back to customers (live refunds).
+             */
+            refunded: string;
+        };
         RecurringInvoiceSchedule: {
             readonly id: number;
             customer: number;
@@ -18109,6 +18654,7 @@ export interface components {
             readonly cancelApprovalPending: string;
             readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer: boolean;
+            readonly pendingChequeAmount: string;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
@@ -29023,6 +29569,74 @@ export interface operations {
             };
         };
     };
+    payments_advance_refunds_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedAdvanceRefundLineList"];
+                };
+            };
+        };
+    };
+    payments_advance_refunds_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer advance refund. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvanceRefundLine"];
+                };
+            };
+        };
+    };
+    payments_advance_refunds_void_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer advance refund. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvanceRefundLine"];
+                };
+            };
+        };
+    };
     payments_allocations_list: {
         parameters: {
             query?: {
@@ -29718,10 +30332,23 @@ export interface operations {
     payments_receipts_list: {
         parameters: {
             query?: {
+                customer?: number;
+                /** @description Receipt date on or after. */
+                date_from?: string;
+                /** @description Receipt date on or before. */
+                date_to?: string;
+                mode?: "BANK" | "CARD" | "CASH" | "CHEQUE" | "CREDIT" | "UPI";
+                /** @description Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap. */
+                ordering?: string;
                 /** @description A page number within the paginated result set. */
                 page?: number;
                 /** @description Number of results to return per page. */
                 page_size?: number;
+                /** @description Number, customer name, phone, UTR or reference (max 100 characters). */
+                q?: string;
+                /** @description true: matched to a bank line; false: not matched. */
+                reconciled?: boolean;
+                status?: "POSTED" | "REFUNDED" | "VOIDED";
             };
             header?: never;
             path?: never;
@@ -29786,6 +30413,124 @@ export interface operations {
             };
         };
     };
+    payments_receipts_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedCustomerReceipt"];
+                "multipart/form-data": components["schemas"]["PatchedCustomerReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedCustomerReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
+    payments_receipts_correct_closed_till_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
+    payments_receipts_reassign_customer_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
+    payments_receipts_refund_advance_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdvanceRefundLine"];
+                };
+            };
+        };
+    };
+    payments_receipts_send_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     payments_receipts_set_cheque_status_create: {
         parameters: {
             query?: never;
@@ -29838,6 +30583,120 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
+    payments_receipts_voucher_retrieve: {
+        parameters: {
+            query?: {
+                /** @description Voucher language. */
+                lang?: "en" | "hi";
+                /** @description Paper layout. */
+                layout?: "A4" | "THERMAL";
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/pdf": string;
+                };
+            };
+        };
+    };
+    payments_receipts_bulk_allocate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    payments_receipts_export_retrieve: {
+        parameters: {
+            query?: {
+                customer?: number;
+                /** @description Receipt date on or after. */
+                date_from?: string;
+                /** @description Receipt date on or before. */
+                date_to?: string;
+                mode?: "BANK" | "CARD" | "CASH" | "CHEQUE" | "CREDIT" | "UPI";
+                /** @description Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap. */
+                ordering?: string;
+                /** @description Number, customer name, phone, UTR or reference (max 100 characters). */
+                q?: string;
+                /** @description true: matched to a bank line; false: not matched. */
+                reconciled?: boolean;
+                status?: "POSTED" | "REFUNDED" | "VOIDED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
+    payments_receipts_summary_retrieve: {
+        parameters: {
+            query?: {
+                customer?: number;
+                /** @description Receipt date on or after. */
+                date_from?: string;
+                /** @description Receipt date on or before. */
+                date_to?: string;
+                mode?: "BANK" | "CARD" | "CASH" | "CHEQUE" | "CREDIT" | "UPI";
+                /** @description Sort column, with a leading '-' for descending: receipt_date, amount, number, customer__name or status. Ties are broken by id so pages never overlap. */
+                ordering?: string;
+                /** @description Number, customer name, phone, UTR or reference (max 100 characters). */
+                q?: string;
+                /** @description true: matched to a bank line; false: not matched. */
+                reconciled?: boolean;
+                status?: "POSTED" | "REFUNDED" | "VOIDED";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptSummary"];
                 };
             };
         };
@@ -29897,6 +30756,42 @@ export interface operations {
         };
     };
     payments_recon_create_receipt_from_line_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_recon_match_return_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_recon_needs_review_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -31820,6 +32715,27 @@ export interface operations {
             };
         };
     };
+    public_customer_portal_receipts_voucher_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: number;
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     public_customer_portal_request_link_create: {
         parameters: {
             query?: never;
@@ -31959,6 +32875,26 @@ export interface operations {
                 content: {
                     "application/json": string;
                 };
+            };
+        };
+    };
+    public_receipt_voucher_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -34701,6 +35637,42 @@ export interface operations {
         };
     };
     reports_tcs_worksheet_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_tds_receivable_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_tds_receivable_export_retrieve: {
         parameters: {
             query?: never;
             header?: never;

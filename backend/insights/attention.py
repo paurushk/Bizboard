@@ -161,7 +161,7 @@ def _can_see(company_user, code: str) -> bool:
             or company_user.can_view_financial_reports
             or company_user.can_create_purchases
         )
-    if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT"}:
+    if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT", "WALK_IN_UNALLOCATED_RECEIPT", "VOID_RATE_HIGH"}:
         return bool(company_user.can_create_payments or company_user.can_view_financial_reports)
     if code in {"TICKET_SLA_BREACH", "CONTRACT_RENEWAL"}:
         return bool(company_user.can_create_sales)
@@ -777,8 +777,12 @@ def assign_attention_row(company, company_user, *, dedupe_key: str, assignee_id=
     }
 
 
-def dismiss_attention_row(company, company_user, *, dedupe_key: str) -> dict:
-    """Hide the row. Dismissal is not approval and does not snooze."""
+def dismiss_attention_row(company, company_user, *, dedupe_key: str, reason: str = "") -> dict:
+    """Hide the row. Dismissal is not approval and does not snooze.
+
+    A possible-duplicate-payment row is a claim that money may have been recorded twice, so
+    setting it aside needs a reason, kept with the row.
+    """
     from core.exceptions import BusinessRuleError
 
     from insights.outcomes import record_dismissal
@@ -786,6 +790,11 @@ def dismiss_attention_row(company, company_user, *, dedupe_key: str) -> dict:
     dedupe_key = (dedupe_key or "").strip()
     if not dedupe_key:
         raise BusinessRuleError("dedupe_key is required.")
+    reason = (reason or "").strip()
+    if dedupe_key.startswith("DUPLICATE_PAYMENT:") and len(reason) < 3:
+        raise BusinessRuleError(
+            "Say why this is not a duplicate (at least 3 characters).", code="dismiss_reason_required"
+        )
     now = timezone.now()
     state, _ = AttentionRowState.objects.get_or_create(
         company=company,
@@ -793,8 +802,10 @@ def dismiss_attention_row(company, company_user, *, dedupe_key: str) -> dict:
         defaults={"first_seen": now},
     )
     state.dismissed = True
+    if reason:
+        state.snooze_reason = reason[:2000]
     state.updated_by = getattr(company_user, "user", None)
-    state.save(update_fields=["dismissed", "updated_by", "updated_at"])
+    state.save(update_fields=["dismissed", "snooze_reason", "updated_by", "updated_at"])
     outcome = record_dismissal(company, state, now)
     return {
         "dedupe_key": dedupe_key,

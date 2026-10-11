@@ -198,6 +198,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
     return_state = serializers.SerializerMethodField()
     settlement_state = serializers.SerializerMethodField()
     cancel_approval_pending = serializers.SerializerMethodField()
+    pending_cheque_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
@@ -228,6 +229,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
             "settlement_state", "cancel_approval_pending", "source_quotations", "source_quotations_differ",
+            "pending_cheque_amount",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
@@ -238,7 +240,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
-            "settlement_state", "cancel_approval_pending",
+            "settlement_state", "cancel_approval_pending", "pending_cheque_amount",
             "tcs_amount_manual",
         ] + TOTAL_READONLY + RCM_READONLY
 
@@ -346,6 +348,37 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
         else:
             alloc, notes, discount = live_settlement_parts(obj)
         return settlement_bucket(obj.status, obj.grand_total, self.get_balance(obj), alloc, notes, discount)
+
+    def get_pending_cheque_amount(self, obj):
+        """What a cheque that has not cleared is waiting to settle on this bill.
+
+        Only a company that holds cheques as advances until they clear (the
+        ``cheque_allocation_on_clearance`` setting) has such an amount; for everyone else a
+        pending cheque is already applied, so this is zero and costs no query.
+        """
+        from decimal import Decimal
+
+        from core.permissions import get_company_user
+
+        request = self.context.get("request")
+        member = get_company_user(request) if request is not None else None
+        if member is None or not getattr(member.company, "cheque_allocation_on_clearance", False):
+            return Decimal("0.00")
+        if obj.status not in ("COMPLETED", "RETURNED"):
+            return Decimal("0.00")
+        from django.db.models import Sum
+
+        from payments.models import ChequeStatus, CustomerReceipt, PaymentMode, ReceiptStatus
+
+        total = CustomerReceipt.objects.filter(
+            company_id=obj.company_id,
+            status=ReceiptStatus.POSTED,
+            mode=PaymentMode.CHEQUE,
+            cheque_status=ChequeStatus.PENDING_CLEARANCE,
+            allocate_on_clear=True,
+            intended_sales_invoice_id=obj.pk,
+        ).aggregate(t=Sum("amount"))["t"]
+        return Decimal(str(total or 0)).quantize(Decimal("0.01"))
 
     def get_cancel_approval_pending(self, obj):
         flagged = getattr(obj, "_cancel_approval_pending", None)

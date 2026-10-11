@@ -1,0 +1,27 @@
+id: "QOS-0123"
+category: "RELIABILITY_TRUST"
+title: "Money In screen and operations: no sorting or bulk actions, open export, no offline entry, unsearchable Hindi voucher"
+persona: ["P1", "P2"]
+journey: "Work through the receipts list"
+problem: "The list could not be sorted, had a fixed page size and no bulk actions; anyone who could see receipts could export them all; a receipt could not be sent to the customer from the screen; a cashier with no connection could not record cash; the Hindi voucher was pictures of letters with nothing to select or search; the totals read the table three times."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/MONEY_IN_PHASE2_IMPLEMENTATION_PLAN.md"]
+  detail: "Delivered 2026-10-11 (Phase 2 WP-13, WP-14, WP-15): sortable columns with aria-sort, page size and go-to-page, bulk apply oldest-first and bulk send, allocation manager with reasons, send by WhatsApp or email; export needs can_export, is streamed, throttled and audited; void and refund accept an Idempotency-Key; print is audited; Hindi voucher carries ActualText; offline outbox for cash and cheque receipts; totals in one aggregate with covering indexes; business-event counters and a void-rate alert."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Audit trail and AR integrity on a money path."
+effort: "XL"
+recommendation: "Done. Re-run backend/perf/receipts_profile.py on Postgres after large imports."
+test_required: "backend/tests/test_money_in_phase2.py::test_export_needs_the_export_permission_and_is_audited"
+guard_ref:
+  test: "backend/tests/test_money_in_phase2.py::test_export_needs_the_export_permission_and_is_audited"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-11"

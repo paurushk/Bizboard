@@ -1,6 +1,7 @@
 import csv
 from planwave.crypto import reveal_bank_account
 from datetime import date
+from decimal import Decimal
 
 from django.db import transaction
 from django.http import Http404, HttpResponse, StreamingHttpResponse
@@ -285,6 +286,93 @@ class PurchaseDiscountReportView(BaseReportView):
         ))
 
 
+def _tds_receivable_rows(company, date_from, date_to, customer_id=None):
+    """Receipts on which a customer deducted TDS, for matching against Form 26AS.
+
+    One row per receipt: the PAN on the customer master, the section the cashier chose, the TDS
+    deducted, and how much of it has been set against invoices so far. The same figure sits in
+    ledger account 1270 until the customer's certificate (Form 16A) lets it be claimed.
+    """
+    from django.db.models import Q, Sum
+
+    from payments.models import CustomerReceipt, ReceiptStatus
+
+    qs = CustomerReceipt.objects.filter(
+        company=company, status=ReceiptStatus.POSTED, tds_deducted__gt=0
+    ).select_related("customer")
+    if date_from:
+        qs = qs.filter(receipt_date__gte=date_from)
+    if date_to:
+        qs = qs.filter(receipt_date__lte=date_to)
+    if customer_id:
+        qs = qs.filter(customer_id=customer_id)
+    qs = qs.annotate(
+        applied=Sum("allocations__tds_applied", filter=Q(allocations__reversed_at__isnull=True))
+    ).order_by("receipt_date", "id")
+    rows = []
+    for receipt in qs:
+        applied = receipt.applied or Decimal("0")
+        rows.append({
+            "receipt_id": receipt.id,
+            "receipt_number": receipt.number,
+            "receipt_date": receipt.receipt_date.isoformat(),
+            "customer_id": receipt.customer_id,
+            "customer": receipt.customer.name,
+            "pan": receipt.customer.pan or "",
+            "section": receipt.tds_section or "",
+            "amount_received": str(receipt.amount),
+            "tds_deducted": str(receipt.tds_deducted),
+            "tds_applied": str(applied),
+            "tds_unapplied": str(receipt.tds_deducted - applied),
+        })
+    return rows
+
+
+class TdsReceivableReportView(BaseReportView):
+    """TDS deducted by customers on receipts (Form 26AS reconciliation)."""
+
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="TDS receivable register")
+        rows = _tds_receivable_rows(
+            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer"))
+        )
+        total = sum((Decimal(row["tds_deducted"]) for row in rows), Decimal("0"))
+        return Response({"rows": rows, "total_tds": str(total), "count": len(rows)})
+
+
+class TdsReceivableExportView(BaseReportView):
+    """The register as a CSV (cells are neutralised against spreadsheet formulas)."""
+
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get_permissions(self):
+        return [*super().get_permissions(), CanExport()]
+
+    def get(self, request):
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="TDS receivable register")
+        rows = _tds_receivable_rows(
+            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer"))
+        )
+        response = HttpResponse(content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = 'attachment; filename="tds-receivable.csv"'
+        writer = csv.writer(response)
+        writer.writerow(["Receipt", "Date", "Customer", "PAN", "Section", "Amount received", "TDS deducted", "TDS set against invoices", "TDS not yet set against invoices"])
+        for row in rows:
+            writer.writerow([csv_safe(v) for v in (
+                row["receipt_number"], row["receipt_date"], row["customer"], row["pan"], row["section"],
+                row["amount_received"], row["tds_deducted"], row["tds_applied"], row["tds_unapplied"],
+            )])
+        return response
+
+
 class InvoiceProfitReportView(BaseReportView):
     throttle_classes = [CompanyRateThrottle]
     throttle_scope = "heavy_reports"
@@ -546,7 +634,11 @@ class CustomerLedgerTabsView(BaseReportView):
             row["sr_no"] = i
             row.setdefault("mode", "")
             numbered.append(row)
-        statement = {"outstanding": outstanding, "entries": numbered}
+        statement = {
+            "outstanding": outstanding,
+            "uncleared_cheques": LedgerService.uncleared_cheque_total(self.company, customer),
+            "entries": numbered,
+        }
         item_wise = customer_item_wise(
             self.company, customer.id, date_from=date_from, date_to=date_to,
         )

@@ -286,6 +286,9 @@ def test_bb_000650_gateway_receipt_cannot_void(tenant_a):
 
 
 def test_bb_000650_void_releases_utr(tenant_a):
+    from tests.conftest import make_default_bank
+
+    make_default_bank(tenant_a.company)  # UPI / bank / card money needs a bank account to land in
     customer = make_customer(tenant_a.company)
     first = tenant_a.client.post(
         "/api/v1/payments/receipts/",
@@ -293,7 +296,9 @@ def test_bb_000650_void_releases_utr(tenant_a):
         format="json",
     )
     assert first.status_code == 201, first.data
-    voided = tenant_a.client.post(f"/api/v1/payments/receipts/{first.data['id']}/void/", {}, format="json")
+    voided = tenant_a.client.post(
+        f"/api/v1/payments/receipts/{first.data['id']}/void/", {"reason": "entered twice"}, format="json",
+    )
     assert voided.status_code == 200, voided.data
     second = tenant_a.client.post(
         "/api/v1/payments/receipts/",

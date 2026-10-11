@@ -125,3 +125,17 @@ def clear_all_rls_gucs() -> None:
                 cursor.execute("DISCARD ALL")
         except Exception:
             logger.exception("clear_all_rls_gucs: DISCARD ALL backstop failed")
+
+
+def stream_with_rls(company_id, chunks):
+    """Run a streaming response body under the tenant's RLS context.
+
+    ``PostgresRlsMiddleware`` clears the company GUC when the view returns, which is before a
+    ``StreamingHttpResponse`` body is read. Without this the body would run with no company and
+    read nothing (or someone else's pooled context). A no-op unless RLS is enabled on Postgres.
+    """
+    try:
+        set_rls_company(company_id)
+        yield from chunks
+    finally:
+        clear_all_rls_gucs()

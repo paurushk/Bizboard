@@ -96,6 +96,7 @@ const LowStockPage = lazy(() => import('@/pages/inventory/LowStockPage').then((m
 const LabelPrintPage = lazy(() => import('@/pages/inventory/LabelPrintPage').then((m) => ({ default: m.LabelPrintPage })));
 const SalesReportPage = lazy(() => import('@/pages/reports/SalesReportPage').then((m) => ({ default: m.SalesReportPage })));
 const PurchaseReportPage = lazy(() => import('@/pages/reports/PurchaseReportPage').then((m) => ({ default: m.PurchaseReportPage })));
+const TdsReceivablePage = lazy(() => import('@/pages/reports/TdsReceivablePage').then((m) => ({ default: m.TdsReceivablePage })));
 const DiscountReportPage = lazy(() => import('@/pages/reports/DiscountReportPage').then((m) => ({ default: m.DiscountReportPage })));
 const InvoiceProfitReportPage = lazy(() => import('@/pages/reports/InvoiceProfitReportPage').then((m) => ({ default: m.InvoiceProfitReportPage })));
 const InvoiceProfitRollupPage = lazy(() => import('@/pages/reports/InvoiceProfitRollupPage').then((m) => ({ default: m.InvoiceProfitRollupPage })));
@@ -551,6 +552,7 @@ export function App() {
               <Route path="reports/sales" element={<SalesReportPage />} />
               <Route path="reports/purchases" element={<PurchaseReportPage />} />
               <Route path="reports/discounts" element={<DiscountReportPage />} />
+              <Route path="reports/tds-receivable" element={<TdsReceivablePage />} />
               <Route path="reports/sales-discounts" element={<DiscountReportPage />} />
               <Route path="reports/invoice-profit" element={<InvoiceProfitReportPage />} />
               <Route path="reports/invoice-profit/rollup" element={<InvoiceProfitRollupPage />} />

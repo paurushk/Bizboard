@@ -205,6 +205,12 @@ export interface Company {
   gspCredentialsConfigured?: boolean;
   einvoiceEnabled?: boolean;
   requirePaymentReference?: boolean;
+  /** Money In rules: a pending cheque stays an advance until it clears. */
+  chequeAllocationOnClearance?: boolean;
+  /** Income Tax s.269ST cash-limit check: off, warn or block. */
+  cash269stMode?: 'off' | 'warn' | 'block';
+  advanceGstTreatment?: 'none' | 'goods' | 'services';
+  advanceGstDefaultRate?: string | number | null;
   ewayEnabled?: boolean;
   ewayThresholdAmount?: string | number;
   aatoTurnover?: string | number | null;
@@ -430,6 +436,8 @@ export interface SalesInvoice extends DocumentTotals {
   pdfStatus?: PdfStatus;
   pdfFile?: number | null;
   received?: string | number;
+  /** A cheque that has not cleared yet and is waiting to settle this bill (only when cheques are held as advances). */
+  pendingChequeAmount?: string | number;
   balance: string | number;
   paymentState?: 'UNPAID' | 'PAID_PENDING_BOOKS' | 'PAID';
   /** Server bucket shared by the payment filter and the status chip. */
@@ -843,11 +851,82 @@ export interface CustomerReceipt {
   bankAccountName?: string;
   source?: string;
   status?: string;
+  /** What the receipt still holds as an advance: amount + customer TDS - applied - refunded. */
   unallocated: string | number;
+  /** Cash that can still be applied to invoices (excludes the TDS credit). */
+  allocatable?: string | number;
+  /** Advances handed back out of this receipt (live refunds). */
+  refunded?: string | number;
+  advanceRefunds?: AdvanceRefund[];
+  /** Matched to a bank statement line. */
+  reconciled?: boolean;
+  tdsDeducted?: string | number;
+  tdsSection?: string;
+  settlementDiscount?: string | number;
+  allocateOnClear?: boolean;
+  advanceGstRate?: string | number | null;
   chequeNumber?: string;
   chequeBankName?: string;
   chequeDate?: string;
   chequeStatus?: string;
+  customerIsWalkIn?: boolean;
+  allocationLines?: ReceiptAllocationLine[];
+  /** Derived warnings: `invoice_returned_after_payment`. */
+  reviewFlags?: string[];
+  voidReason?: string;
+  voidedAt?: string | null;
+  voidedByName?: string;
+  shift?: number | null;
+  paidFromTill?: boolean;
+  gatewayPayment?: number | null;
+}
+
+/** What POST /payments/receipts/ returns: the receipt plus any soft notices (period already complete, etc.). */
+export type CustomerReceiptCreated = CustomerReceipt & { warnings?: string[] };
+
+export interface ReceiptAllocationLine {
+  salesInvoice: number | null;
+  invoiceNumber: string;
+  amount: string | number;
+  discountApplied?: string | number;
+  tdsApplied?: string | number;
+  allocationId?: number;
+}
+
+export interface AdvanceRefund {
+  id: number;
+  number?: string;
+  amount: string | number;
+  mode: PaymentMode;
+  refundDate: string;
+  reason: string;
+  status: 'POSTED' | 'VOIDED';
+  utr?: string;
+  bankAccount?: number | null;
+  voidReason?: string;
+  voidedAt?: string | null;
+}
+
+/** One row of the bulk "apply oldest first" result. */
+export interface BulkAllocateResult {
+  id: number;
+  number?: string;
+  status: 'applied' | 'skipped' | 'failed';
+  allocated: string | number;
+  message: string;
+}
+
+/** Totals for the current receipt filters, across every page. */
+export interface ReceiptSummary {
+  count: number;
+  collected: string | number;
+  chequesPending: string | number;
+  allocated: string | number;
+  advance: string | number;
+  /** Advances handed back to customers. */
+  refunded?: string | number;
+  /** Matching receipts left out of the totals: voided, refunded or bounced. */
+  excludedCount: number;
 }
 
 export interface SupplierPayment {
@@ -876,6 +955,8 @@ export interface PaymentAllocation {
   salesInvoice?: number | null;
   purchaseInvoice?: number | null;
   amount: string | number;
+  discountApplied?: string | number;
+  tdsApplied?: string | number;
   reversedAt?: string | null;
   createdAt?: string;
 }
@@ -946,6 +1027,8 @@ export interface DashboardKpis {
   salesThisMonth: { total: string | number; count: number };
   purchasesThisMonth: { total: string | number; count: number };
   receivables: string | number;
+  /** Cheques taken but not yet cleared. Shown beside the ageing, not inside its buckets. */
+  receivablesUnclearedCheques?: string | number;
   payables: string | number;
   cashPosition?: string | number;
   cash_position?: string | number;

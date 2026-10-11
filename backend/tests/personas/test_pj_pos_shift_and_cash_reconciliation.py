@@ -35,6 +35,9 @@ def test_pj_pos_counter_shift_and_cash_drawer_reconciliation():
     """Counter Clerk (P2) & Owner (P1): Full Day-1 POS shift lifecycle with split tender and cash tally."""
     ns = seed_archetype("trader")
     company = ns.company
+    from tests.conftest import make_default_bank
+
+    make_default_bank(company)  # UPI / bank / card money needs a bank account to land in
     sc = ns.sales_client
     oc = ns.owner_client
 

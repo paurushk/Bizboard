@@ -48,6 +48,21 @@ def record_http_result(*, status: int, duration_ms: int) -> None:
             _HTTP_5XX += 1
 
 
+_EVENTS: dict[str, int] = {}
+
+
+def bump_event(name: str) -> None:
+    """Count a business event (this process), e.g. ``money_in_receipt_voided``. Never raises."""
+    key = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(name))[:64] or "unknown"
+    with _lock:
+        _EVENTS[key] = _EVENTS.get(key, 0) + 1
+
+
+def get_event_counts() -> dict[str, int]:
+    with _lock:
+        return dict(_EVENTS)
+
+
 def bump_celery_failure() -> None:
     global _CELERY_FAILURES
     with _lock:
@@ -165,6 +180,12 @@ def render_prometheus() -> str:
         "# HELP bizboard_health_beat 1 if the celery-beat heartbeat is fresh.",
         "# TYPE bizboard_health_beat gauge",
         f"bizboard_health_beat {gauges['health_beat']}",
+        "# HELP bizboard_business_events_total Business events counted by this process (receipts created, voided...).",
+        "# TYPE bizboard_business_events_total counter",
+        *[
+            f'bizboard_business_events_total{{event="{name}"}} {count}'
+            for name, count in sorted(get_event_counts().items())
+        ],
         *_histogram_lines(),
         "",
     ]

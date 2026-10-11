@@ -311,6 +311,27 @@ export const getPaymentHealth = () =>
 export const getCashBook = (params?: Record<string, string>) => apiClient.get('/reports/cash-book/', { params }).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const getSalesDiscountReport = (params?: Record<string, string>) =>
   apiClient.get('/reports/sales-discounts/', { params }).then(({ data }) => unwrapData<DiscountReportResponse>(data));
+export type TdsReceivableRow = {
+  receiptId: number;
+  receiptNumber: string;
+  receiptDate: string;
+  customerId: number;
+  customer: string;
+  pan: string;
+  section: string;
+  amountReceived: string;
+  tdsDeducted: string;
+  tdsApplied: string;
+  tdsUnapplied: string;
+};
+export const getTdsReceivableReport = (params?: Record<string, string>) =>
+  apiClient
+    .get('/reports/tds-receivable/', { params })
+    .then(({ data }) => unwrapData<{ rows: TdsReceivableRow[]; totalTds: string; count: number }>(data));
+export async function exportTdsReceivableCsv(params?: Record<string, string>): Promise<Blob> {
+  const { data } = await apiClient.get('/reports/tds-receivable/export/', { params, responseType: 'blob' });
+  return data as Blob;
+}
 export const getPurchaseDiscountReport = (params?: Record<string, string>) =>
   apiClient.get('/reports/purchase-discounts/', { params }).then(({ data }) => unwrapData<DiscountReportResponse>(data));
 export const getInvoiceProfitReport = (params?: Record<string, string>) =>

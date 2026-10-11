@@ -40,6 +40,7 @@ from payments.models import (
     SupplierPayment,
     SupplierPaymentStatus,
 )
+from payments.receipt_math import LiveTotals, live_refunds_by_receipt, receipt_unallocated
 from purchases.models import (
     PurchaseCreditNote,
     PurchaseDebitNote,
@@ -115,7 +116,8 @@ def _prefetched_alloc_total(parent, related_name="allocations") -> Decimal:
 _ALLOC_PREFETCH = Prefetch(
     "allocations",
     queryset=PaymentAllocation.objects.filter(reversed_at__isnull=True).only(
-        "id", "amount", "receipt_id", "supplier_payment_id"
+        "id", "amount", "receipt_id", "supplier_payment_id", "discount_applied", "tds_applied",
+        "reversed_at",
     ),
 )
 
@@ -138,54 +140,36 @@ def _stmt_sort_key(e):
     return (e["date"], _STMT_TYPE_ORDER.get(e["type"], 9), e["reference_id"])
 
 
+# Cash plus the discount and TDS slices an allocation clears on its invoice.
+_CLEARED = F("amount") + F("discount_applied") + F("tds_applied")
+
+
 def _sum(qs, field="amount") -> Decimal:
     return qs.aggregate(total=Sum(field))["total"] or Decimal("0")
 
 
 def _settlement_discount_by_invoice(invoice_ids) -> dict[int, Decimal]:
-    """Prorated CustomerReceipt.settlement_discount per sales invoice.
+    """Settlement discount plus customer-deducted TDS that live receipt allocations cleared.
 
-    settlement_discount lives on the receipt, not the allocation — a receipt
-    split across several invoices must not have its whole discount charged
-    against each one. Prorate by each allocation's share of the receipt's
-    total unreversed sales-side allocation.
+    Both are fixed on each ``PaymentAllocation`` when it is made (``discount_applied`` and
+    ``tds_applied``, see payments.receipt_math), and the GL posting reads the same columns,
+    so the invoice balance and account 1200 move by exactly the same amount.
     """
-    from payments.models import CustomerReceipt
-
-    rows = list(
+    rows = (
         PaymentAllocation.objects.filter(
             sales_invoice_id__in=invoice_ids,
             receipt__isnull=False,
             supplier_payment__isnull=True,
             reversed_at__isnull=True,
-        ).values("sales_invoice_id", "receipt_id", "amount")
-    )
-    if not rows:
-        return {}
-    receipt_ids = {r["receipt_id"] for r in rows}
-    receipt_totals = dict(
-        PaymentAllocation.objects.filter(
-            receipt_id__in=receipt_ids,
-            receipt__isnull=False,
-            supplier_payment__isnull=True,
-            reversed_at__isnull=True,
         )
-        .values("receipt_id")
-        .annotate(total=Sum("amount"))
-        .values_list("receipt_id", "total")
-    )
-    discount_by_receipt = dict(
-        CustomerReceipt.objects.filter(pk__in=receipt_ids).values_list("id", "settlement_discount")
+        .values("sales_invoice_id")
+        .annotate(d=Sum("discount_applied"), t=Sum("tds_applied"))
     )
     out: dict[int, Decimal] = {}
     for row in rows:
-        receipt_total = receipt_totals.get(row["receipt_id"]) or Decimal("0")
-        discount = discount_by_receipt.get(row["receipt_id"]) or Decimal("0")
-        if not discount or not receipt_total:
-            continue
-        share = (row["amount"] / receipt_total) * discount
-        inv_id = row["sales_invoice_id"]
-        out[inv_id] = out.get(inv_id, Decimal("0")) + share
+        total = (row["d"] or Decimal("0")) + (row["t"] or Decimal("0"))
+        if total:
+            out[row["sales_invoice_id"]] = total
     return out
 
 
@@ -315,6 +299,39 @@ class LedgerService:
         return (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
 
     @staticmethod
+    def uncleared_cheque_total(company, customer=None) -> Decimal:
+        """Cheques taken but not yet cleared. They count as received until they bounce, which is
+        why customer balances and invoices say "includes X in uncleared cheques"."""
+        from payments.models import ChequeStatus, PaymentMode
+
+        qs = CustomerReceipt.objects.filter(
+            company=company,
+            status=ReceiptStatus.POSTED,
+            mode=PaymentMode.CHEQUE,
+            cheque_status=ChequeStatus.PENDING_CLEARANCE,
+        )
+        if customer is not None:
+            qs = qs.filter(customer=customer)
+        return _sum(qs)
+
+    @staticmethod
+    def bulk_uncleared_cheques(company) -> dict:
+        """{customer id: uncleared cheque total} in one query, for the customer list."""
+        from payments.models import ChequeStatus, PaymentMode
+
+        rows = (
+            CustomerReceipt.objects.filter(
+                company=company,
+                status=ReceiptStatus.POSTED,
+                mode=PaymentMode.CHEQUE,
+                cheque_status=ChequeStatus.PENDING_CLEARANCE,
+            )
+            .values("customer_id")
+            .annotate(total=Sum("amount"))
+        )
+        return {row["customer_id"]: row["total"] or Decimal("0") for row in rows}
+
+    @staticmethod
     def customer_unallocated_receipts(company, customer) -> Decimal:
         if getattr(company, "accounting_enabled", False):
             # Advances liability 2300: credit increases advance; net credit = unallocated.
@@ -324,9 +341,16 @@ class LedgerService:
         receipts = CustomerReceipt.objects.filter(
             company=company, customer=customer, status=ReceiptStatus.POSTED
         ).prefetch_related(_ALLOC_PREFETCH)
+        refunds = live_refunds_by_receipt([r.pk for r in receipts])
         for receipt in receipts:
-            allocated = _prefetched_alloc_total(receipt)
-            total += max(Decimal("0"), receipt.amount - allocated)
+            total += max(
+                Decimal("0"),
+                receipt_unallocated(
+                    receipt,
+                    LiveTotals.from_rows(receipt.allocations.all()),
+                    refunds.get(receipt.pk, Decimal("0")),
+                ),
+            )
         return total
 
     @staticmethod
@@ -426,6 +450,8 @@ class LedgerService:
             ),
             "grand_total",
         )
+        # What the receipts cleared: cash, plus the settlement discount and customer TDS each
+        # allocation carries (the same total the invoice balances and account 1200 use).
         allocated = _sum(
             PaymentAllocation.objects.filter(
                 company=company,
@@ -433,7 +459,8 @@ class LedgerService:
                 receipt__isnull=False,
                 supplier_payment__isnull=True,  # R2-020: AR side only
                 reversed_at__isnull=True,
-            )
+            ),
+            _CLEARED,
         )
         # BB-000097/288: floor at zero (over-allocation / note edge cases).
         raw = invoices - credit_notes + debit_notes - allocated
@@ -501,7 +528,7 @@ class LedgerService:
                 reversed_at__isnull=True,
             )
             .values("sales_invoice__customer_id")
-            .annotate(total=Sum("amount"))
+            .annotate(total=Sum(_CLEARED))
             .values_list("sales_invoice__customer_id", "total")
         )
         customer_ids = set(invoices) | set(credit_notes) | set(debit_notes) | set(allocated)
@@ -527,25 +554,28 @@ class LedgerService:
         from django.db.models import Q
         from django.db.models.functions import Coalesce
 
-        rows = (
+        live = Q(allocations__reversed_at__isnull=True)
+        zero = Value(Decimal("0"))
+        money = DecimalField(max_digits=14, decimal_places=2)
+        rows = list(
             CustomerReceipt.objects.filter(company=company, status=ReceiptStatus.POSTED)
             .annotate(
-                allocated=Coalesce(
-                    Sum(
-                        "allocations__amount",
-                        filter=Q(allocations__reversed_at__isnull=True),
-                    ),
-                    Value(Decimal("0")),
-                    output_field=DecimalField(max_digits=14, decimal_places=2),
-                )
+                allocated=Coalesce(Sum("allocations__amount", filter=live), zero, output_field=money),
+                tds_cleared=Coalesce(Sum("allocations__tds_applied", filter=live), zero, output_field=money),
             )
             # Group by receipt. Grouping only by customer and amount would merge
             # two equal receipts and count the amount once.
-            .values_list("pk", "customer_id", "amount", "allocated")
+            .values_list("pk", "customer_id", "amount", "tds_deducted", "allocated", "tds_cleared")
         )
+        refunds = live_refunds_by_receipt([row[0] for row in rows])
         totals: dict = {}
-        for _receipt_id, customer_id, amount, allocated in rows:
-            spare = max(Decimal("0"), (amount or Decimal("0")) - (allocated or Decimal("0")))
+        for receipt_id, customer_id, amount, tds, allocated, tds_cleared in rows:
+            spare = max(
+                Decimal("0"),
+                (amount or Decimal("0")) + (tds or Decimal("0"))
+                - (allocated or Decimal("0")) - (tds_cleared or Decimal("0"))
+                - refunds.get(receipt_id, Decimal("0")),
+            )
             totals[customer_id] = totals.get(customer_id, Decimal("0")) + spare
         return totals
 
@@ -678,11 +708,17 @@ class LedgerService:
                 "debit": dn.grand_total,
                 "credit": Decimal("0"),
             })
-        for receipt in CustomerReceipt.objects.filter(
-            company=company, customer=customer, status=ReceiptStatus.POSTED
-        ).select_related("customer").prefetch_related(_ALLOC_PREFETCH):
-            allocated = _prefetched_alloc_total(receipt)
-            unallocated = receipt.amount - allocated
+        statement_receipts = list(
+            CustomerReceipt.objects.filter(
+                company=company, customer=customer, status=ReceiptStatus.POSTED
+            ).select_related("customer").prefetch_related(_ALLOC_PREFETCH)
+        )
+        refunds_by_receipt = live_refunds_by_receipt([r.pk for r in statement_receipts])
+        for receipt in statement_receipts:
+            live = LiveTotals.from_rows(receipt.allocations.all())
+            # Everything the receipt cleared on invoices: cash, plus discount and TDS.
+            allocated = live.cash + live.discount + live.tds
+            unallocated = receipt_unallocated(receipt, live, refunds_by_receipt.get(receipt.pk, Decimal("0")))
             entries.append({
                 "date": receipt.receipt_date,
                 "type": "RECEIPT",

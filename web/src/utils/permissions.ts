@@ -144,3 +144,8 @@ export function canViewInventorySurfaces(user: User | null): boolean {
 export function canAccessSettings(user: User | null): boolean {
   return canManageUsers(user) || canManageGst(user) || canImport(user) || canExport(user);
 }
+
+/** Correcting a closed till is for a manager or the owner — mirrors accounting.cash_shifts. */
+export function canCorrectClosedTill(user: User | null): boolean {
+  return !!user && (isOwner(user.role) || isManager(user.role));
+}

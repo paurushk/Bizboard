@@ -17,6 +17,7 @@ def apply_customer_advance(invoice, amount, user) -> Decimal:
     """Allocate unallocated receipts onto this invoice, up to `amount` and the amount still open."""
     from ledgers.services import LedgerService
     from payments.models import CustomerReceipt, ReceiptStatus
+    from payments.receipt_math import cash_available
     from payments.services import PaymentService
 
     requested = _money(amount)
@@ -26,7 +27,6 @@ def apply_customer_advance(invoice, amount, user) -> Decimal:
     room = min(requested, outstanding)
     if room <= 0:
         return Decimal("0.00")
-    from django.db.models import Sum
 
     applied = Decimal("0.00")
     receipts = CustomerReceipt.objects.filter(
@@ -37,8 +37,7 @@ def apply_customer_advance(invoice, amount, user) -> Decimal:
     for receipt in receipts:
         if applied >= room:
             break
-        allocated = receipt.allocations.filter(reversed_at__isnull=True).aggregate(s=Sum("amount"))["s"]
-        free = _money(receipt.amount) - _money(allocated)
+        free = _money(cash_available(receipt))
         if free <= 0:
             continue
         take = min(free, room - applied)

@@ -2,6 +2,7 @@
   "b2cs_present": true,
   "hsn_present": true,
   "section_keys": [
+    "advance_gst",
     "amendments",
     "at",
     "atadj",

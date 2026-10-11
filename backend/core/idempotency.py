@@ -33,6 +33,12 @@ IN_FLIGHT_STALE_SECONDS = 15 * 60
 # ones that happened to spell their name the way this set expected.
 MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "receipt_create",
+    # Money In (Phase 2): voiding, refunding an advance and bulk-applying are all retried by
+    # impatient clicks; a replay must return the first answer, not post a second journal.
+    "receipt_void",
+    "receipt_refund_advance",
+    "receipt_bulk_allocate",
+    "advance_refund_void",
     "invoice_record_payment",
     "supplier_payment_create",
     "allocation_create",

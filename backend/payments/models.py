@@ -142,6 +142,25 @@ class CustomerReceipt(CompanyScopedModel):
         on_delete=models.SET_NULL,
         related_name="section_138_notices",
     )
+    # Income tax the customer deducted at source (194C/J/Q...). The invoice settles for
+    # ``amount + tds_deducted``; the TDS sits in 1270 until the customer's certificate arrives.
+    tds_deducted = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    tds_section = models.CharField(max_length=16, blank=True, default="")
+    # Uncleared-cheque policy: with the company flag on, a pending cheque stays an advance and
+    # these record what the user asked for, so clearing can apply it.
+    allocate_on_clear = models.BooleanField(default=False)
+    intended_sales_invoice = models.ForeignKey(
+        "sales.SalesInvoice", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    intended_amount = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    # GST on an advance (services): per-receipt rate override, see reporting.gst_returns.
+    advance_gst_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    # Structured void audit (replaces appending "VOIDED: reason" to free-text notes).
+    void_reason = models.CharField(max_length=500, blank=True, default="")
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
 
     class Meta:
         ordering = ["-receipt_date", "-id"]
@@ -149,6 +168,7 @@ class CustomerReceipt(CompanyScopedModel):
             models.Index(fields=["company", "receipt_date"]),
             models.Index(fields=["company", "utr"]),
             models.Index(fields=["company", "status"]),
+            models.Index(fields=["company", "mode", "receipt_date"], name="receipt_co_mode_date_idx"),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -242,7 +262,34 @@ class PaymentAllocation(CompanyScopedModel):
         "purchases.PurchaseInvoice", null=True, blank=True, on_delete=models.PROTECT, related_name="allocations"
     )
     amount = models.DecimalField(max_digits=14, decimal_places=2)
+    # The slice of the receipt's settlement discount / customer TDS this allocation clears,
+    # fixed once at allocation time (payments.receipt_math). The GL posting and every
+    # invoice-balance reader use these columns, never a recomputed proration, so the ledger
+    # and the sub-ledger cannot drift apart.
+    discount_applied = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    tds_applied = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     reversed_at = models.DateTimeField(null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # A new receipt allocation fixes its slice of the receipt's discount and TDS. The
+        # service sets them itself (and marks them set); any other creator (an import, a
+        # fixture) gets the same figures here instead of an allocation that clears no discount
+        # while the receipt still claims one.
+        if (
+            self._state.adding
+            and self.receipt_id
+            and not getattr(self, "_shares_set", False)
+            and not self.discount_applied
+            and not self.tds_applied
+        ):
+            from payments.receipt_math import LiveTotals, shares_for
+
+            receipt = self.receipt
+            if receipt.settlement_discount or receipt.tds_deducted:
+                self.discount_applied, self.tds_applied = shares_for(
+                    receipt, self.amount, LiveTotals.from_db(receipt)
+                )
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ["-created_at"]
@@ -289,6 +336,50 @@ class PaymentAllocation(CompanyScopedModel):
                 name="uniq_alloc_supplier_payment_purchase_invoice",
             ),
         ]
+
+class AdvanceRefundStatus(models.TextChoices):
+    POSTED = "POSTED"
+    VOIDED = "VOIDED"
+
+
+class CustomerAdvanceRefund(CompanyScopedModel):
+    """Cash or bank money handed back to a customer out of an unallocated receipt.
+
+    The receipt stays POSTED; its unallocated amount falls by the live refunds. (The
+    ``REFUNDED`` receipt status is gateway-specific and is not reused.)
+    """
+
+    receipt = models.ForeignKey(CustomerReceipt, on_delete=models.PROTECT, related_name="advance_refunds")
+    number = models.CharField(max_length=32, blank=True, db_index=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    mode = models.CharField(max_length=8, choices=PaymentMode.choices, default=PaymentMode.CASH)
+    refund_date = models.DateField(default=timezone.localdate)
+    bank_account = models.ForeignKey(
+        BankAccount, null=True, blank=True, on_delete=models.SET_NULL, related_name="advance_refunds"
+    )
+    utr = models.CharField(max_length=64, blank=True, default="")
+    reason = models.CharField(max_length=500)
+    status = models.CharField(
+        max_length=16, choices=AdvanceRefundStatus.choices, default=AdvanceRefundStatus.POSTED, db_index=True
+    )
+    shift = models.ForeignKey(
+        "accounting.CashShiftRegister", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="advance_refunds",
+    )
+    paid_from_till = models.BooleanField(default=False)
+    void_reason = models.CharField(max_length=500, blank=True, default="")
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-refund_date", "-id"]
+        indexes = [models.Index(fields=["company", "receipt", "status"], name="advrefund_rcpt_status_idx")]
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="advance_refund_amount_positive"),
+        ]
+
 
 class PaymentLinkStatus(models.TextChoices):
     CREATED = "CREATED"
@@ -448,6 +539,10 @@ class ReconMatch(CompanyScopedModel):
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     notes = models.CharField(max_length=255, blank=True)
+    # Set when the matched receipt later bounces: the bank took the money back, so the match
+    # needs a person to look at it instead of silently pointing at a voided receipt.
+    needs_review = models.BooleanField(default=False)
+    review_reason = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         ordering = ["-matched_at"]
@@ -662,6 +757,10 @@ class PaymentPromise(CompanyScopedModel):
     note = models.TextField(blank=True, default="")
     resolved = models.BooleanField(default=False)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    # Set when a receipt closed the promise by itself; voiding that receipt reopens it.
+    auto_resolved_by_receipt = models.ForeignKey(
+        "payments.CustomerReceipt", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
 
     class Meta:
         ordering = ["-created_at"]

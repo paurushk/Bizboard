@@ -17,7 +17,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -139,6 +139,11 @@ export function PaymentGatewayPage() {
   const [testMode, setTestMode] = useState(true);
   const [requireRef, setRequireRef] = useState(false);
   const [autoMatch, setAutoMatch] = useState(false);
+  // Money In rules (owner-only, saved with the same button).
+  const [chequeOnClear, setChequeOnClear] = useState(false);
+  const [cashMode, setCashMode] = useState('warn');
+  const [advanceGst, setAdvanceGst] = useState('none');
+  const [advanceRate, setAdvanceRate] = useState('');
   const [keyId, setKeyId] = useState('');
   const [keySecret, setKeySecret] = useState('');
   const [msg, setMsg] = useState('');
@@ -148,6 +153,10 @@ export function PaymentGatewayPage() {
     setTestMode(Boolean(q.data.testMode ?? true));
     setRequireRef(Boolean(q.data.requirePaymentReference));
     setAutoMatch(Boolean(q.data.autoMatchBankExact));
+    setChequeOnClear(Boolean(q.data.chequeAllocationOnClearance));
+    setCashMode(String(q.data.cash269stMode ?? 'warn'));
+    setAdvanceGst(String(q.data.advanceGstTreatment ?? 'none'));
+    setAdvanceRate(q.data.advanceGstDefaultRate == null ? '' : String(q.data.advanceGstDefaultRate));
     setProvider(String(q.data.provider ?? 'razorpay'));
   }
   const m = useMutation({
@@ -157,6 +166,10 @@ export function PaymentGatewayPage() {
         test_mode: testMode,
         require_payment_reference: requireRef,
         auto_match_bank_exact: autoMatch,
+        cheque_allocation_on_clearance: chequeOnClear,
+        cash_269st_mode: cashMode,
+        advance_gst_treatment: advanceGst,
+        advance_gst_default_rate: advanceRate.trim() === '' ? null : advanceRate.trim(),
         credentials: keyId || keySecret ? { key_id: keyId, key_secret: keySecret, api_key: keyId, api_secret: keySecret } : undefined,
       }),
     onSuccess: () => {
@@ -200,6 +213,47 @@ export function PaymentGatewayPage() {
             control={<Switch checked={autoMatch} onChange={(e) => setAutoMatch(e.target.checked)} />}
             label={t('sweep.autoMatchUtr')}
           />
+          <Typography variant="subtitle2" component="h2">
+            {t('receipts.policyTitle')}
+          </Typography>
+          <FormControlLabel
+            control={<Switch checked={chequeOnClear} onChange={(e) => setChequeOnClear(e.target.checked)} />}
+            label={t('receipts.policyChequeOnClear')}
+          />
+          <Typography variant="caption" color="text.secondary">
+            {t('receipts.policyChequeOnClearHelp')}
+          </Typography>
+          <TextField
+            select
+            label={t('receipts.policyCash269st')}
+            value={cashMode}
+            onChange={(e) => setCashMode(e.target.value)}
+            helperText={t('receipts.policyCash269stHelp')}
+          >
+            <MenuItem value="off">{t('receipts.policyCashOff')}</MenuItem>
+            <MenuItem value="warn">{t('receipts.policyCashWarn')}</MenuItem>
+            <MenuItem value="block">{t('receipts.policyCashBlock')}</MenuItem>
+          </TextField>
+          <TextField
+            select
+            label={t('receipts.policyAdvanceGst')}
+            value={advanceGst}
+            onChange={(e) => setAdvanceGst(e.target.value)}
+            helperText={t('receipts.policyAdvanceGstHelp')}
+          >
+            <MenuItem value="none">{t('receipts.policyAdvanceNone')}</MenuItem>
+            <MenuItem value="goods">{t('receipts.policyAdvanceGoods')}</MenuItem>
+            <MenuItem value="services">{t('receipts.policyAdvanceServices')}</MenuItem>
+          </TextField>
+          {advanceGst === 'services' ? (
+            <TextField
+              type="number"
+              label={t('receipts.policyAdvanceRate')}
+              value={advanceRate}
+              onChange={(e) => setAdvanceRate(e.target.value)}
+              slotProps={{ htmlInput: { min: 0, max: 40, step: '0.01' } }}
+            />
+          ) : null}
           {!q.data?.credentialsConfigured ? (
             <Alert severity="warning">{t('integrations.paymentGatewayClosed')}</Alert>
           ) : (
@@ -619,6 +673,19 @@ export function BankReconPage() {
     queryKey: ['payment-recon'],
     queryFn: () => api.listRecon() as Promise<Row[]>,
   });
+  const [searchParams] = useSearchParams();
+  const focusLine = Number(searchParams.get('line')) || null;
+  const review = useQuery({ queryKey: ['payment-recon-review'], queryFn: api.listReconNeedsReview });
+  const matchReturn = useMutation({
+    mutationFn: (payload: { line: number; receipt: number }) => api.matchReconReturn(payload),
+    onSuccess: () => {
+      setReconErr('');
+      setBulkAcceptMsg(t('receipts.reviewMatched'));
+      void qc.invalidateQueries({ queryKey: ['payment-recon'] });
+      void qc.invalidateQueries({ queryKey: ['payment-recon-review'] });
+    },
+    onError: (e) => setReconErr(getErrorMessage(e)),
+  });
   const [createLine, setCreateLine] = useState<Row | null>(null);
   const [createCustomer, setCreateCustomer] = useState<Customer | null>(null);
   // F2-025: search-as-you-type instead of loading every customer up front.
@@ -724,6 +791,50 @@ export function BankReconPage() {
           ))}
         </Stack>
       ) : null}
+      {(review.data?.length ?? 0) > 0 ? (
+        <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: 'warning.main' }}>
+          <Typography variant="subtitle2" component="h2">
+            {t('receipts.reviewTitle')}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+            {t('receipts.reviewIntro')}
+          </Typography>
+          <Stack spacing={1}>
+            {review.data!.map((item) => {
+              // The bank's return of a cheque is a debit line for the same amount.
+              const returnLine = rows
+                .map((r) => (r.line || r) as Row)
+                .find(
+                  (l) =>
+                    Number(l.amount) < 0 &&
+                    String(l.matchStatus) !== 'MATCHED' &&
+                    Math.abs(Math.abs(Number(l.amount)) - Math.abs(Number(item.lineAmount))) < 0.01,
+                );
+              return (
+                <Stack key={item.match} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                  <Typography variant="body2" sx={{ flex: 1 }}>
+                    {item.receiptNumber} · {item.customerName} · {formatMoney(item.lineAmount)} · {item.lineDate}
+                  </Typography>
+                  {returnLine && canWrite ? (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      disabled={matchReturn.isPending}
+                      onClick={() => matchReturn.mutate({ line: Number(returnLine.id), receipt: item.receipt })}
+                    >
+                      {t('receipts.reviewMatchReturn')}
+                    </Button>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      {t('receipts.reviewNoReturnLine')}
+                    </Typography>
+                  )}
+                </Stack>
+              );
+            })}
+          </Stack>
+        </Paper>
+      ) : null}
       {!rows.length ? (
         <EmptyState description="No unmatched bank lines. Commit a statement to begin." />
       ) : (
@@ -732,7 +843,11 @@ export function BankReconPage() {
             const line = (item.line || item) as Row;
             const suggestions = (item.suggestions as Row[]) || [];
             return (
-              <Paper key={String(line.id ?? idx)} variant="outlined" sx={{ p: 2 }}>
+              <Paper
+                key={String(line.id ?? idx)}
+                variant="outlined"
+                sx={{ p: 2, ...(focusLine != null && Number(line.id) === focusLine ? { borderColor: 'primary.main', borderWidth: 2 } : {}) }}
+              >
                 <Stack spacing={1.5}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" gap={1}>
                     <Box>
@@ -817,7 +932,7 @@ export function BankReconPage() {
                 : ''}
             </Typography>
             <Autocomplete
-              options={createCustomerSearch.options}
+              options={createCustomerSearch.options.filter((o: Customer) => !o.isPosWalkIn)}
               getOptionLabel={(o: Customer) => o.name}
               isOptionEqualToValue={(o, v) => o.id === v.id}
               value={createCustomer}

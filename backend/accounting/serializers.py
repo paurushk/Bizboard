@@ -8,24 +8,59 @@ from masters.models import Customer, Supplier
 from payments.models import BankAccount
 
 from .models import (
-    Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense,
-    FixedAsset, JournalEntry, JournalLine,
+    Account, AccountingPeriod, BankReconSession, CashShiftAdjustment, CashShiftRegister, CostCenter,
+    Expense, FixedAsset, JournalEntry, JournalLine,
 )
 
 
+class CashShiftAdjustmentSerializer(serializers.ModelSerializer):
+    receipt_number = serializers.CharField(source="receipt.number", read_only=True)
+    approved_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CashShiftAdjustment
+        fields = ["id", "receipt", "receipt_number", "amount", "reason", "approved_by_name", "created_at"]
+        read_only_fields = fields
+
+    def get_approved_by_name(self, obj) -> str:
+        user = obj.approved_by
+        return getattr(user, "full_name", "") or getattr(user, "email", "") or ""
+
+
 class CashShiftRegisterSerializer(serializers.ModelSerializer):
+    adjustments = CashShiftAdjustmentSerializer(many=True, read_only=True)
+    adjustments_total = serializers.SerializerMethodField()
+    adjusted_expected_cash = serializers.SerializerMethodField()
+    adjusted_variance = serializers.SerializerMethodField()
+
     class Meta:
         model = CashShiftRegister
         fields = [
             "id", "cashier", "business_date", "opening_float", "cash_dropped", "denominations",
             "expected_cash", "counted_cash", "variance", "status", "locked_at",
             "terminal_id", "terminal_label", "opened_at", "closed_at",
+            "adjustments", "adjustments_total", "adjusted_expected_cash", "adjusted_variance",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "cashier", "cash_dropped", "expected_cash", "counted_cash", "variance", "status",
             "locked_at", "closed_at", "opened_at", "denominations", "created_at", "updated_at",
+            "adjustments", "adjustments_total", "adjusted_expected_cash", "adjusted_variance",
         ]
+
+    def _adjusted(self, obj):
+        from .cash_shifts import adjusted_figures
+
+        return adjusted_figures(obj)
+
+    def get_adjustments_total(self, obj) -> str:
+        return str(self._adjusted(obj)[0])
+
+    def get_adjusted_expected_cash(self, obj) -> str:
+        return str(self._adjusted(obj)[1])
+
+    def get_adjusted_variance(self, obj) -> str:
+        return str(self._adjusted(obj)[2])
 
 
 class ExpenseSerializer(serializers.ModelSerializer):

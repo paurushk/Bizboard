@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 
-from tests.conftest import add_stock, create_draft_invoice, make_customer, make_product
+from tests.conftest import add_stock, create_draft_invoice, make_customer, make_default_bank, make_product
 
 pytestmark = pytest.mark.django_db
 
@@ -23,6 +23,7 @@ def test_allocation_respects_receipt_and_invoice_caps(tenant_a, alloc_amount, ex
         {"product": product.id, "quantity": "10", "unit_price": "100"},
     ])
     tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    make_default_bank(tenant_a.company)
     receipt = tenant_a.client.post("/api/v1/payments/receipts/", {
         "customer": customer.id,
         "amount": "2000",

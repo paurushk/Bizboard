@@ -24,6 +24,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { PageTitle } from '@/contextHelp';
 import { formatMoney, toNumber } from '@/utils/money';
+import { AdvanceGstAlert } from '@/pages/reports/AdvanceGstAlert';
 import { canExport } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -249,6 +250,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
 
       <GstHonestyHeader />
       {query.data ? <RegisterTieAlert data={query.data as Record<string, unknown>} /> : null}
+      {query.data ? <AdvanceGstAlert data={query.data as Record<string, unknown>} /> : null}
       {kind === 'gstr1' ? <Alert severity="warning">{t('reports.supecomWarning')}</Alert> : null}
       {issues.length > 0 ? (
         <Alert severity="warning">

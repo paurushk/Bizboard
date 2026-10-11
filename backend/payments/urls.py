@@ -5,6 +5,7 @@ from .views import (
     BankAccountViewSet,
     BankStatementViewSet,
     CollectionRiskView,
+    CustomerAdvanceRefundViewSet,
     CustomerReceiptViewSet,
     GatewayPaymentViewSet,
     GatewaySettingsView,
@@ -20,6 +21,8 @@ from .portal_views import (
     CustomerPortalComplaintView,
     CustomerPortalPayView,
     CustomerPortalPdfView,
+    CustomerPortalReceiptVoucherView,
+    PublicReceiptVoucherView,
     CustomerPortalRequestView,
     CustomerPortalView,
 )
@@ -28,6 +31,7 @@ from .webhook_views import payment_webhook, public_payment_link
 router = DefaultRouter()
 router.register("bank-accounts", BankAccountViewSet, basename="bank-accounts")
 router.register("receipts", CustomerReceiptViewSet, basename="receipts")
+router.register("advance-refunds", CustomerAdvanceRefundViewSet, basename="advance-refunds")
 router.register("supplier-payments", SupplierPaymentViewSet, basename="supplier-payments")
 router.register("allocations", PaymentAllocationViewSet, basename="allocations")
 router.register("links", PaymentLinkViewSet, basename="payment-links")
@@ -62,6 +66,16 @@ public_urlpatterns = [
         "public/customer-portal/<str:token>/invoices/<int:invoice_id>/pdf/",
         CustomerPortalPdfView.as_view(),
         name="customer-portal-pdf",
+    ),
+    path(
+        "public/receipt-voucher/<str:token>/",
+        PublicReceiptVoucherView.as_view(),
+        name="public-receipt-voucher",
+    ),
+    path(
+        "public/customer-portal/<str:token>/receipts/<int:receipt_id>/voucher/",
+        CustomerPortalReceiptVoucherView.as_view(),
+        name="customer-portal-receipt-voucher",
     ),
     path(
         "public/customer-portal/<str:token>/invoices/<int:invoice_id>/pay/",

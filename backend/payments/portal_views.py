@@ -253,12 +253,88 @@ class CustomerPortalView(APIView):
                 "outstanding": outstanding,
                 "pay_path": f"/pay/{link.token}" if link is not None else None,
             })
+        from .models import CustomerReceipt, ReceiptStatus
+
+        receipts = [
+            {
+                "id": rec.id,
+                "number": rec.number,
+                "receipt_date": rec.receipt_date,
+                "amount": rec.amount,
+                "mode": rec.mode,
+            }
+            for rec in CustomerReceipt.objects.filter(
+                company=row.company, customer=row.customer, status=ReceiptStatus.POSTED,
+            ).order_by("-receipt_date", "-id")[:20]
+        ]
         return Response({
             "customer_name": row.customer.name,
             "expires_at": row.expires_at,
             "complaints_enabled": flag_enabled(row.company, "ENABLE_COMPLAINTS"),
             "invoices": payload,
+            "receipts": receipts,
         })
+
+
+class PublicReceiptVoucherView(APIView):
+    """The receipt voucher PDF behind a signed link sent to the customer (no login)."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [CustomerPortalReadThrottle]
+
+    def get(self, request, token):
+        from .models import CustomerReceipt, ReceiptStatus
+        from .receipt_share import read_voucher_token
+        from .receipt_voucher import render_receipt_voucher_pdf
+
+        ids = read_voucher_token(token)
+        if ids is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        receipt_id, company_id = ids
+        with rls_bypass():
+            receipt = (
+                CustomerReceipt.objects.select_related("company", "customer")
+                .filter(pk=receipt_id, company_id=company_id, status=ReceiptStatus.POSTED)
+                .first()
+            )
+        if receipt is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        set_rls_company(receipt.company_id)
+        lang = "hi" if request.query_params.get("lang") == "hi" else "en"
+        response = HttpResponse(
+            render_receipt_voucher_pdf(receipt, layout="A4", lang=lang), content_type="application/pdf"
+        )
+        response["Content-Disposition"] = f'inline; filename="receipt-{receipt.number or receipt.id}.pdf"'
+        response["Referrer-Policy"] = "no-referrer"
+        response["Cache-Control"] = "no-store"
+        response["X-Robots-Tag"] = "noindex"
+        return response
+
+
+class CustomerPortalReceiptVoucherView(APIView):
+    """The receipt voucher PDF, read-only, through the same magic link as the invoices."""
+
+    permission_classes = [AllowAny]
+    throttle_classes = [CustomerPortalReadThrottle]
+
+    def get(self, request, token, receipt_id):
+        row = _load_token(token)
+        if row is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        _touch(row)
+        from .models import CustomerReceipt, ReceiptStatus
+        from .receipt_voucher import render_receipt_voucher_pdf
+
+        receipt = CustomerReceipt.objects.filter(
+            company=row.company, customer=row.customer, pk=receipt_id, status=ReceiptStatus.POSTED,
+        ).first()
+        if receipt is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        lang = "hi" if request.query_params.get("lang") == "hi" else "en"
+        content = render_receipt_voucher_pdf(receipt, layout="A4", lang=lang)
+        response = HttpResponse(content, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="receipt-{receipt.number or receipt.id}.pdf"'
+        return response
 
 
 class CustomerPortalPdfView(APIView):

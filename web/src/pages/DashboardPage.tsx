@@ -313,6 +313,11 @@ export function DashboardPage() {
               <KpiStat key={bucket.label} label={bucket.label} value={bucket.value} money dense />
             ))}
           </Box>
+          {Number(data.receivablesUnclearedCheques) > 0 ? (
+            <Typography variant="caption" color="text.secondary">
+              {t('customer360.unclearedCheques', { amount: formatMoney(data.receivablesUnclearedCheques ?? 0) })}
+            </Typography>
+          ) : null}
         </Stack>
       ) : null}
 

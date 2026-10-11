@@ -15,6 +15,8 @@ const DASHBOARD_DATA = {
   salesThisMonth: { total: '104', count: 1 },
   purchasesThisMonth: { total: '0', count: 0 },
   receivables: '0',
+  receivablesAging: { current: '0', days130: '0', days3160: '0', days6190: '0', days90Plus: '0' },
+  receivablesUnclearedCheques: '250.00',
   payables: '0',
   lowStockCount: 0,
   cashPosition: { total: '0' },
@@ -124,5 +126,10 @@ describe('DashboardPage recent-sales badge — G-17', () => {
     const card = label.closest('.MuiPaper-root');
     expect(card).toBeTruthy();
     expect(within(card as HTMLElement).getByText('2')).toBeTruthy();
+  });
+
+  it('says how much of the receivable is in cheques that have not cleared', async () => {
+    wrap(<DashboardPage />);
+    expect(await screen.findByText(/includes .*250\.00.* in cheques that have not cleared/i)).toBeTruthy();
   });
 });

@@ -30,6 +30,10 @@ export interface CashShiftToday {
     cashDropped: string;
     expectedCash?: string;
     countedCash?: string;
+    /** Corrections made after the till was closed (the counted figures above are not edited). */
+    adjustments?: Array<{ id: number; receiptNumber: string; amount: string; reason: string; approvedByName: string }>;
+    adjustedExpectedCash?: string;
+    adjustedVariance?: string;
   } | null;
 }
 

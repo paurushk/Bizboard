@@ -377,6 +377,9 @@ REST_FRAMEWORK = {
         "telemetry": "120/min",  # B9-032: shop-floor event ingest, own bucket
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
         "gst_reports": "30/min",
+        # Money In: a bulk CSV is heavy, and the totals are polled by the screen.
+        "receipts_export": "20/hour",
+        "receipts_summary": "120/min",
         "heavy_reports": "60/min",
         # B3-009: LLM bill-photo extraction has real per-call token cost;
         # cap how often a company can kick off a new extraction (upload or
@@ -429,6 +432,11 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "SCHEMA_PATH_PREFIX": r"/api/v1",
+    # Supplier payments and advance refunds share the same two states (POSTED, VOIDED). Without this
+    # the generator names the pair by hash ("Status51dEnum") and drops SupplierPaymentStatusEnum.
+    "ENUM_NAME_OVERRIDES": {
+        "SupplierPaymentStatusEnum": "payments.models.SupplierPaymentStatus",
+    },
 }
 
 def _with_loopback_companions(origins: list[str]) -> list[str]:

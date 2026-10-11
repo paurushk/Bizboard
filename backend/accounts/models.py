@@ -198,6 +198,24 @@ class Company(TimeStampedModel):
     payment_gateway_credentials_encrypted = models.TextField(blank=True)
     payment_gateway_test_mode = models.BooleanField(default=False)
     auto_match_bank_exact = models.BooleanField(default=False)
+    # Money In policy (Phase 2). Both default to today's behaviour.
+    cheque_allocation_on_clearance = models.BooleanField(
+        default=False,
+        help_text="A pending cheque stays an advance until it clears; clearing then applies it.",
+    )
+    cash_269st_mode = models.CharField(
+        max_length=8,
+        choices=[("off", "Off"), ("warn", "Warn"), ("block", "Block")],
+        default="warn",
+        help_text="Income Tax s.269ST: cash receipts of Rs 2,00,000 or more from one person in a day.",
+    )
+    # GST on advances received before an invoice (WP-10). Off unless the CA signs off.
+    advance_gst_treatment = models.CharField(
+        max_length=8,
+        choices=[("none", "None"), ("goods", "Goods"), ("services", "Services")],
+        default="none",
+    )
+    advance_gst_default_rate = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     # Phase 4 — inventory depth
     inventory_valuation_method = models.CharField(
         max_length=8,

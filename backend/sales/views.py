@@ -637,6 +637,9 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
                         if amount <= 0:
                             continue
                         mode_str = str((part or {}).get("mode") or "CASH").upper()
+                        if mode_str == "CREDIT":
+                            # On account: nothing is received, so there is no receipt.
+                            continue
                         try:
                             mode = PaymentMode(mode_str)
                         except ValueError as exc:
@@ -1352,6 +1355,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             reference=request.data.get("reference") or "",
             user=request.user,
             settlement_discount=discount,
+            require_bank_account=True,
             **cheque_fields_from_payload(request.data, company=invoice.company),
         )
         PaymentService.allocate_receipt(

@@ -1,0 +1,27 @@
+id: "QOS-0118"
+category: "RELIABILITY_TRUST"
+title: "Money In: a receipt could be voided with no reason, walk-in advances were only guarded in the browser, and the totals were wrong"
+persona: ["P1", "P2"]
+journey: "Record, find, print and void a customer receipt"
+problem: "A receipt could be voided with a blank reason and the reason was kept only as free text in notes. The walk-in advance rule lived in the browser and matched on the customer name. The list totals covered one page and counted voided and bounced receipts. The list had no date filter, bad dates returned a 500, and the voucher was a plain page print with no invoice lines."
+evidence:
+  strength: "heuristic"
+  source: ["MONEY_IN_IMPLEMENTATION_PLAN.md"]
+  detail: "Delivered 2026-10-11 (OW-1..OW-14): server-required void reason with structured void_reason/voided_by/voided_at and audit metadata; void refused for bank-matched receipts and receipts counted in a closed till; server-side walk-in rule on Customer.is_pos_walk_in; one-request receipt plus invoice allocation; /receipts/summary/ totals across all pages; validated filters with date range and CSV export; A4 and thermal voucher PDF."
+scoring:
+  reach: 4
+  severity: 4
+  frequency: 3
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Audit trail and AR integrity on a money path."
+effort: "L"
+recommendation: "Done. The trigram indexes were added after profiling on Postgres (payments.0039); see QOS-0123 for the follow-up."
+test_required: "backend/tests/test_money_in_receipts.py::test_void_requires_a_reason_on_the_server"
+guard_ref:
+  test: "backend/tests/test_money_in_receipts.py::test_void_requires_a_reason_on_the_server"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-11"

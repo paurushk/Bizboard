@@ -47,11 +47,14 @@ export function AttentionPage() {
   });
   const [pending, setPending] = useState<AttentionRow | null>(null);
   const [reason, setReason] = useState('');
+  // Setting aside a possible duplicate payment needs a reason, kept with the row.
+  const [dismissing, setDismissing] = useState<AttentionRow | null>(null);
+  const [dismissReason, setDismissReason] = useState('');
   const [assigning, setAssigning] = useState<AttentionRow | null>(null);
   const [assignee, setAssignee] = useState('');
   const [dueDate, setDueDate] = useState('');
   const dismiss = useMutation({
-    mutationFn: (key: string) => dismissAttentionRow(key),
+    mutationFn: ({ key, reason }: { key: string; reason?: string }) => (reason ? dismissAttentionRow(key, reason) : dismissAttentionRow(key)),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['attention-rows'] });
       void qc.invalidateQueries({ queryKey: ['learning-report'] });
@@ -156,7 +159,17 @@ export function AttentionPage() {
                       <Button size="small" onClick={() => { setPending(row); setReason(''); }}>
                         {t('insights.snooze')}
                       </Button>
-                      <Button size="small" onClick={() => dismiss.mutate(row.dedupeKey)}>
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          if (row.code === 'DUPLICATE_PAYMENT') {
+                            setDismissing(row);
+                            setDismissReason('');
+                          } else {
+                            dismiss.mutate({ key: row.dedupeKey });
+                          }
+                        }}
+                      >
                         {t('attention.dismiss')}
                       </Button>
                         </>
@@ -191,6 +204,34 @@ export function AttentionPage() {
             onClick={() => pending && snooze.mutate({ key: pending.dedupeKey, reason: reason.trim() })}
           >
             {t('insights.snooze')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={Boolean(dismissing)} onClose={() => setDismissing(null)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('attention.dismiss')}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            required
+            margin="dense"
+            label={t('receipts.dismissReasonPrompt')}
+            value={dismissReason}
+            onChange={(e) => setDismissReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDismissing(null)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            disabled={dismissReason.trim().length < 3 || dismiss.isPending}
+            onClick={() => {
+              if (!dismissing) return;
+              dismiss.mutate({ key: dismissing.dedupeKey, reason: dismissReason.trim() });
+              setDismissing(null);
+            }}
+          >
+            {t('attention.dismiss')}
           </Button>
         </DialogActions>
       </Dialog>
