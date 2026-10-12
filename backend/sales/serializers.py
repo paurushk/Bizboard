@@ -395,8 +395,17 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
-        if customer.status == Customer.Status.BLOCKED:
-            raise serializers.ValidationError("Cannot create an invoice for a blocked customer.")
+        if customer.status != Customer.Status.ACTIVE:
+            instance = getattr(self, "instance", None)
+            # A draft that already belongs to this customer can still be saved or cancelled after the
+            # customer is blocked or archived. Completing it is refused in SalesService.complete.
+            keeps_draft = (
+                instance is not None
+                and instance.customer_id == customer.pk
+                and instance.status == SalesInvoice.Status.DRAFT
+            )
+            if not keeps_draft:
+                raise serializers.ValidationError(f"Cannot create an invoice for {customer.billing_block_phrase}.")
         return customer
 
     def validate_additional_charges(self, value):
@@ -860,11 +869,11 @@ class QuotationSerializer(CompanyScopedSerializerMixin, serializers.ModelSeriali
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
-        if customer.status == Customer.Status.BLOCKED:
+        if customer.status != Customer.Status.ACTIVE:
             instance = getattr(self, "instance", None)
             if instance is None or instance.customer_id != customer.pk:
                 raise BusinessRuleError(
-                    "Cannot create a quotation for a blocked customer.", code="customer_blocked"
+                    f"Cannot create a quotation for {customer.billing_block_phrase}.", code="customer_blocked"
                 )
         return customer
 

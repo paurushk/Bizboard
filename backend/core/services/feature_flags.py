@@ -61,6 +61,10 @@ ROLLOUT_GRANTABLE_KEYS = frozenset({
 COMPANY_ROLLOUT_KEYS = (
     "QUOTE_CONVERSION_RELEASE",
     "QUOTE_LIFECYCLE",
+    # Quick Order Entry staged rollout (docs/QUICK_ORDER_ENTRY_IMPLEMENTATION_PLAN.md QOE-15).
+    "QUICK_ENTRY_ORDER_MODE",
+    "QUICK_ENTRY_AUTO_CONFIRM",
+    "QUICK_ENTRY_PRICE_PREVIEW",
 )
 
 # Rollout keys that are on unless the company JSON sets them to false (a kill-switch).

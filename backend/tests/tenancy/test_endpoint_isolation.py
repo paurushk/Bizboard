@@ -320,3 +320,40 @@ def test_shared_ticket_is_not_readable_across_tenants(tenant_a, tenant_b):
     assert posted.status_code in (403, 405)
     share.refresh_from_db()
     assert share.subject == "Secret"
+
+
+# ---- customers: the newer endpoints stay inside the caller's company -------------------------------------------------------------------
+
+def test_customer_history_summary_export_and_health_never_cross_tenants(tenant_a, tenant_b):
+    from tests.conftest import make_customer
+
+    secret = make_customer(tenant_b.company, name="Beta Secret Co", gstin="27AABCU9603R1ZN", state="Maharashtra")
+    tenant_b.client.patch(f"/api/v1/customers/{secret.pk}/", {"credit_days": 30}, format="json")
+
+    assert tenant_a.client.get(f"/api/v1/customers/{secret.pk}/history/").status_code in (403, 404)
+    assert tenant_a.client.delete(f"/api/v1/customers/{secret.pk}/").status_code in (403, 404)
+    assert tenant_a.client.post(f"/api/v1/customers/{secret.pk}/verify-gstin/").status_code in (403, 404)
+
+    bulk = tenant_a.client.post("/api/v1/customers/verify-gstin-bulk/", {"ids": [secret.pk]}, format="json")
+    assert bulk.status_code == 200
+    assert bulk.data["results"] == [{"id": secret.pk, "status": "", "notice": "", "error": "Customer not found."}]
+
+    export = tenant_a.client.get("/api/v1/customers/export/")
+    assert "Beta Secret Co" not in b"".join(export.streaming_content).decode()
+    summary = tenant_a.client.get("/api/v1/customers/summary/")
+    assert summary.data["total_count"] == 0
+    health = tenant_a.client.get("/api/v1/customers/health/")
+    assert health.data["total"] == 0
+
+    lookup = tenant_a.client.post("/api/v1/customers/lookup-gstin/", {"gstin": "27AABCU9603R1ZN"}, format="json")
+    assert lookup.status_code == 200 and lookup.data["existing_customer"] is None
+
+
+def test_customer_set_pos_walk_in_cannot_pick_another_companys_customer(tenant_a, tenant_b):
+    from tests.conftest import make_customer
+
+    other = make_customer(tenant_b.company, name="Beta Walk-in")
+    resp = tenant_a.client.post("/api/v1/customers/set-pos-walk-in/", {"customer": other.pk}, format="json")
+    assert resp.status_code == 400
+    other.refresh_from_db()
+    assert other.is_pos_walk_in is False

@@ -166,3 +166,21 @@ export async function fetchAllPagesMasters<T>(
   }
   return results;
 }
+
+/** A blob request that fails comes back as a Blob; parse it so getErrorMessage can read the envelope. */
+export async function getBlob(url: string, params?: Record<string, unknown>): Promise<Blob> {
+  try {
+    const { data } = await apiClient.get(url, { params, responseType: 'blob' });
+    return data as Blob;
+  } catch (err) {
+    const body = (err as { response?: { data?: unknown } })?.response?.data;
+    if (typeof Blob !== 'undefined' && body instanceof Blob) {
+      try {
+        (err as { response: { data: unknown } }).response.data = JSON.parse(await body.text());
+      } catch {
+        // not JSON; leave the original error
+      }
+    }
+    throw err;
+  }
+}

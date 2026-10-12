@@ -4,7 +4,7 @@ export const DRAFT_VERSION = 1;
 export const DRAFT_TTL_MS = 36 * 60 * 60 * 1000;
 export const LEGACY_POS_CART_PREFIX = 'bizboard:pos-active-cart:';
 
-export type DraftKind = 'sales-invoice' | 'purchase-bill' | 'pos-sessions';
+export type DraftKind = 'sales-invoice' | 'purchase-bill' | 'pos-sessions' | 'quick-entry';
 
 export type StoredDraft<T> = {
   version: typeof DRAFT_VERSION;
@@ -26,7 +26,7 @@ export function legacyPosCartKey(companyId: number): string {
   return `${LEGACY_POS_CART_PREFIX}${companyId}`;
 }
 
-const KINDS: DraftKind[] = ['sales-invoice', 'purchase-bill', 'pos-sessions'];
+const KINDS: DraftKind[] = ['sales-invoice', 'purchase-bill', 'pos-sessions', 'quick-entry'];
 
 function storage(): Storage | null {
   try {

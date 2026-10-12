@@ -17,7 +17,7 @@ import type {
   ReceiptSummary,
   SupplierPayment,
 } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, toQueryParams, type PageResult, type PageParams } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, getBlob, toQueryParams, type PageResult, type PageParams } from './common';
 
 /** Open (unresolved) payment promises for the company, or all when `all: true`. */
 export async function listPaymentPromises(params?: {
@@ -258,24 +258,6 @@ export async function getReceiptsSummary(params?: ReceiptFilterParams): Promise<
       };
     },
   );
-}
-
-/** A blob request that fails comes back as a Blob; parse it so getErrorMessage can read the envelope. */
-async function getBlob(url: string, params?: Record<string, unknown>): Promise<Blob> {
-  try {
-    const { data } = await apiClient.get(url, { params, responseType: 'blob' });
-    return data as Blob;
-  } catch (err) {
-    const body = (err as { response?: { data?: unknown } })?.response?.data;
-    if (typeof Blob !== 'undefined' && body instanceof Blob) {
-      try {
-        (err as { response: { data: unknown } }).response.data = JSON.parse(await body.text());
-      } catch {
-        // not JSON; leave the original error
-      }
-    }
-    throw err;
-  }
 }
 
 export async function exportReceiptsCsv(params?: ReceiptFilterParams): Promise<Blob> {

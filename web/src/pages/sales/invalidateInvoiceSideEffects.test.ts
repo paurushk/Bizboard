@@ -1,6 +1,6 @@
 import { QueryClient } from '@tanstack/react-query';
 import { describe, expect, it, vi } from 'vitest';
-import { invalidateInvoiceSideEffects } from '@/pages/sales/invalidateInvoiceSideEffects';
+import { invalidateInvoiceSideEffects, invalidateSalesOrderSideEffects } from '@/pages/sales/invalidateInvoiceSideEffects';
 
 describe('invalidateInvoiceSideEffects', () => {
   it('refreshes the invoice and every surface that reads it', () => {
@@ -18,5 +18,32 @@ describe('invalidateInvoiceSideEffects', () => {
     expect(keys).toContainEqual(['payment-promises']);
     expect(keys).toContainEqual(['payment-links']);
     expect(keys).toContainEqual(['sales-returns']);
+  });
+});
+
+describe('invalidateSalesOrderSideEffects', () => {
+  it('refreshes orders, the open-orders picker, routes, customer views and stock', () => {
+    const qc = new QueryClient();
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    invalidateSalesOrderSideEffects(qc, 9, 3);
+    const keys = spy.mock.calls.map((call) => (call[0] as { queryKey?: unknown[] }).queryKey);
+    for (const key of [
+      ['sales-orders'],
+      ['sales-orders-open'],
+      ['sales-order-stock'],
+      ['sales-order', 9],
+      ['delivery-routes'],
+      ['route-combine'],
+      ['customer-360'],
+      ['customers'],
+      ['customer', 3],
+      ['dashboard'],
+      ['attention-rows'],
+      ['stock-balance'],
+      ['stock'],
+      ['products'],
+    ]) {
+      expect(keys).toContainEqual(key);
+    }
   });
 });

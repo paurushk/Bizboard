@@ -197,7 +197,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             seller_gstin = stamp.gstin or seller_gstin
         product_ids = [raw.get("product") for raw in (request.data.get("items") or []) if raw.get("product")]
         products_by_id = {
-            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
+            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company).select_related("unit")
         }
         return Response(build_totals_preview(
             company=company,

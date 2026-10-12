@@ -5,6 +5,15 @@ from .permissions import HasCompany, get_company_user
 from .services.audit import AuditService
 
 
+CLIENT_SOURCES = frozenset({"quick_entry", "web", "mobile"})
+
+
+def client_source(request) -> str:
+    """Allow-listed `X-Client-Source` header; anything else is reported as `web`."""
+    raw = (request.headers.get("X-Client-Source") or "").strip().lower()
+    return raw if raw in CLIENT_SOURCES else "web"
+
+
 class CompanyScopedViewSet(viewsets.ModelViewSet):
     """
     Base viewset enforcing tenant isolation: querysets filtered by the
@@ -51,6 +60,10 @@ class CompanyScopedViewSet(viewsets.ModelViewSet):
     def _audit(self, action, instance):
         self._audit_raw(action, str(instance.pk))
 
+    def audit_metadata(self) -> dict:
+        """Extra audit metadata for this request; subclasses override (default: none)."""
+        return {}
+
     def _audit_raw(self, action, entity_id):
         AuditService.log(
             company=self.company,
@@ -58,4 +71,5 @@ class CompanyScopedViewSet(viewsets.ModelViewSet):
             action=action,
             entity_type=self.audit_entity or self.get_queryset().model.__name__,
             entity_id=entity_id,
+            metadata=self.audit_metadata() or None,
         )

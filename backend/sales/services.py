@@ -611,8 +611,8 @@ def _assert_quotation_convertible(quotation, *, confirm_expired, target_label):
         raise BusinessRuleError(
             f"Cannot convert a quotation in status {quotation.status}.", code="quotation_not_convertible"
         )
-    if quotation.customer.status == Customer.Status.BLOCKED:
-        raise BusinessRuleError(f"Cannot create {target_label} for a blocked customer.")
+    if quotation.customer.status != Customer.Status.ACTIVE:
+        raise BusinessRuleError(f"Cannot create {target_label} for {quotation.customer.billing_block_phrase}.")
     if quotation.valid_until and timezone.localdate() > quotation.valid_until and not confirm_expired:
         raise BusinessRuleError(
             "Quotation validity has expired. Refresh pricing or pass "
@@ -1042,9 +1042,9 @@ class SalesService:
             # Zero active: leave unset (legacy company.gstin-only tenants).
         if invoice.status != SalesInvoice.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete an invoice in status {invoice.status}.")
-        if invoice.customer.status == Customer.Status.BLOCKED:
+        if invoice.customer.status != Customer.Status.ACTIVE:
             raise BusinessRuleError(
-                "Cannot create an invoice for a blocked customer.",
+                f"Cannot create an invoice for {invoice.customer.billing_block_phrase}.",
                 code=HelpCode.BLOCKED_CUSTOMER,
             )
         items = list(invoice.items.select_related("product", "batch"))
@@ -1894,9 +1894,9 @@ class SalesService:
         customer = header.get("customer")
         if customer is None:
             raise BusinessRuleError("A customer is required.")
-        if customer.status == Customer.Status.BLOCKED:
+        if customer.status != Customer.Status.ACTIVE:
             raise BusinessRuleError(
-                "Cannot create a quotation for a blocked customer.", code="customer_blocked"
+                f"Cannot create a quotation for {customer.billing_block_phrase}.", code="customer_blocked"
             )
         header = dict(header)
         # Same default the web editor uses: GST for a regular registration, otherwise a bill of supply.

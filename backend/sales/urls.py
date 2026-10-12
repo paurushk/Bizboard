@@ -7,6 +7,7 @@ from .phase1_views import (
     SalesDebitNoteViewSet,
     SalesOrderViewSet,
 )
+from .quick_entry_views import QuickEntryRecentsView
 from .route_combine import RouteCombineView
 from .route_views import DeliveryChallanReturnViewSet, DeliveryRouteViewSet, PodSlipView
 from .pos_batch import PosBatchSyncView
@@ -45,6 +46,7 @@ public_urlpatterns = [
 urlpatterns = [
     path("salespeople/", SalespersonSearchView.as_view(), name="salespeople"),
     path("stock-hints/", StockHintView.as_view(), name="stock-hints"),
+    path("quick-entry/recents/", QuickEntryRecentsView.as_view(), name="quick-entry-recents"),
     path("pos/batch-sync/", PosBatchSyncView.as_view(), name="pos-batch-sync"),
     path("pos/settings/", PosSettingsView.as_view(), name="pos-settings"),
     path("pos/events/", PosCounterEventView.as_view(), name="pos-events"),

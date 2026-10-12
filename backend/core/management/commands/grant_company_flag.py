@@ -12,7 +12,7 @@ import os
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import CompanyUser, User
-from core.services.feature_flags import DARK_MODULE_KEYS, ROLLOUT_GRANTABLE_KEYS
+from core.services.feature_flags import COMPANY_ROLLOUT_KEYS, DARK_MODULE_KEYS, ROLLOUT_GRANTABLE_KEYS
 
 
 class Command(BaseCommand):
@@ -52,7 +52,7 @@ class Command(BaseCommand):
         flag = options["flag"]
         if flag in DARK_MODULE_KEYS:
             raise CommandError(f"{flag} is a dark module. This command cannot turn it on.")
-        if flag not in ROLLOUT_GRANTABLE_KEYS:
+        if flag not in ROLLOUT_GRANTABLE_KEYS and flag not in COMPANY_ROLLOUT_KEYS:
             raise CommandError(f"{flag} is not a rollout flag.")
         user = User.objects.filter(email__iexact=options["email"]).first()
         if user is None:

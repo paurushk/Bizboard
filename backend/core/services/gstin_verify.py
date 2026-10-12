@@ -97,7 +97,12 @@ class HttpGstinProvider:
                 raw={**raw, "provider": "http"},
             )
         except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, BusinessRuleError):
-            return NullGstinProvider().lookup(gstin)
+            # A configured provider that cannot be reached is not the same as "no provider configured":
+            # say so, so the user retries instead of being told live verification is switched off.
+            return GstinLookupResult(
+                gstin=gstin, legal_name="", status="UNVERIFIED", state_code=gstin[:2], taxpayer_type="",
+                raw={"provider": "http", "error": "provider_unavailable"},
+            )
 
 
 def apply_verification(target, result: GstinLookupResult, *, user=None, company=None):

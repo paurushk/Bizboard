@@ -380,6 +380,12 @@ REST_FRAMEWORK = {
         # Money In: a bulk CSV is heavy, and the totals are polled by the screen.
         "receipts_export": "20/hour",
         "receipts_summary": "120/min",
+        # Customers master: paid GSP lookups, the full-party-master CSV, and the polled summary strip.
+        "gstin_verify": "30/hour",
+        "gstin_verify_user": "15/hour",
+        "gstin_verify_bulk": "3/hour",
+        "customers_export": "20/hour",
+        "customers_summary": "120/min",
         "heavy_reports": "60/min",
         # B3-009: LLM bill-photo extraction has real per-call token cost;
         # cap how often a company can kick off a new extraction (upload or
@@ -575,6 +581,11 @@ STOCK_RESERVATION_TTL_HOURS = _env_int("STOCK_RESERVATION_TTL_HOURS", 0)
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
 CELERY_ENABLE_UTC = _env_bool("CELERY_ENABLE_UTC")
 CELERY_BEAT_SCHEDULE = {
+    # Monthly customer-master health check (stale GSTIN verification, state mismatches, duplicates).
+    "masters-customers-audit-monthly": {
+        "task": "masters.tasks.customers_audit_task",
+        "schedule": crontab(day_of_month=1, hour=7, minute=30),
+    },
     "insights-daily-summaries": {
         "task": "insights.tasks.generate_daily_summaries_task",
         # 06:00 IST — start of the Indian business day.
@@ -1158,7 +1169,11 @@ ENABLE_SUPPLIER_PRICE_HISTORY = _env_bool("ENABLE_SUPPLIER_PRICE_HISTORY")
 ENABLE_CUSTOMER_PORTAL = _env_bool("ENABLE_CUSTOMER_PORTAL")
 ENABLE_ACTION_ASSIGNMENT = _env_bool("ENABLE_ACTION_ASSIGNMENT")
 ENABLE_PREDICTIVE_DUNNING = _env_bool("ENABLE_PREDICTIVE_DUNNING")
-ENABLE_CUSTOMER_360 = _env_bool("ENABLE_CUSTOMER_360")
+ENABLE_CUSTOMER_360 = _env_bool("ENABLE_CUSTOMER_360", "1")  # on by default: founder decision 2026-10-11
+# CUS-07: reject a customer whose GSTIN prefix disagrees with its state (and a changed phone that is
+# not an Indian mobile). On by default (founder decision 2026-10-11); set CUSTOMER_STRICT_VALIDATION=0
+# to relax. Existing rows are only checked when the field is edited. See `manage.py customers_audit`.
+CUSTOMER_STRICT_VALIDATION = _env_bool("CUSTOMER_STRICT_VALIDATION", "1")
 ENABLE_PURCHASE_PLANNING = _env_bool("ENABLE_PURCHASE_PLANNING")
 ENABLE_ORDER_GATES = _env_bool("ENABLE_ORDER_GATES")
 ENABLE_CUSTOMER_ACTIONS = _env_bool("ENABLE_CUSTOMER_ACTIONS")

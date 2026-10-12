@@ -32,8 +32,11 @@ priority: P3
 priority_rationale: Built per explicit user direction (2026-09-11), superseding the earlier review-only
   Innovation framing for this specific item.
 effort: L
-recommendation: 'Done: the quick-entry sheet (recent customers + SKUs, stepper-based quantity, one-tap
-  save). Voice-to-line stays deferred, as the item always intended.'
+recommendation: 'Done: the quick-entry sheet (the rep''s own recent customers + live-hydrated SKUs, typeable
+  quantity with unit-aware decimals, Save & next, server-resolved price/GST, draft persistence). 2026-10-12
+  hardening per docs/QUICK_ORDER_ENTRY_IMPLEMENTATION_PLAN.md: sales-order mode behind the
+  QUICK_ENTRY_ORDER_MODE company flag, per-attempt idempotency, backend order guard parity.
+  Voice-to-line and full offline booking stay deferred, as the item always intended.'
 test_required: a mobile quick-entry e2e journey if pursued
 guard_ref:
   test: web/src/pages/sales/QuickEntryPage.test.tsx

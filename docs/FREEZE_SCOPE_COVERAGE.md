@@ -623,3 +623,38 @@ none). Tracked as QOS-0119 to QOS-0123; the plan is
 | WP-14 | Export needs `can_export`, streamed, throttled, audited; print audited; void and refund idempotent; Hindi voucher selectable (ActualText); invalid-index check | ✅ gated | `::test_export_needs_the_export_permission_and_is_audited`, `::test_voucher_print_is_audited`, `::test_void_is_idempotent_by_key`, `::test_hindi_voucher_text_can_be_selected_and_searched`, `::test_check_indexes_is_quiet_off_postgres` |
 | WP-15 | Totals in one aggregate, no per-row UTR queries, covering indexes | ✅ gated | `::test_a_list_page_of_upi_receipts_does_not_query_per_row`, `::test_summary_is_one_aggregate_over_the_receipts`; timings in the plan |
 | WP-16 | Cross-tenant, concurrency (Postgres), bounce and re-receive, void date, cross-module tie-out | ✅ gated | `::test_cross_module_tie_out_through_cheque_tds_discount_bounce_void_and_refund`, `::test_receipts_of_another_tenant_stay_invisible`, `::test_two_refunds_cannot_together_exceed_the_advance` |
+
+## Customers master hardening (2026-10-12)
+
+Not a freeze-table item; listed so the gating tests are findable. Plan and review: `CUSTOMERS_IMPLEMENTATION_PLAN.md`,
+`docs/CUSTOMERS_WORK_PACKAGES.md`, `docs/CUSTOMERS_REVIEW_2026-10-12.md`, `docs/CUSTOMERS_STATUS_SEMANTICS.md`.
+
+| Area | Status | Gating test(s) |
+|---|---|---|
+| GSTIN rules (reset, state, PAN, duplicates), walk-in guard, credit-term and status roles, optimistic locking, archive safety, summary, export, history, health, bulk verify, throttles, metrics, monthly audit | ✅ | `backend/tests/test_customers_master.py` |
+| GSTIN state rules, Indian mobile format, per-user throttle key | ✅ | `backend/tests/test_party_validators.py` |
+| Archived (INACTIVE) customers refused like blocked ones; drafts still saved | ✅ | `backend/tests/test_business_rules.py` |
+| Recurring schedules skip non-active customers and pause on archive | ✅ | `backend/tests/test_sprint_c_recurring.py` |
+| Dunning skips archived, keeps blocked | ✅ | `backend/tests/test_a07_dunning.py` |
+| Bulk credit exposure and advances | ✅ | `backend/tests/test_ledger.py` |
+| Customer import and bill import follow the customer rules | ✅ | `backend/tests/test_imports.py` |
+| Lead conversion follows the customer rules | ✅ | `backend/tests/test_sprint_b_crm_convert.py` |
+| Restore keeps customers exact and reports rule breaks | ✅ | `backend/tests/errors/test_backup_restore_drill.py` |
+| GSTIN provider unreachable vs unconfigured | ✅ | `backend/tests/test_gst_guard_v2.py` |
+| Tenant isolation and role table for the customer endpoints | ✅ | `backend/tests/tenancy/test_endpoint_isolation.py`, `backend/tests/tenancy/test_rbac_matrix.py` |
+| Real row-lock races, export and list under RLS | ✅ Postgres only | `backend/tests/test_customers_concurrency_postgres.py` |
+| Customers list, form, bulk verify, health banner, 360° edit and history, a11y | ✅ | `web/src/pages/sales/CustomersPage.test.tsx`, `Customer360Page.test.tsx` |
+| Customer API helpers, cache invalidation helper, status tone, GSTIN chip, phone rule, pickers | ✅ | `web/src/api/customers.test.ts`, `web/src/pages/sales/customerQueries.test.ts`, `web/src/utils/status.test.ts`, `web/src/utils/gstinStatus.test.ts`, `web/src/utils/gst.test.ts`, `web/src/hooks/usePartySearch.test.tsx`, `web/src/pages/purchases/SuppliersPage.gstinStatus.test.tsx`, `web/src/pages/sales/RecurringInvoicesPage.test.tsx`, `web/src/pages/sales/NewInvoicePage.test.tsx` |
+| Customers help pages and FAQs | ✅ | `web/src/pages/help/customersHelp.test.tsx` |
+| Real browser (desktop and phone Chrome) | ✅ | `web/e2e/customers.spec.ts` |
+| Q-OS backlog items | ✅ | QOS-0124 (fixed), QOS-0125 (open: retention decision, Hindi review) |
+
+## Post-freeze: Quick Order Entry (2026-10-12)
+
+Outside the freeze table. Gated by `backend/tests/test_sales_order_guards.py` (order/challan customer-status gate,
+subscription gate, idempotent create/confirm, multi-GSTIN tax split, order defaults and filters, price mode,
+Quick Entry pricing and recents, feature flags), `backend/tests/test_tax_engine_registry.py` (preview item shape),
+`web/src/pages/sales/QuickEntryPage.test.tsx`, `web/src/utils/quantity.test.ts`,
+`web/src/pages/sales/invalidateInvoiceSideEffects.test.ts`, `web/src/pages/sales/SalesOrdersPage.test.tsx` and
+`Customer360Page.test.tsx`. Backlog item: `qos/backlog/QOS-0048.yaml`. Rollout and rollback:
+[QUICK_ORDER_ENTRY_ROLLOUT.md](QUICK_ORDER_ENTRY_ROLLOUT.md).

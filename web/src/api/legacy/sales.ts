@@ -73,11 +73,14 @@ export async function createSalesInvoice(
     warehouse?: number | null;
     items: Array<Partial<LineItem>>;
   },
-  options?: { idempotencyKey?: string },
+  options?: { idempotencyKey?: string; clientSource?: string },
 ): Promise<SalesInvoice> {
   return withMocks(async () => {
     const { data } = await apiClient.post('/sales/invoices/', payload, {
-      headers: idempotencyHeaders(options?.idempotencyKey),
+      headers: {
+        ...idempotencyHeaders(options?.idempotencyKey),
+        ...(options?.clientSource ? { 'X-Client-Source': options.clientSource } : {}),
+      },
     });
     return unwrapData<SalesInvoice>(data);
   }, {
@@ -234,6 +237,14 @@ export type PreviewTotals = {
     lineTotal: number;
     gstRate?: number;
     rateOverrideReason?: string;
+    /** Quick Entry: price the server resolved for this line (customer price list / slab). */
+    product?: number;
+    unitPrice?: number;
+    appliedPriceListName?: string;
+    cessRate?: number;
+    cessAmount?: number;
+    unitName?: string;
+    uqcCode?: string;
   }>;
 };
 
@@ -291,6 +302,13 @@ function mapPreviewItems(raw: Record<string, unknown>): PreviewTotals['items'] {
       lineTotal: n('lineTotal', 'line_total'),
       gstRate: n('gstRate', 'gst_rate'),
       rateOverrideReason: String(r.rateOverrideReason ?? r.rate_override_reason ?? ''),
+      product: r.product == null ? undefined : Number(r.product),
+      unitPrice: r.unitPrice == null && r.unit_price == null ? undefined : n('unitPrice', 'unit_price'),
+      appliedPriceListName: String(r.appliedPriceListName ?? r.applied_price_list_name ?? ''),
+      cessRate: n('cessRate', 'cess_rate'),
+      cessAmount: n('cessAmount', 'cess_amount'),
+      unitName: String(r.unitName ?? r.unit_name ?? ''),
+      uqcCode: String(r.uqcCode ?? r.uqc_code ?? ''),
     };
   });
 }
@@ -1423,6 +1441,9 @@ export async function getSalesOrder(id: number | string): Promise<SalesOrder> {
 export async function createSalesOrder(payload: {
   customer: number;
   invoiceType?: string;
+  priceMode?: string;
+  /** Quick Entry: pick one of the customer's saved shipping addresses. */
+  shipTo?: number | null;
   orderDate?: string;
   expectedDelivery?: string | null;
   paymentTermsDays?: number;
@@ -1434,9 +1455,14 @@ export async function createSalesOrder(payload: {
   salesChannel?: string;
   deliveryAddress?: string;
   items: Array<Partial<LineItem>>;
-}): Promise<SalesOrder> {
+}, options?: { idempotencyKey?: string; clientSource?: string }): Promise<SalesOrder> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/sales/orders/', payload);
+    const { data } = await apiClient.post('/sales/orders/', payload, {
+      headers: {
+        ...idempotencyHeaders(options?.idempotencyKey),
+        ...(options?.clientSource ? { 'X-Client-Source': options.clientSource } : {}),
+      },
+    });
     return unwrapData<SalesOrder>(data);
   }, {
     id: Date.now(),
@@ -1747,7 +1773,23 @@ export async function cancelChallanEway(id: number): Promise<DeliveryChallan> {
 /** Available quantity per product in the default godown (tracked products only). */
 export async function getStockHints(productIds: number[]): Promise<Record<string, string>> {
   if (productIds.length === 0) return {};
-  const { data } = await apiClient.get('/sales/stock-hints/', { params: { products: productIds.join(',') } });
-  const body = unwrapData<{ available?: Record<string, string> }>(data);
-  return body.available ?? {};
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/sales/stock-hints/', { params: { products: productIds.join(',') } });
+    const body = unwrapData<{ available?: Record<string, string> }>(data);
+    return body.available ?? {};
+  }, {} as Record<string, string>);
+}
+
+export type QuickEntryRecents = {
+  customers: Array<{ id: number; name: string }>;
+  products: Array<{ id: number }>;
+};
+
+/** The signed-in rep's recent customers and product ids (active only). */
+export async function getQuickEntryRecents(): Promise<QuickEntryRecents> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/sales/quick-entry/recents/');
+    const raw = unwrapData<Partial<QuickEntryRecents>>(data);
+    return { customers: raw.customers ?? [], products: raw.products ?? [] };
+  }, { customers: [], products: [] });
 }

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -28,7 +28,20 @@ const createPaymentPromise = vi.fn(async (payload: Record<string, unknown>) => (
 }));
 const resolvePaymentPromise = vi.fn(async (id: number) => ({ id, resolved: true }));
 
+const getCustomer = vi.fn();
+const updateCustomer = vi.fn();
+const listCustomerHistory = vi.fn(async () => [] as Array<Record<string, unknown>>);
+vi.mock('@/hooks/useSubscriptionGate', () => ({
+  useSubscriptionGate: () => ({ writesBlocked: false, isLoading: false }),
+}));
+
 vi.mock('@/api/resources', () => ({
+  getCompany: async () => ({ id: 9, name: 'Shop' }),
+  listPriceLists: async () => [],
+  lookupCustomerGstin: vi.fn(),
+  getCustomer: (...args: unknown[]) => getCustomer(...args),
+  updateCustomer: (...args: unknown[]) => updateCustomer(...args),
+  listCustomerHistory: () => listCustomerHistory(),
   repeatLastInvoice: vi.fn(),
   listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
   listPaymentPromises: () => listPaymentPromises(),
@@ -67,6 +80,65 @@ describe('Customer360Page', () => {
     listPaymentPromises.mockResolvedValue([]);
     createPaymentPromise.mockClear();
     resolvePaymentPromise.mockClear();
+  });
+
+  it('edits the customer in place and refreshes the 360 view', async () => {
+    getCustomer.mockResolvedValue({ id: 4, name: 'Ravi Traders', status: 'ACTIVE', version: 2 });
+    updateCustomer.mockResolvedValue({ id: 4, name: 'Ravi Traders Ltd', status: 'ACTIVE', version: 3 });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Ravi Traders');
+    await user.click(screen.getByRole('button', { name: 'Edit customer' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit customer' });
+    const name = within(dialog).getByRole('textbox', { name: /^Name/ });
+    await user.clear(name);
+    await user.type(name, 'Ravi Traders Ltd');
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(updateCustomer).toHaveBeenCalledWith(4, expect.objectContaining({
+      name: 'Ravi Traders Ltd', version: 2,
+    })));
+  });
+
+  it('keeps the edit dialog and what was typed when the window regains focus', async () => {
+    getCustomer.mockReset();
+    getCustomer.mockResolvedValue({ id: 4, name: 'Ravi Traders', status: 'ACTIVE', version: 2 });
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText('Ravi Traders');
+    await user.click(screen.getByRole('button', { name: 'Edit customer' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit customer' });
+    await user.type(within(dialog).getByRole('textbox', { name: /^Name/ }), ' Ltd');
+    fireEvent.focus(window);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const still = screen.getByRole('dialog', { name: 'Edit customer' });
+    expect((within(still).getByRole('textbox', { name: /^Name/ }) as HTMLInputElement).value).toBe('Ravi Traders Ltd');
+    expect(getCustomer).toHaveBeenCalledTimes(1);
+  });
+
+  it('links to Quick Entry with this customer pre-selected', async () => {
+    getCustomer.mockResolvedValue({ id: 4, name: 'Ravi Traders', status: 'ACTIVE', version: 2 });
+    renderPage();
+    await screen.findByText('Ravi Traders');
+    expect(screen.getByRole('link', { name: 'Quick order' })).toHaveAttribute('href', '/sales/quick-entry?customer=4');
+  });
+
+  it('hides Edit customer from a user who cannot create sales', async () => {
+    currentUser = { ...OWNER_USER, role: 'ACCOUNTANT', canCreateSales: false, canViewFinancialReports: true };
+    renderPage();
+    await screen.findByText('Ravi Traders');
+    expect(screen.queryByRole('button', { name: 'Edit customer' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Quick order' })).toBeNull();
+  });
+
+  it('lists who changed credit terms', async () => {
+    listCustomerHistory.mockResolvedValueOnce([
+      { id: 1, at: '2026-10-11T10:00:00Z', user: 'Asha', action: 'UPDATE', description: '',
+        changes: { creditLimit: { from: '1000.00', to: '2500.00' } } },
+    ]);
+    renderPage();
+    expect(await screen.findByText(/Credit limit: 1000\.00 → 2500\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/Asha/)).toBeInTheDocument();
   });
 
   it('notes the cheques that are counted as received but have not cleared', async () => {

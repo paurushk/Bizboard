@@ -35,4 +35,15 @@ describe('useCustomerSearch (#32)', () => {
     );
     await waitFor(() => expect(result.current.options[0]?.name).toBe('Recent Party'));
   });
+
+  it('asks for active customers only when the picker is for a new document', async () => {
+    renderHook(() => useCustomerSearch({ activeOnly: true }), { wrapper });
+    await waitFor(() => expect(listCustomersPage).toHaveBeenCalledWith(expect.objectContaining({ status: 'ACTIVE' })));
+  });
+
+  it('does not filter by status for other pickers', async () => {
+    renderHook(() => useCustomerSearch(), { wrapper });
+    await waitFor(() => expect(listCustomersPage).toHaveBeenCalled());
+    expect(listCustomersPage.mock.calls[0][0]).not.toHaveProperty('status');
+  });
 });

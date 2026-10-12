@@ -64,5 +64,9 @@ describe('gst utils', () => {
     expect(isValidIndianPhone('123')).toBe(false);
     expect(isValidIndianPhone('1234567890')).toBe(false); // must start 6-9
     expect(isValidIndianPhone('')).toBe(false);
+    // a mobile that happens to begin 91 is still a mobile
+    expect(isValidIndianPhone('9123456789')).toBe(true);
+    expect(isValidIndianPhone('919123456789')).toBe(true);
+    expect(isValidIndianPhone('91912345678')).toBe(false);
   });
 });

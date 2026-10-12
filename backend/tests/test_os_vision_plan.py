@@ -112,7 +112,9 @@ def test_median_days_late_needs_three_paid_invoices(tenant_a):
     assert median_days_late(tenant_a.company, customer) is None
 
 
-def test_customer_360_and_collections_are_hidden_until_flagged(tenant_a):
+def test_customer_360_and_collections_are_hidden_until_flagged(tenant_a, settings):
+    # Customer 360 is on by default (founder decision 2026-10-11); this is the switched-off behaviour.
+    settings.ENABLE_CUSTOMER_360 = False
     customer = Customer.objects.filter(company=tenant_a.company).first()
     if customer is None:
         from tests.conftest import make_customer
@@ -120,6 +122,7 @@ def test_customer_360_and_collections_are_hidden_until_flagged(tenant_a):
         customer = make_customer(tenant_a.company)
     assert tenant_a.client.get(f"/api/v1/insights/customers/{customer.id}/360/").status_code == 404
     assert tenant_a.client.get("/api/v1/insights/collections-worklist/").status_code == 404
+    settings.ENABLE_CUSTOMER_360 = True
     _enable(tenant_a.company, "ENABLE_CUSTOMER_360")
     seen = tenant_a.client.get(f"/api/v1/insights/customers/{customer.id}/360/")
     assert seen.status_code == 200, seen.data

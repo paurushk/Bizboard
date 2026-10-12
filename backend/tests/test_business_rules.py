@@ -287,3 +287,56 @@ def test_f2_033_sales_invoice_list_filters_by_status_and_number(tenant_a):
 
     by_number = tenant_a.client.get("/api/v1/sales/invoices/", {"q": "AAA"})
     assert {r["id"] for r in by_number.data["results"]} == {d1.id}
+
+
+# ---- archived (INACTIVE) customers: the same refusals as blocked ones --------------------------------------------------------------
+
+def test_inactive_customer_cannot_be_invoiced(tenant_a):
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company, status=Customer.Status.INACTIVE)
+    resp = tenant_a.client.post("/api/v1/sales/invoices/", {
+        "customer": customer.id,
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100"}],
+    }, format="json")
+    assert resp.status_code == 400 and "inactive customer" in str(resp.data)
+
+
+def test_customer_archived_after_draft_cannot_complete_but_the_draft_can_still_be_saved(tenant_a):
+    product = make_product(tenant_a.company)
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "100"}])
+    Customer.objects.filter(pk=customer.pk).update(status=Customer.Status.INACTIVE)
+    saved = tenant_a.client.patch(
+        f"/api/v1/sales/invoices/{inv['id']}/", {"customer": customer.id, "notes": "kept"}, format="json",
+    )
+    assert saved.status_code == 200, saved.data
+    done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
+    assert done.status_code == 400 and "inactive customer" in str(done.data)
+
+
+def test_a_different_customer_cannot_be_swapped_onto_a_draft_when_it_is_inactive(tenant_a):
+    product = make_product(tenant_a.company)
+    live = make_customer(tenant_a.company, name="Live")
+    gone = make_customer(tenant_a.company, name="Gone", status=Customer.Status.INACTIVE)
+    inv = create_draft_invoice(tenant_a, live, [{"product": product.id, "quantity": "1", "unit_price": "100"}])
+    swapped = tenant_a.client.patch(f"/api/v1/sales/invoices/{inv['id']}/", {"customer": gone.id}, format="json")
+    assert swapped.status_code == 400
+
+
+def test_inactive_customer_cannot_get_a_quotation(tenant_a):
+    product = make_product(tenant_a.company)
+    customer = make_customer(tenant_a.company, status=Customer.Status.INACTIVE)
+    resp = tenant_a.client.post("/api/v1/sales/quotations/", {
+        "customer": customer.id, "valid_until": "2099-01-01",
+        "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}],
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_receipts_and_credit_notes_still_work_for_an_inactive_customer(tenant_a):
+    customer = make_customer(tenant_a.company, status=Customer.Status.INACTIVE)
+    resp = tenant_a.client.post(
+        "/api/v1/payments/receipts/", {"customer": customer.id, "amount": "10", "mode": "CASH"}, format="json",
+    )
+    assert resp.status_code == 201, resp.data

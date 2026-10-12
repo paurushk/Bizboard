@@ -45,6 +45,10 @@ MONEY_IDEMPOTENCY_SCOPES = frozenset({
     "allocation_unallocate",
     "sales_invoice_create",
     "sales_invoice_complete",
+    # Quick Entry: order create/confirm reserve stock and consume numbers; never reclaim in flight.
+    "sales_order_create",
+    "sales_order_confirm",
+    "delivery_challan_create",
     "purchase_invoice_create",
     "purchase_invoice_complete",
     "sales_credit_note_complete",
@@ -457,3 +461,41 @@ def wrap_idempotent(*, request, company, scope: str, build):
     finally:
         if owns_key and not settled:
             release_record(company=company, scope=scope, raw_key=raw_key)
+
+
+class IdempotentCreateMixin:
+    # Durable `Idempotency-Key` for a create/action, matching the original `SalesInvoiceViewSet.create`.
+    # The key is released on any non-success result so a caller can fix a validation error and retry
+    # with the same key; it is only kept once the document is committed.
+    # (A comment, not a docstring: drf-spectacular would otherwise use it as the endpoint description.)
+
+    def _idempotent(self, request, scope, run, success_codes=(201,)):
+        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
+        if not raw_key:
+            return run()
+        claimed = begin_record(
+            company=self.company, scope=scope, raw_key=raw_key, fingerprint=request_fingerprint(request)
+        )
+        if isinstance(claimed, Response):
+            return claimed
+        stored = False
+        try:
+            response = run()
+            if response.status_code in success_codes:
+                data = getattr(response, "data", None) or {}
+                if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
+                    data = data.get("data") or {}
+                resource_id = data.get("id") if isinstance(data, dict) else ""
+                # The document is committed: never release the key past this point.
+                stored = True
+                store_record(
+                    company=self.company,
+                    scope=scope,
+                    raw_key=raw_key,
+                    response=response,
+                    resource_id=str(resource_id or ""),
+                )
+            return response
+        finally:
+            if not stored:
+                release_record(company=self.company, scope=scope, raw_key=raw_key)

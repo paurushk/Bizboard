@@ -18,11 +18,13 @@ type UsePartySearchOptions<T> = {
   pageSize?: number;
   /** Keep a currently selected party in options even if outside the current page. */
   selected?: T | null;
+  /** Customers only: offer ACTIVE customers (a blocked or archived one cannot get a new document). */
+  activeOnly?: boolean;
 };
 
 function usePartySearchBase<T extends { id: number }>(
   queryKeyPrefix: string,
-  fetchPage: (params: { q?: string; page: number; pageSize: number }) => Promise<{ results: T[] }>,
+  fetchPage: (params: { q?: string; page: number; pageSize: number; status?: string }) => Promise<{ results: T[] }>,
   opts: UsePartySearchOptions<T>,
 ) {
   const minChars = opts.minChars ?? PARTY_SEARCH_MIN_CHARS;
@@ -33,9 +35,16 @@ function usePartySearchBase<T extends { id: number }>(
   const q = debounced.trim();
   const usesTypedQuery = q.length >= minChars;
 
+  const activeOnly = Boolean(opts.activeOnly);
   const result = useQuery({
-    queryKey: [queryKeyPrefix, usesTypedQuery ? q : '', pageSize],
-    queryFn: () => fetchPage({ q: usesTypedQuery ? q : undefined, page: 1, pageSize }),
+    queryKey: [queryKeyPrefix, usesTypedQuery ? q : '', pageSize, activeOnly],
+    queryFn: () =>
+      fetchPage({
+        q: usesTypedQuery ? q : undefined,
+        page: 1,
+        pageSize,
+        ...(activeOnly ? { status: 'ACTIVE' } : {}),
+      }),
     enabled,
   });
 

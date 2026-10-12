@@ -30,11 +30,15 @@ export function isValidIfsc(ifsc: string): boolean {
   return /^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc.trim().toUpperCase());
 }
 
-/** Indian mobile number: 10 digits, first digit 6-9. Ignores spaces/hyphens and an optional +91/0 prefix. */
+/**
+ * Indian mobile number: 10 digits, first digit 6-9, with an optional +91, 91 or 0 prefix. Spaces and hyphens
+ * are ignored. A prefix only counts on a number of the right total length, so 9123456789 is a valid mobile
+ * (not "91" plus eight digits). Same rule as core.validators.is_valid_indian_mobile on the server.
+ */
 export function isValidIndianPhone(phone: string): boolean {
   if (!phone) return false;
-  const digits = phone.trim().replace(/[\s-]/g, '').replace(/^(\+?91|0)/, '');
-  return /^[6-9][0-9]{9}$/.test(digits);
+  const digits = phone.trim().replace(/[\s-]/g, '');
+  return /^(?:\+91|91|0)?[6-9][0-9]{9}$/.test(digits);
 }
 
 /** India Post PIN: six digits, first digit 1–9. Blank is not valid here. */

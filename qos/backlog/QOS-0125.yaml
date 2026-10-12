@@ -1,0 +1,26 @@
+id: "QOS-0125"
+category: "SECURITY_PRIVACY"
+title: "Customers: audit and export retention policy, and Hindi review of the new strings"
+persona: ["P1"]
+journey: "Review who changed a customer and export the customer list"
+problem: "Customer audit events hold the names of changed fields and the customer CSV holds phone, email and GSTIN. There is no written retention rule for either, and the roughly 120 new Hindi strings were written without a native-speaker review."
+evidence:
+  strength: "heuristic"
+  source: ["docs/CUSTOMERS_STATUS_SEMANTICS.md", "docs/CUSTOMERS_HINDI_REVIEW.csv"]
+  detail: "Phone, email and PAN are masked in audit changes, exports are permissioned, throttled and audited, and the audit trail is append-only and hash-sealed. What is missing is a decision on retention and a reviewer for the Hindi copy."
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P2"
+priority_rationale: "Impact Low. Heuristic. Needs a founder decision and a native-speaker pass, not code."
+effort: "S"
+recommendation: "Founder confirms the retention rule recorded in docs/CUSTOMERS_STATUS_SEMANTICS.md, and a Hindi speaker reviews docs/CUSTOMERS_HINDI_REVIEW.csv and returns corrections."
+test_required: "backend/tests/test_customers_master.py::test_audit_changes_mask_phone_email_and_pan"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-12"
+closed: null

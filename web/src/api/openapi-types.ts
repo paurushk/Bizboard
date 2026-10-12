@@ -2851,6 +2851,23 @@ export interface paths {
         patch: operations["customers_partial_update"];
         trace?: never;
     };
+    "/api/v1/customers/{id}/history/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Who changed this customer, and what (from the audit trail). */
+        get: operations["customers_history_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/customers/{id}/verify-gstin/": {
         parameters: {
             query?: never;
@@ -2865,6 +2882,57 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["customers_verify_gstin_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description CSV of every customer the list filters select. Streamed; refuses an oversize export. */
+        get: operations["customers_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Customer records that need a look (the monthly check, on demand). Owner or manager. */
+        get: operations["customers_health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/lookup-gstin/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Look a GSTIN up before the customer exists, to pre-fill the form. Writes nothing. */
+        post: operations["customers_lookup_gstin_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2902,6 +2970,40 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["customers_set_pos_walk_in_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Portfolio figures for the customers the list filters select (not just one page). */
+        get: operations["customers_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/customers/verify-gstin-bulk/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Verify the GSTIN of up to 10 chosen customers in one go (its own, small budget). */
+        post: operations["customers_verify_gstin_bulk_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11345,6 +11447,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/quick-entry/recents/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description The signed-in rep's recent customers and products, active ones only.
+         *
+         *     Looks at the rep's own recent invoices (salesperson, or creator when no salesperson was set)
+         *     and sales orders, so each rep sees their own round rather than the whole company's.
+         */
+        get: operations["sales_quick_entry_recents_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/quotations/": {
         parameters: {
             query?: never;
@@ -13252,7 +13376,49 @@ export interface components {
             shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding: string;
             readonly creditExposure: string;
+            readonly collectionStatus: string;
             readonly version: number;
+        };
+        CustomerGstinLookup: {
+            gstin: string;
+            status: string;
+            legalName: string;
+            state: string;
+            pan: string;
+            taxpayerType: string;
+            provider: string;
+            notice: string;
+            existingCustomer: components["schemas"]["CustomerGstinLookupExisting"] | null;
+        };
+        CustomerGstinLookupExisting: {
+            id: number;
+            name: string;
+        };
+        CustomerGstinLookupRequest: {
+            gstin: string;
+        };
+        CustomerHealth: {
+            total: number;
+            checks: components["schemas"]["CustomerHealthCheck"][];
+        };
+        CustomerHealthCheck: {
+            check: string;
+            label: string;
+            count: number;
+        };
+        CustomerHistory: {
+            results: components["schemas"]["CustomerHistoryEvent"][];
+        };
+        CustomerHistoryEvent: {
+            id: number;
+            /** Format: date-time */
+            at: string;
+            user: string;
+            action: string;
+            description: string;
+            changes: {
+                [key: string]: unknown;
+            };
         };
         CustomerReceipt: {
             readonly id: number;
@@ -13346,6 +13512,28 @@ export interface components {
          * @enum {string}
          */
         CustomerStatusEnum: "ACTIVE" | "BLOCKED" | "INACTIVE";
+        CustomerSummary: {
+            totalCount: number;
+            activeCount: number;
+            blockedCount: number;
+            inactiveCount: number;
+            overCreditLimitCount: number;
+            totalOutstanding: string;
+            totalUnallocatedAdvance: string;
+            netCreditExposure: string;
+        };
+        CustomerVerifyBulk: {
+            results: components["schemas"]["CustomerVerifyBulkRow"][];
+        };
+        CustomerVerifyBulkRequest: {
+            ids: number[];
+        };
+        CustomerVerifyBulkRow: {
+            id: number;
+            status: string;
+            notice: string;
+            error: string;
+        };
         DeliveryChallan: {
             readonly id: number;
             readonly number: string;
@@ -15819,6 +16007,7 @@ export interface components {
             shippingAddresses?: components["schemas"]["CustomerShippingAddress"][];
             readonly outstanding?: string;
             readonly creditExposure?: string;
+            readonly collectionStatus?: string;
             readonly version?: number;
         };
         PatchedCustomerReceipt: {
@@ -16296,6 +16485,8 @@ export interface components {
             readonly brandName?: string;
             unit?: number | null;
             readonly unitName?: string;
+            /** @description GSTN unit quantity code; blank when the product has no unit (so the key is always present). */
+            readonly unitUqc?: string;
             /** Format: decimal */
             gstRate?: string;
             gstSupplyForm?: string;
@@ -16990,6 +17181,7 @@ export interface components {
             readonly customerName?: string;
             warehouse?: number | null;
             invoiceType?: components["schemas"]["InvoiceTypeEnum"];
+            priceMode?: components["schemas"]["PriceModeEnum"];
             /** Format: date */
             orderDate?: string;
             /** Format: date */
@@ -17013,6 +17205,7 @@ export interface components {
             salesman?: number | null;
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
+            shipTo?: number | null;
             readonly expectedProfit?: string;
             readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer?: boolean;
@@ -17489,6 +17682,8 @@ export interface components {
             readonly brandName: string;
             unit?: number | null;
             readonly unitName: string;
+            /** @description GSTN unit quantity code; blank when the product has no unit (so the key is always present). */
+            readonly unitUqc: string;
             /** Format: decimal */
             gstRate?: string;
             gstSupplyForm?: string;
@@ -18743,6 +18938,7 @@ export interface components {
             readonly customerName: string;
             warehouse?: number | null;
             invoiceType?: components["schemas"]["InvoiceTypeEnum"];
+            priceMode?: components["schemas"]["PriceModeEnum"];
             /** Format: date */
             orderDate?: string;
             /** Format: date */
@@ -18766,6 +18962,7 @@ export interface components {
             salesman?: number | null;
             salesChannel?: components["schemas"]["SalesChannelEnum"] | components["schemas"]["BlankEnum"];
             deliveryAddress?: string;
+            shipTo?: number | null;
             readonly expectedProfit: string;
             readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer: boolean;
@@ -24630,6 +24827,28 @@ export interface operations {
             };
         };
     };
+    customers_history_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerHistory"];
+                };
+            };
+        };
+    };
     customers_verify_gstin_create: {
         parameters: {
             query?: never;
@@ -24654,6 +24873,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Customer"];
+                };
+            };
+        };
+    };
+    customers_export_retrieve: {
+        parameters: {
+            query?: {
+                /** @description Search name, phone, email or GSTIN (first 100 characters). */
+                q?: string;
+                /** @description Customer status. */
+                status?: "ACTIVE" | "BLOCKED" | "INACTIVE";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
+    customers_health_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerHealth"];
+                };
+            };
+        };
+    };
+    customers_lookup_gstin_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerGstinLookupRequest"];
+                "multipart/form-data": components["schemas"]["CustomerGstinLookupRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["CustomerGstinLookupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerGstinLookup"];
                 };
             };
         };
@@ -24704,6 +24991,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Customer"];
+                };
+            };
+        };
+    };
+    customers_summary_retrieve: {
+        parameters: {
+            query?: {
+                /** @description Search name, phone, email or GSTIN (first 100 characters). */
+                q?: string;
+                /** @description Customer status. */
+                status?: "ACTIVE" | "BLOCKED" | "INACTIVE";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerSummary"];
+                };
+            };
+        };
+    };
+    customers_verify_gstin_bulk_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CustomerVerifyBulkRequest"];
+                "multipart/form-data": components["schemas"]["CustomerVerifyBulkRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["CustomerVerifyBulkRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerVerifyBulk"];
                 };
             };
         };
@@ -39130,6 +39466,27 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    sales_quick_entry_recents_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
             };
         };
     };

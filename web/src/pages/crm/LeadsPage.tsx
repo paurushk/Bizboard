@@ -129,7 +129,7 @@ function LeadsPageInner() {
   });
   const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
   const campaigns = useQuery({ queryKey: ['campaigns', 'filter'], queryFn: () => listCampaignsPage({ pageSize: 100 }) });
-  const customerSearch = useCustomerSearch();
+  const customerSearch = useCustomerSearch({ activeOnly: true });
   const customersQuery = useQuery({
     queryKey: ['customers', 'crm'],
     queryFn: () => listCustomersPage({ page: 1, pageSize: 200 }),

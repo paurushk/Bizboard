@@ -636,3 +636,17 @@ def test_predictive_screen_still_respects_opt_out(tenant_a):
     result = run_dunning_for_company(invoice.company, now=midday)
     assert result["sent"] == 0
     assert not DunningReminder.objects.filter(invoice=invoice).exists()
+
+
+def test_archived_customer_gets_no_reminder_but_a_blocked_one_still_does(tenant_a):
+    from masters.models import Customer
+
+    invoice = _overdue_invoice(tenant_a, days=3)
+    _enable_dunning(invoice.company)
+    midday = datetime(2026, 8, 31, 12, 0, tzinfo=IST)
+    Customer.objects.filter(pk=invoice.customer_id).update(status="INACTIVE")
+    assert run_dunning_for_company(invoice.company, now=midday)["sent"] == 0
+    assert DunningReminder.objects.filter(invoice=invoice).count() == 0
+    # a credit hold means they still owe: reminders continue
+    Customer.objects.filter(pk=invoice.customer_id).update(status="BLOCKED")
+    assert run_dunning_for_company(invoice.company, now=midday)["sent"] == 1

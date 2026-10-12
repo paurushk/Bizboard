@@ -8,6 +8,7 @@ from django.utils import timezone
 from accounts.otp_utils import canonicalize_user_phone, phone_lookup_values
 from core.exceptions import BusinessRuleError
 from masters.models import Customer
+from masters.services import create_customer
 
 from .models import Lead, Opportunity
 
@@ -105,8 +106,22 @@ def convert_lead(
                 customer.state = lead.state
                 updates.append("state")
             if not customer.gstin and getattr(lead, "gstin", None):
-                customer.gstin = lead.gstin
-                updates.append("gstin")
+                # Same rules as the customer form: a well-formed GSTIN that no other customer holds.
+                from core.validators import GSTIN_RE
+                from masters import gstin_rules
+
+                lead_gstin = gstin_rules.normalise(lead.gstin)
+                taken = Customer.objects.filter(company=lead.company, gstin=lead_gstin).exclude(pk=customer.pk).exists()
+                if GSTIN_RE.match(lead_gstin) and not taken:
+                    customer.gstin = lead_gstin
+                    updates.append("gstin")
+                    if not customer.pan:
+                        customer.pan = gstin_rules.derive_pan(lead_gstin)
+                        updates.append("pan")
+                    if not customer.state and gstin_rules.derive_state(lead_gstin):
+                        customer.state = gstin_rules.derive_state(lead_gstin)
+                        if "state" not in updates:
+                            updates.append("state")
             if not customer.billing_address and getattr(lead, "address", None):
                 customer.billing_address = lead.address
                 updates.append("billing_address")
@@ -129,16 +144,15 @@ def convert_lead(
                 phone = canonicalize_user_phone(lead.phone or "")
             except ValueError:
                 phone = (lead.phone or "").strip()
-            customer = Customer.objects.create(
+            customer = create_customer(
                 company=lead.company,
+                user=user,
                 name=lead.name,
                 phone=phone,
                 email=lead.email or "",
                 state=state,
                 gstin=gstin,
                 billing_address=address,
-                created_by=user,
-                updated_by=user,
             )
         lead.customer = customer
     lead.status = Lead.Status.QUALIFIED

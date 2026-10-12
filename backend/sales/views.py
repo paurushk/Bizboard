@@ -17,8 +17,10 @@ from rest_framework.views import APIView
 
 from core.celery_utils import safe_delay
 from core.exceptions import BusinessRuleError
+from core.viewsets import client_source
 from core.help_codes import HelpCode
 from core.idempotency import (
+    IdempotentCreateMixin,
     begin_record,
     release_record,
     request_fingerprint,
@@ -128,7 +130,7 @@ class InvoiceBulkPdfZipSerializer(drf_serializers.Serializer):
     skipped = _ZipSkippedSerializer(many=True)
 
 
-class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
+class SalesInvoiceViewSet(IdempotentCreateMixin, InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
 
@@ -154,42 +156,29 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             throttles.append(CompanyRateThrottle(scope="sales_complete"))
         return throttles
 
+    def audit_metadata(self):
+        return {"source": client_source(self.request)}
+
+    def perform_create(self, serializer):
+        # Quick Entry: attribute the draft to the signed-in rep unless the client named a salesperson.
+        extra = {}
+        if client_source(self.request) == "quick_entry" and not self.request.data.get("salesperson"):
+            extra["salesperson"] = self.request.user
+        instance = serializer.save(
+            company=self.company,
+            created_by=self.request.user,
+            updated_by=self.request.user,
+            **extra,
+        )
+        self._audit("CREATE", instance)
+
     def create(self, request, *args, **kwargs):
         """BB-000610 / BB-000730: durable Idempotency-Key with begin-of-request placeholder."""
-        raw_key = (request.headers.get("Idempotency-Key") or "").strip()
-        claimed = None
-        if raw_key:
-            claimed = begin_record(
-                company=self.company, scope="sales_invoice_create", raw_key=raw_key,
-                fingerprint=request_fingerprint(request),
-            )
-            if isinstance(claimed, Response):
-                return claimed
-
-        created_ok = False
-        try:
-            response = super().create(request, *args, **kwargs)
-            if raw_key and response.status_code == status.HTTP_201_CREATED:
-                data = getattr(response, "data", None) or {}
-                if isinstance(data, dict) and isinstance(data.get("success"), bool) and "data" in data:
-                    data = data.get("data") or {}
-                created_id = data.get("id") if isinstance(data, dict) else ""
-                # The invoice is committed: never release the key past this point.
-                created_ok = True
-                store_record(
-                    company=self.company,
-                    scope="sales_invoice_create",
-                    raw_key=raw_key,
-                    response=response,
-                    resource_id=str(created_id or ""),
-                )
-            return response
-        finally:
-            # Release in-flight placeholder if create did not complete successfully.
-            if raw_key and claimed is not None and not isinstance(claimed, Response) and not created_ok:
-                release_record(
-                    company=self.company, scope="sales_invoice_create", raw_key=raw_key
-                )
+        return self._idempotent(
+            request,
+            "sales_invoice_create",
+            lambda: super(SalesInvoiceViewSet, self).create(request, *args, **kwargs),
+        )
 
     def get_permissions(self):
         action = getattr(self, "action", None)
@@ -840,7 +829,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             if pid:
                 product_ids.append(pid)
         products_by_id = {
-            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company)
+            p.pk: p for p in Product.objects.filter(pk__in=product_ids, company=company).select_related("unit")
         }
         include_margin = CanViewFinancialReports().has_permission(request, self)
         warehouse = None
@@ -861,6 +850,7 @@ class SalesInvoiceViewSet(InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet)
             seller_gstin=seller_gstin,
             include_margin=include_margin,
             warehouse=warehouse,
+            customer=customer,
         )
         return {
             "company": company,

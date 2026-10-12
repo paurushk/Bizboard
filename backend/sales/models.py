@@ -731,6 +731,9 @@ class SalesOrder(DocumentTotalsModel):
     invoice_type = models.CharField(
         max_length=8, choices=SalesInvoice.InvoiceType.choices, default=SalesInvoice.InvoiceType.GST
     )
+    price_mode = models.CharField(
+        max_length=12, choices=SalesInvoice.PriceMode.choices, default=SalesInvoice.PriceMode.EXCLUSIVE
+    )
     order_date = models.DateField(default=timezone.localdate)
     expected_delivery = models.DateField(null=True, blank=True)
     payment_terms_days = models.PositiveIntegerField(default=0)

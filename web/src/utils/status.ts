@@ -63,7 +63,9 @@ export function documentStatusTone(status: DocumentStatus | string): ChipTone {
 }
 
 export function customerStatusTone(status: CustomerStatus | string): ChipTone {
-  return String(status).toUpperCase() === 'ACTIVE' ? 'success' : 'error';
+  const upper = String(status).toUpperCase();
+  if (upper === 'ACTIVE') return 'success';
+  return upper === 'INACTIVE' ? 'default' : 'error';
 }
 
 export function productStatusTone(status: ProductStatus | string): ChipTone {

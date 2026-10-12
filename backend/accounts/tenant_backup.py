@@ -1367,6 +1367,19 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         obj = Customer.objects.create(company=target_company, created_by=owner, updated_by=owner, **kwargs)
         customer_map[row.get("id")] = obj.pk
+    # A restore recreates customers exactly as exported and skips the form rules on purpose. Say what an
+    # older backup brought in, so the owner knows to look (the same check runs monthly).
+    try:
+        from masters.audit import audit_customers
+
+        findings, _companies, _fixed = audit_customers(Customer.objects.filter(company=target_company))
+        if findings:
+            logger.warning(
+                "tenant_restore: customer audit company=%s findings=%s",
+                target_company.pk, {check: len(rows) for (_cid, check), rows in findings.items()},
+            )
+    except Exception:  # noqa: BLE001 - reporting only; never fail a restore
+        logger.exception("tenant_restore: customer audit failed company=%s", target_company.pk)
 
     supplier_map: dict[Any, int] = {}
     for row in payload.get("suppliers") or []:

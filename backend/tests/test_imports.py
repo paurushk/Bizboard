@@ -534,3 +534,75 @@ def test_customers_commit_twice_does_not_duplicate_rows(tenant_a):
     assert second.status_code in (200, 400)
     assert Customer.objects.filter(company=tenant_a.company).count() == created
 
+
+
+# ---- customer import follows the customer rules (Customers master hardening) --------------------------------------------------------------
+
+def test_customer_import_fills_state_and_pan_from_the_gstin_and_skips_a_conflicting_state(tenant_a):
+    csv = (
+        b"name,phone,gstin,state\n"
+        b"No State Co,9800000011,27AABCU9603R1ZN,\n"
+        b"Wrong State Co,9800000012,29ABCDE1234F1ZW,Maharashtra\n"
+        b"Plain Co,9800000013,,Karnataka\n"
+    )
+    job = _upload(tenant_a, "customers", csv).data
+    resp = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert resp.status_code == 200, resp.data
+    filled = Customer.objects.get(company=tenant_a.company, name="No State Co")
+    assert (filled.gstin, filled.state, filled.pan) == ("27AABCU9603R1ZN", "Maharashtra", "AABCU9603R")
+    assert filled.gstin_verification_status == "UNVERIFIED"
+    assert not Customer.objects.filter(company=tenant_a.company, name="Wrong State Co").exists()
+    assert Customer.objects.filter(company=tenant_a.company, name="Plain Co").exists()
+
+
+def test_customer_import_reports_the_state_conflict_as_a_skipped_row(tenant_a):
+    from types import SimpleNamespace
+
+    from imports.services import ImportService
+
+    job = SimpleNamespace(company=tenant_a.company)
+    created, skipped = ImportService._commit_customers(
+        job, [{"name": "Wrong", "gstin": "29ABCDE1234F1ZW", "state": "Maharashtra"}], tenant_a.owner,
+    )
+    assert created == 0
+    assert skipped[0]["skipped"] is True and "belongs to Karnataka" in skipped[0]["errors"][0]
+
+
+def test_customer_import_lets_a_state_mismatch_through_when_strict_validation_is_off(tenant_a, settings):
+    from types import SimpleNamespace
+
+    from imports.services import ImportService
+
+    settings.CUSTOMER_STRICT_VALIDATION = False
+    job = SimpleNamespace(company=tenant_a.company)
+    created, skipped = ImportService._commit_customers(
+        job, [{"name": "Loose", "gstin": "29ABCDE1234F1ZW", "state": "Maharashtra"}], tenant_a.owner,
+    )
+    assert (created, skipped) == (1, [])
+
+
+def test_bill_import_creates_its_customer_through_the_customer_rules(tenant_a):
+    from types import SimpleNamespace
+
+    from imports.services import BillImportService
+
+    job = SimpleNamespace(
+        company=tenant_a.company, customer_id=None, customer=None,
+        preview={"buyer_name": "Imported Buyer", "buyer_gstin": "27aabcu9603r1zn"}, save=lambda **kw: None,
+    )
+    customer = BillImportService._resolve_customer(job, tenant_a.owner)
+    assert (customer.gstin, customer.state, customer.pan) == ("27AABCU9603R1ZN", "Maharashtra", "AABCU9603R")
+
+
+def test_bill_import_reuses_an_existing_customer_by_gstin(tenant_a):
+    from types import SimpleNamespace
+
+    from imports.services import BillImportService
+    from tests.conftest import make_customer
+
+    existing = make_customer(tenant_a.company, name="Already Here", gstin="27AABCU9603R1ZN", state="Maharashtra")
+    job = SimpleNamespace(
+        company=tenant_a.company, customer_id=None, customer=None,
+        preview={"buyer_name": "Different Name", "buyer_gstin": "27AABCU9603R1ZN"}, save=lambda **kw: None,
+    )
+    assert BillImportService._resolve_customer(job, tenant_a.owner).pk == existing.pk

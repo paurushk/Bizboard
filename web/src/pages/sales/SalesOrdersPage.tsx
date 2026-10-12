@@ -7,7 +7,7 @@ import DialogTitle from '@mui/material/DialogTitle';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
 import {
@@ -162,6 +162,13 @@ export function SalesOrdersPage() {
         error={error ?? (query.isError ? getErrorMessage(query.error) : null)}
         onRetry={() => void query.refetch()}
         showCreate={canWrite}
+        headerActions={
+          canWrite ? (
+            <Button component={RouterLink} to="/sales/quick-entry" variant="outlined">
+              {t('quickEntry.quickEntryShort')}
+            </Button>
+          ) : undefined
+        }
         page={page}
         pageSize={PAGE_SIZE}
         count={query.data?.count}

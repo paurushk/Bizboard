@@ -225,7 +225,7 @@ export function QuotationEditorPage() {
     setForm((f) => ({ ...f, lines: f.lines.map((l) => (l.key === key ? { ...l, ...change } : l)) }));
 
   // ---- customer
-  const customerSearch = useCustomerSearch({ selected: customer });
+  const customerSearch = useCustomerSearch({ selected: customer, activeOnly: true });
   const [newPartyName, setNewPartyName] = useState('');
   const chooseCustomer = (next: Customer | null) => {
     setPickedCustomer(next);

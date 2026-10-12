@@ -4,7 +4,7 @@ from rest_framework.response import Response
 
 from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
-from core.idempotency import wrap_idempotent
+from core.idempotency import IdempotentCreateMixin, wrap_idempotent
 from core.permissions import (
     CanCancelDocuments,
     CanCreateSales,
@@ -13,7 +13,7 @@ from core.permissions import (
     IsOwner,
 )
 from core.services.document_numbers import DocumentNumberService
-from core.viewsets import CompanyScopedViewSet
+from core.viewsets import CompanyScopedViewSet, client_source
 from ledgers.services import LedgerService
 
 from .einvoice_eway_actions import ChallanEwayActionsMixin, NoteEinvoiceActionsMixin
@@ -213,7 +213,7 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
         return Response(self.get_serializer(note).data)
 
 
-class SalesOrderViewSet(CompanyScopedViewSet):
+class SalesOrderViewSet(IdempotentCreateMixin, CompanyScopedViewSet):
     queryset = SalesOrder.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesOrderSerializer
 
@@ -224,15 +224,45 @@ class SalesOrderViewSet(CompanyScopedViewSet):
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "confirm", "convert", "convert_to_challan"):
-            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
 
+    def audit_metadata(self):
+        return {"source": client_source(self.request)}
+
+    def create(self, request, *args, **kwargs):
+        return self._idempotent(
+            request,
+            "sales_order_create",
+            lambda: super(SalesOrderViewSet, self).create(request, *args, **kwargs),
+        )
+
     def get_queryset(self):
+        from datetime import date as _date
+
+        from django.db.models import Q
+
         qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
+        params = self.request.query_params
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        if params.get("customer"):
+            try:
+                qs = qs.filter(customer_id=int(params["customer"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("customer must be a numeric id.")
+        for key, lookup in (("date_from", "order_date__gte"), ("date_to", "order_date__lte")):
+            raw = params.get(key)
+            if raw:
+                try:
+                    qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
+                except ValueError:
+                    raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
+        term = (params.get("q") or "").strip()[:100]
+        if term:
+            qs = qs.filter(Q(number__icontains=term) | Q(customer__name__icontains=term))
         return qs
 
     def perform_destroy(self, instance):
@@ -299,14 +329,19 @@ class SalesOrderViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def confirm(self, request, pk=None):
-        order = SalesNotesService.confirm_sales_order(
-            self.get_object(),
-            request.user,
-            override_reason=request.data.get("credit_override_reason"),
-        )
-        data = self.get_serializer(order).data
-        data["margin_warnings"] = getattr(order, "_gate_warnings", [])
-        return Response(data)
+        order = self.get_object()
+
+        def _run():
+            confirmed = SalesNotesService.confirm_sales_order(
+                order,
+                request.user,
+                override_reason=request.data.get("credit_override_reason"),
+            )
+            data = self.get_serializer(confirmed).data
+            data["margin_warnings"] = getattr(confirmed, "_gate_warnings", [])
+            return Response(data)
+
+        return self._idempotent(request, "sales_order_confirm", _run, success_codes=(200,))
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):
@@ -328,7 +363,9 @@ class SalesOrderViewSet(CompanyScopedViewSet):
         return Response(self.get_serializer(order).data)
 
 
-class DeliveryChallanViewSet(ChallanEwayActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet):
+class DeliveryChallanViewSet(
+    IdempotentCreateMixin, ChallanEwayActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet
+):
     queryset = DeliveryChallan.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = DeliveryChallanSerializer
     pdf_task = generate_challan_pdf
@@ -343,7 +380,7 @@ class DeliveryChallanViewSet(ChallanEwayActionsMixin, PdfDocumentActionsMixin, C
         if action in ("mark_eway_generated", "submit_eway", "cancel_eway"):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action in ("create", "update", "partial_update", "destroy", "complete", "convert"):
-            return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
@@ -353,6 +390,13 @@ class DeliveryChallanViewSet(ChallanEwayActionsMixin, PdfDocumentActionsMixin, C
         if self.request.query_params.get("status"):
             qs = qs.filter(status=self.request.query_params["status"])
         return qs
+
+    def create(self, request, *args, **kwargs):
+        return self._idempotent(
+            request,
+            "delivery_challan_create",
+            lambda: super(DeliveryChallanViewSet, self).create(request, *args, **kwargs),
+        )
 
     def perform_destroy(self, instance):
         if instance.status != DeliveryChallan.Status.DRAFT:

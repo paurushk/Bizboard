@@ -9,6 +9,8 @@ import { NewInvoicePage } from '@/pages/sales/NewInvoicePage';
 
 const track = vi.hoisted(() => vi.fn());
 
+const customerSearches = vi.hoisted(() => [] as unknown[]);
+
 vi.mock('@/lib/telemetry', () => ({
   trackShopFloor: (...args: unknown[]) => track(...args),
   runInvoiceCompleteJourney: async (run: () => Promise<unknown>) => run(),
@@ -88,14 +90,17 @@ vi.mock('@/api/resources', () => ({
     invoiceTerms: 'Pay within 7 days.',
   }),
   listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
-  listCustomersPage: async () => ({
-    results: [
-      { id: 10, name: 'Anil Store', phone: '9876543210', status: 'ACTIVE', state: 'Delhi' },
-    ],
-    count: 1,
-    next: null,
-    previous: null,
-  }),
+  listCustomersPage: async (params?: unknown) => {
+    customerSearches.push(params);
+    return {
+      results: [
+        { id: 10, name: 'Anil Store', phone: '9876543210', status: 'ACTIVE', state: 'Delhi' },
+      ],
+      count: 1,
+      next: null,
+      previous: null,
+    };
+  },
   getCustomer: async (id: number) => ({
     id,
     name: 'Anil Store',
@@ -299,6 +304,15 @@ function renderPage(initialEntries = ['/sales/new']) {
     </QueryClientProvider>,
   );
 }
+
+describe('NewInvoicePage customer picker', () => {
+  it('offers active customers only: a blocked or archived one cannot get a new bill', async () => {
+    customerSearches.length = 0;
+    renderPage();
+    await waitFor(() => expect(customerSearches.length).toBeGreaterThan(0));
+    expect(customerSearches.every((params) => (params as { status?: string }).status === 'ACTIVE')).toBe(true);
+  });
+});
 
 describe('NewInvoicePage CW-PR-5 Guidance and Focus', () => {
   it('INV-MAIN-14 a serial item with one number missing keeps complete disabled', async () => {

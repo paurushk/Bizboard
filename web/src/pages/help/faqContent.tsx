@@ -695,6 +695,155 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'quick-entry-order',
+    'Quotations, orders & challans',
+    'How do I book an order quickly from the road?',
+    ['quick order', 'quick entry', 'field order', 'save and next', 'order booking', 'road', 'field rep'],
+    [
+      'Open **t:nav.quickEntry**, pick a customer (a recent chip or search), tap products, type or step the quantity, then press **Save & next order**. The sheet clears and shows a link to what you saved, ready for the next shop.',
+      'The price and GST are set by the server from the customer’s price list and the product master, so nothing on your phone can change them.',
+      'Press **Save & open** instead if you want to review the saved document straight away.',
+    ],
+  ),
+  faq(
+    'quick-entry-order-vs-bill',
+    'Quotations, orders & challans',
+    'Does Quick order entry save a sales order or a draft bill?',
+    ['sales order or bill', 'draft bill', 'order mode', 'save as draft invoice', 'create sales order'],
+    [
+      'It depends on how your company is set up. With **order mode** on, a choice above the customer lets you pick **Sales order** or **Draft bill**. With it off, it always saves a draft bill.',
+      'A draft bill moves no stock and posts no ledger until you Complete it; find it under **t:nav.salesHistory**. A sales order appears under **t:nav.salesOrders**; once confirmed it reserves stock, and it can go on to a delivery challan, an invoice or a delivery route.',
+      'Order mode is switched on per company by your administrator.',
+    ],
+  ),
+  faq(
+    'quick-entry-price',
+    'Quotations, orders & challans',
+    'Why is the price on Quick order entry different from the item’s selling price?',
+    ['price list', 'wholesale price', 'slab', 'quantity slab', 'selling price', 'estimated', 'price check'],
+    [
+      'The server picks the price when you save: the customer’s price list (including quantity slabs and slab discounts) first, then the item’s selling price. The GST rate is the item’s current rate. Nothing stored on your phone can change them.',
+      'While the price check is running, the line shows the list price it can work out and the total shows an **estimated GST**. Once the check finishes the figures are the server’s, and they match the saved document.',
+      'Raising the quantity past a slab limit (for example 10 or 50 units) can lower the unit price. That is the price list working as set up.',
+    ],
+  ),
+  faq(
+    'quick-entry-needs-approval',
+    'Quotations, orders & challans',
+    'Quick order entry says “Needs approval” or “confirming did not complete”. What now?',
+    ['needs approval', 'credit limit', 'margin', 'confirm order', 'draft order', 'did not complete', 'auto confirm'],
+    [
+      '**Needs approval** means the order was saved as a draft, but a credit-limit or margin check refused to confirm it. A manager can review and confirm it from **t:nav.salesOrders** (with a reason if the credit limit is overridden).',
+      '**Saving worked, but confirming did not complete** means the connection dropped or the server was busy after the order was saved. The order is a draft and has not been lost. Open it from the link and press **Confirm**; pressing it twice is safe.',
+      'Auto-confirm is optional and switched on per company. Without it, every order stays a draft until someone confirms it.',
+    ],
+  ),
+  faq(
+    'quick-entry-blocked-customer',
+    'Quotations, orders & challans',
+    'Why can’t I pick a customer, or why was my order refused for a customer?',
+    ['blocked customer', 'inactive customer', 'cannot create order', 'customer not active', 'archived customer'],
+    [
+      'Blocked and inactive customers are left out of the recent chips and the search, and the server refuses to save an order or bill for them. It also refuses to confirm or complete a draft for a customer who was blocked after the draft was made.',
+      'An owner or manager can lift a block from **t:nav.customers**. Until then, an existing draft can still be edited or cancelled.',
+    ],
+  ),
+  faq(
+    'quick-entry-quantity',
+    'Quotations, orders & challans',
+    'How do I enter a large or fractional quantity, and how do I remove a line?',
+    ['quantity', 'decimal quantity', 'kg', 'litre', 'type quantity', 'minimum quantity', 'undo', 'remove line'],
+    [
+      'Tap the number and type it, then tap away or press Enter. Use **−** and **+** for small changes. **−** stops at the minimum instead of deleting the line.',
+      'Goods sold in pieces or boxes take whole numbers only. Goods sold by measure (kg, litre, metre and similar) accept decimals up to three places. A value that does not fit goes back to the last good one with a message.',
+      'The bin removes the line, and **Undo** at the bottom of the screen brings it back for a few seconds.',
+    ],
+  ),
+  faq(
+    'quick-entry-draft-recovery',
+    'Quotations, orders & challans',
+    'I closed the page in the middle of an order. Is it lost?',
+    ['unsaved order', 'resume order', 'draft lost', 'reload', 'phone switched', 'discard draft'],
+    [
+      'No. Quick order entry keeps your unsaved order on that device and browser. When you return, a banner offers **Resume** or **Discard**. Resume re-checks the customer and items, and drops any that are no longer active.',
+      'The saved draft holds the customer, the items and quantities, the note and the delivery address. It never stores prices. It is removed when you save the order, discard it, or sign out.',
+      'It does not follow you to another phone or browser.',
+    ],
+  ),
+  faq(
+    'quick-entry-offline',
+    'Quotations, orders & challans',
+    'Can I book orders with no network?',
+    ['offline', 'no internet', 'no signal', 'network', 'connection', 'retry'],
+    [
+      'Not yet. Saving needs a connection. If the connection drops while you save, the message tells you it failed; your order stays on screen, and pressing Save again sends the same request, so you do not get two documents.',
+      'Your half-built order is kept on the device, so a reload or a dead battery does not lose it. Queued offline booking is not part of this screen.',
+    ],
+  ),
+  faq(
+    'quick-entry-warnings',
+    'Quotations, orders & challans',
+    'What do the stock, credit-limit and credit-hold warnings mean?',
+    ['low stock', 'only in stock', 'credit limit', 'credit hold', 'overdue customer', 'stock warning', 'negative stock'],
+    [
+      '**Only N in stock** appears on a line that is larger than the stock on hand in your main godown. If your company blocks negative stock it is an amber warning, because Complete will stop; if negative stock is allowed it is only information.',
+      '**Over their credit limit** means this order would take the customer above their credit limit given what they already owe. **Credit hold** means the customer is on a collection hold.',
+      'These are advice so you can warn the customer. The server decides when you confirm or complete.',
+    ],
+  ),
+  faq(
+    'quick-entry-duplicates',
+    'Quotations, orders & challans',
+    'What if I tap Save twice, or save again after an error?',
+    ['duplicate order', 'double tap', 'saved twice', 'retry save', 'idempotency'],
+    [
+      'You will not get two documents. The Save buttons are disabled while saving, and each save carries a key that the server remembers: a repeat of the same order is answered with the original instead of creating another.',
+      'If you change anything first (a quantity, the customer, the note) it counts as a new order and gets a new key. If a save fails with a message, fix it and press Save again.',
+    ],
+  ),
+  faq(
+    'quick-entry-delivery-details',
+    'Quotations, orders & challans',
+    'Where do the delivery address, notes and payment terms come from?',
+    ['delivery address', 'deliver to', 'ship to', 'order note', 'payment terms', 'credit days', 'route stop'],
+    [
+      'For a sales order, if the customer has several saved addresses a **Deliver to** choice appears. If you pick none, the order uses the customer’s default saved address, then their shipping address, then their billing address, so a delivery route stop is not blank.',
+      'Payment terms come from the customer’s credit days. The **Note** box adds a one-line note to the order or bill.',
+      'Edit the saved order to change the address, terms or anything else Quick order entry does not show.',
+    ],
+  ),
+  faq(
+    'quick-entry-where-saved',
+    'Quotations, orders & challans',
+    'Where do I find an order I saved from Quick order entry?',
+    ['find saved order', 'saved order', 'quick entry history', 'sales orders list', 'draft bill list', 'recent customers'],
+    [
+      'The green banner after **Save & next order** has an **Open** link. Later, look under **t:nav.salesOrders** for a sales order, or **t:nav.salesHistory** for a draft bill; both can be searched by customer or number.',
+      'A new order has no number until it is confirmed, so it shows as a draft with its internal id. The chips on Quick order entry show your own recent customers and items, not the whole company’s.',
+    ],
+  ),
+  faq(
+    'quick-entry-gst',
+    'Quotations, orders & challans',
+    'Which GST type does Quick order entry use, and why is GST shown as an estimate?',
+    ['gst type', 'composition', 'unregistered', 'retail invoice', 'gstin missing', 'estimated gst', 'inclusive price', 'tax inclusive'],
+    [
+      'The type follows your registration. Composition and unregistered companies save non-GST documents. A regular company saves a GST invoice for a customer with a GSTIN and a retail invoice for one without. Tax-inclusive companies keep prices tax-inclusive.',
+      'If a regular company has not saved its GSTIN, the screen warns you, because a GST invoice cannot be completed without it. Add it under GST settings.',
+      'GST on the screen is an estimate from each line’s rate until the server price check returns. The saved document is the final figure.',
+    ],
+  ),
+  faq(
+    'quick-entry-turn-on',
+    'Quotations, orders & challans',
+    'How do I turn on order mode, auto-confirm or the server price check?',
+    ['enable order mode', 'feature flag', 'auto confirm setting', 'pilot', 'switch on', 'administrator'],
+    [
+      'These are rollout settings that your Bizboard administrator or support contact turns on for your company: **order mode** (save sales orders), **auto-confirm** (confirm right after saving) and the **server price check** (exact prices and totals on screen). They are off by default.',
+      'Before order mode is switched on, open orders for customers who are now blocked, and orders with no delivery address, are listed for review, because those will fail to confirm or leave blank route stops.',
+    ],
+  ),
+  faq(
     'quotation-partial-close',
     'Quotations, orders & challans',
     'What if only part of a quotation is converted and the rest is dropped?',
@@ -811,8 +960,8 @@ const MORE_FAQ: FaqItem[] = [
     'Why can’t I bill this customer?',
     ['blocked party', 'customer blocked', 'cannot create invoice', 'status blocked'],
     [
-      'The party status is blocked. Blocked customers cannot get a new invoice or a converted quotation.',
-      'Ask the Owner to open **t:nav.sales** → **t:nav.customers**, set status back to active, or pick another customer. This is a credit or compliance hold, not a software error.',
+      'The customer is blocked or archived (Inactive). Neither can get a new invoice, quotation, order, delivery challan, or converted quotation. A draft they already have can still be saved or cancelled, but not completed.',
+      'An owner or manager can lift it: open **t:nav.sales** → **t:nav.customers** and press **Unblock** (or **Activate** for an archived customer), or pick another customer. This is a credit or compliance hold, not a software error.',
     ],
   ),
   faq(
@@ -821,7 +970,7 @@ const MORE_FAQ: FaqItem[] = [
     'How do customer credit limits work?',
     ['credit limit', 'party limit', 'exposure', 'outstanding limit'],
     [
-      'Set a limit greater than zero on the customer. **t:billing.saveAndComplete** is blocked when open exposure plus this invoice exceeds the limit.',
+      'Set a limit greater than zero on the customer; only an owner or manager can change it. **t:billing.saveAndComplete** is blocked when open exposure plus this invoice exceeds the limit.',
       'With the books off, exposure is bills minus credit notes plus debit notes minus allocated receipts minus unallocated receipts. With the books on, it is the higher of the ledger balance and the document balance after the advance account. A zero or blank limit means no check.',
     ],
   ),
@@ -841,8 +990,8 @@ const MORE_FAQ: FaqItem[] = [
     'Why can’t I save a customer with this GSTIN?',
     ['duplicate gstin', 'party gstin exists', 'unique gstin'],
     [
-      'Another customer in this company already has that GSTIN. Duplicate party GSTINs are rejected.',
-      'Search **t:nav.customers** for the existing party and reuse it, or fix the number.',
+      'Another customer in this company already has that GSTIN. Duplicate party GSTINs are rejected, and the message names the customer that has it.',
+      'Search **t:nav.customers** for that party and reuse it, or fix the number. If the other customer is archived, an owner or manager can reactivate it from the Inactive filter.',
     ],
   ),
   faq(
@@ -851,8 +1000,186 @@ const MORE_FAQ: FaqItem[] = [
     'How do I bill a walk-in with no GSTIN?',
     ['walk in', 'cash customer', 'blank party', 'counter sale', 'b2c'],
     [
-      'Leave the party blank or use a walk-in customer. Place of supply follows assume-local-state for a blank party (default on), or you confirm a blank place of supply. That typically makes the bill intra-state.',
+      'Leave the party blank or use the walk-in customer (the POS walk-in has no GSTIN or credit limit, and cannot be blocked). Place of supply follows assume-local-state for a blank party (default on), or you confirm a blank place of supply. That typically makes the bill intra-state.',
       'For a named B2B buyer, always put GSTIN and state.',
+    ],
+  ),
+
+  faq(
+    'customer-verify-gstin',
+    'Customers',
+    'How do I verify a customer’s GSTIN?',
+    ['verify gstin', 'autofill', 'legal name', 'check gstin', 'gst portal', 'bulk verify', 'verify selected'],
+    [
+      'In the customer form, type the GSTIN and press **Verify & autofill**. It fills the state, PAN and taxpayer type, and offers the legal name when the GSTIN service returns one. It saves nothing until you press Save.',
+      'On the **t:nav.customers** list, **Verify** checks one row. Tick several rows that have a GSTIN and press **Verify selected** to check up to 10 at once. Each company has an hourly limit on GSTIN checks; if you reach it, wait and try again.',
+    ],
+  ),
+  faq(
+    'customer-gstin-unverified',
+    'Customers',
+    'Why does the GSTIN still say Unverified?',
+    ['unverified', 'not configured', 'could not be reached', 'gstin status', 'amber chip', 'verification service'],
+    [
+      'Unverified means only the format and check digit were confirmed. Either live GSTIN verification is not set up for your company, or the service could not be reached just now. The message after you press Verify says which. If it could not be reached, try again in a few minutes.',
+      'A green Verified chip means the GSTIN service confirmed it. Invalid, Cancelled and Suspended show red; do not raise new GST bills to those until the customer sorts out their registration.',
+    ],
+  ),
+  faq(
+    'customer-edit-gstin-resets',
+    'Customers',
+    'Why did Verified go back to Unverified after I edited the GSTIN?',
+    ['gstin changed', 'verification reset', 'legal name cleared', 'edit gstin', 'verified status'],
+    [
+      'The old verification described the old number, so changing or clearing the GSTIN clears the status and the legal name. The state and PAN follow the new GSTIN. Press **Verify & autofill** or **Verify** again to check the new one.',
+    ],
+  ),
+  faq(
+    'customer-state-mismatch',
+    'Customers',
+    'Why does it say the GSTIN belongs to a different state?',
+    ['state mismatch', 'gstin state', 'wrong state', 'place of supply', 'state does not match'],
+    [
+      'The first two digits of a GSTIN are its state. The state you chose or saved does not match them, and GST bills depend on this to choose CGST+SGST or IGST. Either leave the state blank and let the GSTIN fill it, or correct the GSTIN.',
+      'A GSTIN for the other territory or an export (codes 96 and 97) has no single state, so it is not checked. Older customers saved before this rule keep working. Saving one in the customer form checks the state and GSTIN together, so a mismatch is caught the next time you edit it.',
+    ],
+  ),
+  faq(
+    'customer-who-can',
+    'Customers',
+    'Who can block, unblock, archive, or change credit terms for a customer?',
+    ['who can block', 'unblock customer', 'archive permission', 'credit limit permission', 'owner manager', 'sales staff'],
+    [
+      'Anyone who can create sales can **Block** a customer. **Unblock**, **Activate** (for an archived customer), **Archive**, and changing the **credit limit** or **credit days** are for an owner or manager. Other roles do not see Unblock, Activate or Archive, the credit fields are locked for them, and the server refuses the change if it is tried another way.',
+      'This keeps a credit hold from being lifted by the person who wants to bill the customer.',
+    ],
+  ),
+  faq(
+    'customer-block-archive-delete',
+    'Customers',
+    'What is the difference between Block, Archive and Delete?',
+    ['block vs archive', 'delete customer', 'inactive customer', 'archive customer', 'deactivate'],
+    [
+      '**Block** is a temporary credit or compliance hold: no new bills, and an owner or manager lifts it. **Archive** retires a customer: they disappear from new-document pickers and cannot get new documents, but their history stays. **Delete** is not a separate button: archiving a customer nothing refers to deletes it, and archiving one with bills, receipts, contracts or similar marks it Inactive instead.',
+      'Use Block to stop selling while a dispute is settled. Archive only when the relationship has ended and the balance is zero.',
+    ],
+  ),
+  faq(
+    'customer-archive-refused',
+    'Customers',
+    'Why can’t I archive this customer?',
+    ['cannot archive', 'archive refused', 'outstanding balance archive', 'unallocated advance', 'walk-in archive'],
+    [
+      'Archive is refused when the customer still owes money, or holds an advance that is not allocated, because archiving would hide a balance. Record the receipt, issue the credit note, or allocate the advance first, then archive. The message says which one applies.',
+      'It is also refused for the POS walk-in customer (make another customer the walk-in first), and for anyone who is not an owner or manager.',
+    ],
+  ),
+  faq(
+    'customer-archived-billing',
+    'Customers',
+    'Why can’t I bill an archived customer, and how do I bring one back?',
+    ['archived customer', 'inactive status', 'activate customer', 'reactivate', 'show archived', 'draft archived customer'],
+    [
+      'An archived (Inactive) customer cannot get a new invoice, quotation, order, delivery challan, or quotation conversion, the same as a blocked one. Recurring invoices for them are skipped. You can still record a receipt, issue a credit note, and open their ledger. A draft they already had can be saved or cancelled but not completed.',
+      'To bring one back, open **t:nav.customers**, press the **archived** link under the Active customers card (or filter by Inactive), and press **Activate**. An owner or manager must do this.',
+    ],
+  ),
+  faq(
+    'customer-360',
+    'Customers',
+    'What is on the Customer Snapshot page?',
+    ['customer 360', 'customer snapshot', 'customer page', 'customer profile', 'dues', 'aging', 'promise to pay'],
+    [
+      'Click a customer’s name on **t:nav.customers** to open **t:nav.customer360**. It shows what they buy, what they owe by age, cheques not yet cleared, promises to pay, and a way to start a new bill, open Money in, repeat their last invoice as a draft, or edit them in place. Complaints, tickets, contracts and referrals appear when your company uses those modules.',
+      'Money, aging and profit need the financial-reports permission; without it you see the buying pattern and products only.',
+    ],
+  ),
+  faq(
+    'customer-history',
+    'Customers',
+    'How do I see who changed a customer?',
+    ['customer history', 'audit', 'who changed', 'credit limit changed', 'change log'],
+    [
+      'Open the customer in **t:nav.customer360** and scroll to **History**. Each line shows who changed what and when: name, GSTIN, state, status, credit limit and credit days. Phone, email and PAN changes show masked values, so the log records that they changed without repeating them.',
+      'You need the financial-reports permission to see History.',
+    ],
+  ),
+  faq(
+    'customer-export',
+    'Customers',
+    'How do I export my customer list?',
+    ['export customers', 'customer csv', 'download customers', 'customer list excel'],
+    [
+      'On **t:nav.customers**, set the search and status you want and the sort, then press **Export CSV**. It exports every customer that matches, not just the page on screen: name, phone, email, GSTIN and its status, taxpayer type, state, status, credit terms, outstanding and credit exposure.',
+      'It needs the financial-reports and export permissions, is limited to 20,000 rows (narrow the filters if you get that message), and each export is recorded for audit.',
+    ],
+  ),
+  faq(
+    'customer-changed-by-someone',
+    'Customers',
+    'The form says someone else changed this customer. What do I do?',
+    ['stale', 'changed by someone else', 'reload latest', 'conflict', 'version', 'overwrite'],
+    [
+      'Someone saved this customer after you opened the form. Press **Reload latest**: it brings in their changes and keeps the fields you edited, then save again. Nothing you typed is lost, and nothing they saved is overwritten.',
+    ],
+  ),
+  faq(
+    'customer-phone-format',
+    'Customers',
+    'Which phone numbers does a customer accept?',
+    ['phone format', 'mobile number', 'invalid phone', '91 number', 'plus 91', 'whatsapp number'],
+    [
+      'A 10-digit Indian mobile that starts with 6, 7, 8 or 9. You may type +91, 91 or 0 in front, and spaces or hyphens. A number that happens to begin with 91, like 9123456789, is valid as it stands. A landline or a number from another country will be refused.',
+      'The phone is also used for WhatsApp and SMS reminders, so use the number the customer reads.',
+    ],
+  ),
+  faq(
+    'customer-pos-walk-in',
+    'Customers',
+    'How do I choose or change the POS walk-in customer?',
+    ['pos walk-in', 'walk in customer', 'counter customer', 'set walk-in', 'cash sale customer'],
+    [
+      'The POS uses one walk-in customer per company, created the first time the POS needs it. It cannot have a GSTIN or a credit limit, cannot be blocked, and cannot be archived. An owner can make a different customer the walk-in: open its **More** menu on **t:nav.customers** and choose **Set as POS walk-in**. The customer must be active, with no GSTIN and no credit limit. The old walk-in becomes a normal customer.',
+    ],
+  ),
+  faq(
+    'customer-addresses-fields',
+    'Customers',
+    'Can a customer have several delivery addresses or extra details like a drug licence?',
+    ['shipping address', 'delivery address', 'multiple addresses', 'custom fields', 'drug licence', 'fssai', 'default address'],
+    [
+      'Yes. In the customer form, open **Addresses and location** to add delivery addresses with a label and mark one as default, and **Other details** for the extra fields your company set up (for example a drug licence or FSSAI number) and for notes. Coordinates can be typed or filled with **Use current location** on a phone.',
+      'The extra fields are defined once in your invoice quick settings, then show on every customer form and on the invoice.',
+    ],
+  ),
+  faq(
+    'customer-tax-class',
+    'Customers',
+    'What is the taxpayer type on a customer?',
+    ['taxpayer type', 'sez', 'export', 'composition', 'unregistered', 'deemed export', 'gstr-1 table'],
+    [
+      'It tells GST how to treat sales to this customer: Regular, Composition, Unregistered, SEZ with or without payment, Export with or without payment, or Deemed export. It decides the GSTR-1 table a bill lands in and whether tax is charged.',
+      'A customer with no GSTIN starts as Unregistered, and a full GSTIN switches it to Regular unless you chose another type yourself. Set SEZ and export types by hand; they are not guessed.',
+    ],
+  ),
+  faq(
+    'customer-health-banner',
+    'Customers',
+    'What does “customer records need a look” mean?',
+    ['customer audit', 'health check', 'duplicate gstin', 'state disagrees', 'monthly check', 'banner'],
+    [
+      'Owners and managers see this banner on **t:nav.customers** when the customer check finds records worth fixing: a state that disagrees with the GSTIN, a duplicate GSTIN, a Verified status without a verified GSTIN, or a problem with the POS walk-in customer. The same check runs on the 1st of every month and tells the owners. A data restore runs it too and notes the result in the system log.',
+      'Open the customers it names and correct the state or GSTIN. Nothing is changed for you.',
+    ],
+  ),
+  faq(
+    'customer-summary-cards',
+    'Customers',
+    'What do the cards above the customer list mean?',
+    ['customer summary', 'outstanding total', 'advances held', 'over limit', 'net exposure'],
+    [
+      '**Active customers** counts the customers your filters match. **Outstanding** is what they owe. **Advances held** is money received but not yet allocated to bills, and Net exposure is outstanding after those advances. **Over limit / blocked** shows how many are above their credit limit and how many are blocked.',
+      'The cards follow your search and status filter, and are shown only to people with the financial-reports permission.',
     ],
   ),
 

@@ -7,7 +7,18 @@
 **Backend Domain:** `backend/masters/` (`models.py`, `serializers.py`, `views.py`), `backend/core/services/gstin_verify.py`, `backend/ledgers/services.py`  
 **Audit Roles:** Principal Product Manager · Senior UX Designer · Business Analyst · Software Architect · QA Lead  
 **Audit Date:** 2026-10-11  
-**Verdict:** 🟡 **READY WITH FIXES** (Current Score: **5.5 / 10** → Post `CUS-01..CUS-14`: **9.4 / 10** → Post `CUS-15..CUS-20`: **10.0 / 10**)
+**Verdict:** 🟡 **READY WITH FIXES** — delivered in three releases (R1 integrity/permissions, R2 form/cache/UX, R3 enhancements); progress is tracked by the exit checklist in Part III, not by a numeric score.
+**Detailed work packages:** [docs/CUSTOMERS_WORK_PACKAGES.md](docs/CUSTOMERS_WORK_PACKAGES.md) — step-by-step plan, files, tests and risks for every `CUS-xx` item, plus a "Baseline reconciliation" table of audit claims that no longer match HEAD (e.g. debounce and null-coordinate clearing already exist; shipping addresses have only `label/address/is_default`). Where the two documents disagree, the work-packages file is the more recent.
+**Status (2026-10-11):** every item `CUS-01..CUS-27` is implemented; see the status section of [docs/CUSTOMERS_WORK_PACKAGES.md](docs/CUSTOMERS_WORK_PACKAGES.md) and [docs/CUSTOMERS_STATUS_SEMANTICS.md](docs/CUSTOMERS_STATUS_SEMANTICS.md). Founder decisions taken: archived customers are refused on new documents like blocked ones; Customer 360° and the strict GSTIN/state/phone rules are on by default; archive/delete is owner/manager only.
+**Revision:** v2 (2026-10-11) — incorporates review comments: release split, shared GSTIN helper, legacy-data backfill, concurrency/permission/abuse hardening, new gap items `CUS-21..CUS-27`. Line numbers cited below must be re-verified against HEAD before each work item starts.
+
+
+> **Read this first — where this document is out of date.** It was written from an earlier view of the code. Corrected by later work (see `docs/CUSTOMERS_WORK_PACKAGES.md` §0 and `docs/CUSTOMERS_REVIEW_2026-10-12.md`):
+> rows were never clickable (the name is now a link to 360°, which is on by default); search was already debounced; clearing coordinates already sent `null`;
+> the backend already validated coordinates; shipping addresses have only `label`, `address` and `is_default`; the GSTIN lookup result has no `.error` (the note is in `raw`);
+> tests live in `backend/tests/`, not `backend/masters/tests/`; the example GSTIN `27AABCU9603R1ZM` had a wrong check character (`...ZN` is valid);
+> `verify_gstin` is open to anyone who can create sales (throttled), not owner-only; the "10/10" scoring was dropped; INACTIVE customers are now refused on new documents.
+> Line numbers cited below are from the earlier code and no longer match.
 
 ---
 
@@ -16,8 +27,10 @@
 The **Customers** module (`CustomersPage.tsx` + `Customer360Page.tsx` + `CustomerViewSet`) is the foundational Accounts Receivable and Party Master registry for Bizboard. Every downstream revenue workflow—Sales Invoices, POS Checkout, Sales Orders, Quotations, Proforma Invoices, Credit/Debit Notes, Money In (Customer Receipts), Customer Ledger, Receivables Aging, Field Sales Visits, Collection Risk holds, and GSTR-1 / e-Invoicing—depends directly on the accuracy and invariants of `Customer` records.
 
 A code-verified audit across the full stack (`Screen → User Goal → Interaction → Flow → Data → Business Logic → System State → Other Screens → Other Modules → Downstream Impact → Edge Cases → Regression Risk`) revealed:
-- **Core Remediation Set (`CUS-01` .. `CUS-14`):** 4 P0 blockers, 5 P1 major workflow/data integrity defects, 3 P2 moderate improvements, and 2 P3 UX/localization fixes (raises score from **5.5 / 10** to **9.4 / 10**).
-- **10/10 Excellence Set (`CUS-15` .. `CUS-20`):** 6 targeted functional, automation, API-hardening, and accessibility items that close the remaining 0.6-point gap to achieve a true **10.0 / 10** across all 11 evaluation dimensions.
+- **Core Remediation Set (`CUS-01` .. `CUS-14`):** 4 P0 blockers, 5 P1 major workflow/data integrity defects, 3 P2 moderate improvements, and 2 P3 UX/localization fixes.
+- **Enhancement Set (`CUS-15` .. `CUS-20`):** 6 feature/automation/API-hardening/accessibility items. These are scope additions, not defect fixes, and ship last (R3).
+- **Gap Set (`CUS-21` .. `CUS-27`):** 7 items added after review: shared GSTIN helper, legacy-data backfill, credit-term permissions, customer audit history, import-path parity, backend field validation, and observability.
+- **Why the numeric scorecard was removed:** per-dimension scores were unmeasured estimates and a "10.0 / 10" claim is not verifiable. Sign-off is by the exit checklist in Part III.
 
 ---
 
@@ -236,7 +249,7 @@ Next screen/action: Customer360Page (New Invoice, Record Receipt, Log Follow-up,
 
 ### 17. TEST SCENARIOS (HIGH-VALUE)
 
-1. **B2B Customer Create & Edit with Credit + Tax Fields:** Set `creditLimit`, `creditDays`, `taxpayerType='SEZWP'`, `shippingAddress`, and `gstin='27AABCU9603R1ZM'` → verify persistence and state auto-selection (`Maharashtra`).
+1. **B2B Customer Create & Edit with Credit + Tax Fields:** Set `creditLimit`, `creditDays`, `taxpayerType='SEZWP'`, `shippingAddress`, and `gstin='27AABCU9603R1ZN'` → verify persistence and state auto-selection (`Maharashtra`).
 2. **GSTIN Prefix Change Updates State & Rejects Mismatch:** Change GSTIN prefix from `27...` to `29...` → verify `state` updates to `Karnataka`; attempt API `PATCH` with `gstin='29...'` and `state='Maharashtra'` → verify `400 Bad Request`.
 3. **GSTIN Edit Resets Verification Status:** Verify a customer (`status='VALID'`), then edit `gstin` to a new number via `PATCH` → verify `CustomerViewSet.perform_update` resets `gstin_verification_status` to `'UNVERIFIED'` and clears `gstin_legal_name`.
 4. **POS Walk-In Protection:** Attempt to block, delete/deactivate, or add a GSTIN / credit limit to the `isPosWalkIn=True` customer via UI, `PATCH`, and `DELETE` → verify UI disables them and backend returns `400 Bad Request`.
@@ -246,30 +259,49 @@ Next screen/action: Customer360Page (New Invoice, Record Receipt, Log Follow-up,
 
 ---
 
-### 18. TOP PROBLEMS & 10/10 EXCELLENCE MATRIX
+### 18. TOP PROBLEMS & RELEASE MAP
+
+**Release map (replaces the old phase-by-score view):**
+
+| Release | Theme | Items | Gate to ship |
+|---|---|---|---|
+| **R1** | Data integrity, permissions, visible errors | `CUS-21` (shared GSTIN helper), `CUS-22` (backfill report), `CUS-04`, `CUS-05`, `CUS-06`, `CUS-07`, `CUS-10`, `CUS-02`, `CUS-03`, `CUS-08`, `CUS-26` | Backend tests green; backfill report reviewed; feature flag `CUSTOMER_STRICT_VALIDATION` on in staging |
+| **R2** | Form completeness, cache, UX | `CUS-01`, `CUS-23`, `CUS-09`, `CUS-12`, `CUS-13`, `CUS-14`, `CUS-11`, `CUS-19` (search/status part), `CUS-17` step 1 (shared `CustomerFormDialog`) | Vitest green; manual role-matrix pass |
+| **R3** | Enhancements | `CUS-15`, `CUS-16`, `CUS-17` (rest), `CUS-18`, `CUS-19` (stub notice), `CUS-20`, `CUS-24`, `CUS-25`, `CUS-27` | a11y no-new-violations vs baseline; OpenAPI regenerated |
+
+Effort sizing and owners are to be filled in at kickoff (open item). Each release is independently shippable and revertable; strict backend validations (`CUS-05/07/10`) sit behind `CUSTOMER_STRICT_VALIDATION` so they can be disabled without a deploy rollback.
+
+
 
 | Priority | ID | Problem / Capability Gap | Impact | Target Phase |
 |---|---|---|---|---|
-| **P0** | **CUS-01** | Core credit & GST fields (`creditLimit`, `creditDays`, `taxpayerType`, `pan`, `shippingAddress`, `notes`) missing from UI. | Credit gates and GSTR-1 classifications cannot be configured from Customer Master. | Core (`9.4`) |
-| **P0** | **CUS-02** | Modal save errors render on the background page behind `<Dialog>`, and stale errors are never cleared on open. | Users cannot see why Save failed without closing the modal and losing their typed data. | Core (`9.4`) |
-| **P0** | **CUS-03** | Permission & subscription gate mismatches (`canMutate`, `Verify GSTIN`, `View Ledger`, `useSubscriptionGate`). | Deterministic `403 Forbidden` and Access Denied traps for `SALES_STAFF`, `MANAGER`, `ACCOUNTANT`, `AUDITOR`. | Core (`9.4`) |
-| **P0** | **CUS-04** | POS Walk-In customer (`isPosWalkIn`) can be blocked, deleted/deactivated, or assigned a GSTIN via Edit. | Blocking/deleting walk-in breaks POS counter checkout; adding GSTIN violates walk-in invariants. | Core (`9.4`) |
-| **P1** | **CUS-05** | Editing or clearing `gstin` does not reset `gstin_verification_status` or `gstin_legal_name` (`perform_update` bypasses `serializer.update`). | Modified GSTIN falsely retains `'VALID'` status and old taxpayer's legal name. | Core (`9.4`) |
-| **P1** | **CUS-06** | `gstinStatusColor()` maps `'VERIFIED'` instead of `'VALID'` and omits `'CANCELLED'`/`'SUSPENDED'`. | Verified `'VALID'` GSTINs show amber warning; cancelled/suspended GSTINs show amber instead of red error. | Core (`9.4`) |
-| **P1** | **CUS-07** | `state` does not update when GSTIN prefix changes and backend does not enforce `gstin[:2] == state`. | Wrong intra/inter-state tax (`CGST+SGST` vs `IGST`) on downstream invoices. | Core (`9.4`) |
-| **P1** | **CUS-08** | Clearing `latitude`/`longitude` on Edit omits keys from `PATCH` instead of sending `null`; out-of-range lat/lng not checked in UI. | Saved GPS coordinates can never be removed via UI. | Core (`9.4`) |
-| **P1** | **CUS-09** | Incomplete React Query invalidation, unfiltered optimistic prepend, and `version` locking ignored on `PATCH`. | Stale party data in Invoice, Receipt, and 360° screens; silent concurrent overwrites. | Core (`9.4`) |
-| **P2** | **CUS-10** | Duplicate GSTIN raises generic DB `IntegrityError` instead of naming the conflicting customer. | Operator cannot tell which existing customer already has that GSTIN. | Core (`9.4`) |
-| **P2** | **CUS-11** | `sort=balance` computes `bulk_customer_outstanding` 3 times per request and builds an unbounded SQL `CASE WHEN`. | Slow response times as customer count grows. | Core (`9.4`) |
-| **P2** | **CUS-12** | Unconfirmed 1-click Block, `INACTIVE` rows showing "Unblock", and missing Delete/Deactivate UI action. | Accidental customer blocks and confusing lifecycle states. | Core (`9.4`) |
-| **P3** | **CUS-13** | Sort control mislabelled as `"Filter"` (`common.filter`) and hardcoded English strings in `CustomersPage.tsx`. | Confusing toolbar labels and broken Hindi (`hi`) localization parity. | Core (`9.4`) |
-| **P3** | **CUS-14** | Clickable table rows lack keyboard accessibility (`tabIndex`, `onKeyDown`) and search input lacks debounce. | Keyboard users cannot open Customer 360°; excessive API calls while typing search queries. | Core (`9.4`) |
-| **10/10** | **CUS-15** | **Portfolio Summary KPI Strip (`summary/`) & Filtered CSV Export (`export/`).** | Gives AR/Owners instant visibility into Total Active, On Credit Hold, Gross Outstanding, and Unallocated Advances + 1-click CSV export. | **10/10 Set** |
-| **10/10** | **CUS-16** | **In-Modal "Verify & Autofill GSTIN" (`lookup-gstin/`), Custom Fields (`partyCustomFieldDefs`), Multiple Shipping Addresses & Geo-Location Helper.** | Cuts B2B onboarding to 5 seconds and achieves 100% parity with `NewInvoicePage` party custom fields and multi-shipping addresses. | **10/10 Set** |
-| **10/10** | **CUS-17** | **Full Lifecycle Controls: Archive/Delete Action, Owner "Set as POS Walk-In" UI Action & Direct Edit Modal on `Customer360Page`.** | Completes all CRUD + lifecycle flows across both `CustomersPage` and `Customer360Page` without dead ends. | **10/10 Set** |
-| **10/10** | **CUS-18** | **Receivable & Advance Transparency in Table (`Outstanding` + `Advance Held` / `Credit Limit` Progress) & `PATCH` Optimistic Locking.** | Makes Books-ON vs Books-OFF receivable vs advance positions crystal clear on every row and prevents concurrent `PATCH` overwrites. | **10/10 Set** |
-| **10/10** | **CUS-19** | **Backend Search & Filter Hardening (`email` in `q`, `q` length cap, `status` choice validation, actionable stub GSTIN notice).** | Searching by email works; invalid query params return clean `400` errors; stub GSP mode explains why status stayed Unverified. | **10/10 Set** |
-| **10/10** | **CUS-20** | **Zero `axe-core` Violations, Accessible Name Link + Dialog Focus Restoration, 375px Responsive Polish & OpenAPI Type Sync.** | Guarantees WCAG AA keyboard/screen-reader compliance, zero mobile horizontal overflow, and full OpenAPI contract parity. | **10/10 Set** |
+| **P0** | **CUS-01** | Core credit & GST fields (`creditLimit`, `creditDays`, `taxpayerType`, `pan`, `shippingAddress`, `notes`) missing from UI. | Credit gates and GSTR-1 classifications cannot be configured from Customer Master. | Core (see release map) |
+| **P0** | **CUS-02** | Modal save errors render on the background page behind `<Dialog>`, and stale errors are never cleared on open. | Users cannot see why Save failed without closing the modal and losing their typed data. | Core (see release map) |
+| **P0** | **CUS-03** | Permission & subscription gate mismatches (`canMutate`, `Verify GSTIN`, `View Ledger`, `useSubscriptionGate`). | Deterministic `403 Forbidden` and Access Denied traps for `SALES_STAFF`, `MANAGER`, `ACCOUNTANT`, `AUDITOR`. | Core (see release map) |
+| **P0** | **CUS-04** | POS Walk-In customer (`isPosWalkIn`) can be blocked, deleted/deactivated, or assigned a GSTIN via Edit. | Blocking/deleting walk-in breaks POS counter checkout; adding GSTIN violates walk-in invariants. | Core (see release map) |
+| **P1** | **CUS-05** | Editing or clearing `gstin` does not reset `gstin_verification_status` or `gstin_legal_name` (`perform_update` bypasses `serializer.update`). | Modified GSTIN falsely retains `'VALID'` status and old taxpayer's legal name. | Core (see release map) |
+| **P1** | **CUS-06** | `gstinStatusColor()` maps `'VERIFIED'` instead of `'VALID'` and omits `'CANCELLED'`/`'SUSPENDED'`. | Verified `'VALID'` GSTINs show amber warning; cancelled/suspended GSTINs show amber instead of red error. | Core (see release map) |
+| **P1** | **CUS-07** | `state` does not update when GSTIN prefix changes and backend does not enforce `gstin[:2] == state`. | Wrong intra/inter-state tax (`CGST+SGST` vs `IGST`) on downstream invoices. | Core (see release map) |
+| **P1** | **CUS-08** | Clearing `latitude`/`longitude` on Edit omits keys from `PATCH` instead of sending `null`; out-of-range lat/lng not checked in UI. | Saved GPS coordinates can never be removed via UI. | Core (see release map) |
+| **P1** | **CUS-09** | Incomplete React Query invalidation, unfiltered optimistic prepend, and `version` locking ignored on `PATCH`. | Stale party data in Invoice, Receipt, and 360° screens; silent concurrent overwrites. | Core (see release map) |
+| **P2** | **CUS-10** | Duplicate GSTIN raises generic DB `IntegrityError` instead of naming the conflicting customer. | Operator cannot tell which existing customer already has that GSTIN. | Core (see release map) |
+| **P2** | **CUS-11** | `sort=balance` computes `bulk_customer_outstanding` 3 times per request and builds an unbounded SQL `CASE WHEN`. | Slow response times as customer count grows. | Core (see release map) |
+| **P2** | **CUS-12** | Unconfirmed 1-click Block, `INACTIVE` rows showing "Unblock", and missing Delete/Deactivate UI action. | Accidental customer blocks and confusing lifecycle states. | Core (see release map) |
+| **P3** | **CUS-13** | Sort control mislabelled as `"Filter"` (`common.filter`) and hardcoded English strings in `CustomersPage.tsx`. | Confusing toolbar labels and broken Hindi (`hi`) localization parity. | Core (see release map) |
+| **P3** | **CUS-14** | Clickable table rows lack keyboard accessibility (`tabIndex`, `onKeyDown`) and search input lacks debounce. | Keyboard users cannot open Customer 360°; excessive API calls while typing search queries. | Core (see release map) |
+| **Enh.** | **CUS-15** | **Portfolio Summary KPI Strip (`summary/`) & Filtered CSV Export (`export/`).** | Gives AR/Owners instant visibility into Total Active, On Credit Hold, Gross Outstanding, and Unallocated Advances + 1-click CSV export. | Enhancement (R3) |
+| **Enh.** | **CUS-16** | **In-Modal "Verify & Autofill GSTIN" (`lookup-gstin/`), Custom Fields (`partyCustomFieldDefs`), Multiple Shipping Addresses & Geo-Location Helper.** | Shortens B2B onboarding and brings parity with `NewInvoicePage` party custom fields and multi-shipping addresses. | Enhancement (R3) |
+| **Enh.** | **CUS-17** | **Full Lifecycle Controls: Archive/Delete Action, Owner "Set as POS Walk-In" UI Action & Direct Edit Modal on `Customer360Page`.** | Completes all CRUD + lifecycle flows across both `CustomersPage` and `Customer360Page` without dead ends. | Enhancement (R3) |
+| **Enh.** | **CUS-18** | **Receivable & Advance Transparency in Table (`Outstanding` + `Advance Held` / `Credit Limit` Progress) & `PATCH` Optimistic Locking.** | Makes Books-ON vs Books-OFF receivable vs advance positions crystal clear on every row and prevents concurrent `PATCH` overwrites. | Enhancement (R3) |
+| **Enh.** | **CUS-19** | **Backend Search & Filter Hardening (`email` in `q`, `q` length cap, `status` choice validation, actionable stub GSTIN notice).** | Searching by email works; invalid query params return clean `400` errors; stub GSP mode explains why status stayed Unverified. | Enhancement (R3) |
+| **Enh.** | **CUS-20** | **No New `axe-core` Violations vs Baseline, Accessible Name Link + Dialog Focus Restoration, 375px Responsive Polish & OpenAPI Type Sync.** | Targets WCAG AA keyboard/screen-reader behaviour, no mobile horizontal overflow, and OpenAPI contract parity. | Enhancement (R3) |
+| **P1** | **CUS-21** | Shared GSTIN helper (`masters/gstin_rules.py`): reset, state/PAN, duplicates in one place. | Stale `VALID` status and mismatches cannot come back through another write path. | R1 (done) |
+| **P1** | **CUS-22** | Legacy-data audit command `customers_audit`. | Shows which stored rows the strict rules would reject on edit. | R1 (done) |
+| **P1** | **CUS-23** | Credit terms limited to owner/manager. | Sales staff can no longer raise credit limits. | R2 (done) |
+| **P2** | **CUS-24** | Customer change history on Customer 360°. | Who changed credit terms, GSTIN or status, and when. | R3 (done) |
+| **P2** | **CUS-25** | Customer import uses the same GSTIN/state rules. | Imports no longer store stale state or PAN. | R3 (done) |
+| **P1** | **CUS-26** | Server-side phone validation (coordinates were already validated). | API clients get the form's rules. | R1 (done) |
+| **P3** | **CUS-27** | Observability, privacy and status semantics. | Log events and `docs/CUSTOMERS_STATUS_SEMANTICS.md`. | R3 (done) |
 
 ---
 
@@ -281,22 +313,9 @@ Next screen/action: Customer360Page (New Invoice, Record Receipt, Log Follow-up,
 
 ---
 
-### 20. SCORECARD & PROGRESSION TO 10.0 / 10
+### 20. EXIT CRITERIA (replaces numeric scorecard)
 
-| Dimension | Current Score | After `CUS-01..CUS-14` | After `CUS-15..CUS-20` (Target) | What Unlocked the Final `9.4 → 10.0` Leap |
-|---|---:|---:|---:|---|
-| **Purpose clarity** | 7 / 10 | 9.5 / 10 | **10 / 10** | `CUS-15` (Portfolio KPI Summary strip) + `CUS-18` (Credit Limit / Advance Held sub-badges). |
-| **UX** | 5 / 10 | 9.0 / 10 | **10 / 10** | `CUS-16` (In-modal GSTIN Verify & Autofill + Geo helper) + `CUS-17` (Direct Edit on Customer 360°). |
-| **Cognitive load** | 7 / 10 | 9.0 / 10 | **10 / 10** | `CUS-16` (1-click GSTIN autofill of legal name, state, PAN, taxpayer type; grouped progressive sections). |
-| **Flow** | 5 / 10 | 9.5 / 10 | **10 / 10** | `CUS-17` (Seamless Edit in Customer 360°, Archive/Delete flow, Owner POS Walk-In designation). |
-| **Functionality** | 5 / 10 | 9.5 / 10 | **10 / 10** | `CUS-15` (Filtered CSV export) + `CUS-16` (`customFields` + multi-`shippingAddresses`) + `CUS-19` (Search by email). |
-| **Business logic** | 5 / 10 | 9.5 / 10 | **10 / 10** | `CUS-04`/`CUS-17` (`destroy` & `PATCH` walk-in protection) + `CUS-18` (Transparent Outstanding vs Credit Exposure). |
-| **Data/state handling** | 5 / 10 | 9.5 / 10 | **10 / 10** | `CUS-05`/`CUS-18` (`perform_update` GSTIN reset + `PATCH` optimistic concurrency `version` check). |
-| **Error handling** | 4 / 10 | 9.5 / 10 | **10 / 10** | `CUS-19` (Strict `400` validation on bad query params + explicit notice when GSTIN provider is in `STUB` mode). |
-| **Cross-product integration** | 6 / 10 | 9.5 / 10 | **10 / 10** | `CUS-16` (`partyCustomFieldDefs` & `shippingAddresses` parity with `NewInvoicePage` `ACT-27`). |
-| **Consistency** | 6 / 10 | 9.5 / 10 | **10 / 10** | `CUS-15` (Matches `ReceiptsPage` summary + CSV export pattern) + `CUS-20` (OpenAPI snapshot & TS types synced). |
-| **Accessibility** | 5 / 10 | 9.0 / 10 | **10 / 10** | `CUS-20` (Automated `axe-core` pass on list & dialogs, focus return on close, 375px zero-overflow layout). |
-| **Overall** | **5.5 / 10** | **9.4 / 10** | **10.0 / 10** | Complete enterprise party master & AR control center. |
+Per-dimension numeric scores were unmeasured estimates and have been removed. A release is "done" when its checklist in Part III passes. Dimensions to evidence (not score): purpose clarity, UX, cognitive load, flow, functionality, business logic, data/state, error handling, cross-product integration, consistency, accessibility. Accessibility is gated as **no new `axe-core` violations versus a recorded baseline** for the list page and dialogs (existing violations are logged as backlog, not blockers).
 
 ---
 
@@ -304,39 +323,37 @@ Next screen/action: Customer360Page (New Invoice, Record Receipt, Log Follow-up,
 
 ### Architecture & Execution Order
 
-All changes are backwards-compatible with existing database tables (**no destructive schema migration is required**, because `credit_limit`, `credit_days`, `taxpayer_type`, `pan`, `shipping_address`, `shipping_addresses`, `notes`, `custom_fields`, `is_pos_walk_in`, and `version` already exist on `masters.Customer` in `backend/masters/models.py:64-162`).
+No column changes are needed (`credit_limit`, `credit_days`, `taxpayer_type`, `pan`, `shipping_address`, `shipping_addresses`, `notes`, `custom_fields`, `is_pos_walk_in`, `version` already exist on `masters.Customer`). **Data, however, needs attention:** `CUS-22` produces a report/backfill for existing customers with stale `VALID` status, state/GSTIN mismatches, or inconsistent walk-in flags before strict validation is enabled.
+
+Cross-cutting rules for every phase:
+- Re-verify cited file/line numbers against HEAD before starting an item (the files changed in recent commits).
+- Strict backend validations (`CUS-05/07/10`) are gated by feature flag `CUSTOMER_STRICT_VALIDATION`.
+- Filter logic (`status`, `q`, `is_pos_walk_in`) is extracted once into `CustomerViewSet._filtered_queryset()` and reused by `list`, `summary/`, `export/` (do not copy it three times).
+- Every new endpoint needs: permission class, company-scoped queryset (tenant-isolation test), audit entry where it exposes or changes data, and OpenAPI docs.
 
 ```text
-Phase 1: Backend Domain, Serializer & ViewSet Hardening (backend/masters/)
-  ├─ CUS-04 / CUS-17: Protect `is_pos_walk_in` in `CustomerSerializer.validate` AND `CustomerViewSet.destroy`
-  ├─ CUS-05 / CUS-18: Reset `gstin_verification_*` on GSTIN change inside `CustomerViewSet.perform_update` & enforce `version` check on `PATCH` when `version` is sent
-  ├─ CUS-07: Validate `gstin[:2]` state prefix against `state` in `CustomerSerializer.validate`
-  ├─ CUS-10: Validate `(company, gstin)` uniqueness in `CustomerSerializer.validate_gstin` naming the existing customer
-  ├─ CUS-03: Align `verify_gstin` permission (`CanCreateSales`) in `CustomerViewSet.get_permissions`
-  ├─ CUS-11: Deduplicate `bulk_customer_outstanding` calls in `CustomerViewSet` (`sort=balance` & serializer context)
-  ├─ CUS-19: Add `email__icontains` to search `q`, cap `q` at 100 chars, validate `status` param (`400`), and include provider warning in `verify-gstin`
-  ├─ CUS-16: Add `POST /api/v1/customers/lookup-gstin/` action for pre-save modal GSTIN autofill
-  └─ CUS-15: Add `GET /api/v1/customers/summary/` and `GET /api/v1/customers/export/` (CSV with `csv_safe`)
-        ↓
-Phase 2: Frontend API, Types & Cache Layer (web/src/api/legacy/masters.ts, web/src/types/domain.ts)
-  ├─ CUS-01 / CUS-08 / CUS-16: Expand `Customer` type & `createCustomer` / `updateCustomer` payload mapping (`creditLimit`, `creditDays`, `creditExposure`, `taxpayerType`, `pan`, `shippingAddress`, `shippingAddresses`, `notes`, `customFields`, nullable `latitude`/`longitude`, `version`)
-  ├─ CUS-15 / CUS-16 / CUS-17: Add client helpers for `getCustomersSummary`, `exportCustomersCsv`, `lookupCustomerGstin`, `deleteCustomer`, `setPosWalkInCustomer`
-  └─ CUS-09: Standardize customer query invalidation helper across `['customers']`, `['customers-summary']`, `['customers-search']`, `['customers-receipt-lookup']`, `['customer', id]`, `['customer-360', id]`
-        ↓
-Phase 3: CustomersPage & Customer360Page UX, Permissions, Automation & A11y (web/src/pages/sales/)
-  ├─ CUS-02: Move `<HelpErrorAlert>` inside `<DialogContent>`, clear errors on modal open, enforce full inline validation in `canSave`
-  ├─ CUS-03: Gate mutations with `canCreateSales(user) && !writesBlocked`; gate `View Ledger` with `canViewFinancialReports(user)`
-  ├─ CUS-01 / CUS-16: Add Credit, Tax, Shipping Addresses, Custom Fields (`partyCustomFieldDefs`), In-Modal GSTIN Lookup & Geo-Location helper to Customer modal
-  ├─ CUS-15 / CUS-18: Render 4-card Portfolio Summary strip, Export CSV button, and row-level Credit Limit / Advance Held sub-captions
-  ├─ CUS-04 / CUS-12 / CUS-17: Render `POS Walk-In` badge, Owner "Set as POS Walk-In", Archive/Delete confirmation dialog, Block confirmation dialog, and Edit Customer modal on `Customer360Page.tsx`
-  ├─ CUS-06 / CUS-07: Fix `gstinStatusColor` (`VALID`/`CANCELLED`/`SUSPENDED`) and auto-sync `state` & `pan` whenever GSTIN changes
-  └─ CUS-13 / CUS-14 / CUS-20: Fix Sort label, add i18n keys (`en.ts`, `hi.ts`), debounce search (`250ms`), accessible Name link + focus restoration, and 375px responsive layout
-        ↓
-Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
-  ├─ Regenerate `docs/openapi-snapshot.json` and `web/src/api/openapi-types.ts`
-  ├─ Backend pytest suite (`backend/masters/tests/`)
-  └─ Frontend Vitest + `axe-core` suite (`web/src/pages/sales/CustomersPage.test.tsx`)
+R1  Backend integrity & permissions (backend/masters/) + minimal UI fixes
+  ├─ CUS-21: shared `apply_gstin(customer, gstin)` helper (reset verification, derive state/PAN, duplicate check) used by serializer create/update, perform_update, verify, import
+  ├─ CUS-22: legacy-data report/management command (stale VALID, state mismatch, duplicate-looking GSTINs, walk-in anomalies)
+  ├─ CUS-04: walk-in guard in serializer (PATCH and PUT) AND destroy
+  ├─ CUS-05: verification reset via CUS-21 inside perform_update
+  ├─ CUS-07: state<->GSTIN validation, only when gstin or state is in the payload
+  ├─ CUS-10: duplicate GSTIN error naming the customer
+  ├─ CUS-26: backend validation of coordinates, phone, email
+  ├─ CUS-03: permissions (verify_gstin change needs cost review, see item)
+  └─ CUS-02, CUS-06, CUS-08: modal errors, chip colours, clearable coordinates
+        |
+R2  Form completeness, cache, UX
+  ├─ CUS-17 step 1: extract reusable <CustomerFormDialog /> FIRST, then build CUS-01/CUS-23 inside it
+  ├─ CUS-01, CUS-23 (credit-term permissions), CUS-09, CUS-12, CUS-13, CUS-14
+  └─ CUS-11 (balance sort rewrite), CUS-19 search/status part
+        |
+R3  Enhancements & audit/observability
+  └─ CUS-15, CUS-16, CUS-17 (rest), CUS-18, CUS-19 stub notice, CUS-20, CUS-24, CUS-25, CUS-27
+        |
+OpenAPI sync (docs/openapi-snapshot.json, web/src/api/openapi-types.ts) at the end of each release that changes the API.
 ```
+
 
 ---
 
@@ -362,7 +379,8 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 - **Plan:**
   1. Replace `const canMutate = !!user && !isViewer(user.role)` with `const canMutate = canCreateSales(user) && !writesBlocked` using `useSubscriptionGate()`.
   2. Guard **View Ledger** button with `canViewFinancialReports(user)`.
-  3. Change `verify_gstin` permission in `CustomerViewSet.get_permissions()` (`backend/masters/views.py:174-175`) from `IsOwner()` to `CanCreateSales()`.
+  3. **Decide, don't assume:** `verify_gstin` is `IsOwner` today (`views.py:174-175`; it is not in `_MUTATE_ACTIONS`). It calls a paid GSP and stores `gstin_raw_payload`. First confirm with the founder whether owner-only was deliberate (cost control). Default decision: widen to `CanCreateSales()` **with** a per-company throttle (e.g. 30/hour/user) and an audit entry per call; otherwise hide **Verify** in the UI for non-owners. Do not change the permission without recording the decision here.
+  4. Note `pos_walk_in` (cashier get-or-create) is handled separately at `views.py:172`; keep it in the permission test matrix.
 
 #### `CUS-04` (P0) — Protect the POS Walk-In Customer (`isPosWalkIn`) Across UI, `PATCH` & `DELETE`
 - **Files:** `backend/masters/serializers.py`, `backend/masters/views.py`, `web/src/pages/sales/CustomersPage.tsx`
@@ -375,13 +393,14 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 - **Files:** `backend/masters/views.py`, `backend/masters/serializers.py`
 - **Code Truth Discovered:** `CustomerViewSet.perform_update` (`backend/masters/views.py:292-327`) reloads the `Customer` row with `select_for_update()` and applies `serializer.validated_data` directly onto `locked`, **bypassing `CustomerSerializer.update()`**.
 - **Plan:**
-  - In `CustomerViewSet.perform_update()` (and `CustomerSerializer.validate()`), compare incoming `gstin` against `(locked.gstin or "")`. Whenever `gstin` changes, set:
+  - Implement the reset once, in the shared `apply_gstin()` helper (`CUS-21`), and call it from `perform_update()`, `CustomerSerializer.create()`/`update()`, and any import path, so no write path can leave stale `VALID` status. In `perform_update()`, compare incoming `gstin` against `(locked.gstin or "")`. Whenever `gstin` changes, set:
     ```python
     locked.gstin_verification_status = "UNVERIFIED"
     locked.gstin_legal_name = ""
     locked.gstin_verified_at = None
     locked.gstin_raw_payload = {}
     ```
+  - Also fix `CustomerViewSet.destroy` (`views.py:345-357`): the INACTIVE path saves without a row lock, `version` bump, or `updated_at`, so optimistic locking cannot see archive operations. Lock the row (`select_for_update`), bump `version`, and include `updated_at` in `update_fields`.
 
 #### `CUS-06` (P1) — Fix GSTIN Verification Chip Colors (`VALID`, `CANCELLED`, `SUSPENDED`) & Row-Scoped Verify Spinner
 - **Files:** `web/src/pages/sales/CustomersPage.tsx`
@@ -394,6 +413,8 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 - **Plan:**
   1. In `CustomersPage.tsx`, whenever `gstin` has a valid 2-digit prefix in `GST_STATE_CODES`, always update `state: matchedState` (even if `f.state` was previously non-empty), and auto-fill `pan: val.slice(2, 12)` when a valid 15-char GSTIN is entered.
   2. In `CustomerSerializer.validate()`, when `gstin` is non-empty, derive `expected_state = GST_STATE_CODES.get(gstin[:2])`. Auto-populate `state` if blank, or raise `ValidationError({'state': ...})` if `state` conflicts with `expected_state`.
+  3. **Legacy-data safety:** run this validation **only when `gstin` or `state` is present in the payload**. A PATCH of an unrelated field (e.g. phone) on a legacy customer whose state already mismatches must still succeed. Enable behind `CUSTOMER_STRICT_VALIDATION` and only after the `CUS-22` report has been reviewed.
+  4. **Special GSTIN prefixes:** verify `GST_STATE_CODES` covers 96 (foreign), 97 (other territory), and the merged UT codes (26/38 Dadra & Nagar Haveli and Daman & Diu); skip the mismatch rule for codes with no single state mapping instead of rejecting valid customers.
 
 #### `CUS-08` (P1) — Fix Clearing GPS Coordinates (`latitude` / `longitude`) & Range Validation
 - **Files:** `web/src/pages/sales/CustomersPage.tsx`, `web/src/api/legacy/masters.ts`
@@ -405,6 +426,8 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 - **Plan:**
   1. Remove the blind `setQueriesData` prepend on `['customers']` and invalidate `['customers']`, `['customers-summary']`, `['customers-search']`, `['customers-receipt-lookup']`, `['customer', id]`, and `['customer-360', id]`.
   2. Send `version` in `updateCustomer` (`PATCH`) and check `if "version" in request.data:` inside `CustomerViewSet.update()` / `perform_update()` so stale `PATCH` requests also return `409 Conflict` instead of silently overwriting concurrent edits.
+  3. **Semantics to preserve:** `perform_update` intentionally lets concurrent PATCHes of *different* fields merge (see its docstring). Therefore `version` stays **optional** on `PATCH` (API/integration clients keep working); only requests that send it are checked. The web client always sends it.
+  4. **409 handling in the UI:** on `409`, show an in-dialog "This customer was changed by someone else" notice with a **Reload latest** action that refetches `['customer', id]`, re-applies the dialog to the fresh `version`, and keeps the user's typed values visible. Add a test for list-dialog vs 360°-dialog collisions.
 
 #### `CUS-10` (P2) — Friendly Duplicate GSTIN Validation Naming the Conflicting Customer
 - **Files:** `backend/masters/serializers.py`
@@ -412,7 +435,10 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 
 #### `CUS-11` (P2) — Deduplicate `bulk_customer_outstanding` Calls on `GET /api/v1/customers/`
 - **Files:** `backend/masters/views.py`, `backend/ledgers/services.py`
-- **Plan:** Cache `outstanding_by_id` on the view/request during `get_queryset()` (`sort=balance`) and pass `outstanding_map` into `LedgerService.bulk_customer_credit_exposure(company, outstanding_map=...)` so `bulk_customer_outstanding` runs only once per request.
+- **Plan:**
+  1. Cache `outstanding_by_id` on the view/request and pass `outstanding_map` into `LedgerService.bulk_customer_credit_exposure(company, outstanding_map=...)` so `bulk_customer_outstanding` runs only once per request.
+  2. **Remove the unbounded `Case(When(pk=...))`** (it grows with every customer that has a balance). Preferred: annotate balance via a subquery/aggregate join on the ledger tables. Fallback if the ledger cannot be expressed as a subquery: order only the filtered id list in Python by the cached map, then paginate that id list and fetch the page.
+  3. Add a performance test/benchmark (e.g. 5,000 customers, `sort=balance`, assert query count and a time budget) rather than a claim.
 
 #### `CUS-12` (P2) — Confirmation Dialog on Block/Deactivate & Distinct `INACTIVE` Status Handling
 - **Files:** `web/src/pages/sales/CustomersPage.tsx`
@@ -428,19 +454,19 @@ Phase 4: OpenAPI Sync & Automated Verification Suite (`CUS-20`)
 
 ---
 
-### Detailed 10/10 Excellence Work Items (`CUS-15` .. `CUS-20`)
+### Detailed Enhancement Work Items (`CUS-15` .. `CUS-20`) — Release R3
 
-Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a true **10/10** score requires not just fixing bugs, but achieving complete workflow closure, zero unnecessary manual typing, portfolio-level financial visibility, strict query validation, and verified WCAG AA accessibility parity with `Money In` (`ReceiptsPage.tsx`) and `Sales Invoice` (`NewInvoicePage.tsx`).
+These are feature additions rather than defect fixes: workflow closure, less manual typing, portfolio-level visibility, strict query validation, and accessibility parity with `Money In` (`ReceiptsPage.tsx`) and `Sales Invoice` (`NewInvoicePage.tsx`). Ship after R1/R2 are stable.
 
 ---
 
-#### `CUS-15` (10/10) — Portfolio Summary KPI Strip (`summary/`) & Filtered CSV Export (`export/`)
+#### `CUS-15` (R3) — Portfolio Summary KPI Strip (`summary/`) & Filtered CSV Export (`export/`)
 
-- **Dimensions Lifted to 10/10:** Purpose Clarity (`9.5 → 10`), Functionality (`9.5 → 10`), Consistency (`9.5 → 10`)
 - **Problem:**
   - Unlike `ReceiptsPage.tsx` (`OW-2` & `OW-12`), `CustomersPage.tsx` shows individual paginated rows without telling the owner/accountant the **total receivable balance across the filtered customer set**, how many customers are currently **on Credit Hold / Over Credit Limit**, or how much **Unallocated Advance** is held.
   - There is also no way to export the filtered customer list (e.g., all `BLOCKED` customers or customers sorted by `balance`) to CSV for collection meetings or audit review.
 - **Implementation Plan:**
+  0. **Security:** `summary/` and `export/` expose the whole party master (phone, email, GSTIN, balances). Require `canViewFinancialReports`-equivalent backend permission (not just `CanCreateSales`), write an audit entry for every export, include a tenant-isolation test, and when the 20,000-row cap truncates, say so in a response header and a UI warning (no silent truncation). Use the shared `_filtered_queryset()`.
   1. **Backend (`backend/masters/views.py`):**
      - Add `@action(detail=False, methods=["get"], url_path="summary")`:
        - Applies the same `status` and `q` filters as `list`.
@@ -453,14 +479,14 @@ Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a
 
 ---
 
-#### `CUS-16` (10/10) — In-Modal "Verify & Autofill GSTIN" (`lookup-gstin/`), Custom Fields (`partyCustomFieldDefs`), Multi-Shipping Addresses & Geo Helper
+#### `CUS-16` (R3) — In-Modal "Verify & Autofill GSTIN" (`lookup-gstin/`), Custom Fields (`partyCustomFieldDefs`), Multi-Shipping Addresses & Geo Helper
 
-- **Dimensions Lifted to 10/10:** UX (`9.0 → 10`), Cognitive Load (`9.0 → 10`), Cross-Product Integration (`9.5 → 10`)
 - **Problem:**
   1. Currently, an operator onboarding a B2B customer must manually type the legal name, state, and address, save the customer, and *only then* click **Verify** in the table row.
   2. `NewInvoicePage.tsx` (`ACT-27`) and `CustomerSerializer` (`serializers.py:140-202`) support company-configured party custom fields (`company.partyCustomFieldDefs` → `Customer.custom_fields`, e.g., Drug License No., FSSAI No.) and multiple `shippingAddresses` (`CustomerAddress`), yet `CustomersPage.tsx` cannot view or edit either of them!
   3. Entering GPS coordinates requires looking up decimal latitude/longitude externally.
 - **Implementation Plan:**
+  0. **Abuse/cost control:** `lookup-gstin/` calls a paid external provider. Add a per-user/company throttle, an audit entry, short-TTL caching per GSTIN, and a defined response when the provider is in STUB mode or errors (explicit `provider_unavailable` status, never a silent empty result). Tied to the `CUS-03` verify decision.
   1. **In-Modal GSTIN Lookup (`POST /api/v1/customers/lookup-gstin/`):**
      - Add a collection action on `CustomerViewSet` (`CanCreateSales`) that takes `{ gstin }`, validates the checksum, calls `get_gstin_provider().lookup(gstin)`, and returns `{ gstin, status, legal_name, state, pan, error }`.
      - Inside the Customer Create/Edit modal, place a **"Verify & Autofill"** button next to the GSTIN input. When clicked on a valid 15-char GSTIN, it auto-fills `name` (if empty, or offers 1-click apply of `legal_name`), `state`, `pan`, and `taxpayerType`.
@@ -472,22 +498,20 @@ Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a
 
 ---
 
-#### `CUS-17` (10/10) — Complete Lifecycle Controls: Archive/Delete UI, Owner "Set as POS Walk-In" & Direct Edit Modal on `Customer360Page`
+#### `CUS-17` (R2 step 1 / R3) — Complete Lifecycle Controls: Archive/Delete UI, Owner "Set as POS Walk-In" & Direct Edit Modal on `Customer360Page`
 
-- **Dimensions Lifted to 10/10:** Flow (`9.5 → 10`), Business Logic (`9.5 → 10`)
 - **Problem:**
   1. `Customer360Page.tsx` is a read-only header with transaction tabs; operators inspecting a customer's 360° profile cannot edit the customer without navigating back to `/sales/customers`.
   2. `CustomerViewSet` has a tested `destroy()` endpoint (which soft-deletes unreferenced customers or marks referenced ones `INACTIVE`) and `set_pos_walk_in()` endpoint, but neither is reachable from the UI.
 - **Implementation Plan:**
-  1. Extract the Customer Create/Edit modal into a reusable `<CustomerFormDialog />` component used by both `CustomersPage.tsx` and `Customer360Page.tsx` so clicking **Edit Customer** on `Customer360Page` opens the dialog in-place and immediately refreshes `['customer', id]` and `['customer-360', id]`.
+  1. **(R2, do first — before building CUS-01/CUS-23 inside the page)** Extract the Customer Create/Edit modal into a reusable `<CustomerFormDialog />` component used by both `CustomersPage.tsx` and `Customer360Page.tsx` so clicking **Edit Customer** on `Customer360Page` opens the dialog in-place and immediately refreshes `['customer', id]` and `['customer-360', id]`.
   2. Add an **Archive / Delete** action in the row menu (and `Customer360Page`) with a confirmation dialog; if the backend responds with `status=200` (`"marked Inactive instead of deleting"`), show an informative notice and refresh the list.
   3. For `OWNER` users (`isOwner(user)`), provide a **"Set as POS Walk-In"** action on eligible customers (active, no GSTIN, zero credit limit) wired to `POST /api/v1/customers/set-pos-walk-in/`.
 
 ---
 
-#### `CUS-18` (10/10) — Receivable, Credit Exposure & Advance Transparency + `PATCH` Optimistic Concurrency
+#### `CUS-18` (R3) — Receivable, Credit Exposure & Advance Transparency + `PATCH` Optimistic Concurrency
 
-- **Dimensions Lifted to 10/10:** Data/State Handling (`9.5 → 10`), Business Logic (`9.5 → 10`)
 - **Problem:**
   - When a customer has paid an unallocated advance receipt, `outstanding` (in Books-OFF mode) shows gross unpaid invoices while `creditExposure` nets out the advance. Hiding `creditExposure` and `creditLimit` in the table makes credit-hold badges look contradictory.
   - `CustomerViewSet.update` (`views.py:278-290`) only checks `version` on `PUT`, ignoring `version` on `PATCH`.
@@ -500,24 +524,22 @@ Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a
 
 ---
 
-#### `CUS-19` (10/10) — Backend Search & Query Filter Hardening (`email` in `q`, `q` Cap, `status` Validation, Stub GSP Notice)
+#### `CUS-19` (R3) — Backend Search & Query Filter Hardening (`email` in `q`, `q` Cap, `status` Validation, Stub GSP Notice)
 
-- **Dimensions Lifted to 10/10:** Error Handling (`9.5 → 10`), Functionality (`9.5 → 10`)
 - **Problem:**
   1. `CustomerViewSet.get_queryset` (`views.py:186`) filters `Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q)`—**omitting `email__icontains=q`** despite `Email` being a primary column in the table!
   2. Passing an invalid `status=FOO` query param silently returns 0 rows instead of `400 Bad Request`, and `q` has no length cap.
   3. In `STUB` GSTIN provider mode, `verify_gstin` returns HTTP `200` with `gstin_verification_status='UNVERIFIED'` and no top-level warning explaining that live GSP credentials are not configured.
 - **Implementation Plan:**
   1. Update `CustomerViewSet.get_queryset()`:
-     - Validate `status_filter` against `Customer.Status.values` (raise `ValidationError({'status': 'Invalid status filter.'})` on unknown values).
+     - Validate `status_filter` against `Customer.Status.values` (confirm it includes `INACTIVE`, which `destroy` sets; raise `ValidationError({'status': 'Invalid status filter.'})` on unknown values).
      - Cap `q` at 100 characters (`q = q.strip()[:100]`) and include `Q(email__icontains=q)`.
   2. In `verify_gstin` (`views.py:360-366`), include `"verification_error": result.error` in the response payload when `result.error` is present so the UI can display a clear warning banner/toast (`"Live GSTIN verification provider is not configured..."`).
 
 ---
 
-#### `CUS-20` (10/10) — Automated `axe-core` A11y Pass, Focus Restoration, 375px Mobile Layout & OpenAPI Sync
+#### `CUS-20` (R3) — Automated `axe-core` A11y Pass, Focus Restoration, 375px Mobile Layout & OpenAPI Sync
 
-- **Dimensions Lifted to 10/10:** Accessibility (`9.0 → 10`), Consistency (`9.5 → 10`)
 - **Implementation Plan:**
   1. Render the Customer Name cell as a semantic keyboard-focusable link (`<Link component={ RouterLink } to={`/sales/customers/${c.id}`}>`) with an accessible `aria-label`, and restore focus to the triggering button when closing the Create/Edit or Block/Delete dialogs.
   2. Wrap the table in a responsive container and hide non-essential columns (`Email`, `GSTIN status`, `State`) on `xs` viewports while displaying State and GSTIN status as compact sub-chips under the customer name on mobile so 375px screens have zero horizontal overflow.
@@ -526,23 +548,64 @@ Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a
 
 ---
 
+### Gap Work Items (`CUS-21` .. `CUS-27`) — added after review
+
+#### `CUS-21` (P1, R1) — Shared `apply_gstin()` Helper
+- **Files:** `backend/masters/services.py` (new or existing), `backend/masters/serializers.py`, `backend/masters/views.py`, `backend/core/services/gstin_verify.py`
+- **Plan:** One function owns GSTIN side effects: normalise, checksum, duplicate check (naming the customer, `CUS-10`), derive/validate `state` (`CUS-07`), derive `pan`, and reset verification metadata when the value changes (`CUS-05`). Called from serializer `create`/`update`, `perform_update`, verify, and any import. Unit-test it directly.
+
+#### `CUS-22` (P1, R1) — Legacy Data Report / Backfill
+- **Plan:** Management command `customers_audit` (read-only by default, `--fix` for safe repairs) listing, per company: `VALID` status with changed/blank GSTIN, `gstin[:2]` vs `state` mismatches, GSTINs duplicated ignoring case/whitespace, multiple or missing walk-in rows, walk-ins with GSTIN/credit limit/non-ACTIVE status. Reviewed before `CUSTOMER_STRICT_VALIDATION` is enabled in production.
+
+#### `CUS-23` (P1, R2) — Credit-Term Permissions
+- **Plan:** `credit_limit` and `credit_days` drive holds, so restrict edits to `OWNER`/`MANAGER` (decision to confirm); `SALES_STAFF` sees them read-only. Enforce in the serializer (reject changes from other roles with a clear message), hide/disable in the UI, and audit credit-term changes with old/new values.
+
+#### `CUS-24` (P2, R3) — Customer Change History
+- **Plan:** Show a "History" tab/section on `Customer360Page` from existing audit rows (who changed credit limit, GSTIN, status, when), reusing `AuditService` entries; no new table.
+
+#### `CUS-25` (P2, R3) — Import / Bulk-Upload Parity
+- **Plan:** Locate the customer import path (if any) and route it through `apply_gstin()` and the same serializer validations; add row-level error reporting for duplicate GSTIN and state mismatch. If no import exists, record that and defer the feature to a separate plan.
+
+#### `CUS-26` (P1, R1) — Backend Field Validation
+- **Plan:** Server-side validation for latitude/longitude range and pairing (both or neither), phone format, and email format in `CustomerSerializer`, so API clients get the same rules as the UI. Add serializer tests.
+
+#### `CUS-27` (P3, R3) — Observability & Privacy
+- **Plan:** Counters/logs for 409 stale-write rate, `lookup-gstin`/verify provider errors and latency, export row counts and truncation; note PII handling (phone, email, GPS, exports) against DPDP obligations and decide retention/access rules. Also define downstream semantics in docs: what a `BLOCKED` vs `INACTIVE` customer can still do (open orders, quotations, POS, receipts).
+
+**Explicitly out of scope for this plan (tracked separately):** mobile app (`mobile/`) parity, duplicate-customer merge tool, and name/phone duplicate detection beyond GSTIN.
+
+---
+
 ## Part III: Shared-File Merge Order & Verification Checklist
 
 ### Shared-File Sequence
 
-1. `backend/masters/serializers.py` (`CUS-04` → `CUS-05` → `CUS-07` → `CUS-10`)
-2. `backend/ledgers/services.py` & `backend/masters/views.py` (`CUS-03` → `CUS-04` → `CUS-05` → `CUS-11` → `CUS-15` → `CUS-16` → `CUS-18` → `CUS-19`)
+1. `backend/masters/serializers.py` + helper (`CUS-21` → `CUS-04` → `CUS-05` → `CUS-07` → `CUS-10` → `CUS-26` → `CUS-23`)
+2. `backend/ledgers/services.py` & `backend/masters/views.py` (`CUS-03` → `CUS-04` → `CUS-05` → `CUS-11` → `CUS-19` → `CUS-15` → `CUS-16` → `CUS-18`)
 3. `web/src/types/domain.ts` & `web/src/api/legacy/masters.ts` (`CUS-01` → `CUS-08` → `CUS-09` → `CUS-15` → `CUS-16` → `CUS-17`)
 4. `web/src/i18n/en.ts` & `web/src/i18n/hi.ts` (`CUS-13`)
 5. `web/src/pages/sales/CustomersPage.tsx` & `web/src/pages/sales/Customer360Page.tsx` (`CUS-01` .. `CUS-20`)
 6. `docs/openapi-snapshot.json` & `web/src/api/openapi-types.ts` (`CUS-20`)
 
-### Verification Gate Checklist (For 10.0 / 10 Sign-Off)
+### Verification Gate Checklist (Per-Release Sign-Off)
 
+Tick the items belonging to the release being shipped (R1: backend + permission + error items; R2: form/cache/UX items; R3: summary/export/lookup/a11y items).
+
+- [ ] **Additional backend cases (added after review):**
+  - [ ] Concurrent `PATCH` with and without `version`: different-field edits without `version` still merge; stale `version` returns `409`.
+  - [ ] Walk-in guard applies on `PUT` as well as `PATCH` and `DELETE`.
+  - [ ] Legacy-data PATCH: an unrelated-field PATCH on a customer with mismatched state/GSTIN still succeeds (`CUS-07` regression).
+  - [ ] GSTIN prefixes 96/97/26/38 do not cause false mismatch rejections.
+  - [ ] `lookup-gstin/`, `summary/`, `export/`: permission matrix, throttling (lookup), audit entry (export), truncation signal, and **tenant isolation** (company A cannot see company B).
+  - [ ] `destroy` on a referenced customer bumps `version`/`updated_at`.
+  - [ ] `CUS-23`: `SALES_STAFF` cannot change `credit_limit`/`credit_days`; `OWNER`/`MANAGER` can, with audit rows.
+  - [ ] `CUS-26`: out-of-range or half-filled coordinates, bad phone/email rejected by the API.
+  - [ ] `sort=balance` benchmark (5,000 customers) meets the agreed query-count/time budget.
+  - [ ] `CUS-22` command runs read-only against a copy of production-like data and its output is reviewed before enabling `CUSTOMER_STRICT_VALIDATION`.
 - [ ] **Backend Tests (`pytest backend/masters/tests/`):**
   - [ ] `CUS-04` / `CUS-17`: `PATCH` and `DELETE` on `is_pos_walk_in=True` customer reject `gstin`, `credit_limit > 0`, `status != 'ACTIVE'`, and deletion/deactivation with `400`.
   - [ ] `CUS-05`: `PATCH` changing `gstin` on a `'VALID'` verified customer resets `gstin_verification_status` to `'UNVERIFIED'` and clears `gstin_legal_name` inside `perform_update`.
-  - [ ] `CUS-07`: `POST`/`PATCH` with `gstin='27AABCU9603R1ZM'` and `state='Karnataka'` returns `400`; blank `state` auto-populates `'Maharashtra'`.
+  - [ ] `CUS-07`: `POST`/`PATCH` with `gstin='27AABCU9603R1ZN'` and `state='Karnataka'` returns `400`; blank `state` auto-populates `'Maharashtra'`.
   - [ ] `CUS-10`: `POST`/`PATCH` with duplicate `gstin` in the same company returns `400` naming the conflicting customer.
   - [ ] `CUS-03`: `POST /api/v1/customers/:id/verify-gstin/` succeeds for `SALES_STAFF` with `can_create_sales=True` and returns `403` for `ACCOUNTANT` with `can_create_sales=False`.
   - [ ] `CUS-15`: `GET /api/v1/customers/summary/` and `GET /api/v1/customers/export/` respect `q` and `status` filters and produce formula-safe CSV rows.
@@ -557,4 +620,6 @@ Why does `CUS-01..CUS-14` reach **9.4 / 10** instead of **10.0 / 10**? Because a
   - [ ] Maps `'VALID'` GSTIN status to green (`success`) chip and `'CANCELLED'`/`'SUSPENDED'`/`'INVALID'` to red (`error`) chip.
   - [ ] Hides mutation buttons when `canCreateSales` is false or `writesBlocked` is true; hides **View Ledger** when `canViewFinancialReports` is false.
   - [ ] Protects `isPosWalkIn` customer row from blocking/deletion and requires confirmation before blocking or archiving regular customers.
-  - [ ] Passes `axe-core` accessibility audit with zero violations and supports full keyboard navigation + focus restoration.
+  - [ ] Passes `axe-core` audit with **no new violations versus the recorded baseline** and supports full keyboard navigation + focus restoration.
+  - [ ] 409 stale-write shows the in-dialog "Reload latest" notice without losing typed values.
+  - [ ] Role matrix incl. `pos_walk_in` cashier flow and `verify_gstin` decision from `CUS-03`.

@@ -94,7 +94,16 @@ export type NoteReason =
   | 'CORRECTION_OF_INVOICE'
   | 'OTHERS';
 
-export type CustomerStatus = 'ACTIVE' | 'BLOCKED';
+export type CustomerStatus = 'ACTIVE' | 'BLOCKED' | 'INACTIVE';
+export type TaxpayerType =
+  | 'REGULAR'
+  | 'SEZWP'
+  | 'SEZWOP'
+  | 'EXPWP'
+  | 'EXPWOP'
+  | 'DEXP'
+  | 'COMPOSITION'
+  | 'UNREGISTERED';
 export type ProductStatus = 'ACTIVE' | 'INACTIVE';
 
 export type InvoiceType = 'GST' | 'TAX' | 'RETAIL' | 'NON_GST';
@@ -132,7 +141,15 @@ export type ImportKind =
 export type RegistrationType = 'REGULAR' | 'COMPOSITION' | 'UNREGISTERED';
 export type NegativeStockPolicy = 'BLOCK' | 'WARN';
 export type PriceMode = 'EXCLUSIVE' | 'INCLUSIVE';
-export type GstinVerificationStatus = 'UNVERIFIED' | 'VERIFIED' | 'INVALID' | 'FAILED' | string;
+export type GstinVerificationStatus =
+  | 'UNVERIFIED'
+  | 'VALID'
+  | 'VERIFIED'
+  | 'INVALID'
+  | 'CANCELLED'
+  | 'SUSPENDED'
+  | 'FAILED'
+  | string;
 
 export interface User {
   id: number;
@@ -261,6 +278,8 @@ export interface ShippingAddress {
 export interface Customer {
   id: number;
   name: string;
+  /** Collection-risk status (stop_credit, overdue_severe…) — present on the single-customer read when the auto credit hold is on. */
+  collectionStatus?: string;
   phone?: string;
   email?: string;
   gstin?: string;
@@ -286,6 +305,9 @@ export interface Customer {
   dunningOptOut?: boolean;
   customFields?: Record<string, string>;
   pan?: string;
+  taxpayerType?: TaxpayerType;
+  /** Optimistic-concurrency counter; send it back on save so a stale edit is refused. */
+  version?: number;
   partyBankName?: string;
   partyBankAccount?: string;
   partyBankIfsc?: string;
@@ -326,6 +348,8 @@ export interface Product {
   brandName?: string;
   unit?: number | null;
   unitName?: string;
+  /** GSTN unit quantity code (PCS, KGS…); decides whether quantities may be fractional. */
+  unitUqc?: string;
   gstRate: string | number;
   gstSupplyForm?: string;
   gstRateNotice?: string;
@@ -641,6 +665,7 @@ export interface SalesDebitNote extends DocumentTotals {
 
 export interface SalesOrder extends DocumentTotals {
   id: number;
+  priceMode?: PriceMode;
   sourceQuotations?: SourceQuotation[];
   sourceQuotationsDiffer?: boolean;
   number?: string | null;
@@ -1372,3 +1397,43 @@ export interface AssistantThread {
   messages?: AssistantMessage[];
 }
 
+
+export interface CustomersSummary {
+  totalCount: number;
+  activeCount: number;
+  blockedCount: number;
+  inactiveCount: number;
+  overCreditLimitCount: number;
+  totalOutstanding: string | number;
+  totalUnallocatedAdvance: string | number;
+  netCreditExposure: string | number;
+}
+
+export interface GstinLookup {
+  gstin: string;
+  status: string;
+  legalName: string;
+  state: string;
+  pan: string;
+  taxpayerType: string;
+  provider: string;
+  notice: string;
+  existingCustomer: { id: number; name: string } | null;
+}
+
+export interface CustomerHistoryEvent {
+  id: number;
+  at: string;
+  user: string;
+  action: string;
+  description: string;
+  changes: Record<string, { from: string; to: string }>;
+}
+
+/** Response of the verify-GSTIN call: the customer plus why the status did not become Valid. */
+export type CustomerVerifyResult = Customer & { verificationNotice?: string };
+
+export interface CustomersHealth {
+  total: number;
+  checks: { check: string; label: string; count: number }[];
+}

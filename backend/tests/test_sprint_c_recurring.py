@@ -170,3 +170,29 @@ def test_recurring_api_crud_and_run_now(tenant_a, schedule):
     body = run.data.get("data", run.data)
     inv = SalesInvoice.objects.get(pk=body["invoice_id"])
     assert inv.status == SalesInvoice.Status.DRAFT
+
+
+# ---- customer status (Customers master hardening) -------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("status", ["BLOCKED", "INACTIVE"])
+def test_beat_skips_blocked_and_archived_customers_and_resumes_when_active(tenant_a, schedule, status):
+    sched, _product, customer = schedule
+    customer.status = status
+    customer.save(update_fields=["status"])
+    assert generate_recurring_invoices_task()["created"] == 0
+    assert not SalesInvoice.objects.filter(company=tenant_a.company).exists()
+    sched.refresh_from_db()
+    assert sched.is_active is True  # skipped, not switched off: it runs again once the customer is active
+    customer.status = "ACTIVE"
+    customer.save(update_fields=["status"])
+    assert generate_recurring_invoices_task()["created"] == 1
+
+
+def test_archiving_a_customer_pauses_their_schedules(tenant_a, schedule):
+    sched, product, customer = schedule
+    from tests.conftest import create_draft_invoice
+
+    create_draft_invoice(tenant_a, customer, [{"product": product.id, "quantity": "1", "unit_price": "100"}])
+    assert tenant_a.client.delete(f"/api/v1/customers/{customer.id}/").status_code == 200
+    sched.refresh_from_db()
+    assert sched.is_active is False

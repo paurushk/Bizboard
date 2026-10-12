@@ -238,6 +238,8 @@ def process_due_schedules(*, now=None):
 def _process_company_schedules(company_id, now, *, created, skipped_locked, skipped_duplicate, skipped_error):
     for schedule in RecurringInvoiceSchedule.objects.filter(
         company_id=company_id, is_active=True, next_run_at__lte=now,
+        # A blocked or archived customer gets no new drafts; the schedule resumes when they are active again.
+        customer__status="ACTIVE",
     ).select_related("company", "customer", "company_gstin"):
         try:
             _created, _locked, _dup = _process_one_schedule(schedule, now=now)

@@ -9,6 +9,12 @@ from .models import (
 )
 
 
+# CUS-23: roles allowed to change credit_limit / credit_days on a customer.
+CREDIT_TERM_EDITOR_ROLES = frozenset({"OWNER", "MANAGER"})
+# Lifting a block or archiving a customer is the same owner/manager call (founder decision 2026-10-12).
+STATUS_ESCALATION_ROLES = CREDIT_TERM_EDITOR_ROLES
+
+
 def reject_unsafe_party_name(name: str) -> None:
     text = (name or "").strip()
     # Letters and digits from any script. A Latin-only check rejected names the
@@ -79,6 +85,8 @@ class CustomerSerializer(serializers.ModelSerializer):
     outstanding = serializers.SerializerMethodField()
     credit_exposure = serializers.SerializerMethodField()
     shipping_addresses = CustomerShippingAddressSerializer(many=True, required=False)
+    # Filled by CustomerViewSet.retrieve only (when the company's auto credit hold is on); absent on lists.
+    collection_status = serializers.CharField(read_only=True, required=False)
 
     def validate(self, attrs):
         instance = getattr(self, "instance", None)
@@ -110,7 +118,151 @@ class CustomerSerializer(serializers.ModelSerializer):
                 assign_pincode(attrs, instance)
             except DjangoValidationError as exc:
                 raise serializers.ValidationError({"pincode": list(exc.messages)}) from exc
+        self._validate_gstin_and_state(attrs, instance)
+        self._validate_walk_in(attrs, instance)
+        self._validate_credit_terms(attrs, instance)
+        self._validate_status_change(attrs, instance)
+        self._validate_phone(attrs, instance)
         return attrs
+
+    def _party_company(self, instance):
+        if self.context.get("company") is not None:
+            return self.context["company"]
+        view = self.context.get("view")
+        company = getattr(view, "company", None) if view is not None else None
+        return company or getattr(instance, "company", None)
+
+    def _validate_gstin_and_state(self, attrs, instance):
+        """CUS-05/07/10/21: one place where a GSTIN change has its side-effects."""
+        from django.conf import settings
+
+        from . import gstin_rules as rules
+
+        if "gstin" not in attrs and "state" not in attrs:
+            return
+        previous = rules.normalise(getattr(instance, "gstin", ""))
+        gstin = rules.normalise(attrs["gstin"]) if "gstin" in attrs else previous
+        changed_gstin = "gstin" in attrs and gstin != previous
+        if "gstin" in attrs:
+            attrs["gstin"] = gstin
+            if changed_gstin:
+                # The stored verification described the old number, not this one.
+                attrs.update(rules.VERIFICATION_RESET)
+            if gstin:
+                company = self._party_company(instance)
+                clash = Customer.objects.filter(company=company, gstin=gstin)
+                if instance is not None:
+                    clash = clash.exclude(pk=instance.pk)
+                other = clash.only("name").first() if company is not None else None
+                if other is not None:
+                    raise serializers.ValidationError(
+                        {"gstin": f"GSTIN {gstin} is already registered to customer '{other.name}'."}
+                    )
+                stored_pan = getattr(instance, "pan", "") or ""
+                if "pan" not in attrs and (not stored_pan or (changed_gstin and stored_pan == rules.derive_pan(previous))):
+                    # Blank, or the PAN that came from the old GSTIN: take the new number's. A PAN typed
+                    # by hand (an unregistered customer can have one) is kept.
+                    attrs["pan"] = rules.derive_pan(gstin)
+        if not gstin:
+            return
+        expected = rules.derive_state(gstin)
+        if changed_gstin and expected and "state" not in attrs:
+            # A new GSTIN from another state moves the customer with it; a blank state is filled too.
+            attrs["state"] = expected
+        state = attrs["state"] if "state" in attrs else getattr(instance, "state", "")
+        if expected and not (state or "").strip():
+            attrs["state"] = expected
+        elif getattr(settings, "CUSTOMER_STRICT_VALIDATION", False):
+            wanted = rules.state_conflicts(gstin, state)
+            if wanted:
+                raise serializers.ValidationError(
+                    {"state": f"GSTIN {gstin} belongs to {wanted}, not {state}."}
+                )
+
+    def _validate_walk_in(self, attrs, instance):
+        """CUS-04: the POS walk-in party is an anonymous cash buyer; keep it that way."""
+        if instance is None or not instance.is_pos_walk_in:
+            return
+        errors = {}
+        if (attrs["gstin"] if "gstin" in attrs else instance.gstin or ""):
+            errors["gstin"] = "The POS walk-in party cannot have a GSTIN."
+        credit = attrs["credit_limit"] if "credit_limit" in attrs else instance.credit_limit
+        if Decimal(str(credit or 0)) > 0:
+            errors["credit_limit"] = "The POS walk-in party cannot have a credit limit."
+        status = attrs["status"] if "status" in attrs else instance.status
+        if status != Customer.Status.ACTIVE:
+            errors["status"] = "The POS walk-in party must stay Active."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+    def _validate_credit_terms(self, attrs, instance):
+        """CUS-23: credit limit and days drive holds, so only owners and managers change them."""
+        from core.permissions import get_company_user
+
+        request = self.context.get("request")
+        if request is None:
+            return
+        changed = {}
+        for field, zero in (("credit_limit", Decimal("0")), ("credit_days", 0)):
+            if field not in attrs:
+                continue
+            old = getattr(instance, field, zero) if instance is not None else zero
+            if (Decimal(str(attrs[field])) if field == "credit_limit" else int(attrs[field])) != (
+                Decimal(str(old)) if field == "credit_limit" else int(old)
+            ):
+                changed[field] = "Only an owner or manager can change credit terms."
+        if not changed:
+            return
+        member = get_company_user(request)
+        if member is None or member.role not in CREDIT_TERM_EDITOR_ROLES:
+            raise serializers.ValidationError(changed)
+
+    def _validate_status_change(self, attrs, instance):
+        """M1: archiving, or lifting a block / archive, is an owner/manager decision. Blocking is open to sales."""
+        from core.permissions import get_company_user
+
+        request = self.context.get("request")
+        if request is None or instance is None or "status" not in attrs or attrs["status"] == instance.status:
+            return
+        new, old = attrs["status"], instance.status
+        archiving = new == Customer.Status.INACTIVE
+        lifting = new == Customer.Status.ACTIVE and old in (Customer.Status.BLOCKED, Customer.Status.INACTIVE)
+        if not (archiving or lifting):
+            return
+        member = get_company_user(request)
+        if member is None or member.role not in STATUS_ESCALATION_ROLES:
+            raise serializers.ValidationError({
+                "status": "Only an owner or manager can archive a customer or lift a block.",
+            })
+
+    def validate_pan(self, value):
+        """PAN is 5 letters, 4 digits, 1 letter. Blank is fine; a stored legacy value may be re-saved unchanged."""
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import validate_pan
+
+        value = (value or "").strip().upper()
+        if self.instance is not None and value == (self.instance.pan or ""):
+            return value
+        try:
+            validate_pan(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages)) from exc
+        return value
+
+    def _validate_phone(self, attrs, instance):
+        """CUS-26: same Indian-mobile rule as the form, enforced for API clients when strict."""
+        from django.conf import settings
+
+        if not getattr(settings, "CUSTOMER_STRICT_VALIDATION", False) or "phone" not in attrs:
+            return
+        phone = (attrs["phone"] or "").strip()
+        if not phone or phone == (getattr(instance, "phone", "") or ""):
+            return  # blank is allowed; a legacy value may be re-saved unchanged
+        from core.validators import is_valid_indian_mobile
+
+        if not is_valid_indian_mobile(phone):
+            raise serializers.ValidationError({"phone": "Enter a valid 10-digit Indian mobile number."})
 
     def validate_custom_fields(self, value):
         from core.permissions import get_company_user
@@ -169,6 +321,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "shipping_addresses",
             "outstanding",
             "credit_exposure",
+            "collection_status",
             "version",
         ]
         read_only_fields = [
@@ -260,10 +413,15 @@ class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     brand_name = serializers.CharField(source="brand.name", read_only=True)
     unit_name = serializers.CharField(source="unit.short_name", read_only=True)
+    unit_uqc = serializers.SerializerMethodField()
     alternate_unit_name = serializers.CharField(source="alternate_unit.short_name", read_only=True)
     has_movements = serializers.BooleanField(read_only=True)
     # Set only on the response to a save that touched the GST rate; blank on reads.
     gst_rate_notice = serializers.SerializerMethodField()
+
+    def get_unit_uqc(self, obj) -> str:
+        """GSTN unit quantity code; blank when the product has no unit (so the key is always present)."""
+        return getattr(getattr(obj, "unit", None), "uqc_code", "") or ""
 
     def get_gst_rate_notice(self, obj) -> str:
         return getattr(self, "_hsn_notice", "") or ""
@@ -280,7 +438,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             "id", "name", "sku", "barcode", "hsn_code", "description",
-            "category", "category_name", "brand", "brand_name", "unit", "unit_name",
+            "category", "category_name", "brand", "brand_name", "unit", "unit_name", "unit_uqc",
             "gst_rate", "gst_supply_form", "gst_rate_notice", "cess_rate", "cess_amount",
             "purchase_price", "selling_price", "mrp", "wholesale_price",
             "reorder_level", "product_type", "track_inventory",

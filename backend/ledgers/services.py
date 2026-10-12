@@ -601,14 +601,18 @@ class LedgerService:
         return dict(nets)
 
     @staticmethod
-    def bulk_customer_credit_exposure(company) -> dict:
+    def bulk_customer_credit_exposure(company, *, documents: dict | None = None) -> dict:
         """Same figure as customer_exposure_for_credit_limit, for every customer on the list.
 
         Books off: document outstanding minus each receipt's unallocated amount.
         Books on: the higher of the GL balance and document outstanding minus the
         2300 advance, which is the limit check on the customer page.
+
+        ``documents`` lets a caller that already holds the document-basis outstanding map
+        (floored, ``documents_only`` equivalent) skip a second pass over the invoices.
         """
-        documents = LedgerService.bulk_customer_outstanding(company, documents_only=True)
+        if documents is None:
+            documents = LedgerService.bulk_customer_outstanding(company, documents_only=True)
         if not getattr(company, "accounting_enabled", False):
             advances = LedgerService.bulk_customer_unallocated_advances(company)
             ids = set(documents) | set(advances)
@@ -626,6 +630,14 @@ class LedgerService:
             gl_outstanding = max(Decimal("0"), gl.get(cid) or Decimal("0"))
             exposure[cid] = max(gl_outstanding, docs_exposure)
         return exposure
+
+    @staticmethod
+    def bulk_customer_advances(company) -> dict:
+        """Unallocated customer advances per customer (books off: receipts; books on: the 2300 balance)."""
+        if not getattr(company, "accounting_enabled", False):
+            return LedgerService.bulk_customer_unallocated_advances(company)
+        net = LedgerService._bulk_gl_customer_net(company, ("2300",))
+        return {cid: max(Decimal("0"), -amount) for cid, amount in net.items()}
 
     @staticmethod
     def company_receivables(company) -> Decimal:

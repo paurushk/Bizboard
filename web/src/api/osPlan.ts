@@ -174,9 +174,12 @@ export async function checkSalesOrderGate(id: number): Promise<GateCheck> {
 export async function confirmSalesOrder(
   id: number,
   creditOverrideReason?: string,
+  options?: { idempotencyKey?: string },
 ): Promise<{ marginWarnings?: GateCheck['marginWarnings'] }> {
   const body = creditOverrideReason ? { creditOverrideReason } : {};
-  const { data } = await apiClient.post(`/sales/orders/${id}/confirm/`, body, { headers: idempotencyHeaders() });
+  const { data } = await apiClient.post(`/sales/orders/${id}/confirm/`, body, {
+    headers: idempotencyHeaders(options?.idempotencyKey),
+  });
   return unwrapData(data);
 }
 

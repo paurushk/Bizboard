@@ -791,3 +791,53 @@ def test_trial_plan_alone_blocks_bad_gstin_owner_override_and_staff(tenant_a):
     assert err.get("code") == "gst_guard_blocked"
     assert SalesInvoice.objects.get(pk=staff_draft["id"]).status == SalesInvoice.Status.DRAFT
 
+
+
+# ---- GSTIN provider: an unreachable service is not "not configured" ---------------------------------------------------------------------------
+
+def test_http_provider_reports_provider_unavailable_when_the_service_cannot_be_reached(monkeypatch, settings):
+    import urllib.error
+
+    from core.services.gstin_verify import HttpGstinProvider
+
+    settings.GSP_SANDBOX_BASE_URL = "https://gsp.example.test"
+    monkeypatch.setattr("core.services.gsp_adapters.assert_safe_outbound_url", lambda url: None)
+
+    def down(*a, **k):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr("urllib.request.urlopen", down)
+    result = HttpGstinProvider().lookup("29ABCDE1234F1ZW")
+    assert result.status == "UNVERIFIED"
+    assert result.raw == {"provider": "http", "error": "provider_unavailable"}
+
+
+def test_http_provider_without_a_base_url_is_the_null_provider(settings):
+    from core.services.gstin_verify import HttpGstinProvider
+
+    settings.GSP_SANDBOX_BASE_URL = ""
+    result = HttpGstinProvider().lookup("29ABCDE1234F1ZW")
+    assert result.raw["provider"] == "null" and result.status == "UNVERIFIED"
+
+
+def test_http_provider_rejects_a_malformed_gstin_without_calling_out(monkeypatch, settings):
+    from core.services.gstin_verify import HttpGstinProvider
+
+    settings.GSP_SANDBOX_BASE_URL = "https://gsp.example.test"
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: pytest.fail("must not call the service"))
+    assert HttpGstinProvider().lookup("NOPE").status == "INVALID"
+
+
+def test_verification_notice_distinguishes_unconfigured_unreachable_and_invalid():
+    from types import SimpleNamespace
+
+    from masters.views import _verification_notice
+
+    unconfigured = SimpleNamespace(status="UNVERIFIED", raw={"provider": "null"})
+    unreachable = SimpleNamespace(status="UNVERIFIED", raw={"provider": "http", "error": "provider_unavailable"})
+    invalid = SimpleNamespace(status="INVALID", raw={})
+    verified = SimpleNamespace(status="VALID", raw={"provider": "http"})
+    assert "not configured" in _verification_notice(unconfigured)
+    assert "could not be reached" in _verification_notice(unreachable)
+    assert "not valid" in _verification_notice(invalid)
+    assert _verification_notice(verified) == ""

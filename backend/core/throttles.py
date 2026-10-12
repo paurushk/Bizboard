@@ -42,6 +42,20 @@ class CompanyRateThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
+class UserScopeRateThrottle(SimpleRateThrottle):
+    """Rate limit keyed by the signed-in user and an explicit scope, so one user cannot use up a shared budget."""
+
+    def __init__(self, scope):
+        self.scope = scope
+        super().__init__()
+
+    def get_cache_key(self, request, view):
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": f"user-{user.pk}"}
+
+
 class TenantPlanRateThrottle(SimpleRateThrottle):
     """Optional per-tenant API cap from Plan.api_rate_per_minute (0 = off)."""
 

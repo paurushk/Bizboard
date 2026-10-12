@@ -46,6 +46,19 @@ def validate_gstin(value):
         raise ValidationError("Invalid GSTIN checksum.")
 
 
+_INDIAN_MOBILE_RE = re.compile(r"^(?:\+91|91|0)?([6-9][0-9]{9})$")
+
+
+def is_valid_indian_mobile(phone: str) -> bool:
+    """10-digit mobile starting 6-9, with an optional +91, 91 or 0 prefix.
+
+    A prefix is only recognised on a number of the right total length, so a 10-digit number that
+    happens to begin 91 (9123456789) is a valid mobile, not "91" plus eight digits.
+    """
+    digits = re.sub(r"[\s-]", "", str(phone or ""))
+    return bool(_INDIAN_MOBILE_RE.match(digits))
+
+
 def validate_pan(value):
     if not value:
         return

@@ -8661,6 +8661,43 @@
                 }
             }
         },
+        "/api/v1/customers/{id}/history/": {
+            "get": {
+                "operationId": "customers_history_retrieve",
+                "description": "Who changed this customer, and what (from the audit trail).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "customers"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerHistory"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/customers/{id}/verify-gstin/": {
             "post": {
                 "operationId": "customers_verify_gstin_create",
@@ -8710,6 +8747,128 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/Customer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/export/": {
+            "get": {
+                "operationId": "customers_export_retrieve",
+                "description": "CSV of every customer the list filters select. Streamed; refuses an oversize export.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search name, phone, email or GSTIN (first 100 characters)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "ACTIVE",
+                                "BLOCKED",
+                                "INACTIVE"
+                            ]
+                        },
+                        "description": "Customer status."
+                    }
+                ],
+                "tags": [
+                    "customers"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string",
+                                    "format": "binary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/health/": {
+            "get": {
+                "operationId": "customers_health_retrieve",
+                "description": "Customer records that need a look (the monthly check, on demand). Owner or manager.",
+                "tags": [
+                    "customers"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerHealth"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/lookup-gstin/": {
+            "post": {
+                "operationId": "customers_lookup_gstin_create",
+                "description": "Look a GSTIN up before the customer exists, to pre-fill the form. Writes nothing.",
+                "tags": [
+                    "customers"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerGstinLookupRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerGstinLookupRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerGstinLookupRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerGstinLookup"
                                 }
                             }
                         },
@@ -8802,6 +8961,101 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/Customer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/summary/": {
+            "get": {
+                "operationId": "customers_summary_retrieve",
+                "description": "Portfolio figures for the customers the list filters select (not just one page).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "q",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "description": "Search name, phone, email or GSTIN (first 100 characters)."
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "ACTIVE",
+                                "BLOCKED",
+                                "INACTIVE"
+                            ]
+                        },
+                        "description": "Customer status."
+                    }
+                ],
+                "tags": [
+                    "customers"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerSummary"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/customers/verify-gstin-bulk/": {
+            "post": {
+                "operationId": "customers_verify_gstin_bulk_create",
+                "description": "Verify the GSTIN of up to 10 chosen customers in one go (its own, small budget).",
+                "tags": [
+                    "customers"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerVerifyBulkRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerVerifyBulkRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CustomerVerifyBulkRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerVerifyBulk"
                                 }
                             }
                         },
@@ -33193,6 +33447,33 @@
                 }
             }
         },
+        "/api/v1/sales/quick-entry/recents/": {
+            "get": {
+                "operationId": "sales_quick_entry_recents_retrieve",
+                "description": "The signed-in rep's recent customers and products, active ones only.\n\nLooks at the rep's own recent invoices (salesperson, or creator when no salesperson was set)\nand sales orders, so each rep sees their own round rather than the whole company's.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/quotations/": {
             "get": {
                 "operationId": "sales_quotations_list",
@@ -39022,12 +39303,17 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "collection_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "version": {
                         "type": "integer",
                         "readOnly": true
                     }
                 },
                 "required": [
+                    "collection_status",
                     "created_at",
                     "credit_exposure",
                     "gstin_legal_name",
@@ -39039,6 +39325,164 @@
                     "outstanding",
                     "updated_at",
                     "version"
+                ]
+            },
+            "CustomerGstinLookup": {
+                "type": "object",
+                "properties": {
+                    "gstin": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "legal_name": {
+                        "type": "string"
+                    },
+                    "state": {
+                        "type": "string"
+                    },
+                    "pan": {
+                        "type": "string"
+                    },
+                    "taxpayer_type": {
+                        "type": "string"
+                    },
+                    "provider": {
+                        "type": "string"
+                    },
+                    "notice": {
+                        "type": "string"
+                    },
+                    "existing_customer": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/CustomerGstinLookupExisting"
+                            }
+                        ],
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "existing_customer",
+                    "gstin",
+                    "legal_name",
+                    "notice",
+                    "pan",
+                    "provider",
+                    "state",
+                    "status",
+                    "taxpayer_type"
+                ]
+            },
+            "CustomerGstinLookupExisting": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name"
+                ]
+            },
+            "CustomerGstinLookupRequest": {
+                "type": "object",
+                "properties": {
+                    "gstin": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "gstin"
+                ]
+            },
+            "CustomerHealth": {
+                "type": "object",
+                "properties": {
+                    "total": {
+                        "type": "integer"
+                    },
+                    "checks": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CustomerHealthCheck"
+                        }
+                    }
+                },
+                "required": [
+                    "checks",
+                    "total"
+                ]
+            },
+            "CustomerHealthCheck": {
+                "type": "object",
+                "properties": {
+                    "check": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "count": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "check",
+                    "count",
+                    "label"
+                ]
+            },
+            "CustomerHistory": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CustomerHistoryEvent"
+                        }
+                    }
+                },
+                "required": [
+                    "results"
+                ]
+            },
+            "CustomerHistoryEvent": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "user": {
+                        "type": "string"
+                    },
+                    "action": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "changes": {
+                        "type": "object",
+                        "additionalProperties": {}
+                    }
+                },
+                "required": [
+                    "action",
+                    "at",
+                    "changes",
+                    "description",
+                    "id",
+                    "user"
                 ]
             },
             "CustomerReceipt": {
@@ -39354,6 +39798,96 @@
                 ],
                 "type": "string",
                 "description": "* `ACTIVE` - Active\n* `BLOCKED` - Blocked\n* `INACTIVE` - Inactive"
+            },
+            "CustomerSummary": {
+                "type": "object",
+                "properties": {
+                    "total_count": {
+                        "type": "integer"
+                    },
+                    "active_count": {
+                        "type": "integer"
+                    },
+                    "blocked_count": {
+                        "type": "integer"
+                    },
+                    "inactive_count": {
+                        "type": "integer"
+                    },
+                    "over_credit_limit_count": {
+                        "type": "integer"
+                    },
+                    "total_outstanding": {
+                        "type": "string"
+                    },
+                    "total_unallocated_advance": {
+                        "type": "string"
+                    },
+                    "net_credit_exposure": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "active_count",
+                    "blocked_count",
+                    "inactive_count",
+                    "net_credit_exposure",
+                    "over_credit_limit_count",
+                    "total_count",
+                    "total_outstanding",
+                    "total_unallocated_advance"
+                ]
+            },
+            "CustomerVerifyBulk": {
+                "type": "object",
+                "properties": {
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CustomerVerifyBulkRow"
+                        }
+                    }
+                },
+                "required": [
+                    "results"
+                ]
+            },
+            "CustomerVerifyBulkRequest": {
+                "type": "object",
+                "properties": {
+                    "ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        }
+                    }
+                },
+                "required": [
+                    "ids"
+                ]
+            },
+            "CustomerVerifyBulkRow": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "notice": {
+                        "type": "string"
+                    },
+                    "error": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "error",
+                    "id",
+                    "notice",
+                    "status"
+                ]
             },
             "DeliveryChallan": {
                 "type": "object",
@@ -45696,6 +46230,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "collection_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "version": {
                         "type": "integer",
                         "readOnly": true
@@ -47306,6 +47844,11 @@
                     },
                     "unit_name": {
                         "type": "string",
+                        "readOnly": true
+                    },
+                    "unit_uqc": {
+                        "type": "string",
+                        "description": "GSTN unit quantity code; blank when the product has no unit (so the key is always present).",
                         "readOnly": true
                     },
                     "gst_rate": {
@@ -49485,6 +50028,9 @@
                     "invoice_type": {
                         "$ref": "#/components/schemas/InvoiceTypeEnum"
                     },
+                    "price_mode": {
+                        "$ref": "#/components/schemas/PriceModeEnum"
+                    },
                     "order_date": {
                         "type": "string",
                         "format": "date"
@@ -49567,6 +50113,11 @@
                     },
                     "delivery_address": {
                         "type": "string"
+                    },
+                    "ship_to": {
+                        "type": "integer",
+                        "writeOnly": true,
+                        "nullable": true
                     },
                     "expected_profit": {
                         "type": "string",
@@ -51114,6 +51665,11 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "unit_uqc": {
+                        "type": "string",
+                        "description": "GSTN unit quantity code; blank when the product has no unit (so the key is always present).",
+                        "readOnly": true
+                    },
                     "gst_rate": {
                         "type": "string",
                         "format": "decimal",
@@ -51250,6 +51806,7 @@
                     "id",
                     "name",
                     "unit_name",
+                    "unit_uqc",
                     "updated_at"
                 ]
             },
@@ -55229,6 +55786,9 @@
                     "invoice_type": {
                         "$ref": "#/components/schemas/InvoiceTypeEnum"
                     },
+                    "price_mode": {
+                        "$ref": "#/components/schemas/PriceModeEnum"
+                    },
                     "order_date": {
                         "type": "string",
                         "format": "date"
@@ -55311,6 +55871,11 @@
                     },
                     "delivery_address": {
                         "type": "string"
+                    },
+                    "ship_to": {
+                        "type": "integer",
+                        "writeOnly": true,
+                        "nullable": true
                     },
                     "expected_profit": {
                         "type": "string",

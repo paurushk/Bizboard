@@ -29,7 +29,7 @@ export function RecurringInvoicesPage() {
     queryKey: ['recurring-schedules'],
     queryFn: async () => (await api.listRecurringSchedulesPage()).results,
   });
-  const customers = useQuery({ queryKey: ['customers-mini'], queryFn: async () => (await api.listCustomersPage({ pageSize: 100 })).results });
+  const customers = useQuery({ queryKey: ['customers-mini'], queryFn: async () => (await api.listCustomersPage({ pageSize: 100, status: 'ACTIVE' })).results });
   const cf = useProductCfFilters();
   const products = useQuery({ queryKey: ['products-mini', cf.cfFilters], queryFn: () => api.searchProducts('', { cf: cf.cfFilters }) });
   const [customer, setCustomer] = useState('');

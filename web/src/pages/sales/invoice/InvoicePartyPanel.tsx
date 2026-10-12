@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { invalidateCustomerQueries } from '@/pages/sales/customerQueries';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
@@ -96,8 +97,7 @@ export function InvoicePartyPanel({
       });
     },
     onSuccess: (c) => {
-      void qc.invalidateQueries({ queryKey: ['customers-search'] });
-      void qc.invalidateQueries({ queryKey: ['customer'] });
+      invalidateCustomerQueries(qc, c.id);
       setPartyDialogOpen(false);
       setPartyForm({ name: '', phone: '', gstin: '', state: '' });
       onCustomerCreated(c);
@@ -131,8 +131,7 @@ export function InvoicePartyPanel({
       });
     },
     onSuccess: (c) => {
-      void qc.invalidateQueries({ queryKey: ['customers-search'] });
-      void qc.invalidateQueries({ queryKey: ['customer', c.id] });
+      invalidateCustomerQueries(qc, c.id);
       onCustomerUpdated?.(c);
     },
     onError: (err) => onError(getErrorMessage(err)),
@@ -158,7 +157,7 @@ export function InvoicePartyPanel({
         return;
       }
       const created = await createCustomer({ name, status: 'ACTIVE' });
-      void qc.invalidateQueries({ queryKey: ['customers-search'] });
+      invalidateCustomerQueries(qc, created.id);
       onManualNameChange('');
       onCustomerCreated(created);
       onSelect(created);
@@ -184,7 +183,7 @@ export function InvoicePartyPanel({
         name: 'Walk-in Customer',
         status: 'ACTIVE',
       });
-      void qc.invalidateQueries({ queryKey: ['customers-search'] });
+      invalidateCustomerQueries(qc, created.id);
       onCustomerCreated(created);
       onSelect(created);
     } catch {

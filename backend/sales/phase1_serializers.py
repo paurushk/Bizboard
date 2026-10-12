@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from masters.models import Customer, CustomerShippingAddress
+
 from .models import (
     DeliveryChallan,
     DeliveryChallanItem,
@@ -20,6 +22,21 @@ from .serializers import (
     SourceQuotationsMixin,
     _BaseLineSerializer,
 )
+
+
+def assert_customer_active(serializer, customer, noun: str):
+    """Block new documents for a blocked/inactive customer (parity with SalesInvoiceSerializer).
+
+    Applies on create or when the customer changes; an existing draft that keeps its customer can
+    still be edited or cancelled.
+    """
+    if customer.status == Customer.Status.ACTIVE:
+        return
+    instance = getattr(serializer, "instance", None)
+    if instance is not None and instance.customer_id == customer.pk:
+        return
+    raise serializers.ValidationError(f"Cannot create {noun} for {customer.billing_block_phrase}.")
+
 
 
 class SalesCreditNoteItemSerializer(_BaseLineSerializer):
@@ -227,21 +244,48 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
     class Meta:
         model = SalesOrder
         fields = [
-            "id", "number", "status", "customer", "customer_name", "warehouse", "invoice_type",
+            "id", "number", "status", "customer", "customer_name", "warehouse", "invoice_type", "price_mode",
             "order_date", "expected_delivery", "payment_terms_days",
             "additional_charges", "charges_hsn", "charges_gst_rate",
             "invoice_discount", "invoice_discount_mode",
             "auto_round_off", "notes", "terms_text", "items",
             "supply_type", "company_gstin",
-            "salesman", "sales_channel", "delivery_address",
+            "salesman", "sales_channel", "delivery_address", "ship_to",
             "expected_profit", "source_quotations", "source_quotations_differ",
             "converted_invoice", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = ["number", "status", "converted_invoice", "expected_profit"] + TOTAL_READONLY
 
+    ship_to = serializers.PrimaryKeyRelatedField(
+        queryset=CustomerShippingAddress.objects.all(), write_only=True, required=False, allow_null=True
+    )
+
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
+        assert_customer_active(self, customer, "an order")
         return customer
+
+    def validate_ship_to(self, ship_to):
+        if ship_to is not None:
+            self.check_company_ref(ship_to, "ship_to")
+        return ship_to
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        ship_to = attrs.get("ship_to")
+        customer = attrs.get("customer") or getattr(self.instance, "customer", None)
+        if ship_to is not None and customer is not None and ship_to.customer_id != customer.pk:
+            raise serializers.ValidationError({"ship_to": "This address does not belong to the selected customer."})
+        return attrs
+
+    @staticmethod
+    def _default_delivery_address(customer, ship_to) -> str:
+        if ship_to is not None and (ship_to.address or "").strip():
+            return ship_to.address
+        default = customer.shipping_addresses.filter(is_default=True).first()
+        if default is not None and (default.address or "").strip():
+            return default.address
+        return (customer.shipping_address or customer.billing_address or "").strip()
 
     def validate_warehouse(self, warehouse):
         if warehouse is not None:
@@ -256,6 +300,17 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
     def create(self, validated_data):
         request = self.context["request"]
         items_data = strip_expected_prices(request, validated_data.pop("items"))
+        ship_to = validated_data.pop("ship_to", None)
+        customer = validated_data["customer"]
+        if not (validated_data.get("delivery_address") or "").strip():
+            validated_data["delivery_address"] = self._default_delivery_address(customer, ship_to)
+        # Only fall back to the customer's terms when the caller did not send any.
+        if "payment_terms_days" not in self.initial_data:
+            validated_data["payment_terms_days"] = customer.credit_days or 0
+        if validated_data.get("company_gstin") is None:
+            from .notes_services import _single_active_company_gstin
+
+            validated_data["company_gstin"] = _single_active_company_gstin(validated_data["company"])
         order = SalesOrder.objects.create(**validated_data)
         SalesNotesService.set_order_items(order, [dict(l) for l in items_data], request.user)
         return order
@@ -282,6 +337,10 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
         items_data = preserve_expected_prices(
             request, validated_data.pop("items", None), instance.items.order_by("id")
         )
+        ship_to = validated_data.pop("ship_to", None)
+        if ship_to is not None and not (validated_data.get("delivery_address") or "").strip():
+            # Choosing a saved address on an edit sets the delivery address (unless one was typed).
+            validated_data["delivery_address"] = ship_to.address
         instance = super().update(instance, validated_data)
         if items_data is not None:
             SalesNotesService.set_order_items(instance, [dict(l) for l in items_data], request.user)
@@ -337,6 +396,7 @@ class DeliveryChallanSerializer(CompanyScopedSerializerMixin, serializers.ModelS
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
+        assert_customer_active(self, customer, "a delivery challan")
         return customer
 
     def validate_warehouse(self, warehouse):

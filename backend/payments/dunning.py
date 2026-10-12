@@ -383,6 +383,11 @@ def run_dunning_for_company(company, *, now: datetime | None = None) -> dict:
         if getattr(customer, "dunning_opt_out", False):
             skipped += 1
             continue
+        # An archived customer is retired: no reminders. A blocked one is on credit hold and still owes, so
+        # it keeps getting them.
+        if getattr(customer, "status", "") == "INACTIVE":
+            skipped += 1
+            continue
         # QOS-0032: a customer with neither phone nor email is unreachable.
         if not (customer.phone or "").strip() and not (getattr(customer, "email", "") or "").strip():
             skipped += 1

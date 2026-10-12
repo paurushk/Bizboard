@@ -65,3 +65,35 @@ def test_export_wipe_restore_preserves_state_and_invariants(tenant_a):
 
     company.refresh_from_db()
     assert_all_invariants(company)
+
+
+def test_restore_recreates_customers_as_exported_and_reports_ones_that_break_the_customer_rules(tenant_a, caplog):
+    import logging
+
+    from accounts.tenant_backup import build_export_payload, restore_destroy_in_place
+    from masters.models import Customer
+
+    make_customer(tenant_a.company, name="Old Mismatch", gstin="27AABCU9603R1ZN", state="Karnataka")
+    make_customer(tenant_a.company, name="Clean", gstin="29ABCDE1234F1ZW", state="Karnataka")
+    payload = build_export_payload(tenant_a.company)
+    with caplog.at_level(logging.WARNING, logger="accounts.tenant_backup"):
+        restore_destroy_in_place(
+            company=tenant_a.company, payload=payload, owner=tenant_a.owner, confirm_destroy_unbacked=True,
+        )
+    # a restore is exact: it does not apply the form rules, it says what an older backup brought in
+    assert Customer.objects.get(company=tenant_a.company, name="Old Mismatch").state == "Karnataka"
+    assert "tenant_restore: customer audit" in caplog.text and "state_mismatch" in caplog.text
+
+
+def test_restore_of_clean_customers_logs_no_customer_audit_warning(tenant_a, caplog):
+    import logging
+
+    from accounts.tenant_backup import build_export_payload, restore_destroy_in_place
+
+    make_customer(tenant_a.company, name="Clean", gstin="29ABCDE1234F1ZW", state="Karnataka")
+    payload = build_export_payload(tenant_a.company)
+    with caplog.at_level(logging.WARNING, logger="accounts.tenant_backup"):
+        restore_destroy_in_place(
+            company=tenant_a.company, payload=payload, owner=tenant_a.owner, confirm_destroy_unbacked=True,
+        )
+    assert "tenant_restore: customer audit" not in caplog.text

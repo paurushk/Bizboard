@@ -15,7 +15,15 @@ import { getErrorMessage } from '@/api/client';
 import { contractTimeline, issueReferralCode, listContractsPage, listTicketsPage } from '@/api/growth';
 import { customerNextAction } from '@/pages/sales/customer360Value';
 import { getCustomer360 } from '@/api/osPlan';
-import { createPaymentPromise, listPaymentPromises, listSalesInvoicesPage, repeatLastInvoice, resolvePaymentPromise } from '@/api/resources';
+import {
+  createPaymentPromise,
+  getCustomer,
+  listCustomerHistory,
+  listPaymentPromises,
+  listSalesInvoicesPage,
+  repeatLastInvoice,
+  resolvePaymentPromise,
+} from '@/api/resources';
 import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
@@ -25,7 +33,10 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney } from '@/utils/money';
-import { canManagePaymentPromises, canViewFinancialReports } from '@/utils/permissions';
+import { canCreateSales, canManagePaymentPromises, canViewFinancialReports } from '@/utils/permissions';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { CustomerFormDialog } from '@/pages/sales/CustomerFormDialog';
+import { invalidateCustomerQueries } from '@/pages/sales/customerQueries';
 import { isPastIso } from '@/utils/clock';
 
 function agingAmount(aging: Record<string, string> | null | undefined, keys: string[]): string | null {
@@ -63,6 +74,16 @@ export function Customer360Page() {
     queryKey: ['customer-360', customerId],
     queryFn: () => getCustomer360(customerId),
     enabled: customerIdValid,
+  });
+  const { writesBlocked } = useSubscriptionGate();
+  const canEditCustomer = canCreateSales(user) && !writesBlocked;
+  const [editOpen, setEditOpen] = useState(false);
+  const editable = useQuery({
+    queryKey: ['customer', customerId],
+    queryFn: () => getCustomer(customerId),
+    enabled: editOpen && customerIdValid,
+    // The dialog holds unsaved typing; a background refetch must not replace or close it.
+    refetchOnWindowFocus: false,
   });
   const [repeatError, setRepeatError] = useState('');
   const repeatMutation = useMutation({
@@ -147,8 +168,24 @@ export function Customer360Page() {
       {customerIdValid ? (
         <Stack direction="row" spacing={1}>
           <Button component={RouterLink} to={`/sales/new?customer=${customerId}`} variant="contained">{t('cog.newBill')}</Button>
+          {canCreateSales(user) ? (
+            <Button component={RouterLink} to={`/sales/quick-entry?customer=${customerId}`} variant="outlined">
+              {t('quickEntry.quickOrder')}
+            </Button>
+          ) : null}
           <Button component={RouterLink} to="/sales/receipts" variant="outlined">{t('nav.receipts')}</Button>
+          {canEditCustomer ? (
+            <Button variant="outlined" onClick={() => setEditOpen(true)}>{t('customers.edit')}</Button>
+          ) : null}
         </Stack>
+      ) : null}
+      {editOpen && editable.data ? (
+        <CustomerFormDialog
+          open
+          customer={editable.data}
+          onClose={() => setEditOpen(false)}
+          onSaved={(saved) => invalidateCustomerQueries(qc, saved.id)}
+        />
       ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -433,6 +470,7 @@ export function Customer360Page() {
           </Dialog>
         </Stack>
       ) : null}
+      {customerIdValid && canSeeProfit ? <CustomerHistoryPanel customerId={customerId} /> : null}
       <ProfitDetailsDialog
         invoiceId={profitInvoiceId}
         open={profitInvoiceId != null}
@@ -458,5 +496,48 @@ function ContractHistory({ contractId }: { contractId: number }) {
         <Typography key={event.id} variant="caption">{event.occurredAt} · {event.notes}</Typography>
       ))}
     </Stack>
+  );
+}
+
+const HISTORY_FIELD_KEYS: Record<string, string> = {
+  creditLimit: 'customers.creditLimit',
+  creditDays: 'customers.creditDays',
+  taxpayerType: 'customers.taxpayerType',
+};
+
+function CustomerHistoryPanel({ customerId }: { customerId: number }) {
+  const history = useQuery({
+    queryKey: ['customer-history', customerId],
+    queryFn: () => listCustomerHistory(customerId),
+    retry: false,
+  });
+  if (history.isError || !history.data) return null;
+  const rows = history.data.filter((row) => Object.keys(row.changes ?? {}).length > 0 || row.description);
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Typography variant="subtitle2">{t('customers.history')}</Typography>
+      {rows.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">{t('customers.historyEmpty')}</Typography>
+      ) : (
+        <Stack spacing={0.75} sx={{ mt: 1 }}>
+          {rows.map((row) => (
+            <Typography key={row.id} variant="body2">
+              {new Date(row.at).toLocaleString()} · {row.user || '—'} ·{' '}
+              {Object.entries(row.changes ?? {}).length
+                ? Object.entries(row.changes)
+                    .map(([field, change]) =>
+                      t('customers.historyChange', {
+                        field: HISTORY_FIELD_KEYS[field] ? t(HISTORY_FIELD_KEYS[field]) : field,
+                        from: change.from || '—',
+                        to: change.to || '—',
+                      }),
+                    )
+                    .join('; ')
+                : row.description}
+            </Typography>
+          ))}
+        </Stack>
+      )}
+    </Paper>
   );
 }

@@ -1,21 +1,32 @@
+import logging
+from decimal import Decimal
+
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.http import HttpResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers as drf_serializers
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
 from core.permissions import (
     CanCreatePurchases,
     CanCreateSales,
+    CanExport,
     CanManageInventory,
+    CanViewFinancialReports,
     CanViewMastersCatalog,
     HasCompany,
     IsOwner,
+    get_company_user,
 )
 from core.services.gstin_verify import apply_verification, get_gstin_provider
+from core.throttles import CompanyRateThrottle, UserScopeRateThrottle
 from core.viewsets import CompanyScopedViewSet
 
 from .models import Brand, Category, Customer, ExpenseCategory, PaymentMode, PriceList, Product, Supplier, TaxRate, Unit
@@ -164,47 +175,212 @@ class ExpenseCategoryViewSet(CompanyScopedViewSet):
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
 
+logger = logging.getLogger("masters.customers")
+
+
+def _count(event: str) -> None:
+    """Bump a Prometheus business-event counter (``/metrics``); never breaks the request."""
+    try:
+        from core.ops_metrics import bump_event
+
+        bump_event(event)
+    except Exception:  # noqa: BLE001
+        logger.debug("ops_metrics.bump_failed event=%s", event)
+
+
+class StaleWrite(APIException):
+    """409: the row changed since the client read it. The client reloads the customer and tries again."""
+
+    status_code = 409
+    default_detail = "This customer was changed by someone else. Reload it and try again."
+    default_code = "stale_write"
+
+
+def _parse_version(raw):
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+# Fields whose before/after values go on the customer's UPDATE audit row (CUS-24).
+_CUSTOMER_TRACKED_FIELDS = (
+    "name", "gstin", "state", "status", "credit_limit", "credit_days", "taxpayer_type",
+    "phone", "email", "pan",
+)
+CUSTOMER_EXPORT_MAX_ROWS = 20000
+BULK_VERIFY_MAX = 10  # x 3 calls/hour per user = the 30/hour company budget
+CREDIT_TERMS_EVENT = "customer.credit_terms"
+
+
+_MASKED_AUDIT_FIELDS = ("phone", "email", "pan")
+
+
+def _mask_audit_value(field: str, value: str) -> str:
+    """Audit trail keeps what changed, not the personal data itself (phone, email, PAN)."""
+    if not value:
+        return ""
+    if field == "email":
+        name, _, domain = value.partition("@")
+        return f"{name[:1]}***@{domain}" if domain else "***"
+    return "*" * max(len(value) - 4, 0) + value[-4:]
+
+
+def _customer_snapshot(row):
+    return {f: str(getattr(row, f, "") if getattr(row, f, "") is not None else "") for f in _CUSTOMER_TRACKED_FIELDS}
+
+
+def _raise_if_gstin_clash(exc, company, gstin):
+    """Two requests set the same GSTIN at once and the database constraint won: say who holds it."""
+    from django.db import IntegrityError
+
+    text = str(exc)
+    # PostgreSQL names the constraint; SQLite names the columns.
+    named = "uniq_customer_gstin_per_company" in text or ("masters_customer" in text and "gstin" in text)
+    if isinstance(exc, IntegrityError) and named and gstin:
+        other = Customer.objects.filter(company=company, gstin=gstin).only("name").first()
+        who = f" to customer '{other.name}'" if other else ""
+        raise ValidationError({"gstin": f"GSTIN {gstin} is already registered{who}."}) from exc
+
+
+def _verification_notice(result) -> str:
+    """Why a lookup did not end in a live-verified GSTIN (empty when it did)."""
+    raw = result.raw or {}
+    if result.status == "INVALID":
+        return "The GSTIN format is not valid."
+    if raw.get("error") == "provider_unavailable":
+        return "The GSTIN verification service could not be reached. Try again in a few minutes."
+    if raw.get("provider") == "null" or result.status == "UNVERIFIED":
+        return "Live GSTIN verification is not configured, so only the format was checked."
+    return ""
+
+
+class CanArchiveCustomer(BasePermission):
+    """Archiving or deleting a customer is an owner/manager call (founder decision 2026-10-11)."""
+
+    message = "Only an owner or manager can archive or delete a customer."
+
+    def has_permission(self, request, view):
+        member = get_company_user(request)
+        return member is not None and member.role in ("OWNER", "MANAGER")
+
+
+_CUSTOMER_FILTER_PARAMS = [
+    OpenApiParameter("q", str, description="Search name, phone, email or GSTIN (first 100 characters)."),
+    OpenApiParameter("status", str, enum=["ACTIVE", "BLOCKED", "INACTIVE"], description="Customer status."),
+]
+
+
 class CustomerViewSet(CompanyScopedViewSet):
     queryset = Customer.objects.all()
     serializer_class = CustomerSerializer
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        data = self.get_serializer(instance).data
+        # Quick Entry warns before booking for a customer on collection hold. The status only
+        # matters (it only blocks Complete) when the company turned the auto hold on, so skip the
+        # risk query otherwise.
+        company = self.company
+        if getattr(company, "auto_credit_hold_on_severe_overdue", False):
+            from payments.dunning import customer_risk_snapshot
+
+            try:
+                data["collection_status"] = customer_risk_snapshot(company, instance).get("collection_status", "")
+            except Exception:  # noqa: BLE001 — an advisory field must never break the customer page
+                logger.exception("customer collection status failed for customer %s", instance.pk)
+                data["collection_status"] = ""
+        return Response(data)
+
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "pos_walk_in"):
+        action = getattr(self, "action", None)
+        if action == "destroy":
+            return [IsAuthenticated(), HasCompany(), CanCreateSales(), CanArchiveCustomer()]
+        if action in (*_MUTATE_ACTIONS, "pos_walk_in", "verify_gstin", "verify_gstin_bulk", "lookup_gstin"):
             return [IsAuthenticated(), HasCompany(), CanCreateSales()]
-        if getattr(self, "action", None) in ("verify_gstin", "set_pos_walk_in"):
+        if action == "set_pos_walk_in":
             return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), CanExport()]
+        if action in ("summary", "history"):
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+        if action == "health":
+            return [IsAuthenticated(), HasCompany(), CanArchiveCustomer()]
         # BB-000422: VIEWER must not browse party masters.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
-    def get_queryset(self):
+    def get_throttles(self):
+        throttles = super().get_throttles()
+        action = getattr(self, "action", None)
+        if action in ("verify_gstin", "lookup_gstin"):
+            throttles.append(CompanyRateThrottle("gstin_verify"))
+            throttles.append(UserScopeRateThrottle("gstin_verify_user"))
+        elif action == "verify_gstin_bulk":
+            throttles.append(CompanyRateThrottle("gstin_verify"))
+            throttles.append(UserScopeRateThrottle("gstin_verify_bulk"))
+        elif action == "export":
+            throttles.append(CompanyRateThrottle("customers_export"))
+        elif action == "summary":
+            throttles.append(CompanyRateThrottle("customers_summary"))
+        return throttles
+
+    def _filtered_queryset(self):
+        """The list filters (status, q, walk-in) with no ordering: shared by list, summary and export."""
         qs = super().get_queryset()
         status_filter = self.request.query_params.get("status")
         if status_filter:
+            if status_filter not in Customer.Status.values:
+                raise ValidationError({"status": f"Invalid status. Use one of: {', '.join(Customer.Status.values)}."})
             qs = qs.filter(status=status_filter)
-        q = self.request.query_params.get("search") or self.request.query_params.get("q")
+        q = (self.request.query_params.get("search") or self.request.query_params.get("q") or "").strip()[:100]
         if q:
-            qs = qs.filter(Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q))
+            qs = qs.filter(
+                Q(name__icontains=q) | Q(phone__icontains=q) | Q(gstin__icontains=q) | Q(email__icontains=q)
+            )
         if self.request.query_params.get("is_pos_walk_in") in ("1", "true", "True"):
             qs = qs.filter(is_pos_walk_in=True)
-        sort = (self.request.query_params.get("sort") or self.request.query_params.get("ordering") or "name").lower()
-        if sort in ("recent", "recently_active", "-updated_at"):
-            qs = qs.order_by("-updated_at", "name")
-        elif sort in ("balance", "-balance"):
-            from django.db.models import Case, DecimalField, Value, When
+        return qs
 
+    def _outstanding_map(self):
+        """One outstanding pass per request, shared by the balance sort, the rows and the exposure."""
+        if not hasattr(self, "_outstanding_cache"):
             from ledgers.services import LedgerService
 
-            outstanding = LedgerService.bulk_customer_outstanding(self.company)
-            whens = [
-                When(pk=pk, then=Value(amt, output_field=DecimalField(max_digits=14, decimal_places=2)))
-                for pk, amt in outstanding.items()
-            ]
-            qs = qs.annotate(
-                _bal=Case(*whens, default=Value(0, output_field=DecimalField(max_digits=14, decimal_places=2)))
-            ).order_by("-_bal", "name")
-        else:
-            qs = qs.order_by("name")
-        return qs
+            self._outstanding_cache = LedgerService.bulk_customer_outstanding(self.company)
+        return self._outstanding_cache
+
+    def _exposure_map(self):
+        if not hasattr(self, "_exposure_cache"):
+            from ledgers.services import LedgerService
+
+            # Books off (or GL basis not ready) the displayed outstanding IS the document figure.
+            reuse = None if LedgerService._use_gl_outstanding(self.company) else self._outstanding_map()
+            self._exposure_cache = LedgerService.bulk_customer_credit_exposure(self.company, documents=reuse)
+        return self._exposure_cache
+
+    def get_queryset(self):
+        qs = self._filtered_queryset()
+        if getattr(self, "action", None) in ("list", "retrieve"):
+            qs = qs.prefetch_related("shipping_addresses")  # one query, not one per row
+        sort = (self.request.query_params.get("sort") or self.request.query_params.get("ordering") or "name").lower()
+        self._balance_sort = False
+        if sort in ("recent", "recently_active", "-updated_at"):
+            return qs.order_by("-updated_at", "name")
+        if sort in ("balance", "-balance"):
+            # Ordered in paginate_queryset: one SQL CASE per customer would grow with the party list.
+            self._balance_sort = True
+        return qs.order_by("name")
+
+    def paginate_queryset(self, queryset):
+        if not getattr(self, "_balance_sort", False):
+            return super().paginate_queryset(queryset)
+        balances = self._outstanding_map()
+        rows = sorted(queryset.values_list("pk", "name"), key=lambda r: (-balances.get(r[0], Decimal("0")), r[1]))
+        page_ids = super().paginate_queryset([pk for pk, _name in rows])
+        if page_ids is None:
+            return None
+        by_id = queryset.in_bulk(page_ids)
+        return [by_id[pk] for pk in page_ids if pk in by_id]
 
     @action(detail=False, methods=["post"], url_path="pos-walk-in")
     def pos_walk_in(self, request):
@@ -255,6 +431,8 @@ class CustomerViewSet(CompanyScopedViewSet):
                     "The walk-in party cannot have a GSTIN or a credit limit.",
                     code="pos_walk_in_target",
                 )
+            if target.status != Customer.Status.ACTIVE:
+                raise BusinessRuleError("The walk-in party must be Active.", code="pos_walk_in_target")
             # Lock the current walk-in rows first so two moves cannot race on the unique flag.
             list(Customer.objects.select_for_update().filter(company=self.company, is_pos_walk_in=True))
             Customer.objects.filter(company=self.company, is_pos_walk_in=True).exclude(pk=target.pk).update(
@@ -276,17 +454,14 @@ class CustomerViewSet(CompanyScopedViewSet):
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.get("partial", False)
-        if not partial:
+        # PUT must carry the version it was read at. PATCH may omit it (field-level merge under
+        # the row lock), but a PATCH that does send one is checked like a PUT.
+        if not partial or "version" in request.data:
             instance = self.get_object()
-            try:
-                sent = int(request.data.get("version"))
-            except (TypeError, ValueError):
-                sent = None
-            if sent != instance.version:
-                return Response(
-                    {"detail": "stale write", "current": self.get_serializer(instance).data},
-                    status=409,
-                )
+            if _parse_version(request.data.get("version")) != instance.version:
+                _count("customer_stale_write")
+                logger.info("customer.stale_write company=%s customer=%s stage=precheck", self.company.pk, instance.pk)
+                raise StaleWrite()
         return super().update(request, *args, **kwargs)
 
     def perform_update(self, serializer):
@@ -295,75 +470,440 @@ class CustomerViewSet(CompanyScopedViewSet):
         A concurrent PATCH of a different field therefore keeps both edits.
         The lock is taken here, after any test barrier around perform_update.
         """
+        from core.services.audit import AuditService
+
+        from . import gstin_rules
+
         with transaction.atomic():
             locked = Customer.all_objects.select_for_update().get(
                 pk=serializer.instance.pk, company=self.company,
             )
-            if not self.kwargs.get("partial", False) and self.request.method == "PUT":
-                # The check in update() ran before the lock. Two PUTs carrying version N both pass
+            if self.request.method == "PUT" or "version" in self.request.data:
+                # The check in update() ran before the lock. Two writers carrying version N both pass
                 # it, so compare again now that this request owns the row.
-                try:
-                    sent = int(self.request.data.get("version"))
-                except (TypeError, ValueError):
-                    sent = None
-                if sent != locked.version:
-                    from rest_framework.exceptions import APIException
-
-                    class StaleWrite(APIException):
-                        status_code = 409
-                        default_detail = "stale write"
-                        default_code = "stale_write"
-
+                if _parse_version(self.request.data.get("version")) != locked.version:
+                    _count("customer_stale_write")
+                    logger.info("customer.stale_write company=%s customer=%s stage=locked", self.company.pk, locked.pk)
                     raise StaleWrite()
-            addresses = serializer.validated_data.pop("shipping_addresses", None)
-            for key, value in serializer.validated_data.items():
+            data = serializer.validated_data
+            addresses = data.pop("shipping_addresses", None)
+            if "gstin" in data and gstin_rules.normalise(data["gstin"]) != gstin_rules.normalise(locked.gstin):
+                # A concurrent GSTIN change may have landed since validate(): reset against the locked row.
+                data.update(gstin_rules.VERIFICATION_RESET)
+            before = _customer_snapshot(locked)
+            stored = {f.attname: getattr(locked, f.attname) for f in locked._meta.concrete_fields}
+            for key, value in data.items():
                 setattr(locked, key, value)
-            locked.version = int(locked.version or 0) + 1
-            locked.updated_by = self.request.user
-            locked.save()
+            changed_fields = [a for a, old in stored.items() if getattr(locked, a) != old]
+            # Nothing changed (a form re-save): no new version, no audit row, no 409 for the next editor.
+            if changed_fields or addresses is not None:
+                locked.version = int(locked.version or 0) + 1
+                locked.updated_by = self.request.user
+                try:
+                    with transaction.atomic():
+                        locked.save()
+                except Exception as exc:  # noqa: BLE001 - narrowed in the helper; anything else is re-raised
+                    _raise_if_gstin_clash(exc, self.company, locked.gstin)
+                    raise
             serializer.instance = locked
             if addresses is not None:
                 serializer._replace_addresses(locked, addresses)
-        self._audit("UPDATE", serializer.instance)
+        after = _customer_snapshot(locked)
+        changes = {
+            k: {
+                "from": _mask_audit_value(k, before[k]) if k in _MASKED_AUDIT_FIELDS else before[k],
+                "to": _mask_audit_value(k, after[k]) if k in _MASKED_AUDIT_FIELDS else after[k],
+            }
+            for k in before if before[k] != after[k]
+        }
+        if changes:
+            AuditService.log(
+                company=self.company, user=self.request.user, action="UPDATE", entity_type="Customer",
+                entity_id=str(locked.pk), metadata={"changes": changes},
+            )
+        if "credit_limit" in changes or "credit_days" in changes:
+            # Searchable marker for credit-term changes; the History panel shows the main event only.
+            AuditService.log(
+                company=self.company, user=self.request.user, action="UPDATE", entity_type="Customer",
+                entity_id=str(locked.pk), description=CREDIT_TERMS_EVENT,
+                metadata={k: v for k, v in changes.items() if k in ("credit_limit", "credit_days")},
+            )
 
     def perform_destroy(self, instance):
         _soft_destroy(instance, self.request.user)
         # a soft delete is still a delete: it must leave the same audit row a hard one did
         self._audit_raw("DELETE", str(instance.pk))
 
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                super().perform_create(serializer)
+        except Exception as exc:  # noqa: BLE001 - narrowed in the helper; anything else is re-raised
+            _raise_if_gstin_clash(exc, self.company, serializer.validated_data.get("gstin", ""))
+            raise
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         # BUG-301-style fix: one bulk aggregation for the whole list instead of
         # a per-row LedgerService.customer_outstanding query (N+1).
         if getattr(self, "action", None) == "list":
-            from ledgers.services import LedgerService
-
-            context["outstanding_by_id"] = LedgerService.bulk_customer_outstanding(self.company)
-            context["credit_exposure_by_id"] = LedgerService.bulk_customer_credit_exposure(self.company)
+            context["outstanding_by_id"] = self._outstanding_map()
+            context["credit_exposure_by_id"] = self._exposure_map()
         return context
 
     def destroy(self, request, *args, **kwargs):
         """Never hard-delete a referenced customer — deactivate instead (BB-000057)."""
         customer = self.get_object()
+        if customer.is_pos_walk_in:
+            raise BusinessRuleError(
+                "The POS walk-in party cannot be deleted or deactivated. Choose another walk-in party first.",
+                code="pos_walk_in_protected",
+            )
+        from ledgers.services import LedgerService
+
+        owed = LedgerService.customer_outstanding(self.company, customer)
+        advance = LedgerService.customer_unallocated_receipts(self.company, customer)
+        if owed != 0 or advance > 0:
+            _count("customer_archive_refused")
+            raise BusinessRuleError(
+                f"Cannot archive '{customer.name}' while they have "
+                + ("an outstanding balance" if owed != 0 else "an unallocated advance")
+                + ". Settle the balance or allocate the advance first.",
+                code="customer_has_balance",
+            )
         if customer.is_referenced():
-            customer.status = Customer.Status.INACTIVE
-            customer.updated_by = request.user
-            customer.save(update_fields=["status", "updated_by"])
-            self._audit("UPDATE", customer)
+            with transaction.atomic():
+                locked = Customer.all_objects.select_for_update().get(pk=customer.pk, company=self.company)
+                locked.status = Customer.Status.INACTIVE
+                locked.version = int(locked.version or 0) + 1
+                locked.updated_by = request.user
+                locked.save(update_fields=["status", "version", "updated_by", "updated_at"])
+                # An archived customer must not keep getting invoices drafted for them.
+                locked.recurring_invoice_schedules.filter(is_active=True).update(is_active=False)
+            self._audit("UPDATE", locked)
             return Response(
                 {"detail": "Customer is referenced by documents; marked Inactive instead of deleting."},
                 status=200,
             )
         return super().destroy(request, *args, **kwargs)
 
+    def _verify_customer(self, request, customer):
+        """Look the GSTIN up (outside the lock: it is a network call), then store the outcome. Returns (row, notice)."""
+        gstin = (customer.gstin or "").strip()
+        if not gstin:
+            raise BusinessRuleError("Customer has no GSTIN.")
+        result = get_gstin_provider().lookup(gstin)
+        _count("customer_gstin_verify")
+        logger.info(
+            "customer.gstin_verify company=%s status=%s provider=%s",
+            self.company.pk, result.status, (result.raw or {}).get("provider", ""),
+        )
+        with transaction.atomic():
+            locked = Customer.all_objects.select_for_update().get(pk=customer.pk, company=self.company)
+            if (locked.gstin or "").strip() != gstin:
+                raise BusinessRuleError("The GSTIN changed while it was being verified. Try again.")
+            apply_verification(locked, result, user=request.user, company=locked.company)
+            locked.version = int(locked.version or 0) + 1
+            locked.save(update_fields=["version"])
+        return locked, _verification_notice(result)
+
     @action(detail=True, methods=["post"], url_path="verify-gstin")
     def verify_gstin(self, request, pk=None):
+        locked, notice = self._verify_customer(request, self.get_object())
+        data = dict(self.get_serializer(locked).data)
+        data["verification_notice"] = notice
+        return Response(data)
+
+    @extend_schema(
+        request=inline_serializer("CustomerVerifyBulkRequest", {"ids": drf_serializers.ListField(child=drf_serializers.IntegerField())}),
+        responses=inline_serializer("CustomerVerifyBulk", {
+            "results": inline_serializer("CustomerVerifyBulkRow", {
+                "id": drf_serializers.IntegerField(),
+                "status": drf_serializers.CharField(),
+                "notice": drf_serializers.CharField(),
+                "error": drf_serializers.CharField(),
+            }, many=True),
+        }),
+    )
+    @action(detail=False, methods=["post"], url_path="verify-gstin-bulk")
+    def verify_gstin_bulk(self, request):
+        """Verify the GSTIN of up to 10 chosen customers in one go (its own, small budget)."""
+        raw = request.data.get("ids")
+        if not isinstance(raw, list) or not raw:
+            raise ValidationError({"ids": "Choose at least one customer."})
+        try:
+            ids = list(dict.fromkeys(int(i) for i in raw))
+        except (TypeError, ValueError):
+            raise ValidationError({"ids": "Customer ids must be numbers."}) from None
+        if len(ids) > BULK_VERIFY_MAX:
+            raise ValidationError({"ids": f"Verify at most {BULK_VERIFY_MAX} customers at a time."})
+        rows = {c.pk: c for c in self.get_queryset().filter(pk__in=ids)}
+        results = []
+        for pk in ids:
+            customer = rows.get(pk)
+            if customer is None:
+                results.append({"id": pk, "status": "", "notice": "", "error": "Customer not found."})
+                continue
+            try:
+                locked, notice = self._verify_customer(request, customer)
+                results.append({"id": pk, "status": locked.gstin_verification_status, "notice": notice, "error": ""})
+            except BusinessRuleError as exc:
+                results.append({"id": pk, "status": customer.gstin_verification_status, "notice": "", "error": str(exc)})
+        return Response({"results": results})
+
+    @extend_schema(
+        request=inline_serializer("CustomerGstinLookupRequest", {"gstin": drf_serializers.CharField()}),
+        responses=inline_serializer("CustomerGstinLookup", {
+            "gstin": drf_serializers.CharField(),
+            "status": drf_serializers.CharField(),
+            "legal_name": drf_serializers.CharField(),
+            "state": drf_serializers.CharField(),
+            "pan": drf_serializers.CharField(),
+            "taxpayer_type": drf_serializers.CharField(),
+            "provider": drf_serializers.CharField(),
+            "notice": drf_serializers.CharField(),
+            "existing_customer": inline_serializer(
+                "CustomerGstinLookupExisting",
+                {"id": drf_serializers.IntegerField(), "name": drf_serializers.CharField()},
+                allow_null=True,
+            ),
+        }),
+    )
+    @action(detail=False, methods=["post"], url_path="lookup-gstin")
+    def lookup_gstin(self, request):
+        """Look a GSTIN up before the customer exists, to pre-fill the form. Writes nothing."""
+        from django.core.cache import cache
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.services.audit import AuditService
+        from core.validators import validate_gstin
+
+        from . import gstin_rules
+
+        gstin = gstin_rules.normalise(request.data.get("gstin"))
+        try:
+            if not gstin:
+                raise DjangoValidationError("Enter a GSTIN.")
+            validate_gstin(gstin)
+        except DjangoValidationError as exc:
+            raise ValidationError({"gstin": list(exc.messages)}) from exc
+        key = f"customers:gstin-lookup:{self.company.pk}:{gstin}"
+        # "refresh" is the user pressing Verify & autofill: always ask the provider. Without it a recent answer is reused.
+        refresh = str(request.data.get("refresh") or "").lower() in ("1", "true", "yes")
+        payload = None if refresh else cache.get(key)
+        if payload is None:
+            result = get_gstin_provider().lookup(gstin)
+            taxpayer = str(result.taxpayer_type or "").strip().upper()
+            payload = {
+                "gstin": gstin,
+                "status": result.status,
+                "legal_name": result.legal_name,
+                "state": gstin_rules.derive_state(gstin) or "",
+                "pan": gstin_rules.derive_pan(gstin),
+                "taxpayer_type": taxpayer if taxpayer in Customer.TaxpayerType.values else "",
+                "provider": (result.raw or {}).get("provider", ""),
+                "notice": _verification_notice(result),
+            }
+            cache.set(key, payload, 60)  # a minute: enough to absorb a double click, short enough not to hide a status change
+        existing = Customer.objects.filter(company=self.company, gstin=gstin).only("id", "name").first()
+        _count("customer_gstin_lookup")
+        logger.info(
+            "customer.gstin_lookup company=%s status=%s provider=%s", self.company.pk, payload["status"], payload["provider"],
+        )
+        AuditService.log(
+            company=self.company, user=request.user, action="LOOKUP", entity_type="Customer",
+            entity_id="gstin", description="customer.gstin_lookup",
+            metadata={"gstin": gstin, "status": payload["status"], "provider": payload["provider"]},
+        )
+        return Response({
+            **payload,
+            "existing_customer": {"id": existing.id, "name": existing.name} if existing else None,
+        })
+
+    @extend_schema(
+        parameters=_CUSTOMER_FILTER_PARAMS,
+        responses=inline_serializer("CustomerSummary", {
+            "total_count": drf_serializers.IntegerField(),
+            "active_count": drf_serializers.IntegerField(),
+            "blocked_count": drf_serializers.IntegerField(),
+            "inactive_count": drf_serializers.IntegerField(),
+            "over_credit_limit_count": drf_serializers.IntegerField(),
+            "total_outstanding": drf_serializers.CharField(),
+            "total_unallocated_advance": drf_serializers.CharField(),
+            "net_credit_exposure": drf_serializers.CharField(),
+        }),
+    )
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Portfolio figures for the customers the list filters select (not just one page)."""
+        rows = list(self._filtered_queryset().values_list("pk", "status", "credit_limit"))
+        outstanding = self._outstanding_map()
+        exposure = self._exposure_map()
+        from ledgers.services import LedgerService
+
+        advances = LedgerService.bulk_customer_advances(self.company)
+        zero = Decimal("0")
+        counts = {"ACTIVE": 0, "BLOCKED": 0, "INACTIVE": 0}
+        total_outstanding = total_advance = net_exposure = zero
+        over_limit = 0
+        for pk, status, limit in rows:
+            counts[status] = counts.get(status, 0) + 1
+            total_outstanding += outstanding.get(pk, zero)
+            total_advance += advances.get(pk, zero)
+            exp = exposure.get(pk, zero)
+            net_exposure += max(zero, exp)
+            if limit and Decimal(str(limit)) > 0 and exp > Decimal(str(limit)):
+                over_limit += 1
+        return Response({
+            "total_count": len(rows),
+            "active_count": counts["ACTIVE"],
+            "blocked_count": counts["BLOCKED"],
+            "inactive_count": counts["INACTIVE"],
+            "over_credit_limit_count": over_limit,
+            "total_outstanding": str(total_outstanding),
+            "total_unallocated_advance": str(total_advance),
+            "net_credit_exposure": str(net_exposure),
+        })
+
+    @extend_schema(parameters=_CUSTOMER_FILTER_PARAMS, responses={(200, "text/csv"): OpenApiTypes.BINARY})
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        """CSV of every customer the list filters select. Streamed; refuses an oversize export."""
+        import csv
+
+        from django.http import StreamingHttpResponse
+
+        from core.csv_utils import csv_safe
+        from core.rls import stream_with_rls
+        from core.services.audit import AuditService
+
+        qs = self._filtered_queryset()
+        total = qs.count()
+        if total > CUSTOMER_EXPORT_MAX_ROWS:
+            raise BusinessRuleError(
+                f"Too many customers to export at once (limit {CUSTOMER_EXPORT_MAX_ROWS}). Narrow the filters.",
+                code="export_too_large",
+            )
+        sort = (request.query_params.get("sort") or request.query_params.get("ordering") or "name").lower()
+        by_balance = sort in ("balance", "-balance")
+        if sort in ("recent", "recently_active", "-updated_at"):
+            qs = qs.order_by("-updated_at", "name", "pk")
+        else:
+            qs = qs.order_by("name", "pk")
+        outstanding = self._outstanding_map()
+        exposure = self._exposure_map()
+
+        class _Echo:
+            def write(self, value):
+                return value
+
+        writer = csv.writer(_Echo())
+
+        def rows_in_order():
+            if not by_balance:
+                yield from qs.iterator(chunk_size=500)
+                return
+            ids = [pk for pk, _n in sorted(
+                qs.values_list("pk", "name"), key=lambda r: (-outstanding.get(r[0], Decimal("0")), r[1]),
+            )]
+            for start in range(0, len(ids), 500):
+                chunk = ids[start:start + 500]
+                by_id = qs.model.objects.in_bulk(chunk)
+                yield from (by_id[pk] for pk in chunk if pk in by_id)
+
+        def lines():
+            yield writer.writerow([
+                "Name", "Phone", "Email", "GSTIN", "GSTIN status", "Taxpayer type", "State", "Status",
+                "Credit limit", "Credit days", "Outstanding", "Credit exposure",
+            ])
+            for c in rows_in_order():
+                yield writer.writerow([
+                    csv_safe(v) for v in (
+                        c.name, c.phone, c.email, c.gstin, c.gstin_verification_status, c.taxpayer_type,
+                        c.state, c.status, c.credit_limit, c.credit_days,
+                        outstanding.get(c.pk, Decimal("0")), exposure.get(c.pk, Decimal("0")),
+                    )
+                ])
+
+        _count("customer_export")
+        logger.info("customer.export company=%s rows=%s", self.company.pk, total)
+        AuditService.log(
+            company=self.company, user=request.user, action="EXPORT", entity_type="Customer", entity_id="list",
+            metadata={"filters": dict(request.query_params.items()), "rows": total},
+        )
+        response = StreamingHttpResponse(
+            stream_with_rls(self.company.id, lines()), content_type="text/csv; charset=utf-8"
+        )
+        response["Content-Disposition"] = 'attachment; filename="customers.csv"'
+        return response
+
+    @extend_schema(
+        responses=inline_serializer("CustomerHealth", {
+            "total": drf_serializers.IntegerField(),
+            "checks": inline_serializer("CustomerHealthCheck", {
+                "check": drf_serializers.CharField(),
+                "label": drf_serializers.CharField(),
+                "count": drf_serializers.IntegerField(),
+            }, many=True),
+        }),
+    )
+    @action(detail=False, methods=["get"])
+    def health(self, request):
+        """Customer records that need a look (the monthly check, on demand). Owner or manager."""
+        from .audit import CHECK_LABELS, audit_customers
+
+        key = f"customers:health:{self.company.pk}"
+        payload = cache.get(key)
+        if payload is None:
+            findings, _companies, _fixed = audit_customers(Customer.objects.filter(company=self.company))
+            counts = {check: len(rows) for (_cid, check), rows in findings.items()}
+            payload = {
+                "total": sum(counts.values()),
+                "checks": [
+                    {"check": check, "label": CHECK_LABELS.get(check, check), "count": n}
+                    for check, n in sorted(counts.items())
+                ],
+            }
+            cache.set(key, payload, 600)
+        return Response(payload)
+
+    @extend_schema(
+        responses=inline_serializer("CustomerHistory", {
+            "results": inline_serializer("CustomerHistoryEvent", {
+                "id": drf_serializers.IntegerField(),
+                "at": drf_serializers.DateTimeField(),
+                "user": drf_serializers.CharField(),
+                "action": drf_serializers.CharField(),
+                "description": drf_serializers.CharField(),
+                "changes": drf_serializers.DictField(),
+            }, many=True),
+        }),
+    )
+    @action(detail=True, methods=["get"])
+    def history(self, request, pk=None):
+        """Who changed this customer, and what (from the audit trail)."""
+        from core.models import AuditEvent
+
         customer = self.get_object()
-        if not (customer.gstin or "").strip():
-            raise BusinessRuleError("Customer has no GSTIN.")
-        result = get_gstin_provider().lookup(customer.gstin)
-        apply_verification(customer, result, user=request.user, company=customer.company)
-        return Response(self.get_serializer(customer).data)
+        events = (
+            AuditEvent.objects.filter(company=self.company, entity_type="Customer", entity_id=str(customer.pk))
+            .exclude(description=CREDIT_TERMS_EVENT)  # the main UPDATE event already lists the same change
+            .select_related("user")
+            .order_by("-created_at", "-id")[:200]
+        )
+        return Response({"results": [
+            {
+                "id": e.id,
+                "at": e.created_at.isoformat(),
+                "user": (e.user.full_name or e.user.email) if e.user else "",
+                "action": e.action,
+                "description": e.description,
+                "changes": (e.metadata or {}).get("changes") or {
+                    k: v for k, v in (e.metadata or {}).items() if k in ("credit_limit", "credit_days")
+                },
+            }
+            for e in events
+        ]})
 
 
 class SupplierViewSet(CompanyScopedViewSet):
@@ -548,6 +1088,16 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
+        raw_ids = self.request.query_params.get("ids")
+        if raw_ids:
+            # Quick Entry hydrates its recent-product chips by id (max 50, integers only).
+            try:
+                id_list = [int(part) for part in raw_ids.split(",") if part.strip()]
+            except ValueError:
+                raise ValidationError({"ids": "Product ids must be numbers."}) from None
+            if len(id_list) > 50:
+                raise ValidationError({"ids": "Ask for at most 50 products at a time."})
+            qs = qs.filter(pk__in=id_list)
         q = self.request.query_params.get("search") or self.request.query_params.get("q")
         from masters.custom_fields import active_defs, apply_cf_filters, build_search_q
 

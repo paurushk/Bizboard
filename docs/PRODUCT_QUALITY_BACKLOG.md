@@ -15,14 +15,14 @@ PRODUCT QUALITY BACKLOG - dashboard
 🟤 Reliability & trust issues :   3
 🔗 Cross-flow consistency     :   0
 🟢 Performance improvements   :   1
-⚫ Security & privacy fixes   :   3
+⚫ Security & privacy fixes   :   4
 ✨ Delight opportunities      :   1
 💡 Innovation opportunities   :   3
 
 Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 22 open)
+## Do next - sequenced frontier (top 12 of 23 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
@@ -35,11 +35,11 @@ Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 | 7 | QOS-0003 | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | PERFORMANCE | P1 | L | 5.0 | renewal | - |
 | 8 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
 | 9 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
-| 10 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
-| 11 | QOS-0097 | UX fixes and claims have not been verified on a real backend | RELIABILITY_TRUST | P1-investigate | M | 4.0 | none | - |
-| 12 | QOS-0004 | No practising CA has filed GST returns from Bizboard worksheets (H-05) | BUSINESS_GAP | P1-investigate | L | 2.25 | renewal | - |
+| 10 | QOS-0125 | Customers: audit and export retention policy, and Hindi review of the new strings | SECURITY_PRIVACY | P2 | S | 5.0 | none | - |
+| 11 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
+| 12 | QOS-0097 | UX fixes and claims have not been verified on a real backend | RELIABILITY_TRUST | P1-investigate | M | 4.0 | none | - |
 
-Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
+Risk retired by this frontier: **64.6%** of open High/Medium-impact risk.
 
 ## 1. 🔴 Critical bugs  (0 open / 1 tracked)
 
@@ -107,7 +107,7 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0092](../qos/backlog/QOS-0092.yaml) | Won opportunity amount is not shown next to invoices | P2 | Pipeline | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
 
-## 6. 🟤 Reliability & trust issues  (3 open / 31 tracked)
+## 6. 🟤 Reliability & trust issues  (3 open / 32 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -124,6 +124,7 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0121](../qos/backlog/QOS-0121.yaml) | Money In: a posted receipt could not be corrected, a customer's advance could not be given back, and a closed till could not be fixed | P1,P2 | Correct or refund a customer receipt | P1 | XL | heuristic | High | web | fixed |
 | [QOS-0122](../qos/backlog/QOS-0122.yaml) | Money In did not agree with its neighbours: bank reconciliation, GST on advances, promises, payment links, alerts and the customer portal | P1,P2 | Reconcile and report customer receipts | P1 | XL | heuristic | High | web | fixed |
 | [QOS-0123](../qos/backlog/QOS-0123.yaml) | Money In screen and operations: no sorting or bulk actions, open export, no offline entry, unsearchable Hindi voucher | P1,P2 | Work through the receipts list | P1 | XL | heuristic | High | web | fixed |
+| [QOS-0124](../qos/backlog/QOS-0124.yaml) | Customers master: GSTIN and status rules, credit-term roles, archive safety, 360 edit and history | P1,P2 | Add, edit, block, archive and review a customer | P1 | XL | heuristic | High | web | fixed |
 | [QOS-0057](../qos/backlog/QOS-0057.yaml) | Re-status the CR-090..CR-104 findings that still carry a stale 'OPEN' label | P5 | Reconciling the functional code review against the current tree | P1-investigate | M | heuristic | Medium | backend | fixed |
 | [QOS-0097](../qos/backlog/QOS-0097.yaml) | UX fixes and claims have not been verified on a real backend | P1 | Dashboard, POS and editors against real data | P1-investigate | M | hypothesis | Medium | web | investigating |
 | [QOS-0018](../qos/backlog/QOS-0018.yaml) | determinism-probe stays advisory - 5 clock-brittle test fixtures | P5 | Suite determinism under a frozen clock | P2 | S | heuristic | Low | backend | fixed |
@@ -159,7 +160,7 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0107](../qos/backlog/QOS-0107.yaml) | No latency histogram on /metrics and no frontend bundle budget | P1,P2 | Measure p95 from the server; keep first load fast on a phone | P1 | S | measured | Medium | backend | fixed |
 | [QOS-0116](../qos/backlog/QOS-0116.yaml) | The quotation list ran extra queries per row | P2 | Open the quotation list | P1 | S | measured | Medium | backend | fixed |
 
-## 9. ⚫ Security & privacy fixes  (3 open / 9 tracked)
+## 9. ⚫ Security & privacy fixes  (4 open / 10 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -172,6 +173,7 @@ Risk retired by this frontier: **70.3%** of open High/Medium-impact risk.
 | [QOS-0011](../qos/backlog/QOS-0011.yaml) | CSP is not implemented in-app; no external penetration test yet | P1 | Cross-cutting web security posture | P2 | M | heuristic | Low | ops | fixed |
 | [QOS-0023](../qos/backlog/QOS-0023.yaml) | CD pushes mutable sha tags without a digest pin | P1 | Container image supply chain | P2 | S | heuristic | Low | devops | fixed |
 | [QOS-0049](../qos/backlog/QOS-0049.yaml) | DPDP controls checklist is unsigned | P1 | Data-protection governance for the pilot | P2 | S | heuristic | Low | ops | investigating |
+| [QOS-0125](../qos/backlog/QOS-0125.yaml) | Customers: audit and export retention policy, and Hindi review of the new strings | P1 | Review who changed a customer and export the customer list | P2 | S | heuristic | Low | founder | open |
 
 ## 10. ✨ Delight opportunities  (1 open / 8 tracked)
 

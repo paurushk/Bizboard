@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { documentStatusTone, invoiceDisplayStatus, paidAwareStatus, statusLabelKey } from './status';
+import { customerStatusTone, documentStatusTone, invoiceDisplayStatus, paidAwareStatus, statusLabelKey } from './status';
 
 describe('paidAwareStatus', () => {
   it('maps a completed zero-balance invoice to PAID', () => {
@@ -40,5 +40,20 @@ describe('invoiceDisplayStatus', () => {
   it('uses the server settlement bucket so every screen shows Partial for a part-paid bill', () => {
     expect(invoiceDisplayStatus({ status: 'COMPLETED', balance: '40', paymentState: 'UNPAID', settlementState: 'PARTIAL' })).toBe('PARTIAL');
     expect(invoiceDisplayStatus({ status: 'RETURNED', balance: '0', settlementState: 'PAID' })).toBe('RETURNED');
+  });
+});
+
+describe('customerStatusTone', () => {
+  it('is green for active, red for blocked, and grey for an archived customer', () => {
+    expect(customerStatusTone('ACTIVE')).toBe('success');
+    expect(customerStatusTone('active')).toBe('success');
+    expect(customerStatusTone('BLOCKED')).toBe('error');
+    expect(customerStatusTone('INACTIVE')).toBe('default');
+  });
+
+  it('has a label for every customer status', () => {
+    for (const status of ['ACTIVE', 'BLOCKED', 'INACTIVE']) {
+      expect(statusLabelKey(status)).toBe('status.' + status);
+    }
   });
 });

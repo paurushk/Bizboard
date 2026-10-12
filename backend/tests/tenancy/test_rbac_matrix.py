@@ -79,3 +79,46 @@ def test_read_requests_are_not_gated_by_write_only_denies(db, monkeypatch):
     # DenyViewerWrite lets reads through; a hard role gate (IsOwner) still doesn't.
     assert perms.DenyViewerWrite().has_permission(_Get(), None) is True
     assert perms.IsOwner().has_permission(_Get(), None) is False
+
+
+# ---- customers: who may archive, and the customer capability table ------------------------------------------------------------------------
+
+CUSTOMER_ARCHIVE_EXPECTED = {
+    "OWNER": True, "MANAGER": True, "ACCOUNTANT": False, "SALES_STAFF": False,
+    "VIEWER": False, "INVENTORY_STAFF": False, "AUDITOR": False, "POLICY_DESK": False,
+}
+
+
+@pytest.mark.parametrize("role", ROLES)
+def test_customer_archive_permission_by_role(role, monkeypatch):
+    from types import SimpleNamespace
+
+    import masters.views as masters_views
+
+    monkeypatch.setattr(masters_views, "get_company_user", lambda request: SimpleNamespace(role=role))
+    assert masters_views.CanArchiveCustomer().has_permission(object(), None) is CUSTOMER_ARCHIVE_EXPECTED[role]
+
+
+@pytest.mark.parametrize("role", ["SALES_STAFF", "ACCOUNTANT", "AUDITOR", "VIEWER", "INVENTORY_STAFF"])
+def test_non_managers_cannot_lift_a_block_archive_or_change_credit_terms(role, tenant_a):
+    """Same table through the API: the role decides, not the endpoint that carries the change."""
+    from rest_framework.test import APIClient
+
+    from tests.conftest import make_customer
+
+    caps = CompanyUser.capability_defaults_for_role(role) or {}
+    user = User.objects.create_user(email=f"{role.lower()}@rbac.test", password="StrongPass123!", full_name=role)
+    CompanyUser.objects.create(company=tenant_a.company, user=user, role=role, can_create_sales=True, **{
+        k: v for k, v in caps.items() if k != "can_create_sales"
+    })
+    client = APIClient()
+    client.force_authenticate(user=user)
+    held = make_customer(tenant_a.company, name="Held", status="BLOCKED")
+    live = make_customer(tenant_a.company, name="Live", credit_limit="100")
+    if role != "VIEWER":
+        assert client.patch(f"/api/v1/customers/{held.id}/", {"status": "ACTIVE"}, format="json").status_code in (400, 403)
+        assert client.patch(f"/api/v1/customers/{live.id}/", {"status": "INACTIVE"}, format="json").status_code in (400, 403)
+        assert client.patch(f"/api/v1/customers/{live.id}/", {"credit_limit": "999"}, format="json").status_code in (400, 403)
+        assert client.delete(f"/api/v1/customers/{live.id}/").status_code == 403
+    else:
+        assert client.patch(f"/api/v1/customers/{held.id}/", {"status": "ACTIVE"}, format="json").status_code == 403

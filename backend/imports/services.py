@@ -21,6 +21,8 @@ from core.services.uqc import normalize_uqc
 from core.validators import ALLOWED_GST_RATES, GSTIN_RE, HSN_RE, validate_gst_rate
 from inventory.models import MovementType, StockMovement
 from inventory.services import InventoryService
+from masters import gstin_rules
+from masters.services import create_customer
 from masters.models import Brand, Category, Customer, Product, Supplier, Unit
 from purchases.models import PurchaseInvoice
 from purchases.services import PurchaseService
@@ -1497,14 +1499,28 @@ class ImportService:
             if name.lower() in existing_name:
                 skipped.append({"row": idx, "data": row, "errors": [f"skipped: a customer named '{name}' already exists"], "skipped": True})
                 continue
+            # CUS-25: same GSTIN/state rules as the customer form (masters.gstin_rules).
+            state = (row.get("state", "") or "").strip()
+            if gstin:
+                if not state:
+                    state = gstin_rules.derive_state(gstin) or ""
+                elif getattr(settings, "CUSTOMER_STRICT_VALIDATION", False):
+                    wanted = gstin_rules.state_conflicts(gstin, state)
+                    if wanted:
+                        skipped.append({
+                            "row": idx, "data": row, "skipped": True,
+                            "errors": [f"skipped: GSTIN {gstin} belongs to {wanted}, not {state}"],
+                        })
+                        continue
             rows.append(
                 Customer(
                     company=job.company,
                     name=row["name"],
                     phone=row.get("phone", "") or "",
                     email=row.get("email", "") or "",
-                    gstin=row.get("gstin", "") or "",
-                    state=row.get("state", "") or "",
+                    gstin=gstin,
+                    pan=gstin_rules.derive_pan(gstin),
+                    state=state,
                     billing_address=row.get("address", "") or "",
                     created_by=user,
                     updated_by=user,
@@ -2760,12 +2776,11 @@ class BillImportService:
         if customer is None:
             if not name:
                 raise BusinessRuleError("Select a customer before committing the sales bill.")
-            customer = Customer.objects.create(
+            customer = create_customer(
                 company=job.company,
+                user=user,
                 name=name,
-                gstin=gstin if gstin and GSTIN_RE.match(gstin) else "",
-                created_by=user,
-                updated_by=user,
+                gstin=gstin.upper() if gstin and GSTIN_RE.match(gstin.upper()) else "",
             )
         job.customer = customer
         job.save(update_fields=["customer", "updated_at"])

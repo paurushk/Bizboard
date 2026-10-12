@@ -55,6 +55,8 @@ interface Props {
   onToggleSelect?: (id: number) => void;
   onToggleSelectAll?: () => void;
   bulkBar?: ReactNode;
+  /** Extra buttons shown beside Create (e.g. a Quick Entry shortcut). */
+  headerActions?: ReactNode;
 }
 
 export function DocumentListPage({
@@ -70,6 +72,7 @@ export function DocumentListPage({
   rowActions,
   extraColumn,
   showCreate = true,
+  headerActions,
   page = 1,
   pageSize = 50,
   count,
@@ -92,11 +95,14 @@ export function DocumentListPage({
     <Stack spacing={2}>
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t(titleKey)}</PageTitle>
-        {showCreate ? (
-          <Button variant="contained" component={RouterLink} to={newPath}>
-            {t(createLabelKey ?? 'common.create')}
-          </Button>
-        ) : null}
+        <Stack direction="row" spacing={1}>
+          {headerActions}
+          {showCreate ? (
+            <Button variant="contained" component={RouterLink} to={newPath}>
+              {t(createLabelKey ?? 'common.create')}
+            </Button>
+          ) : null}
+        </Stack>
       </Stack>
       {filters}
       {bulkBar}

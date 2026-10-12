@@ -87,7 +87,7 @@ export function DeliveryChallanEditorPage() {
     queryFn: () => getCustomer(customerId as number),
     enabled: Boolean(customerId),
   });
-  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
+  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null, activeOnly: true });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
   const orders = useQuery({ queryKey: ['sales-orders'], queryFn: () => listSalesOrders() });

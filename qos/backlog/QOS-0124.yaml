@@ -1,0 +1,27 @@
+id: "QOS-0124"
+category: "RELIABILITY_TRUST"
+title: "Customers master: GSTIN and status rules, credit-term roles, archive safety, 360 edit and history"
+persona: ["P1", "P2"]
+journey: "Add, edit, block, archive and review a customer"
+problem: "A changed GSTIN kept the old verification, state and PAN; the POS walk-in customer could be given a GSTIN or deleted; sales staff could raise credit limits, archive customers or lift a credit hold with a plain PATCH; a customer used by a contract or journal line could be soft-deleted; archived customers could still be invoiced and kept getting recurring drafts; a draft could not be saved after its customer was archived."
+evidence:
+  strength: "heuristic"
+  source: ["docs/CUSTOMERS_REVIEW_2026-10-12.md", "docs/CUSTOMERS_WORK_PACKAGES.md"]
+  detail: "Delivered 2026-10-11 and 2026-10-12: shared GSTIN rules (reset, state, PAN, duplicate names the holder), walk-in guard, owner/manager roles for credit terms, archive and unblock, optimistic locking on PATCH, delete check built from every PROTECT relation, archive refused with a balance or advance, recurring schedules paused, 360 edit dialog and change history, summary strip, audited CSV export, bulk and single GSTIN verify with throttles, monthly health check. Reproduced bugs were confirmed with throwaway tests before fixing."
+scoring:
+  reach: 5
+  severity: 4
+  frequency: 4
+  impact_band: "High"
+business_metric: "renewal"
+priority: "P1"
+priority_rationale: "Impact High. Heuristic. Party master drives tax place of supply, credit holds and receivables on every sale."
+effort: "XL"
+recommendation: "Done. Run manage.py customers_audit against production-like data before relying on the strict rules, and keep CUSTOMER_STRICT_VALIDATION on."
+test_required: "backend/tests/test_customers_master.py::test_sales_staff_cannot_archive_or_unblock_by_patch"
+guard_ref:
+  test: "backend/tests/test_customers_master.py::test_sales_staff_cannot_archive_or_unblock_by_patch"
+lifecycle: "fixed"
+owner: "web"
+opened: "2026-10-11"
+closed: "2026-10-12"

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react';
+import { invalidateCustomerQueries } from '@/pages/sales/customerQueries';
 import { flushSync } from 'react-dom';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
@@ -425,7 +426,7 @@ export function NewInvoicePage() {
   }
   const customers = useQuery({
     queryKey: ['customers-search', debouncedCustomerQuery],
-    queryFn: () => listCustomersPage({ q: debouncedCustomerQuery.trim() || undefined, pageSize: 50 }),
+    queryFn: () => listCustomersPage({ q: debouncedCustomerQuery.trim() || undefined, pageSize: 50, status: 'ACTIVE' }),
   });
   const selectedCustomerQuery = useQuery({
     queryKey: ['customer', customerId],
@@ -2064,9 +2065,9 @@ export function NewInvoicePage() {
                   onBlur={(e) => {
                     const value = e.target.value;
                     const next = { ...(selectedCustomer.customFields ?? {}), [def.key]: value };
-                    void updateCustomer(selectedCustomer.id, { customFields: next }).catch((err) =>
-                      setError(getErrorMessage(err)),
-                    );
+                    void updateCustomer(selectedCustomer.id, { customFields: next })
+                      .then((saved) => invalidateCustomerQueries(qc, saved.id))
+                      .catch((err) => setError(getErrorMessage(err)));
                   }}
                 />
               ))

@@ -113,7 +113,7 @@ export function SalesOrderEditorPage() {
     queryFn: () => getCustomer(customerId as number),
     enabled: Boolean(customerId),
   });
-  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null });
+  const customerSearch = useCustomerSearch({ selected: selectedCustomerQuery.data ?? null, activeOnly: true });
   const lineProductIds = lines.map((line) => line.product).filter((id) => id > 0).slice(0, 250);
   const lineStock = useQuery({
     queryKey: ['sales-order-stock', lineProductIds],

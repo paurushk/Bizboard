@@ -545,7 +545,8 @@ def test_customer_actions_fire_churn_and_repeat_on_their_own_windows(tenant_a):
 
 
 @pytest.mark.django_db
-def test_customer_360_hides_money_without_financial_permission(tenant_a):
+def test_customer_360_hides_money_without_financial_permission(tenant_a, settings):
+    settings.ENABLE_CUSTOMER_360 = False  # on by default now; this test starts from the switched-off state
     from accounts.models import CompanyUser
     from insights.customer_360 import customer_360
     from tests.conftest import make_customer
@@ -558,6 +559,7 @@ def test_customer_360_hides_money_without_financial_permission(tenant_a):
     flags["ENABLE_CUSTOMER_360"] = True
     tenant_a.company.feature_flags = flags
     tenant_a.company.save(update_fields=["feature_flags"])
+    settings.ENABLE_CUSTOMER_360 = True
     seen = customer_360(tenant_a.company, customer, owner)
     hidden = customer_360(tenant_a.company, customer, staff)
     assert seen["profit"] is not None

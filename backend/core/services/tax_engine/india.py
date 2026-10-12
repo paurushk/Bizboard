@@ -826,8 +826,13 @@ def build_totals_preview(
     seller_gstin="",
     include_margin=False,
     warehouse=None,
+    customer=None,
 ):
-    """A-03: authoritative GST/grand totals without persisting a document."""
+    """A-03: authoritative GST/grand totals without persisting a document.
+
+    When ``customer`` is given and a line carries no ``unit_price``, the price is resolved exactly
+    as the saved document would (customer price list / quantity slab, else catalogue price).
+    """
     from core.services.place_of_supply import party_intra_state
 
     supply_type = str(data.get("supply_type") or "").strip().upper()
@@ -875,7 +880,19 @@ def build_totals_preview(
         item = _Item()
         item.quantity = raw.get("quantity") or 0
         default_price = getattr(product, default_price_attr, 0)
-        item.unit_price = raw.get("unit_price", default_price)
+        item._applied_price_list = ""
+        if customer is not None and raw.get("unit_price") in (None, ""):
+            from masters.pricing import resolve_party_price, resolve_unit_price
+
+            item.unit_price = resolve_unit_price(
+                customer=customer, product=product, requested_price=None, role=None,
+                quantity=raw.get("quantity"),
+            )
+            _list_price, item._applied_price_list = resolve_party_price(
+                customer=customer, product=product, quantity=raw.get("quantity"),
+            )
+        else:
+            item.unit_price = raw.get("unit_price", default_price)
         item.discount_percent = raw.get("discount_percent") or 0
         item.gst_rate = raw.get("gst_rate", product.gst_rate)
         if supply_type in ("EXPWOP", "SEZWOP"):
@@ -1041,6 +1058,13 @@ def build_totals_preview(
                 "line_total": i.line_total,
                 "gst_rate": i.gst_rate,
                 "rate_override_reason": getattr(i, "rate_override_reason", "") or "",
+                "product": i.product.pk,
+                "unit_price": i.unit_price,
+                "applied_price_list_name": getattr(i, "_applied_price_list", "") or "",
+                "cess_rate": getattr(i, "cess_rate", 0),
+                "cess_amount": getattr(i, "cess_amount", 0),
+                "unit_name": getattr(getattr(i.product, "unit", None), "short_name", "") or "",
+                "uqc_code": getattr(getattr(i.product, "unit", None), "uqc_code", "") or "",
             }
             for i in items
         ],

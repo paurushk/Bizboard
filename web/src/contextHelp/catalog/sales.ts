@@ -529,38 +529,129 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('customers', {
     title: ['Customers', 'ग्राहक'],
     summary: [
-      'Party master for billing: name, state, GSTIN, credit limit, price list, blocked status. Saving a customer does not create a bill.',
-      'बिलिंग के लिए पार्टी: नाम, राज्य, GSTIN, क्रेडिट लिमिट, प्राइस लिस्ट, ब्लॉक स्थिति। ग्राहक सेव करने से बिल नहीं बनता।',
+      'The party master for customers: name, phone, GSTIN, state, tax class, credit terms, addresses, price list, and status. Saving a customer does not create a bill. The cards above the list show active customers, what is outstanding, advances held, and how many are over their limit or blocked.',
+      'ग्राहकों की पार्टी सूची: नाम, फ़ोन, GSTIN, राज्य, कर वर्ग, क्रेडिट शर्तें, पते, प्राइस लिस्ट और स्थिति। ग्राहक सेव करने से बिल नहीं बनता। सूची के ऊपर के कार्ड सक्रिय ग्राहक, बकाया, जमा अग्रिम और सीमा पार या ब्लॉक ग्राहकों की गिनती दिखाते हैं।',
     ],
     howItWorks: [
       [
-        'State or GSTIN drives place of supply on GST bills. Duplicate GSTINs in the same company are rejected.',
-        'राज्य/GSTIN से GST बिल का place of supply आता है। उसी कंपनी में डुप्लिकेट GSTIN नहीं चलता।',
+        'Type the GSTIN and the state and PAN fill in from it. Press Verify & autofill to look it up first. Without a live GSTIN service the check only confirms the format, so the status stays Unverified. Changing or clearing a GSTIN clears its old verification.',
+        'GSTIN लिखें तो राज्य और PAN उसी से भर जाते हैं। पहले Verify & autofill दबाकर जाँच सकते हैं। GSTIN की लाइव सेवा चालू न हो तो सिर्फ़ फ़ॉर्मैट जाँचा जाता है और स्थिति Unverified रहती है। GSTIN बदलने या हटाने पर पुराना सत्यापन हट जाता है।',
       ],
       [
-        'A limit greater than zero blocks Save & Complete when open exposure plus the new bill exceeds it. Exposure is outstanding after advances. With books on, the check uses the higher of the ledger and the document figure. Zero or blank means no check.',
-        'लिमिट > 0 हो और खुला एक्सपोज़र + नया बिल लिमिट से ऊपर हो तो Save & Complete रुकता है। एक्सपोज़र अग्रिम के बाद बकाया है। खाते चालू हों तो जाँच लेजर और दस्तावेज़ में से बड़ी रकम लेती है। 0 या खाली = जाँच नहीं।',
+        'State or GSTIN drives place of supply on GST bills. A state that disagrees with the GSTIN is refused; a blank state is filled from the GSTIN. Two customers in one company cannot share a GSTIN, and the message names the customer that already has it.',
+        'राज्य या GSTIN से GST बिल का place of supply तय होता है। GSTIN से मेल न खाने वाला राज्य मना होता है; खाली राज्य GSTIN से भर जाता है। एक कंपनी में दो ग्राहकों का GSTIN एक नहीं हो सकता, और संदेश में उस ग्राहक का नाम आता है जिसके पास वह है।',
+      ],
+      [
+        'A limit greater than zero blocks Complete when open exposure plus the new bill exceeds it. Exposure is outstanding after advances. With books on, the check uses the higher of the ledger and the document figure. Zero or blank means no check. Only an owner or manager can change the credit limit and credit days.',
+        'लिमिट > 0 हो और खुला एक्सपोज़र + नया बिल लिमिट से ऊपर हो तो Complete रुकता है। एक्सपोज़र अग्रिम के बाद बकाया है। खाते चालू हों तो जाँच लेजर और दस्तावेज़ में से बड़ी रकम लेती है। 0 या खाली = जाँच नहीं। क्रेडिट लिमिट और क्रेडिट दिन सिर्फ़ ओनर या मैनेजर बदल सकते हैं।',
+      ],
+      [
+        'The row buttons are Edit, Block, and a More menu (Archive, Set as POS walk-in, Verify GSTIN on a phone). Tick rows that have a GSTIN and press Verify selected to check up to 10 at once. Click a customer name to open the Customer Snapshot.',
+        'पंक्ति के बटन: Edit, Block और More मेनू (Archive, Set as POS walk-in, फ़ोन पर Verify GSTIN)। GSTIN वाली पंक्तियाँ चुनकर Verify selected दबाएँ — एक बार में 10 तक। ग्राहक के नाम पर क्लिक करके Customer Snapshot खोलें।',
+      ],
+      [
+        'Export CSV downloads the customers your search and status filter match, in your chosen sort. It needs the financial-reports and export permissions, is limited to 20,000 rows, and each export is recorded.',
+        'Export CSV आपकी खोज और स्थिति के फ़िल्टर से मिले ग्राहकों को चुने क्रम में डाउनलोड करता है। इसके लिए वित्तीय रिपोर्ट और एक्सपोर्ट की अनुमति चाहिए, सीमा 20,000 पंक्तियाँ है, और हर एक्सपोर्ट दर्ज होता है।',
       ],
     ],
     businessImpact: [
       [
-        'Blocked status stops new invoices and quotation convert. Credit limit and price list affect the next Complete, not past bills.',
-        'ब्लॉक स्थिति नया बिल और कोटेशन कन्वर्ट रोकती है। लिमिट/प्राइस लिस्ट अगले Complete पर लगता है, पुराने बिलों पर नहीं।',
+        'A blocked or archived customer cannot get a new invoice, quotation, order, delivery challan, or quotation conversion. A draft they already have can still be saved or cancelled, but not completed. Receipts and credit notes still work, and recurring invoices skip them until they are active again.',
+        'ब्लॉक या संग्रहित ग्राहक पर नया बिल, कोटेशन, ऑर्डर, डिलीवरी चालान या कोटेशन कन्वर्ट नहीं बनता। उनका पहले से बना ड्राफ्ट सेव या रद्द हो सकता है, पर Complete नहीं। रसीद और क्रेडिट नोट चलते रहते हैं, और आवर्ती बिल उनके सक्रिय होने तक छूट जाते हैं।',
+      ],
+      [
+        'State, GSTIN and tax class decide CGST+SGST or IGST and the GSTR-1 table a bill lands in. Credit limit and price list apply from the next Complete, not to past bills.',
+        'राज्य, GSTIN और कर वर्ग से CGST+SGST या IGST और GSTR-1 की तालिका तय होती है। क्रेडिट लिमिट और प्राइस लिस्ट अगले Complete से लगती हैं, पुराने बिलों पर नहीं।',
       ],
     ],
     keyRules: [
-      ['Only the Owner (or granted capability) should block/unblock. This is a credit or compliance hold.', 'ब्लॉक/अनब्लॉक ओनर (या दी गई अनुमति) करें। यह क्रेडिट/कंप्लायंस होल्ड है।'],
+      [
+        'Anyone who can create sales may Block. Unblock, Activate, Archive, and credit terms are for an owner or manager. This is a credit or compliance hold, not a software error.',
+        'Block कोई भी कर सकता है जो बिल बना सकता है। Unblock, Activate, Archive और क्रेडिट शर्तें ओनर या मैनेजर के लिए हैं। यह क्रेडिट या कंप्लायंस होल्ड है, सॉफ़्टवेयर की गलती नहीं।',
+      ],
+      [
+        'Archive is refused while the customer owes money or holds an unallocated advance: settle or allocate first. A customer nothing refers to is deleted; one with bills, receipts, contracts or similar is marked Inactive instead, and its recurring schedules pause.',
+        'ग्राहक पर बकाया हो या अनावंटित अग्रिम हो तो Archive मना है: पहले निपटाएँ या आवंटित करें। जिस ग्राहक का कहीं उपयोग नहीं हुआ वह हट जाता है; जिसके बिल, रसीद, अनुबंध आदि हैं वह Inactive चिह्नित होता है और उसके आवर्ती शेड्यूल रुक जाते हैं।',
+      ],
+      [
+        'The POS walk-in customer cannot have a GSTIN or a credit limit, cannot be blocked, and cannot be archived or deleted. An owner can make another active customer the walk-in from the More menu.',
+        'POS वॉक-इन ग्राहक में GSTIN या क्रेडिट लिमिट नहीं हो सकती, उसे ब्लॉक, संग्रहित या डिलीट नहीं कर सकते। ओनर More मेनू से किसी दूसरे सक्रिय ग्राहक को वॉक-इन बना सकता है।',
+      ],
+      [
+        'A phone number is a 10-digit Indian mobile starting 6 to 9, with an optional +91, 91 or 0 in front. If the form says someone else changed the customer, press Reload latest: what you typed is kept.',
+        'फ़ोन 6 से 9 से शुरू होने वाला 10 अंकों का भारतीय मोबाइल है, आगे वैकल्पिक +91, 91 या 0। फ़ॉर्म कहे कि किसी और ने ग्राहक बदल दिया, तो Reload latest दबाएँ: आपका लिखा बना रहता है।',
+      ],
     ],
     commonMistakes: [
       ['Creating a second customer for the same GSTIN instead of reusing the party.', 'एक GSTIN पर दूसरा ग्राहक बनाना — पुरानी पार्टी दोबारा इस्तेमाल करें।'],
+      ['Choosing a state by hand that disagrees with the GSTIN. Let the GSTIN fill it, or fix the GSTIN.', 'GSTIN से मेल न खाने वाला राज्य हाथ से चुनना। राज्य GSTIN से भरने दें, या GSTIN सुधारें।'],
+      ['Archiving a customer to hide a balance. Archive only after the balance is settled; use Block to stop new bills.', 'बकाया छिपाने के लिए ग्राहक को Archive करना। बकाया निपटने के बाद ही Archive करें; नए बिल रोकने के लिए Block करें।'],
+      ['Expecting a Verified status after editing a GSTIN. Edit clears the old status, so press Verify again.', 'GSTIN बदलने के बाद Verified स्थिति की उम्मीद करना। बदलाव से पुरानी स्थिति हट जाती है, इसलिए फिर Verify दबाएँ।'],
     ],
     relatedPages: [
       { path: '/sales/new', labelKey: 'nav.newInvoice' },
       { path: '/sales/receipts', labelKey: 'nav.receipts' },
+      { path: '/reports/customer-ledger', labelKey: 'nav.customerLedger' },
       { path: '/settings/price-lists', labelKey: 'nav.priceLists' },
     ],
     nextActions: [
-      ['Fill state and GSTIN before the first GST bill. Set a credit limit only if you want Complete to enforce it.', 'पहले GST बिल से पहले राज्य और GSTIN भरें। लिमिट तभी लगाएँ जब Complete पर लागू करनी हो।'],
+      ['Fill state and GSTIN before the first GST bill, then verify it. Set a credit limit only if you want Complete to enforce it.', 'पहले GST बिल से पहले राज्य और GSTIN भरें और उसे Verify करें। लिमिट तभी लगाएँ जब Complete पर लागू करनी हो।'],
+      ['Sort by Net Balance and open the top names in the Customer Snapshot to plan this week’s collection calls.', 'Net Balance से क्रम लगाएँ और इस हफ़्ते की वसूली के कॉल तय करने के लिए ऊपर के नाम Customer Snapshot में खोलें।'],
+    ],
+  }),
+
+  helpPage('customer-360', {
+    title: ['Customer Snapshot', 'ग्राहक स्नैपशॉट'],
+    summary: [
+      'One page per customer: what they buy, what they owe and how old it is, promises to pay, and a way to bill or edit them. Complaints, tickets, contracts and referrals show up here when your company uses those modules.',
+      'हर ग्राहक का एक पेज: वे क्या खरीदते हैं, कितना बकाया है और कितना पुराना, भुगतान के वादे, और बिल बनाने या बदलने का रास्ता। कंपनी में शिकायत, टिकट, अनुबंध और रेफ़रल के मॉड्यूल चालू हों तो वे भी यहाँ दिखते हैं।',
+    ],
+    howItWorks: [
+      [
+        'Open it by clicking a customer name on the Customers screen. New bill starts an invoice for this customer, Money in opens receipts, and Repeat last invoice makes a new draft copy of their latest bill.',
+        'Customers स्क्रीन पर ग्राहक के नाम पर क्लिक करके खोलें। New bill इसी ग्राहक का बिल शुरू करता है, Money in रसीदों के पेज पर ले जाता है, और Repeat last invoice उनके पिछले बिल की नई ड्राफ़्ट कॉपी बनाता है।',
+      ],
+      [
+        'Edit customer opens the same form as the Customers screen, in place. When you save, this page and every invoice or receipt picker show the new details.',
+        'Edit customer वही फ़ॉर्म खोलता है जो Customers स्क्रीन पर है, इसी पेज पर। सेव करने पर यह पेज और बिल व रसीद के पिकर नई जानकारी दिखाते हैं।',
+      ],
+      [
+        'Dues shows what is outstanding with aging buckets (not yet due, 1–30, 31–60, 61–90, over 90 days) and any cheques counted as received but not cleared. Log a promise to pay records a date and amount; press Mark as resolved when the money arrives.',
+        'Dues में बकाया और उम्र के खाने (देय नहीं, 1–30, 31–60, 61–90, 90 से ऊपर) और वे चेक दिखते हैं जो मिले माने गए पर क्लियर नहीं हुए। Log a promise to pay तारीख और रकम दर्ज करता है; पैसा आने पर Mark as resolved दबाएँ।',
+      ],
+      [
+        'History lists who changed the customer and what: name, GSTIN, state, status, credit limit and days. Phone, email and PAN are shown masked.',
+        'History बताती है कि ग्राहक में किसने क्या बदला: नाम, GSTIN, राज्य, स्थिति, क्रेडिट लिमिट और दिन। फ़ोन, ईमेल और PAN छिपे हुए दिखते हैं।',
+      ],
+    ],
+    businessImpact: [
+      [
+        'Repeat last invoice creates a draft only. Stock, GST and the balance move when you Complete it. Logging a promise changes no money; it is a reminder for you and your team.',
+        'Repeat last invoice सिर्फ़ ड्राफ़्ट बनाता है। स्टॉक, GST और बकाया Complete करने पर चलते हैं। वादा दर्ज करने से पैसे में कुछ नहीं बदलता; यह आपके और आपकी टीम के लिए याद दिलाने वाला नोट है।',
+      ],
+    ],
+    keyRules: [
+      [
+        'Money, profit, aging and History need the financial-reports permission; without it you see the sales pattern and products only.',
+        'पैसा, मुनाफ़ा, aging और History के लिए वित्तीय रिपोर्ट की अनुमति चाहिए; उसके बिना सिर्फ़ बिक्री का पैटर्न और उत्पाद दिखते हैं।',
+      ],
+      [
+        'Edit needs permission to create sales. Credit limit and credit days are changed only by an owner or manager. If the form says someone else changed the customer, press Reload latest and keep what you typed.',
+        'Edit के लिए बिल बनाने की अनुमति चाहिए। क्रेडिट लिमिट और क्रेडिट दिन सिर्फ़ ओनर या मैनेजर बदलते हैं। फ़ॉर्म कहे कि किसी और ने ग्राहक बदल दिया, तो Reload latest दबाएँ; आपका लिखा बना रहता है।',
+      ],
+    ],
+    commonMistakes: [
+      ['Treating a logged promise as a payment. Record the money on Money in; the promise is only a reminder.', 'दर्ज वादे को भुगतान मान लेना। पैसा Money in पर दर्ज करें; वादा सिर्फ़ याद दिलाने के लिए है।'],
+      ['Editing the customer here while someone else edits it elsewhere, then closing the form. Use Reload latest instead of retyping.', 'यहाँ ग्राहक बदलते समय कोई और दूसरी जगह बदल रहा हो और फ़ॉर्म बंद कर देना। दोबारा लिखने के बजाय Reload latest इस्तेमाल करें।'],
+    ],
+    relatedPages: [
+      { path: '/sales/customers', labelKey: 'nav.customers' },
+      { path: '/sales/receipts', labelKey: 'nav.receipts' },
+      { path: '/sales/new', labelKey: 'nav.newInvoice' },
+      { path: '/reports/customer-ledger', labelKey: 'nav.customerLedger' },
+    ],
+    nextActions: [
+      ['Check Dues first. For anything over 30 days, call and log a promise to pay with a date.', 'पहले Dues देखें। 30 दिन से ऊपर के हर बकाया पर कॉल करें और तारीख के साथ भुगतान का वादा दर्ज करें।'],
     ],
   }),
 
@@ -659,27 +750,48 @@ export const SALES_HELP: ContextHelpPage[] = [
   helpPage('quick-entry', {
     title: ['Quick order entry', 'त्वरित ऑर्डर एंट्री'],
     summary: [
-      'A short path to add a customer and lines for a bill. It still uses the same Complete rules as the full invoice editor when you finish the bill.',
-      'ग्राहक और लाइनें जोड़ने का छोटा रास्ता। बिल खत्म करते समय पूरे इनवॉइस वाले वही Complete नियम लगते हैं।',
+      'Book an order in a few taps: pick a customer, tap products, type or step the quantity, then Save & next order. It saves a sales order (when your company has that turned on) or a draft bill, and the server sets the price and GST.',
+      'कुछ टैप में ऑर्डर बुक करें: ग्राहक चुनें, उत्पाद टैप करें, मात्रा लिखें या बढ़ाएँ, फिर “सहेजें और अगला ऑर्डर”। यह सेल्स ऑर्डर (अगर आपकी कंपनी में चालू है) या ड्राफ्ट बिल सहेजता है; मूल्य और GST सर्वर तय करता है।',
     ],
     howItWorks: [
-      ['Pick a recent or searched customer and products. This screen does not bypass stock, GST or credit-limit gates.', 'हाल का/खोजा ग्राहक और आइटम चुनें। यह स्क्रीन स्टॉक/GST/लिमिट के द्वार नहीं छोड़ती।'],
+      ['Customer: tap one of your recent customers or search by name. Only customers you have billed or booked recently appear as chips, and blocked or inactive customers never do.', 'ग्राहक: अपने हाल के ग्राहकों में से टैप करें या नाम से खोजें। चिप में केवल वे ग्राहक दिखते हैं जिन्हें आपने हाल में बिल/बुक किया है; ब्लॉक या निष्क्रिय ग्राहक कभी नहीं दिखते।'],
+      ['Items: tap a recent item chip (it shows how many are in stock) or search by name or SKU. Tapping an item already in the order adds one more instead of a second line.', 'आइटम: हाल के आइटम पर टैप करें (स्टॉक की संख्या दिखती है) या नाम/SKU से खोजें। ऑर्डर में पहले से मौजूद आइटम पर टैप करने से दूसरी लाइन नहीं बनती, एक और जुड़ता है।'],
+      ['Quantity: type it in the box, or use − and +. Whole-unit goods (pieces, boxes) take whole numbers; goods sold by measure (kg, litre, metre) can take decimals. − stops at the minimum; the bin removes the line and Undo brings it back.', 'मात्रा: बॉक्स में लिखें, या − और + से बदलें। पूरी इकाई वाले माल (नग, डिब्बे) में पूर्ण संख्या; माप वाले माल (किलो, लीटर, मीटर) में दशमलव चल सकता है। − न्यूनतम पर रुक जाता है; कूड़ेदान लाइन हटाता है और “पूर्ववत करें” उसे लौटा देता है।'],
+      ['Price and GST are decided by the server when you save: the customer’s price list and quantity slabs first, then the product’s selling price, with the product’s current GST rate. Nothing stored on your phone can change them. Until the price check finishes, the screen shows list prices and an estimated GST, marked as such.', 'मूल्य और GST सहेजते समय सर्वर तय करता है: पहले ग्राहक की प्राइस लिस्ट और मात्रा-स्लैब, फिर उत्पाद का बिक्री मूल्य, और उत्पाद की मौजूदा GST दर। फ़ोन में रखी कोई चीज़ इन्हें नहीं बदल सकती। मूल्य जाँच पूरी होने तक स्क्रीन सूची-मूल्य और अनुमानित GST (अनुमानित लिखा हुआ) दिखाती है।'],
+      ['Create: if your company has order mode on, choose Sales order or Draft bill above the customer. Otherwise it always saves a draft bill. A customer with several saved addresses gets a Deliver to choice for orders.', 'बनाएँ: अगर आपकी कंपनी में ऑर्डर मोड चालू है, तो ग्राहक के ऊपर सेल्स ऑर्डर या ड्राफ्ट बिल चुनें; वरना हमेशा ड्राफ्ट बिल सहेजा जाता है। कई सहेजे पतों वाले ग्राहक के ऑर्डर में “डिलीवरी का पता” चुनने का विकल्प मिलता है।'],
+      ['Save & next order saves, clears the sheet and shows a link to what you saved, ready for the next customer. Save & open saves and opens the document.', '“सहेजें और अगला ऑर्डर” सहेजता है, शीट साफ़ करता है और सहेजे गए दस्तावेज़ का लिंक दिखाता है। “सहेजें और खोलें” सहेजकर दस्तावेज़ खोल देता है।'],
+      ['Your unsaved order is kept on this device and offered back when you return (Resume or Discard). It is removed once the order is saved. It is not an offline mode: saving needs a connection.', 'आपका अधूरा ऑर्डर इस डिवाइस पर रखा जाता है और लौटने पर वापस दिया जाता है (जारी रखें या हटाएँ)। ऑर्डर सहेजते ही यह हट जाता है। यह ऑफ़लाइन मोड नहीं है: सहेजने के लिए कनेक्शन चाहिए।'],
+      ['Tapping Save twice, or retrying after a dropped connection, does not create a second document: the same request is recognised and answered once.', 'दो बार Save दबाने या कनेक्शन टूटने के बाद दोबारा कोशिश करने से दूसरा दस्तावेज़ नहीं बनता: वही अनुरोध पहचानकर एक ही बार निपटाया जाता है।'],
     ],
     businessImpact: [
-      ['Once Completed, the bill hits stock, customer balance, GST and reports like any other invoice.', 'Complete के बाद यह बिल किसी भी इनवॉइस की तरह स्टॉक, बकाया, GST और रिपोर्ट में जाता है।'],
+      ['A draft bill moves no stock and posts no ledger until you Complete it. A confirmed sales order reserves stock and counts toward the customer’s credit exposure, but posts no ledger until it is billed.', 'ड्राफ्ट बिल Complete से पहले न स्टॉक हिलाता है, न लेजर में जाता है। पुष्ट सेल्स ऑर्डर स्टॉक आरक्षित करता है और ग्राहक की क्रेडिट सीमा में गिना जाता है, पर बिल बनने तक लेजर में नहीं जाता।'],
+      ['Orders saved here appear under Sales Orders and can go on to a delivery challan, an invoice or a delivery route. Draft bills appear under Sales History.', 'यहाँ सहेजे ऑर्डर “सेल्स ऑर्डर” में दिखते हैं और डिलीवरी चालान, इनवॉइस या डिलीवरी रूट तक जा सकते हैं। ड्राफ्ट बिल “सेल्स हिस्ट्री” में दिखते हैं।'],
+      ['An order with no delivery address picks up the customer’s default saved address (or their shipping, then billing address), so route stops are not blank. Payment terms default to the customer’s credit days.', 'डिलीवरी पते के बिना ऑर्डर ग्राहक का डिफ़ॉल्ट सहेजा पता (या शिपिंग, फिर बिलिंग पता) ले लेता है, ताकि रूट के स्टॉप खाली न रहें। भुगतान की शर्तें ग्राहक के क्रेडिट दिनों से तय होती हैं।'],
     ],
     keyRules: [
-      ['Need the create-sales capability. Walk-in / GST rules are the same as New Invoice.', 'सेल्स बनाने की अनुमति चाहिए। वॉक-इन/GST नियम नए इनवॉइस जैसे।'],
+      ['Needs the create-sales permission. Blocked or inactive customers are refused when you save, confirm or complete, and an expired or suspended subscription stops saving.', 'सेल्स बनाने की अनुमति चाहिए। सहेजते, पुष्टि करते या पूरा करते समय ब्लॉक/निष्क्रिय ग्राहक अस्वीकार होते हैं, और सब्सक्रिप्शन समाप्त या निलंबित होने पर सहेजना रुक जाता है।'],
+      ['Auto-confirm (if your company turned it on) confirms the order right after saving. If a credit-limit or margin check refuses it, the order stays a draft and says Needs approval; a manager confirms it from Sales Orders. If the connection drops after saving, it says confirming did not complete; open the order and confirm it.', 'ऑटो-कन्फर्म (अगर आपकी कंपनी ने चालू किया है) सहेजते ही ऑर्डर पक्का करता है। क्रेडिट-सीमा या मार्जिन जाँच मना कर दे तो ऑर्डर ड्राफ्ट रहता है और “मंजूरी चाहिए” लिखता है; मैनेजर इसे “सेल्स ऑर्डर” से पक्का करता है। सहेजने के बाद कनेक्शन टूटे तो “पुष्टि पूरी नहीं हुई” लिखा आता है; ऑर्डर खोलकर पक्का करें।'],
+      ['Warnings are advice, not blocks: a line larger than the stock on hand, an order that would take the customer over their credit limit, or a customer on credit hold. The server still decides when you confirm or complete.', 'चेतावनियाँ सलाह हैं, रोक नहीं: स्टॉक से बड़ी लाइन, ग्राहक को क्रेडिट सीमा के पार ले जाने वाला ऑर्डर, या क्रेडिट होल्ड वाला ग्राहक। पुष्टि या पूरा करते समय निर्णय सर्वर का ही रहता है।'],
+      ['Composition and unregistered companies save non-GST documents. A regular company with a GSTIN customer saves a GST invoice; without one, a retail invoice. A regular company with no GSTIN saved cannot complete a GST invoice, and the screen warns you.', 'कम्पोज़िशन और अपंजीकृत कंपनियाँ नॉन-GST दस्तावेज़ सहेजती हैं। GSTIN वाले ग्राहक के लिए नियमित कंपनी GST इनवॉइस, और उसके बिना रिटेल इनवॉइस सहेजती है। जिस नियमित कंपनी का GSTIN सहेजा नहीं है, वह GST इनवॉइस पूरा नहीं कर सकती; स्क्रीन आपको चेताती है।'],
+      ['Order mode, auto-confirm and the server price check are switched on per company by your administrator. If you do not see the Sales order / Draft bill choice, your company is on draft bills.', 'ऑर्डर मोड, ऑटो-कन्फर्म और सर्वर मूल्य जाँच आपका एडमिन कंपनी-वार चालू करता है। अगर “सेल्स ऑर्डर / ड्राफ्ट बिल” का विकल्प नहीं दिखता, तो आपकी कंपनी ड्राफ्ट बिल पर है।'],
     ],
     commonMistakes: [
-      ['Using this for a GST B2B bill without customer state/GSTIN, then hitting Complete errors.', 'GST B2B पर राज्य/GSTIN बिना Complete करने पर एरर।'],
+      ['Treating an “estimated” price or GST on screen as final. The saved document can differ until the price check finishes; open it to see the real figures.', 'स्क्रीन के “अनुमानित” मूल्य या GST को अंतिम मान लेना। मूल्य जाँच पूरी होने तक सहेजा दस्तावेज़ अलग हो सकता है; असली आँकड़े देखने के लिए उसे खोलें।'],
+      ['Expecting a draft bill to reserve stock or show in Sales Orders. Only a confirmed sales order reserves stock; a draft bill appears in Sales History.', 'ड्राफ्ट बिल से स्टॉक आरक्षित होने या “सेल्स ऑर्डर” में दिखने की उम्मीद करना। स्टॉक केवल पुष्ट सेल्स ऑर्डर आरक्षित करता है; ड्राफ्ट बिल “सेल्स हिस्ट्री” में दिखता है।'],
+      ['Leaving the page with an order half-built and relying on it being there later on another phone. The draft is kept only on the device and browser where you started it.', 'आधा बना ऑर्डर छोड़कर बाद में दूसरे फ़ोन पर उसके मिलने की उम्मीद करना। ड्राफ्ट केवल उसी डिवाइस और ब्राउज़र पर रहता है जहाँ आपने शुरू किया।'],
+      ['Typing 2.5 for goods sold in pieces. Only measured units (kg, litre, metre…) accept decimals; the box goes back to the last good value.', 'नग में बिकने वाले माल के लिए 2.5 लिखना। केवल माप वाली इकाइयाँ (किलो, लीटर, मीटर…) दशमलव लेती हैं; बॉक्स पिछले सही मान पर लौट जाता है।'],
+      ['Using this for a GST bill when the company GSTIN is missing, then hitting an error on Complete.', 'कंपनी का GSTIN न होने पर GST बिल बनाना और Complete पर एरर पाना।'],
     ],
     relatedPages: [
+      { path: '/sales/orders', labelKey: 'nav.salesOrders' },
       { path: '/sales/new', labelKey: 'nav.newInvoice' },
       { path: '/sales/history', labelKey: 'nav.salesHistory' },
+      { path: '/sales/customers', labelKey: 'nav.customers' },
+      { path: '/sales/delivery-routes', labelKey: 'nav.deliveryRoutes' },
     ],
     nextActions: [
-      ['Finish the bill on this flow or open the full editor if you need tax options, e-Way or multi-godown.', 'यहीं बिल खत्म करें, या टैक्स/e-Way/मल्टी-गोदाम के लिए पूरा एडिटर खोलें।'],
+      ['Use Save & next order to book the next customer, or Save & open to review the document. Open the full editor for tax options, e-Way or multi-godown.', 'अगले ग्राहक के लिए “सहेजें और अगला ऑर्डर”, या दस्तावेज़ देखने के लिए “सहेजें और खोलें”। टैक्स/e-Way/मल्टी-गोदाम के लिए पूरा एडिटर खोलें।'],
+      ['If an order says Needs approval, ask a manager to confirm it from Sales Orders, or open the customer to check their overdue balance and credit limit.', 'अगर ऑर्डर पर “मंजूरी चाहिए” है, तो मैनेजर से “सेल्स ऑर्डर” में पक्का करवाएँ, या ग्राहक खोलकर उसका बकाया और क्रेडिट सीमा देखें।'],
     ],
   }),
 

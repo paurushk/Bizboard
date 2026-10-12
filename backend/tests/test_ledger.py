@@ -209,3 +209,59 @@ def test_supplier_endpoint_exposes_real_outstanding(tenant_a):
     by_id = {row["id"]: row for row in listing.data["results"]}
     assert Decimal(by_id[supplier.id]["outstanding"]) == Decimal("500.00")
     assert Decimal(by_id[other.id]["outstanding"]) == Decimal("0")
+
+
+# ---- bulk customer figures (Customers list / summary) ---------------------------------------------------------------------------------
+
+def _owing_customer(tenant, name, amount="100"):
+    from sales.models import SalesInvoice
+    from tests.conftest import create_draft_invoice, make_customer, make_product
+
+    customer = make_customer(tenant.company, name=name)
+    product = make_product(tenant.company, sku=f"LED-{name}")
+    draft = create_draft_invoice(tenant, customer, [{"product": product.id, "quantity": "1", "unit_price": amount}])
+    SalesInvoice.objects.filter(pk=draft["id"]).update(status="COMPLETED")
+    return customer
+
+
+def test_credit_exposure_reuses_a_supplied_document_map_and_matches_the_default(tenant_a):
+    from ledgers.services import LedgerService
+
+    customer = _owing_customer(tenant_a, "Owes")
+    default = LedgerService.bulk_customer_credit_exposure(tenant_a.company)
+    documents = LedgerService.bulk_customer_outstanding(tenant_a.company, documents_only=True)
+    reused = LedgerService.bulk_customer_credit_exposure(tenant_a.company, documents=documents)
+    assert reused == default
+    assert reused[customer.id] == documents[customer.id] > 0
+
+
+def test_credit_exposure_does_not_recompute_when_given_documents(tenant_a, monkeypatch):
+    from ledgers.services import LedgerService
+
+    _owing_customer(tenant_a, "Owes")
+    documents = LedgerService.bulk_customer_outstanding(tenant_a.company, documents_only=True)
+    calls = []
+    real = LedgerService.bulk_customer_outstanding
+    monkeypatch.setattr(
+        LedgerService, "bulk_customer_outstanding", staticmethod(lambda *a, **k: calls.append(1) or real(*a, **k)),
+    )
+    LedgerService.bulk_customer_credit_exposure(tenant_a.company, documents=documents)
+    assert calls == []
+
+
+def test_bulk_customer_advances_is_the_unallocated_receipt_total(tenant_a):
+    from decimal import Decimal
+
+    from ledgers.services import LedgerService
+    from tests.conftest import make_customer
+
+    customer = make_customer(tenant_a.company, name="Paid ahead")
+    resp = tenant_a.client.post(
+        "/api/v1/payments/receipts/", {"customer": customer.id, "amount": "250", "mode": "CASH"}, format="json",
+    )
+    assert resp.status_code == 201, resp.data
+    advances = LedgerService.bulk_customer_advances(tenant_a.company)
+    assert advances[customer.id] == Decimal("250")
+    assert LedgerService.bulk_customer_advances(tenant_a.company) == LedgerService.bulk_customer_unallocated_advances(
+        tenant_a.company,
+    )

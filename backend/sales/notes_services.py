@@ -719,6 +719,8 @@ class SalesNotesService:
                 order.company,
                 order.customer.state,
                 order.customer.gstin or "",
+                seller_state=(getattr(order.company_gstin, "state", None) or ""),
+                seller_gstin=(getattr(order.company_gstin, "gstin", None) or ""),
                 supply_type=getattr(order, "supply_type", ""),
             ),
             invoice_discount=order.invoice_discount,
@@ -740,8 +742,15 @@ class SalesNotesService:
         from inventory.services import InventoryService
 
         order = SalesOrder.objects.select_for_update().get(pk=order.pk)
+        if order.status == SalesOrder.Status.CONFIRMED:
+            raise BusinessRuleError("This order is already confirmed.", code="order_already_confirmed")
         if order.status != SalesOrder.Status.DRAFT:
             raise BusinessRuleError(f"Cannot confirm an order in status {order.status}.")
+        if order.customer_id and order.customer.status != Customer.Status.ACTIVE:
+            raise BusinessRuleError(
+                f"Cannot confirm an order for {order.customer.billing_block_phrase}.",
+                code="customer_not_active",
+            )
         from planwave.services import assert_chronic_credit_allowed
 
         assert_chronic_credit_allowed(order)
@@ -801,8 +810,8 @@ class SalesNotesService:
         requested = SalesNotesService._conversion_quantities(
             order_lines, line_quantities, counter="invoiced_quantity",
         )
-        if order.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
+        if order.customer.status != Customer.Status.ACTIVE:
+            raise BusinessRuleError(f"Cannot create an invoice for {order.customer.billing_block_phrase}.")
         if not order.number:
             order.number = DocumentNumberService.next_number(
                 order.company,
@@ -980,8 +989,8 @@ class SalesNotesService:
         ):
             raise BusinessRuleError(f"Cannot convert an order in status {order.status}.")
         SalesNotesService._require_confirmation_when_gates_on(order)
-        if order.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create a delivery challan for a blocked customer.")
+        if order.customer.status != Customer.Status.ACTIVE:
+            raise BusinessRuleError(f"Cannot create a delivery challan for {order.customer.billing_block_phrase}.")
         if not order.number:
             order.number = DocumentNumberService.next_number(
                 order.company,
@@ -1144,6 +1153,11 @@ class SalesNotesService:
         challan = DeliveryChallan.objects.select_for_update().get(pk=challan.pk)
         if challan.status != DeliveryChallan.Status.DRAFT:
             raise BusinessRuleError(f"Cannot complete challan in status {challan.status}.")
+        if challan.customer_id and challan.customer.status != Customer.Status.ACTIVE:
+            raise BusinessRuleError(
+                f"Cannot complete a delivery challan for {challan.customer.billing_block_phrase}.",
+                code="customer_not_active",
+            )
         items = list(challan.items.select_related("product"))
         if not items:
             raise BusinessRuleError("Cannot complete a challan without line items.")
@@ -1281,8 +1295,8 @@ class SalesNotesService:
             raise BusinessRuleError(f"Cannot convert a challan in status {challan.status}.")
         if challan.converted_invoice_id:
             raise BusinessRuleError("Challan has already been converted to an invoice.")
-        if challan.customer.status == Customer.Status.BLOCKED:
-            raise BusinessRuleError("Cannot create an invoice for a blocked customer.")
+        if challan.customer.status != Customer.Status.ACTIVE:
+            raise BusinessRuleError(f"Cannot create an invoice for {challan.customer.billing_block_phrase}.")
         order = challan.sales_order
         # CR-120: refuse second invoice when SO already linked elsewhere.
         if order is not None and order.converted_invoice_id:

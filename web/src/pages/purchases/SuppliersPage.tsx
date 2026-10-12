@@ -39,20 +39,9 @@ import { getStateFromGstin } from '@/utils/indianStates';
 import { placeOfSupplyKnown } from '@/utils/tax';
 import { formatMoney } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { gstinStatusColor, gstinStatusLabelKey } from '@/utils/gstinStatus';
 
 const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', address: '' };
-
-function gstinStatusColor(status?: string): 'default' | 'success' | 'warning' | 'error' {
-  switch ((status ?? 'UNVERIFIED').toUpperCase()) {
-    case 'VERIFIED':
-      return 'success';
-    case 'INVALID':
-    case 'FAILED':
-      return 'error';
-    default:
-      return 'warning';
-  }
-}
 
 export function SuppliersPage() {
   useFeatureFlagEpoch();
@@ -237,11 +226,7 @@ export function SuppliersPage() {
                       <Stack direction="row" spacing={0.5} alignItems="center">
                         <Chip
                           size="small"
-                          label={
-                            (s.gstinVerificationStatus ?? 'UNVERIFIED') === 'UNVERIFIED'
-                              ? 'Unverified'
-                              : (s.gstinVerificationStatus ?? 'UNVERIFIED')
-                          }
+                          label={t(gstinStatusLabelKey(s.gstinVerificationStatus))}
                           color={gstinStatusColor(s.gstinVerificationStatus)}
                         />
                         <Button

@@ -78,6 +78,21 @@ class ExpenseCategory(CompanyScopedModel):
         return self.name
 
 
+def has_protected_references(instance) -> bool:
+    """True if any row the database protects (an ``on_delete=PROTECT`` relation) points at ``instance``.
+
+    Built from the model's own relations, so a new document type is covered without editing the party
+    models. Child rows the party owns (cascade) and optional links (set null) do not count. The base
+    manager is used so soft-deleted rows still count.
+    """
+    for rel in instance._meta.related_objects:
+        if not rel.one_to_many or rel.on_delete is not models.PROTECT:
+            continue
+        if rel.related_model._base_manager.filter(**{rel.field.name: instance}).exists():
+            return True
+    return False
+
+
 class Customer(SoftDeleteFields, CompanyScopedModel):
     class Status(models.TextChoices):
         ACTIVE = "ACTIVE"
@@ -161,19 +176,14 @@ class Customer(SoftDeleteFields, CompanyScopedModel):
     def __str__(self):
         return self.name
 
+    @property
+    def billing_block_phrase(self) -> str:
+        """"a blocked customer" / "an inactive customer", for the refusal message on a new document."""
+        return "a blocked customer" if self.status == self.Status.BLOCKED else "an inactive customer"
+
     def is_referenced(self):
-        """True if the customer appears on any document or payment."""
-        return (
-            self.sales_invoices.exists()
-            or self.quotations.exists()
-            or self.sales_returns.exists()
-            or self.sales_credit_notes.exists()
-            or self.sales_debit_notes.exists()
-            or self.sales_orders.exists()
-            or self.delivery_challans.exists()
-            or self.receipts.exists()
-            or self.payment_links.exists()
-        )
+        """True if anything the database protects points at this customer (documents, journal lines, contracts...)."""
+        return has_protected_references(self)
 
 
 class CustomerShippingAddress(CompanyScopedModel):
@@ -232,15 +242,8 @@ class Supplier(SoftDeleteFields, CompanyScopedModel):
         return self.name
 
     def is_referenced(self):
-        """True if the supplier appears on any document or payment."""
-        return (
-            self.purchase_invoices.exists()
-            or self.purchase_returns.exists()
-            or self.purchase_credit_notes.exists()
-            or self.purchase_debit_notes.exists()
-            or self.purchase_orders.exists()
-            or self.payments.exists()
-        )
+        """True if anything the database protects points at this supplier (bills, payments, orders, notes...)."""
+        return has_protected_references(self)
 
 
 class Product(SoftDeleteFields, CompanyScopedModel):

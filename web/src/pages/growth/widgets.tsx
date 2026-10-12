@@ -24,7 +24,7 @@ export function CustomerField({
   value: Customer | null;
   onChange: (customer: Customer | null) => void;
 }) {
-  const search = useCustomerSearch({ selected: value });
+  const search = useCustomerSearch({ selected: value, activeOnly: true });
   return (
     <Autocomplete
       options={search.options}

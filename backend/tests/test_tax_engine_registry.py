@@ -65,9 +65,12 @@ def test_build_totals_preview_item_shape_is_pinned(tenant_a):
     # gst_rate and rate_override_reason are deliberate: the billing screen shows
     # the rate the engine applied and why it changed (the HSN notice), so the
     # till total and the completed invoice cannot disagree silently.
+    # Quick Entry (QOE-01) adds the resolved price and unit so the screen shows what will be saved.
     assert set(preview.data["items"][0].keys()) == {
         "taxable_amount", "cgst", "sgst", "igst", "cess", "line_total",
         "gst_rate", "rate_override_reason",
+        "product", "unit_price", "applied_price_list_name", "cess_rate", "cess_amount",
+        "unit_name", "uqc_code",
     }
 
 

@@ -304,3 +304,70 @@ def test_lead_ingest_job_finishes_csv_and_whatsapp_after_accept(tenant_a):
     csv_job.save(update_fields=["status", "updated_at"])
     process_lead_ingest(csv_job.id)
     assert Lead.objects.filter(company=tenant_a.company, source="import").count() == 1
+
+
+# ---- lead conversion follows the customer rules (Customers master hardening) ------------------------------------------------------------------
+
+G_MH = "27AABCU9603R1ZN"
+
+
+def test_convert_lead_with_a_gstin_fills_state_and_pan(tenant_a):
+    lead = tenant_a.client.post(
+        "/api/v1/crm/leads/", {"name": "Gst Lead", "phone": "9876500001", "gstin": G_MH, "state": "Maharashtra"},
+        format="json",
+    )
+    assert lead.status_code == 201, lead.data
+    done = tenant_a.client.post(f"/api/v1/crm/leads/{_body(lead)['id']}/convert/")
+    assert done.status_code == 200, done.data
+    customer = Customer.objects.get(company=tenant_a.company, name="Gst Lead")
+    assert (customer.gstin, customer.state, customer.pan) == (G_MH, "Maharashtra", "AABCU9603R")
+
+
+def test_convert_lead_with_a_gstin_another_customer_holds_is_a_clear_400(tenant_a):
+    from tests.conftest import make_customer
+
+    make_customer(tenant_a.company, name="Holder", gstin=G_MH, state="Maharashtra")
+    lead = tenant_a.client.post(
+        "/api/v1/crm/leads/", {"name": "Twin Lead", "phone": "9876500002", "gstin": G_MH, "state": "Maharashtra"},
+        format="json",
+    )
+    done = tenant_a.client.post(f"/api/v1/crm/leads/{_body(lead)['id']}/convert/")
+    assert done.status_code == 400 and "already registered" in str(done.data)
+    assert not Customer.objects.filter(company=tenant_a.company, name="Twin Lead").exists()
+
+
+def test_convert_lead_with_a_gstin_that_disagrees_with_its_state_is_refused(tenant_a):
+    lead = tenant_a.client.post(
+        "/api/v1/crm/leads/", {"name": "Mismatch Lead", "phone": "9876500003", "gstin": G_MH, "state": "Karnataka"},
+        format="json",
+    )
+    done = tenant_a.client.post(f"/api/v1/crm/leads/{_body(lead)['id']}/convert/")
+    assert done.status_code == 400 and "belongs to Maharashtra" in str(done.data)
+
+
+def test_lead_merging_into_an_existing_customer_never_takes_a_gstin_another_customer_holds(tenant_a):
+    from tests.conftest import make_customer
+
+    make_customer(tenant_a.company, name="Holder", gstin=G_MH, state="Maharashtra")
+    plain = make_customer(tenant_a.company, name="Plain", phone="9876500004")
+    lead = tenant_a.client.post(
+        "/api/v1/crm/leads/",
+        {"name": "Plain", "phone": "9876500004", "gstin": G_MH, "dedupe_decision": "create"}, format="json",
+    )
+    assert lead.status_code == 201, lead.data
+    assert tenant_a.client.post(f"/api/v1/crm/leads/{_body(lead)['id']}/convert/").status_code == 200
+    plain.refresh_from_db()
+    assert plain.gstin == ""
+
+
+def test_lead_merging_into_an_existing_customer_fills_a_free_gstin_with_its_pan_and_state(tenant_a):
+    from tests.conftest import make_customer
+
+    plain = make_customer(tenant_a.company, name="Plain Two", phone="9876500005", state="")
+    lead = tenant_a.client.post(
+        "/api/v1/crm/leads/",
+        {"name": "Plain Two", "phone": "9876500005", "gstin": G_MH, "dedupe_decision": "create"}, format="json",
+    )
+    assert tenant_a.client.post(f"/api/v1/crm/leads/{_body(lead)['id']}/convert/").status_code == 200
+    plain.refresh_from_db()
+    assert (plain.gstin, plain.pan, plain.state) == (G_MH, "AABCU9603R", "Maharashtra")

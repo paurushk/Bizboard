@@ -1,7 +1,19 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockCustomers, mockProducts, mockReceipts, mockSupplierPayments, mockSuppliers } from '@/mocks/data';
-import type { Customer, CustomerReceipt, Product, Supplier, SupplierPayment, Unit } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import type {
+  Customer,
+  CustomerHistoryEvent,
+  CustomersHealth,
+  CustomerVerifyResult,
+  CustomerReceipt,
+  CustomersSummary,
+  GstinLookup,
+  Product,
+  Supplier,
+  SupplierPayment,
+  Unit,
+} from '@/types/domain';
+import { withMocks, fetchPage, fetchAllPagesMasters, getBlob, type PageResult, type PageParams } from './common';
 
 export async function listCustomers(params?: { q?: string }): Promise<Customer[]> {
   return withMocks(async () => fetchAllPagesMasters<Customer>('/customers/', params), mockCustomers);
@@ -209,6 +221,16 @@ export async function listProductsPage(params?: {
   );
 }
 
+/** Quick Entry hydrates its recent-product chips by id (server caps this at 50). */
+export async function listProductsByIds(ids: number[]): Promise<Product[]> {
+  const wanted = Array.from(new Set(ids)).slice(0, 50);
+  if (wanted.length === 0) return [];
+  return withMocks(
+    async () => (await fetchPage<Product>('/products/', { ids: wanted.join(','), pageSize: 50 })).results,
+    () => mockProducts.filter((p) => wanted.includes(p.id)),
+  );
+}
+
 function filterProducts(q?: string, cf?: Record<string, string[]>): Product[] {
   let rows = mockProducts;
   if (q) {
@@ -405,11 +427,99 @@ export async function voidSupplierPayment(id: number, reason = ''): Promise<Supp
   return unwrapData<SupplierPayment>(data);
 }
 
-export async function verifyCustomerGstin(id: number) {
+export async function verifyCustomerGstin(id: number): Promise<CustomerVerifyResult> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/customers/${id}/verify-gstin/`);
-    return unwrapData(data);
-  }, { valid: true, status: 'ACTIVE', tradeName: 'Mock Customer' });
+    return unwrapData<CustomerVerifyResult>(data);
+  }, () => ({ id, name: 'Mock Customer', status: 'ACTIVE' as const, gstinVerificationStatus: 'UNVERIFIED' })) as Promise<CustomerVerifyResult>;
+}
+
+export type BulkVerifyRow = { id: number; status: string; notice: string; error: string };
+
+/** Verify the GSTIN of up to 10 customers in one call. */
+export async function verifyCustomersGstinBulk(ids: number[]): Promise<{ results: BulkVerifyRow[] }> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.post('/customers/verify-gstin-bulk/', { ids });
+      return unwrapData<{ results: BulkVerifyRow[] }>(data);
+    },
+    () => ({ results: ids.map((id) => ({ id, status: 'UNVERIFIED', notice: '', error: '' })) }),
+  );
+}
+
+export type CustomerFilterParams = { q?: string; status?: string };
+
+export async function getCustomersSummary(params?: CustomerFilterParams): Promise<CustomersSummary> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.get('/customers/summary/', { params });
+      return unwrapData<CustomersSummary>(data);
+    },
+    () => ({
+      totalCount: mockCustomers.length,
+      activeCount: mockCustomers.length,
+      blockedCount: 0,
+      inactiveCount: 0,
+      overCreditLimitCount: 0,
+      totalOutstanding: 0,
+      totalUnallocatedAdvance: 0,
+      netCreditExposure: 0,
+    }),
+  );
+}
+
+export async function exportCustomersCsv(params?: CustomerFilterParams & { sort?: string }): Promise<Blob> {
+  return getBlob('/customers/export/', params);
+}
+
+/** Customer records that need a look (owner or manager). */
+export async function getCustomersHealth(): Promise<CustomersHealth> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.get('/customers/health/');
+      return unwrapData<CustomersHealth>(data);
+    },
+    { total: 0, checks: [] },
+  );
+}
+
+export async function lookupCustomerGstin(gstin: string): Promise<GstinLookup> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.post('/customers/lookup-gstin/', { gstin, refresh: true });
+      return unwrapData<GstinLookup>(data);
+    },
+    () => ({
+      gstin, status: 'UNVERIFIED', legalName: '', state: '', pan: gstin.slice(2, 12), taxpayerType: '',
+      provider: 'null', notice: '', existingCustomer: null,
+    }),
+  );
+}
+
+/** Archive or delete: the API deletes an unused customer and marks a used one Inactive. */
+export async function deleteCustomer(id: number): Promise<{ archived: boolean; detail: string }> {
+  return withMocks(
+    async () => {
+      const resp = await apiClient.delete(`/customers/${id}/`);
+      const body = (resp.data ?? {}) as { detail?: string };
+      return { archived: resp.status === 200, detail: body.detail ?? '' };
+    },
+    { archived: false, detail: '' },
+  );
+}
+
+export async function setPosWalkInCustomer(id: number): Promise<Customer> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/customers/set-pos-walk-in/', { customer: id });
+    return unwrapData<Customer>(data);
+  }, () => ({ id, name: 'Walk-in', status: 'ACTIVE' as const, isPosWalkIn: true })) as Promise<Customer>;
+}
+
+export async function listCustomerHistory(id: number): Promise<CustomerHistoryEvent[]> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/customers/${id}/history/`);
+    return (unwrapData<{ results: CustomerHistoryEvent[] }>(data)?.results ?? []) as CustomerHistoryEvent[];
+  }, []);
 }
 
 export async function verifySupplierGstin(id: number) {
