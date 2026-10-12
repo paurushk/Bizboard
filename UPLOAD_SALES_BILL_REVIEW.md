@@ -332,11 +332,17 @@ Completion on NewInvoicePage (User reviews draft, clicks Save Draft or Complete)
 | **P2** | **Redundant sequential `PATCH /preview/` + `POST /commit/` on Commit click** ([BillUploadPage.tsx:243-264](file:///E:/Bizboard/web/src/pages/imports/BillUploadPage.tsx#L243-L264)) | Doubles network round-trips and re-runs preview normalization twice because backend `commit` already calls `update_preview` when given a request body. | Pass the full preview update payload in the single `commitImport` `POST` call (including `customerId`/`supplierId` and `lowConfidenceAccepted`) and remove the preceding `updateImportPreview` call. |
 | **P2** | **No line totals, tax totals, or grand total shown in Preview** ([BillUploadPage.tsx:692-880](file:///E:/Bizboard/web/src/pages/imports/BillUploadPage.tsx#L692-L880)) | Users cannot compare the extracted draft's total value against the printed invoice total before committing. | Display computed line amount per row and a summary bar (Taxable, GST, Total) above the Commit button. |
 | **P2** | **Unlabeled table inputs & horizontal overflow on mobile** ([BillUploadPage.tsx:692,764-875](file:///E:/Bizboard/web/src/pages/imports/BillUploadPage.tsx#L692)) | Screen readers cannot identify the 10 inputs per expanded row; table overflows viewport on mobile devices. | Wrap `<Table>` in `<TableContainer sx={{ overflowX: 'auto' }}>` and add `inputProps={{ 'aria-label': ... }}` to all row `<TextField>` cells. |
+| **P0** | **Preview cap (50) wipes lines 51+ on commit** (`serializers.py` cap + `update_preview` overwrite; see 21B-1, spec 23.1) | Any bill >50 lines silently loses rows. | Patch-merge with `line_id` + `preview_version`, no cap for bill kinds. |
+| **P0** | **Customer price list overrides extracted prices** (`_commit_sales` → `resolve_unit_price`; see 21A-2, spec 23.3) | Draft total differs from the reviewed bill. | Explicit preserve flag with role check and audit, not a hardcoded OWNER. |
+| **P1** | **Shared `SupplierBillTemplate` across directions/formats** (see 21A-1, spec 23.6) | Wrong qty formula applied to later bills. | Add `kind` + signature hash to the key. |
+| **P1** | **Discounts, price mode and bill-level charges ignored** (spec 24.1) | Over/under-billing vs the printed bill. | Capture and pass them; reconcile against printed totals. |
 | **P3** | **Duplicate `aiAccuracyDisclaimer` alert rendered twice during `PREVIEWED`** ([BillUploadPage.tsx:368,610](file:///E:/Bizboard/web/src/pages/imports/BillUploadPage.tsx#L368)) | Clutters the screen with identical yellow warning banners. | Render the top-level disclaimer only before preview, or keep a single banner. |
 
 ---
 
 ## 19. MOST IMPORTANT CHANGES
+
+> Updated after the deep review: the top three are now (1) stop silent data loss — preview cap (23.1), silent drops (23.2), price-list override (23.3); (2) permission parity (23.5); (3) customer/product resolution and discount/tax-mode correctness (23.7, 23.11, 24.1). The list below is the original summary.
 
 1. **Eliminate Silent Line Dropping & Align Frontend/Backend Validation (Product Correctness):**
    - **Why it matters most:** Right now, an invalid HSN code on an included line causes `update_preview` to silently set `include = False` milliseconds before `commit` creates the invoice, dropping billable items without any error. Fixing frontend validation (`gstRate`, `hsnCode`, `billDate`, `customer`/`buyerName`) and making backend `commit` reject (rather than silently uncheck) invalid included lines prevents silent financial under-billing.
@@ -698,7 +704,7 @@ Run the whole suite on **Postgres** as well as SQLite (concurrency/idempotency t
 - Add an authenticated, company-scoped endpoint to stream the job's file (`GET /imports/:id/file/`) with correct content types and `Content-Disposition: inline`; no public URLs. Images render with pan/zoom; PDFs use a PDF viewer or server-rasterized page images (decide **[VERIFY]**, since iframes behave differently on mobile). Desktop: side-by-side with the table; mobile: a toggle drawer. Works after refresh because it does not depend on the local `File` object.
 
 ### 3.2 Attach the file to the sales invoice
-- Link `job.file` to the sales draft (new `attachment` FK on `SalesInvoice` or reuse the existing attachments mechanism **[VERIFY]**), with migration, serializer field, and an "Original bill" link in the invoice editor. Same for downstream completion so the document survives edits.
+- Link `job.file` to the sales draft (new `attachment` FK on `SalesInvoice`, same pattern as its existing `signature`/`pdf_file` FileAsset FKs — **verified**), with migration, serializer field, and an "Original bill" link in the invoice editor. Same for downstream completion so the document survives edits.
 
 ### 3.3 Rows: add, delete, collapse, totals
 - Add Row, Delete Row (`deleted` flag per 1.1), collapse control, and visible expanded state (`aria-expanded`). Per-row line total and a footer with taxable, GST, cess and grand total, plus an optional **"Printed bill total"** field that shows the difference against the computed total. Show `Cs/Pcs/UPC` only when pack data exists or on toggle.
@@ -805,7 +811,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 1. **Serializer** (`backend/imports/serializers.py`): introduce `BILL_PREVIEW_MAX_LINES = 500` (constant shared with the service). In `to_representation`, apply the 50-cap only when `instance.kind not in ImportJob.BILL_KINDS`. For bill kinds return the full dict. `get_preview_truncated` returns 0 for bill kinds (keep the field for compatibility).
 2. **Service limit** (`apply_extraction`, `parse_structured_file`): after lines are built, if `len(lines) > BILL_PREVIEW_MAX_LINES` set `FAILED` with `failure_reason="This bill has N lines; the maximum is 500. Split the file and upload in parts."`. Check `core/services/llm.py` chunk limits (`EXTRACT_CHUNK_SIZE=15`, `MAX_EXTRACT_CHUNKS=4`) so the real extraction ceiling is consistent and documented.
 3. **Merge semantics** (`update_preview`): change `lines` handling to a patch merge:
-   - Each incoming line carries `si` (stable id assigned at extraction/parse; guarantee uniqueness by writing a monotonically increasing `line_id` into each stored line at creation).
+   - Each incoming line carries a server-generated integer `line_id` (1..N, written at extraction/parse time and **never** derived from OCR). `si` stays a display-only printed serial: it repeats across pages and can be blank or `"1A"`, so it must not be used as a key. `answer_clarifications` must preserve `line_id` and bump `preview_version` (see 24.5).
    - Build `stored_by_id`. For each incoming line: if `line_id` unknown → 409 `BusinessRuleError("The bill changed since you loaded it; reload.")`; else `_preview_bill_line` over the **merged** dict (stored fields overlaid by incoming keys), keep `include` rules as today.
    - Incoming `deleted: true` removes that stored line. New lines (client-created) arrive with `line_id: null` and `isNew: true`; the server assigns the next id.
    - Stored lines **absent** from the payload are kept untouched.
@@ -887,7 +893,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 
 **Tasks**
 1. In `_commit_sales`: add `hsn_code` (only when non-empty and valid) and `mrp` (only when `> 0`) to each `items_data` dict.
-2. In `_commit_purchase`: first read `purchase/services.py` `_build_items` to confirm it accepts `mrp`/`hsn_code` the same way **[VERIFY]**; add the same keys.
+2. In `_commit_purchase`: `backend/purchases/services.py::_build_purchase_items` already uses `snapshot_unit_fields` and `line.get("mrp", ...)` (**verified**), so only add the keys to `items_data`.
 3. **Master update policy:** keep current rule (fill blank HSN only; `update_master` opt-in). Add a per-line warning when the bill HSN differs from the master (`warnings: ["HSN differs from product master (3401)"]`) shown in the review table; do not change master.
 4. Surface in commit result `lines_with_overrides` count for the audit entry.
 
@@ -903,7 +909,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 **Target behaviour:** a single rule per bill kind everywhere.
 
 **Tasks**
-1. **Decision gate:** owner confirms `SALES_BILL ⇒ can_import AND can_create_sales`, `PURCHASE_BILL ⇒ can_import AND can_create_purchases` (find the exact permission class names in `core/permissions.py` **[VERIFY]**).
+1. **Decision gate:** owner confirms `SALES_BILL ⇒ can_import AND can_create_sales`, `PURCHASE_BILL ⇒ can_import AND can_create_purchases` (classes `CanCreateSales` and `CanCreatePurchases` in `backend/core/permissions.py` — **verified**).
 2. **Backend:** add `get_permissions()`/`initial()` hook in `ImportJobViewSet` that, once the kind is known (from `request.data["kind"]` on create, from `get_object().kind` otherwise), additionally checks the kind permission. Implement `_assert_kind_permission(request, kind)` and call it in `create`, `retry_extract`, `clarify`, `update_preview`, `commit`, `validate`, `file` (23.16). Master CSV kinds keep `CanImport` only. Filter `get_queryset()` for list/retrieve to hide bill jobs of kinds the user cannot use.
 3. **Frontend:** `canImportSalesBill`/`canImportPurchaseBill` in `web/src/utils/permissions.ts`; use in `SalesBillUploadPage.tsx`, `PurchaseBillUploadPage.tsx`, the two routes in `App.tsx`, `menu.ts`, and the "Upload Sales Bill" button on `NewInvoicePage` (around the `canImport` usage).
 4. **Contract docs/tests:** update `Sales_invoice.md` note and the `NewInvoicePage.test.tsx` assertion that pins `canImport`; add changelog line.
@@ -991,7 +997,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 1. **Copy:** add `billUpload.uploadModeStructuredSales` (en/hi) and use `t(isSales ? ... : ...)`; make the backend message kind-aware ("…export from your billing system" for sales); remove the second `aiAccuracyDisclaimer` render (keep the one inside the preview section).
 2. **Consent:** show the PII/AI consent checkbox only in photo/PDF mode; structured mode uploads once a file is chosen. Rewrite the label/banner to disclose that the image is sent to an AI service for extraction; get wording approved. Persist the consent timestamp in the audit entry for photo/PDF jobs (`AuditService.log(action="IMPORT_CONSENT")`) **[VERIFY]** requirement with the redesign plan.
 3. **Single commit request:** build one payload `{customerId|supplierId, buyerName, buyerGstin, billNumber, billDate, lines(dirty), lowConfidenceAccepted, confirmNonGst, previewVersion}` and call only `commitImport(jobId, payload, {idempotencyKey})`. Remove the preceding `updateImportPreview`. Backend already handles it (`update_preview` inside `commit`) but must now also accept `customer_id`/`supplier_id` (it does) and `low_confidence_accepted` (it does).
-4. **Idempotency:** the key remains per job; if the first request fails after partial `update_preview` the second reuses it safely because commit is atomic.
+4. **Idempotency (revised):** `begin_record` rejects the same key with a different `request_fingerprint` (409, `IDEMPOTENCY_STRICT_FINGERPRINT` on by default). The view releases the key on exceptions, but a timeout/network-lost response followed by an edited payload would still 409. So build the key as `import-commit-{jobId}-{sha1(canonical payload)[:12]}` (regenerate whenever the payload changes), and treat a 409 `IdempotencyKeyReused` in the UI as "reload and retry". Wrap `update_preview` + commit in one `transaction.atomic()`.
 5. **Failure semantics:** `commit` currently releases the idempotency record on exception; confirm a validation 400 doesn't leave the stored preview half-updated (wrap `update_preview` + commit in one `transaction.atomic()` in the view).
 
 **Tests:** structured upload without consent; copy strings; one network call on commit (mock); failed validation leaves preview unchanged; replay with same key returns same draft.
@@ -1033,7 +1039,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 **Tasks**
 1. Frontend polling: exponential backoff 1.5 s → 5 s; after 3 minutes show "Still working. You can leave this page; we'll keep going" with a link to Recent uploads; after the retry window show Retry.
 2. Backend: `POST /imports/:id/cancel/` sets a new status `CANCELLED` (add to `Status`, migration) when in `UPLOADED/EXTRACTING/NEEDS_CLARIFICATION/PREVIEWED`; the Celery task checks status before persisting results.
-3. Review the `start_extraction` retry gate (600 s) and add a heartbeat timestamp `extraction_heartbeat_at` updated by the task per chunk **[VERIFY]** task structure in `imports/tasks.py`; allow early retry when heartbeat is older than 2 minutes.
+3. Review the `start_extraction` retry gate (600 s) and add a heartbeat timestamp `extraction_heartbeat_at`. **Verified gap:** `extract_purchase_bill_task` calls `[extract_purchase_bill(batch) for batch in batches]`, and chunking lives inside `core/services/llm.py` with no `job` access. Convert the comprehension into a `for` loop that, between batches, refreshes the heartbeat and aborts if `job.status == CANCELLED`; for chunk-level beats pass an optional `on_chunk` callback into `extract_purchase_bill`; allow early retry when heartbeat is older than 2 minutes.
 4. Error mapping for budget/throttle exceptions to human messages with next step; record in `failure_reason`.
 
 **Tests:** cancel mid-extract; task respects cancel; early retry with stale heartbeat; throttled message.
@@ -1061,7 +1067,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 1. Preview line gets `cess_rate` (from matched product or bill) and a computed `line_total`; backend computes totals with the same tax engine used by `SalesService` (`core/services/tax_engine`) to avoid drift: new helper `preview_totals(job, preview)` returning taxable, tax (CGST/SGST/IGST), cess, round-off, grand total.
 2. Pass `cess_rate` in `items_data` only when the line has one; otherwise product default applies and the preview already showed it.
 3. UI footer shows backend totals (not a client re-implementation); optional "Printed total" input and a mismatch tolerance message (₹1).
-4. Reconcile tax-inclusive vs exclusive: pass the same `price_mode` that the editor defaults to; test both.
+4. Tax mode is handled by 24.1 (price mode, discounts, charges); totals here must use the same mode.
 
 **Tests:** product with cess → preview total equals draft total; mismatch warning when printed total differs by > tolerance.
 **Depends on:** 23.2, 23.11. **Effort:** M.
@@ -1098,7 +1104,7 @@ Each item below is a self-contained work package: **Current code → Target beha
 
 **Tasks**
 1. **Rows:** Add row (new line with `isNew`, default qty 1, GST blank so the user must choose), Delete row (soft-delete in UI with Undo for 5 s then `deleted:true` on save), Collapse control with `aria-expanded` on every row, focus first input on expand.
-2. **Pack columns:** compute `hasPackData = lines.some(l => cs||pcs||upc)`; render `Cs/Pcs/UPC` only if `hasPackData || showAdvanced`.
+2. **Pack columns:** compute `hasPackData = lines.some(l => l.cs || l.upc)` (**not** `pcs`: `_preview_bill_line` backfills `pcs` from `quantity`, so a `pcs` test is always true; also stop that backfill when `cs`/`upc` are empty, see 24.5) render `Cs/Pcs/UPC` only if `hasPackData || showAdvanced`.
 3. **Totals:** footer from the backend totals (23.15): included rows, taxable, tax, cess, grand total, printed total diff; sticky on mobile.
 4. **Performance:** virtualise rows when > 100 (MUI `TableVirtuoso` or windowing) while keeping keyboard navigation.
 5. **Filters:** "Show errors only" next to "flagged only".
@@ -1162,3 +1168,81 @@ Covered by migration in 23.8 (`external_reference`). Additional tasks: show it i
 3. **Manual QA script:** 65-line photo bill; structured XLSX; ambiguous Cs/Pcs/UPC bill; invalid HSN row; blank GST row; below-price-list customer; inactive customer name; two-GSTIN company; staff without create-sales; refresh mid-review; two tabs; cancel mid-extract; void after commit.
 4. **Monitoring after release:** watch validation-400 rate, stuck jobs, and `needs_review` product growth for two weeks; rollback = flag off; migrations stay.
 5. **Documentation:** update `docs/FREEZE_SCOPE_COVERAGE.md`, help pages (`contextHelp/catalog/sales.ts`), `Sales_invoice.md`, and add a short operator note for the permission change (23.5 step 6).
+
+
+---
+
+# 24. REVISION 3 AMENDMENTS (from the second review)
+
+Disposition of the second review's comments, checked against the code:
+
+| Comment | Verdict | Where handled |
+|---|---|---|
+| `[VERIFY]` answers (exception `extra`, permission classes, purchase `_build_purchase_items` path, attachment FK pattern) | Confirmed in code | Resolved in place in 23.2, 23.4, 23.5, 23.17 |
+| Task loop has no per-batch hook; chunking is inside `llm.py` | Confirmed (`[extract_purchase_bill(batch) for batch in batches]`) | 23.13 step 3 rewritten |
+| Idempotency fingerprint conflict on edited payload | Confirmed (`_fingerprints_conflict`, strict by default). Partly mitigated today because the view calls `release_record` on exceptions, but a lost response plus an edited payload still returns 409 | 23.10 step 4 rewritten, 24.6 |
+| `si` is the printed serial, not a key | Confirmed | 23.1 step 3 rewritten |
+| `pcs` is backfilled from `quantity` | Confirmed (`"pcs": _line_get(raw_line, "pcs") or qty`) | 23.18, 24.5 |
+| Price mode / discount / charges ignored | Confirmed (`discount_percent` hardcoded 0; invoice created with default `EXCLUSIVE`) | 24.1 |
+| Sections 18/19 missing S1/S3/S6 | Accepted | Section 18 rows added, Section 19 note added |
+| Validation must run before any DB write | Accepted | 24.2 |
+| Batch-tracked products, period lock, future dates | Accepted | 24.3, 24.4 |
+| Clarification loop must keep `line_id` and bump version | Accepted | 24.5 |
+| Review said the page's commit key is `useMemo(crypto.randomUUID())` | Not accurate: the page keeps `commitKey` in state keyed by `jobId` | No change; the payload-hash key in 23.10 covers the real issue |
+| Clickable `file:///` links in sections 22-23 | Ignored (cosmetic; function names are used on purpose because line numbers drift) | n/a |
+
+## 24.1 Price mode, line discounts and bill-level charges
+
+**Current code:** `_commit_sales` and `_commit_purchase` hardcode `discount_percent=0`, create the invoice with the default `price_mode=EXCLUSIVE`, and ignore freight/packing and bill-level discount. `SalesInvoice` has `price_mode`, `additional_charges`, `charges_hsn`, `charges_gst_rate`, `invoice_discount`, `invoice_discount_mode`; line items accept `unit_price_inclusive`.
+
+**Risk:** a tax-inclusive printed rate is taxed again; line discounts make `qty x rate` differ from the printed taxable amount (every row flagged, or the customer over-billed); bill-level charges or discounts make the computed total never match the printed grand total.
+
+**Tasks**
+1. **Extraction schema:** add optional `discount_percent`, `discount_amount` per line and header `freight`, `packing`, `invoice_discount`, `price_mode_hint` to the LLM tool schema and `_preview_bill_line` (old payloads stay valid). **[VERIFY]** `core/services/llm.py` schema and the structured-file column aliases.
+2. **Cross-check:** extend `apply_qty_formula` / `_apply_cross_check` so `printed_taxable_amt` is compared against `qty x rate x (1 - disc%)`; flag only real mismatches.
+3. **Header controls:** `priceMode` (`EXCLUSIVE` | `INCLUSIVE`) initialised from the clarification answer, else the company default; optional `additionalCharges`, `invoiceDiscount` (+ mode). Persist in `preview` and pass to `SalesInvoice.objects.create`. For `INCLUSIVE` pass `unit_price_inclusive` in `items_data`. **[VERIFY]** how `SalesService.set_items` derives the exclusive price from the inclusive one.
+4. **UI:** `Disc %` column under Advanced (shown automatically when any line has a discount); header panel for mode and charges; reconciliation bar shows `lines + charges - discount` versus the printed total and explains the gap.
+5. **Totals:** the backend `preview_totals` helper (23.15) uses the same mode, discounts and charges.
+6. **Purchase symmetry:** same fields on `PurchaseInvoice` where they exist.
+
+**Tests:** inclusive printed rate produces the printed total; 10% line discount keeps the `printed_taxable_amt` match; freight plus invoice discount reconcile; old payloads without these fields behave as today.
+**Acceptance:** draft grand total equals the printed grand total within the rounding tolerance for the golden fixtures.
+**Depends on:** 23.15. **Effort:** L.
+
+## 24.2 No database writes before validation
+
+**Risk:** if `validate`, `_commit_sales` or a later refactor create products or customers before checking date, GST and company GSTIN, a late failure leaves rows (only the outer `transaction.atomic()` prevents this today).
+
+**Tasks:** reorder `BillImportService.commit` into (1) header and line validation (23.2 validators, `_parse_bill_date`, `_normalize_gst_rate`, company-GSTIN status 23.12), (2) resolve party and products, (3) create invoice and items, (4) update job. `/validate/` runs only step 1 plus read-only matching (no creates). Add a test that patches `Product.objects.create` and asserts it is not called when a header error exists; keep the atomic wrapper as the safety net.
+**Effort:** S.
+
+## 24.3 Batch / expiry-tracked products
+
+**Gap:** `SalesItem` has `batch`, `batch_no`, `exp_date`, `mfg_date`; products with batch tracking need a batch at Complete, and import lines carry none.
+
+**Tasks:** when a matched product tracks batches, show a per-line chip "Needs batch at completion" and list the count in the draft banner; do not invent batches. Auto-created products default to batch tracking off. Optionally accept `batch_no` / `exp_date` columns from structured files later. **Tests:** batch-tracked match shows the chip and the draft opens with the existing completion error explained.
+**Effort:** S.
+
+## 24.4 Invoice date rules
+
+**Tasks:** extend `validate_bill_header` (23.2) with: future date beyond a configurable window (warn), date in a locked accounting/GST period (error naming the period; reuse the period-lock check used by `SalesService.complete` **[VERIFY]** the helper), and date earlier than company start (warn). Show these as header errors before commit. **Tests:** locked period blocked at commit and `/validate/`; future date warns only.
+**Effort:** S.
+
+## 24.5 Line identity, clarification loop and `pcs` backfill
+
+**Tasks**
+1. `apply_extraction`, `parse_structured_file` and `answer_clarifications` all (re)build lines; centralise in one helper `_finalize_preview_lines(job, lines)` that assigns `line_id` only to lines lacking one, preserves existing ids, initialises `preview_version=1` if absent and increments it on every change. Lazily assign ids to in-flight jobs that lack them on first read or patch.
+2. Change `_preview_bill_line` so `pcs` is not copied from `quantity` when `cs` and `upc` are empty (store the loose count only when a pack formula is in play); update `toPreviewLines` and any consumer of `pcs`. **[VERIFY]** tests that rely on the backfill (`test_purchase_bill_import.py`, clarification tests) and adjust expectations.
+3. Frontend pack-column visibility uses `cs || upc` (see 23.18).
+
+**Tests:** clarification keeps ids and bumps the version; a line with only `quantity` has empty `pcs`; DMS Cs/UPC bills still recombine quantities.
+**Effort:** M.
+
+## 24.6 UI handling of idempotency conflicts
+
+**Tasks:** build the commit key from `jobId` plus a hash of the canonical payload (23.10 step 4). On a 409 "key reused" response, refetch the job and show "Your changes were saved; click Create draft again". On a 409 "in flight" response, show a spinner and poll the job status instead of re-sending. **Tests:** same-payload retry replays; an edited payload gets a new key; a concurrent double click creates one draft.
+**Effort:** S.
+
+## 24.7 Delivery order update
+
+Slot the new items into the 23.24 PR order: 24.5 with PR2 (23.1), 24.2 and 24.4 with PR3 (23.2), 24.6 with PR8 (23.10), 24.3 with PR9 (23.11), 24.1 with PR10 (23.15).
