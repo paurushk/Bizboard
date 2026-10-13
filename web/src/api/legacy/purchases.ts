@@ -1,6 +1,6 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
-import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse, ReturnableLine } from '@/types/domain';
+import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse, ReturnableLine, SalesReturnPreview } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { clientPreviewTotals, mapPreviewTotals, type PreviewTotals } from './sales';
 
@@ -236,6 +236,49 @@ export async function cancelPurchaseReturn(id: number): Promise<PurchaseReturn> 
     returnDate: '',
     items: [],
     ...EMPTY_TOTALS,
+  });
+}
+
+/** Exact totals of the purchase credit note an unsaved return would issue (same shape as the sales preview). */
+export async function previewPurchaseReturnTotals(payload: {
+  supplier: number;
+  purchaseInvoice: number;
+  returnDate?: string;
+  items: Array<Partial<LineItem>>;
+}): Promise<SalesReturnPreview> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/purchases/returns/preview-totals/', payload);
+    const r = unwrapData<Record<string, unknown>>(data);
+    const n = (k: string) => Number(r[k] ?? 0);
+    return {
+      lineCount: n('lineCount'),
+      units: n('units'),
+      taxableTotal: n('taxableTotal'),
+      cgstTotal: n('cgstTotal'),
+      sgstTotal: n('sgstTotal'),
+      igstTotal: n('igstTotal'),
+      cessTotal: n('cessTotal'),
+      invoiceDiscount: n('invoiceDiscount'),
+      additionalCharges: n('additionalCharges'),
+      tcsAmount: n('tcsAmount'),
+      roundOff: n('roundOff'),
+      grandTotal: n('grandTotal'),
+      fullyReturned: Boolean(r.fullyReturned),
+    };
+  }, {
+    lineCount: payload.items.length,
+    units: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    cessTotal: 0,
+    invoiceDiscount: 0,
+    additionalCharges: 0,
+    tcsAmount: 0,
+    roundOff: 0,
+    grandTotal: 0,
+    fullyReturned: false,
   });
 }
 

@@ -37,6 +37,7 @@ import {
   listProducts,
   listPurchaseReturnsPage,
   listPurchasesPage,
+  previewPurchaseReturnTotals,
   updatePurchaseReturn,
 } from '@/api/resources';
 import {
@@ -127,6 +128,16 @@ export function PurchaseReturnsPage() {
   const loadSeq = useRef(0);
 
   const [detailReturn, setDetailReturn] = useState<PurchaseReturn | null>(null);
+
+  // Show the return as it is on the server now, not the (possibly stale) list row.
+  const detailQuery = useQuery({
+    queryKey: ['purchase-return-detail', detailReturn?.id],
+    queryFn: () => getPurchaseReturn(detailReturn!.id),
+    enabled: Boolean(detailReturn),
+    staleTime: 0,
+    retry: false,
+  });
+  const detail = detailQuery.data ?? detailReturn;
   const [confirmCancelReturn, setConfirmCancelReturn] = useState<PurchaseReturn | null>(null);
   const [confirmDeleteDraft, setConfirmDeleteDraft] = useState<PurchaseReturn | null>(null);
   const [discardPrompt, setDiscardPrompt] = useState(false);
@@ -288,6 +299,40 @@ export function PurchaseReturnsPage() {
 
   const itemsPayload = () =>
     activeLines.map((l) => sourceLineReturnPayload(l, { includeBatch: true, includeSourceItem: false }));
+
+  // Exact credit-note totals from the server (it runs the real build and rolls it back),
+  // debounced while the operator edits.
+  const previewItems = useMemo(
+    () =>
+      missingSerialLine
+        ? []
+        : activeLines.map((l) => sourceLineReturnPayload(l, { includeBatch: true, includeSourceItem: false })),
+    [activeLines, missingSerialLine],
+  );
+  const previewKey = JSON.stringify({ p: purchase?.id ?? null, d: returnDate, items: previewItems });
+  const debouncedPreviewKey = useDebouncedValue(previewKey, 300);
+  const preview = useQuery({
+    queryKey: ['purchase-return-preview', debouncedPreviewKey],
+    enabled:
+      open &&
+      Boolean(purchase) &&
+      previewItems.length > 0 &&
+      !returnDateBeforePurchase &&
+      debouncedPreviewKey === previewKey,
+    retry: false,
+    staleTime: 0,
+    queryFn: () =>
+      previewPurchaseReturnTotals({
+        supplier: purchase!.supplier,
+        purchaseInvoice: purchase!.id,
+        returnDate: returnDate || todayIso(),
+        items: previewItems,
+      }),
+  });
+  const previewData = preview.data;
+  const previewGst = previewData
+    ? previewData.cgstTotal + previewData.sgstTotal + previewData.igstTotal + previewData.cessTotal
+    : 0;
 
   const saveDraftMutation = useMutation({
     mutationFn: async () => {
@@ -707,7 +752,59 @@ export function PurchaseReturnsPage() {
                 <CircularProgress size={28} />
               </Box>
             ) : lines.length > 0 ? (
-              <InvoiceReturnLineTable lines={lines} onChange={setLines} showLot />
+              <>
+                <InvoiceReturnLineTable lines={lines} onChange={setLines} showLot />
+                {activeLines.length > 0 ? (
+                  <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }} data-testid="return-preview">
+                    {preview.isError ? (
+                      <Typography variant="body2" color="warning.main">
+                        {t('phase1.returnPreviewUnavailable', { message: getErrorMessage(preview.error) })}
+                      </Typography>
+                    ) : previewData ? (
+                      <Stack spacing={0.5}>
+                        <Stack
+                          direction={{ xs: 'column', sm: 'row' }}
+                          justifyContent="space-between"
+                          alignItems={{ sm: 'center' }}
+                          spacing={1}
+                        >
+                          <Typography variant="body2" color="text.secondary">
+                            {t('phase1.returnLinesUnits', { lines: previewData.lineCount, units: previewData.units })}
+                          </Typography>
+                          <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Typography variant="body2">
+                              {t('phase1.returnTaxable')}: <strong>{formatMoney(previewData.taxableTotal)}</strong>
+                            </Typography>
+                            <Typography variant="body2">
+                              {t('phase1.returnGst')}: <strong>{formatMoney(previewGst)}</strong>
+                            </Typography>
+                            {previewData.invoiceDiscount > 0 ? (
+                              <Typography variant="body2">
+                                {t('phase1.returnDiscountShare')}: <strong>{formatMoney(previewData.invoiceDiscount)}</strong>
+                              </Typography>
+                            ) : null}
+                            {previewData.additionalCharges > 0 ? (
+                              <Typography variant="body2">
+                                {t('phase1.returnChargesShare')}: <strong>{formatMoney(previewData.additionalCharges)}</strong>
+                              </Typography>
+                            ) : null}
+                            <Typography variant="subtitle2">
+                              {t('phase1.returnCreditNoteTotal')}: <strong>{formatMoney(previewData.grandTotal)}</strong>
+                            </Typography>
+                          </Stack>
+                        </Stack>
+                        <Typography variant="caption" color="text.secondary">
+                          {t('phase1.returnPreviewNote')}
+                        </Typography>
+                      </Stack>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">
+                        {t('phase1.returnPreviewLoading')}
+                      </Typography>
+                    )}
+                  </Paper>
+                ) : null}
+              </>
             ) : null}
             <TextField label={t('common.reason')} value={reason} onChange={(e) => setReason(e.target.value)} />
           </Stack>
@@ -763,40 +860,40 @@ export function PurchaseReturnsPage() {
       {/* Purchase Return Detail Dialog */}
       <Dialog open={Boolean(detailReturn)} onClose={() => setDetailReturn(null)} fullWidth maxWidth="md">
         <DialogTitle>
-          {detailReturn?.number || `#${detailReturn?.id ?? ''}`} — {t('nav.purchaseReturns')}
+          {detail?.number || `#${detail?.id ?? ''}`} — {t('nav.purchaseReturns')}
         </DialogTitle>
         <DialogContent>
-          {detailReturn ? (
+          {detail ? (
             <Stack spacing={2} sx={{ mt: 1 }}>
               <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" useFlexGap>
                 <StatusChip
-                  tone={documentStatusTone(detailReturn.status)}
-                  labelKey={statusLabelKey(detailReturn.status)}
+                  tone={documentStatusTone(detail.status)}
+                  labelKey={statusLabelKey(detail.status)}
                 />
                 <Typography variant="body2">
-                  <strong>{t('common.date')}:</strong> {detailReturn.returnDate}
+                  <strong>{t('common.date')}:</strong> {detail.returnDate}
                 </Typography>
                 <Typography variant="body2">
-                  <strong>{t('billing.supplier')}:</strong> {detailReturn.supplierName}
+                  <strong>{t('billing.supplier')}:</strong> {detail.supplierName}
                 </Typography>
                 <Typography variant="body2">
                   <strong>{t('phase1.sourcePurchase')}:</strong>{' '}
-                  <RouterLink to={`/purchases/history/${detailReturn.purchaseInvoice}`}>
-                    {detailReturn.purchaseInvoiceNumber || `#${detailReturn.purchaseInvoice}`}
+                  <RouterLink to={`/purchases/history/${detail.purchaseInvoice}`}>
+                    {detail.purchaseInvoiceNumber || `#${detail.purchaseInvoice}`}
                   </RouterLink>
                 </Typography>
-                {detailReturn.creditNoteId ? (
+                {detail.creditNoteId ? (
                   <Typography variant="body2">
                     <strong>{t('phase1.linkedCreditNote')}:</strong>{' '}
-                    <RouterLink to={`/purchases/credit-notes/${detailReturn.creditNoteId}`}>
-                      {detailReturn.creditNoteNumber || `#${detailReturn.creditNoteId}`}
+                    <RouterLink to={`/purchases/credit-notes/${detail.creditNoteId}`}>
+                      {detail.creditNoteNumber || `#${detail.creditNoteId}`}
                     </RouterLink>
                   </Typography>
                 ) : null}
               </Stack>
-              {detailReturn.reason ? (
+              {detail.reason ? (
                 <Typography variant="body2" color="text.secondary">
-                  <strong>{t('common.reason')}:</strong> {detailReturn.reason}
+                  <strong>{t('common.reason')}:</strong> {detail.reason}
                 </Typography>
               ) : null}
               <Divider />
@@ -815,7 +912,7 @@ export function PurchaseReturnsPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(detailReturn.items ?? []).map((it, idx) => (
+                    {(detail.items ?? []).map((it, idx) => (
                       <TableRow key={it.id ?? idx}>
                         <TableCell>{it.productName ?? `#${it.product}`}</TableCell>
                         <TableCell>
@@ -841,35 +938,35 @@ export function PurchaseReturnsPage() {
               </Paper>
               <Stack spacing={0.5} alignItems="flex-end" data-testid="return-detail-totals">
                 <Typography variant="body2">
-                  {t('phase1.detailTaxable')}: <strong>{formatMoney(detailReturn.taxableTotal)}</strong>
+                  {t('phase1.detailTaxable')}: <strong>{formatMoney(detail.taxableTotal)}</strong>
                 </Typography>
-                {toNumber(detailReturn.cgstTotal) > 0 ? (
+                {toNumber(detail.cgstTotal) > 0 ? (
                   <Typography variant="body2">
-                    CGST: <strong>{formatMoney(detailReturn.cgstTotal)}</strong>
+                    CGST: <strong>{formatMoney(detail.cgstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.sgstTotal) > 0 ? (
+                {toNumber(detail.sgstTotal) > 0 ? (
                   <Typography variant="body2">
-                    SGST: <strong>{formatMoney(detailReturn.sgstTotal)}</strong>
+                    SGST: <strong>{formatMoney(detail.sgstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.igstTotal) > 0 ? (
+                {toNumber(detail.igstTotal) > 0 ? (
                   <Typography variant="body2">
-                    IGST: <strong>{formatMoney(detailReturn.igstTotal)}</strong>
+                    IGST: <strong>{formatMoney(detail.igstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.cessTotal) > 0 ? (
+                {toNumber(detail.cessTotal) > 0 ? (
                   <Typography variant="body2">
-                    Cess: <strong>{formatMoney(detailReturn.cessTotal ?? 0)}</strong>
+                    Cess: <strong>{formatMoney(detail.cessTotal ?? 0)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.roundOff) !== 0 ? (
+                {toNumber(detail.roundOff) !== 0 ? (
                   <Typography variant="body2">
-                    {t('phase1.detailRoundOff')}: <strong>{formatMoney(detailReturn.roundOff)}</strong>
+                    {t('phase1.detailRoundOff')}: <strong>{formatMoney(detail.roundOff)}</strong>
                   </Typography>
                 ) : null}
                 <Typography variant="subtitle1">
-                  {t('common.total')}: <strong>{formatMoney(detailReturn.grandTotal)}</strong>
+                  {t('common.total')}: <strong>{formatMoney(detail.grandTotal)}</strong>
                 </Typography>
               </Stack>
             </Stack>

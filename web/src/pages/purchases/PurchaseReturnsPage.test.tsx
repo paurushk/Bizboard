@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { AxiosError } from 'axios';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -52,6 +53,21 @@ const h = vi.hoisted(() => {
     deletePurchaseReturn: vi.fn(async () => undefined),
     cancelPurchaseReturn: vi.fn(async (id: number) => ({ id, status: 'CANCELLED', supplier: 8, purchaseInvoice: 5, returnDate: '2026-10-12', items: [], ...zero })),
     getPurchaseReturn: vi.fn(),
+    previewPurchaseReturnTotals: vi.fn(async () => ({
+      lineCount: 1,
+      units: 1,
+      taxableTotal: 70,
+      cgstTotal: 0,
+      sgstTotal: 0,
+      igstTotal: 0,
+      cessTotal: 0,
+      invoiceDiscount: 0,
+      additionalCharges: 0,
+      tcsAmount: 0,
+      roundOff: 0,
+      grandTotal: 70,
+      fullyReturned: false,
+    })),
     getPurchase: vi.fn(async (id: number) => BY_ID[id]),
     listPurchasesPage: vi.fn(async () => ({ results: [PURCHASE, OTHER], count: 2, next: null, previous: null })),
     listPurchaseReturnsPage: vi.fn(async () => ({ results: [] as PurchaseReturn[], count: 0, next: null, previous: null })),
@@ -83,6 +99,7 @@ vi.mock('@/api/resources', () => ({
   ],
   getPurchase: (...a: unknown[]) => h.getPurchase(...(a as [number])),
   getPurchaseReturn: (...a: unknown[]) => h.getPurchaseReturn(...a),
+  previewPurchaseReturnTotals: (...a: unknown[]) => h.previewPurchaseReturnTotals(...(a as [])),
   getPurchaseReturnableLines: (...a: unknown[]) => h.getPurchaseReturnableLines(...(a as [number])),
   createPurchaseReturn: (...a: unknown[]) => h.createPurchaseReturn(...(a as [])),
   completePurchaseReturn: (...a: unknown[]) => h.completePurchaseReturn(...(a as [])),
@@ -165,6 +182,24 @@ beforeEach(() => {
     if (typeof maybe?.mockClear === 'function') maybe.mockClear();
   }
   h.listPurchaseReturnsPage.mockResolvedValue(page([]));
+  h.getPurchaseReturn.mockReset();
+  h.getPurchaseReturn.mockImplementation(async (id: number) => completedRow({ id }));
+  h.previewPurchaseReturnTotals.mockReset();
+  h.previewPurchaseReturnTotals.mockResolvedValue({
+    lineCount: 1,
+    units: 1,
+    taxableTotal: 70,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    cessTotal: 0,
+    invoiceDiscount: 0,
+    additionalCharges: 0,
+    tcsAmount: 0,
+    roundOff: 0,
+    grandTotal: 70,
+    fullyReturned: false,
+  });
 });
 
 async function tickFirstLine() {
@@ -255,6 +290,52 @@ describe('PurchaseReturnsPage headroom and serials', () => {
     expect(payload[0].items[0]).toEqual(
       expect.objectContaining({ product: 6, quantity: 2, serialNumbers: ['P-1', 'P-3'] }),
     );
+  });
+});
+
+describe('PurchaseReturnsPage credit note preview', () => {
+  async function openAndTick() {
+    mount('/purchases/returns?create=1');
+    await screen.findByRole('dialog', { name: t('phase1.newPurchaseReturn') });
+    await pickPurchase(/PUR-0009/);
+    await tickFirstLine();
+  }
+
+  it('shows the exact credit-note total from the server', { timeout: 30000 }, async () => {
+    await openAndTick();
+    const box = await screen.findByTestId('return-preview');
+    await waitFor(() => expect(within(box).getByText(/credit note total/i)).toBeTruthy(), { timeout: 3000 });
+    expect(h.previewPurchaseReturnTotals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supplier: 8,
+        purchaseInvoice: 9,
+        items: [expect.objectContaining({ product: 8, quantity: 1 })],
+      }),
+    );
+    expect(within(box).getByText(/exact figures/i)).toBeTruthy();
+  });
+
+  it('shows the server reason when the total cannot be computed', { timeout: 30000 }, async () => {
+    h.previewPurchaseReturnTotals.mockRejectedValue(new Error('Return quantity exceeds remaining returnable quantity 1'));
+    await openAndTick();
+    expect(await screen.findByText(/total preview unavailable: return quantity exceeds/i, undefined, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it('says it is being rate limited, in plain words, when the preview returns 429', { timeout: 30000 }, async () => {
+    h.previewPurchaseReturnTotals.mockRejectedValue(
+      new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {},
+        config: {} as never,
+        data: { error: { code: 'throttled', message: 'Request was throttled.' } },
+      }),
+    );
+    await openAndTick();
+    expect(await screen.findByText(/total preview unavailable/i, undefined, { timeout: 3000 })).toBeTruthy();
+    expect(screen.getByText(/request was throttled/i)).toBeTruthy();
+    // Complete still works: the preview is advisory.
+    expect((screen.getByRole('button', { name: /^complete$/i }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
@@ -367,6 +448,28 @@ describe('PurchaseReturnsPage rows, detail and cache sync', () => {
     const totals = within(dialog).getByTestId('return-detail-totals');
     expect(within(totals).getByText(/CGST/)).toBeTruthy();
     expect(within(totals).getByText(/round off/i)).toBeTruthy();
+  });
+});
+
+describe('PurchaseReturnsPage detail refresh', () => {
+  it('shows the return as it is on the server now, not the list row', async () => {
+    h.listPurchaseReturnsPage.mockResolvedValue(page([completedRow({ reason: 'Old reason' })]));
+    h.getPurchaseReturn.mockResolvedValue(completedRow({ reason: 'Fresh reason from the server' }));
+    mount('/purchases/returns');
+    fireEvent.click(await screen.findByRole('button', { name: /^view$/i }));
+    const dialog = await screen.findByRole('dialog', { name: /PRN-0052/ });
+    expect(await within(dialog).findByText(/fresh reason from the server/i)).toBeTruthy();
+    expect(within(dialog).queryByText(/old reason/i)).toBeNull();
+    expect(h.getPurchaseReturn).toHaveBeenCalledWith(52);
+  });
+
+  it('falls back to the list row when the fresh copy cannot be loaded', async () => {
+    h.listPurchaseReturnsPage.mockResolvedValue(page([completedRow({ reason: 'Row reason' })]));
+    h.getPurchaseReturn.mockRejectedValue(new Error('offline'));
+    mount('/purchases/returns');
+    fireEvent.click(await screen.findByRole('button', { name: /^view$/i }));
+    const dialog = await screen.findByRole('dialog', { name: /PRN-0052/ });
+    expect(await within(dialog).findByText(/row reason/i)).toBeTruthy();
   });
 });
 

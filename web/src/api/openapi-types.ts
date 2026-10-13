@@ -8841,6 +8841,23 @@ export interface paths {
         patch: operations["purchases_returns_number_series_partial_update"];
         trace?: never;
     };
+    "/api/v1/purchases/returns/preview-totals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Exact purchase credit-note totals for a return that has not been saved. */
+        post: operations["purchases_returns_preview_totals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/suppliers/{supplier_id}/price-history/": {
         parameters: {
             query?: never;
@@ -18453,6 +18470,33 @@ export interface components {
             readonly cess: string;
             /** Format: decimal */
             readonly lineTotal: string;
+        };
+        /** @description Exact totals of the purchase credit note an unsaved return would issue. */
+        PurchaseReturnPreview: {
+            lineCount: number;
+            /** Format: decimal */
+            units: string;
+            /** Format: decimal */
+            taxableTotal: string;
+            /** Format: decimal */
+            cgstTotal: string;
+            /** Format: decimal */
+            sgstTotal: string;
+            /** Format: decimal */
+            igstTotal: string;
+            /** Format: decimal */
+            cessTotal: string;
+            /** Format: decimal */
+            invoiceDiscount: string;
+            /** Format: decimal */
+            additionalCharges: string;
+            /** Format: decimal */
+            tcsAmount: string;
+            /** Format: decimal */
+            roundOff: string;
+            /** Format: decimal */
+            grandTotal: string;
+            fullyReturned: boolean;
         };
         /** @description One purchase line's return headroom (GET /purchases/invoices/:id/returnable-lines/). */
         PurchaseReturnableLine: {
@@ -35483,6 +35527,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PurchaseReturn"];
+                };
+            };
+        };
+    };
+    purchases_returns_preview_totals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchaseReturn"];
+                "multipart/form-data": components["schemas"]["PurchaseReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["PurchaseReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseReturnPreview"];
                 };
             };
         };

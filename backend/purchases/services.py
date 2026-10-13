@@ -275,6 +275,21 @@ class PurchaseService:
     # ---------------- Purchase invoice ----------------
 
     @staticmethod
+    def is_fully_returned(invoice, exclude_return=None):
+        """True when nothing on the bill can still be returned.
+
+        Units a standalone credit note already settled count as spent, so a bill that was
+        part-credited and then fully returned does flip to RETURNED, and cancelling one of
+        two returns puts it back (pass that return as ``exclude_return``).
+        """
+        returned = PurchaseService._returned_quantities(invoice, exclude_return=exclude_return)
+        standalone = PurchaseService._standalone_credited_quantities(invoice)
+        for pid, bought in _purchased_base_by_product(invoice).items():
+            if bought - returned.get(pid, Decimal("0")) - standalone.get(pid, Decimal("0")) > 0:
+                return False
+        return True
+
+    @staticmethod
     def _standalone_credited_quantities(invoice):
         """Base-unit quantity credited per product by standalone (non return-linked)
         completed purchase credit notes; those units can no longer be returned."""
@@ -1506,7 +1521,7 @@ class PurchaseService:
 
     @staticmethod
     @transaction.atomic
-    def set_return_items(purchase_return: PurchaseReturn, items_data, user):
+    def set_return_items(purchase_return: PurchaseReturn, items_data, user, *, validate_serials=True):
         if purchase_return.status != PurchaseReturn.Status.DRAFT:
             raise BusinessRuleError("Completed return cannot be edited.")
         _validate_lines(items_data, purchase_return.company)
@@ -1516,7 +1531,7 @@ class PurchaseService:
             product = line["product"]
             serial_numbers = line.get("serial_numbers") or []
             # BB-000722: require serials when product is track_serial.
-            if product.track_serial:
+            if validate_serials and product.track_serial:
                 numbers = [str(n).strip() for n in serial_numbers if str(n).strip()]
                 if len(numbers) != int(Decimal(str(line["quantity"]))):
                     raise BusinessRuleError(
@@ -1559,6 +1574,197 @@ class PurchaseService:
         purchase_return.updated_by = user
         purchase_return.save()
         return purchase_return
+
+    @staticmethod
+    def build_return_credit_note_draft(purchase_return, invoice, items, fully_returned, user):
+        """Create the (uncompleted) purchase credit note a return issues. Shared by
+        complete_return and the totals preview so the preview is exact."""
+        from .models import PurchaseCreditNote, PurchaseNoteReason
+        from .notes_services import PurchaseNotesService
+
+        note = PurchaseCreditNote.objects.create(
+            company=purchase_return.company,
+            supplier=purchase_return.supplier,
+            purchase_invoice=invoice,
+            purchase_return=purchase_return,
+            note_date=purchase_return.return_date,
+            reason=PurchaseNoteReason.PURCHASE_RETURN,
+            reason_detail=f"Auto from purchase return {purchase_return.number}",
+            invoice_discount=invoice.invoice_discount,
+            invoice_discount_mode=invoice.invoice_discount_mode,
+            auto_round_off=invoice.auto_round_off if fully_returned else False,
+            created_by=user,
+            updated_by=user,
+        )
+        inv_taxable = Decimal(str(invoice.taxable_total or 0))
+        ret_taxable = sum((Decimal(str(i.taxable_amount or 0)) for i in items), Decimal("0"))
+        inv_discount = Decimal(str(invoice.invoice_discount or 0))
+        ratio = Decimal("1")
+        if inv_taxable > 0 and not fully_returned:
+            ratio = min(Decimal("1"), ret_taxable / inv_taxable)
+        elif not fully_returned:
+            inv_grand = Decimal(str(invoice.grand_total or 0))
+            ret_grand = sum(
+                (Decimal(str(getattr(i, "line_total", None) or i.taxable_amount or 0)) for i in items),
+                Decimal("0"),
+            )
+            ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
+        # R2-015: on the return that closes the invoice, give the CN the EXACT
+        # unallocated remainder of the invoice-level discount (what prior
+        # auto-CNs on this invoice haven't already taken) so repeated partial
+        # returns never leave a few paise of AP residue. Freight/additional
+        # charges are prorated the same way.
+        if fully_returned:
+            _prior_d = PurchaseCreditNote.objects.filter(
+                purchase_invoice=invoice,
+                status=PurchaseCreditNote.Status.COMPLETED,
+            ).exclude(purchase_return=purchase_return).aggregate(
+                d=Sum("invoice_discount")
+            )["d"] or Decimal("0")
+            note.invoice_discount = (inv_discount - _prior_d).quantize(Decimal("0.01"))
+        else:
+            note.invoice_discount = (inv_discount * ratio).quantize(Decimal("0.01"))
+        inv_charges = Decimal(str(invoice.additional_charges or 0))
+        if fully_returned:
+            _prior_c = PurchaseCreditNote.objects.filter(
+                purchase_invoice=invoice,
+                status=PurchaseCreditNote.Status.COMPLETED,
+            ).exclude(purchase_return=purchase_return).aggregate(
+                c=Sum("additional_charges")
+            )["c"] or Decimal("0")
+            note.additional_charges = (inv_charges - _prior_c).quantize(Decimal("0.01"))
+        else:
+            note.additional_charges = (inv_charges * ratio).quantize(Decimal("0.01"))
+        note.save(update_fields=["invoice_discount", "additional_charges"])
+        # BB-000364: map each returned line back to its originating invoice
+        # line (by product) so the auto CN carries the invoiced HSN/lineage
+        # instead of the product master's current (possibly since-changed) HSN.
+        items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
+        # What every earlier completed credit note (auto or standalone) already took
+        # from each line, so a second return does not pile onto a line that is spent.
+        from .models import PurchaseCreditNoteItem
+
+        credited_by_line = {
+            row["source_item"]: Decimal(str(row["t"] or 0))
+            for row in PurchaseCreditNoteItem.objects.filter(
+                credit_note__purchase_invoice=invoice,
+                credit_note__status=PurchaseCreditNote.Status.COMPLETED,
+                source_item__isnull=False,
+            )
+            .exclude(credit_note=note)
+            .values("source_item")
+            .annotate(t=Sum("quantity"))
+        }
+        remaining_by_line = {
+            inv_item.id: max(
+                Decimal("0"),
+                Decimal(str(inv_item.quantity)) - credited_by_line.get(inv_item.id, Decimal("0")),
+            )
+            for inv_item in items_by_id.values()
+        }
+        lines_by_product = {}
+        for inv_item in items_by_id.values():
+            lines_by_product.setdefault(inv_item.product_id, []).append(inv_item.id)
+        items_data = []
+        for item in items:
+            need = Decimal(str(item.quantity))
+            for lid in lines_by_product.get(item.product_id, []):
+                if need <= 0:
+                    break
+                avail = remaining_by_line.get(lid, Decimal("0"))
+                if avail <= 0:
+                    continue
+                take = min(need, avail)
+                remaining_by_line[lid] -= take
+                need -= take
+                source_item = items_by_id.get(lid)
+                items_data.append({
+                    "product": item.product,
+                    "description": getattr(item, "description", "") or "",
+                    "quantity": take,
+                    "unit_price": item.unit_price,
+                    "discount_percent": item.discount_percent,
+                    "gst_rate": item.gst_rate,
+                    "cess_rate": getattr(item, "cess_rate", None)
+                    if getattr(item, "cess_rate", None) is not None
+                    else getattr(source_item, "cess_rate", Decimal("0")),
+                    "source_item": source_item,
+                    "hsn_code": getattr(source_item, "hsn_code", "") or "",
+                })
+            if need > 0:
+                raise BusinessRuleError(
+                    f"Return quantity for '{item.product.name}' exceeds remaining "
+                    "returnable quantity on matching invoice lines."
+                )
+        PurchaseNotesService.set_credit_note_items(note, items_data, user)
+        return note
+
+    @staticmethod
+    def preview_return_totals(company, supplier, invoice, return_date, items_data, user):
+        """Exact totals of the purchase credit note an unsaved return would issue.
+
+        Runs the real draft -> credit-note-build path inside an explicit atomic block that
+        is always rolled back, so nothing (rows, numbers, stock) persists.
+        """
+        with transaction.atomic():
+            try:
+                return PurchaseService._preview_in_transaction(
+                    company, supplier, invoice, return_date, items_data, user
+                )
+            finally:
+                transaction.set_rollback(True)
+
+    @staticmethod
+    def _preview_in_transaction(company, supplier, invoice, return_date, items_data, user):
+        purchase_return = PurchaseReturn.objects.create(
+            company=company,
+            supplier=supplier,
+            purchase_invoice=invoice,
+            return_date=return_date,
+            created_by=user,
+            updated_by=user,
+        )
+        PurchaseService.set_return_items(
+            purchase_return, [dict(line) for line in items_data], user, validate_serials=False
+        )
+        items = list(purchase_return.items.select_related("product", "product__alternate_unit"))
+        if not items:
+            raise BusinessRuleError("Select at least one line to preview.")
+        # Headroom as Complete would judge it.
+        returned = PurchaseService._returned_quantities(invoice)
+        standalone = PurchaseService._standalone_credited_quantities(invoice)
+        bought = _purchased_base_by_product(invoice)
+        unit_names = _invoice_unit_name_by_product(invoice)
+        requested = {}
+        for item in items:
+            qty = _line_stock_qty(item.product, item.quantity, getattr(item, "unit_name", None) or unit_names.get(item.product_id))
+            requested[item.product_id] = requested.get(item.product_id, Decimal("0")) + qty
+        fully_returned = True
+        for pid, total in bought.items():
+            left = total - returned.get(pid, Decimal("0")) - standalone.get(pid, Decimal("0")) - requested.get(pid, Decimal("0"))
+            if left < 0:
+                raise BusinessRuleError(
+                    f"Return quantity exceeds remaining returnable quantity {total - returned.get(pid, Decimal('0')) - standalone.get(pid, Decimal('0'))}."
+                )
+            if left > 0:
+                fully_returned = False
+        note = PurchaseService.build_return_credit_note_draft(purchase_return, invoice, items, fully_returned, user)
+        note.refresh_from_db()
+        return {
+            "line_count": len(items),
+            "units": sum((Decimal(str(i.quantity)) for i in items), Decimal("0")),
+            "taxable_total": note.taxable_total,
+            "cgst_total": note.cgst_total,
+            "sgst_total": note.sgst_total,
+            "igst_total": note.igst_total,
+            "cess_total": getattr(note, "cess_total", Decimal("0")),
+            "invoice_discount": note.invoice_discount,
+            "additional_charges": note.additional_charges,
+            "tcs_amount": Decimal("0"),
+            "round_off": note.round_off,
+            "grand_total": note.grand_total,
+            "fully_returned": fully_returned,
+        }
 
     @staticmethod
     @transaction.atomic
@@ -1674,9 +1880,25 @@ class PurchaseService:
                 clause = clause | Q(reference_type="goods_receipt", reference_id__in=grn_ids)
             return clause
 
-        def _return_unit_cost(product, fallback_price):
+        def _return_unit_cost(product, fallback_price, batch=None):
             if invoice is None:
                 return fallback_price
+            if batch is not None:
+                # The lot being returned: use what that lot cost on this bill, not the
+                # first receipt of the product (a bill can carry lots at different costs).
+                lot_move = (
+                    CostMove.objects.filter(
+                        company=purchase_return.company,
+                        movement_type=MovementType.PURCHASE,
+                        product=product,
+                        batch=batch,
+                    )
+                    .filter(_receipt_move_filter())
+                    .order_by("id")
+                    .first()
+                )
+                if lot_move is not None and lot_move.unit_cost is not None:
+                    return lot_move.unit_cost
             move = (
                 CostMove.objects.filter(
                     company=purchase_return.company,
@@ -1731,7 +1953,7 @@ class PurchaseService:
             damaged = item.condition == PurchaseReturnItem.Condition.DAMAGED
 
             def _post_return_qty(*, batch, quantity, unit_cost):
-                InventoryService.post_movement(
+                moved = InventoryService.post_movement(
                     company=purchase_return.company,
                     warehouse=invoice.warehouse if invoice else None,
                     product=item.product,
@@ -1746,6 +1968,7 @@ class PurchaseService:
                 )
                 if invoice is not None:
                     remaining = Decimal(str(quantity))
+                    detail = []
                     for move in CostMove.objects.filter(
                         company=purchase_return.company,
                         movement_type=MovementType.PURCHASE,
@@ -1754,9 +1977,27 @@ class PurchaseService:
                     ).filter(_receipt_move_filter()).order_by("id"):
                         if remaining <= 0:
                             break
-                        take = min(remaining, abs(Decimal(str(move.quantity))))
-                        InventoryService.retire_source_layers(move, take)
+                        # Take only what is still on that receipt's layers: earlier partial
+                        # returns of this bill have already retired part of it.
+                        cap = InventoryService.source_layers_available(move)
+                        if cap is None:
+                            cap = abs(Decimal(str(move.quantity)))
+                        take = min(remaining, cap)
+                        if take <= 0:
+                            continue
+                        detail.extend(InventoryService.retire_source_layers(move, take))
                         remaining -= take
+                    is_fifo = (
+                        getattr(purchase_return.company, "inventory_valuation_method", "WAVG") or "WAVG"
+                    ) == "FIFO"
+                    if remaining > 0 and is_fifo:
+                        raise BusinessRuleError(
+                            f"Cannot reverse stock: source FIFO layer for '{item.product.name}' "
+                            f"has already been issued (short {remaining})."
+                        )
+                    if detail:
+                        # Exact record of the layers this return took, used by Cancel.
+                        CostMove.stamp_cost(moved.pk, unit_cost=moved.unit_cost or Decimal("0"), layer_peels=detail)
 
             batch = getattr(item, "batch", None)
             stock_qty = _item_stock_qty(item)
@@ -1791,7 +2032,7 @@ class PurchaseService:
                     _post_return_qty(
                         batch=lot,
                         quantity=take,
-                        unit_cost=_return_unit_cost(item.product, item.unit_price),
+                        unit_cost=_return_unit_cost(item.product, item.unit_price, batch=lot),
                     )
                     remaining -= take
                 if remaining > 0:
@@ -1802,22 +2043,20 @@ class PurchaseService:
             _post_return_qty(
                 batch=batch,
                 quantity=stock_qty,
-                unit_cost=_return_unit_cost(item.product, item.unit_price),
+                unit_cost=_return_unit_cost(item.product, item.unit_price, batch=batch),
             )
 
         # BUG-212: mark the invoice Returned once every purchased quantity
         # has come back, mirroring SalesService.complete_return.
+        fully_returned = False
         if invoice:
-            now_returned = PurchaseService._returned_quantities(invoice)
-            fully_returned = all(
-                now_returned.get(pid, Decimal("0")) >= qty for pid, qty in purchased.items()
-            )
+            fully_returned = PurchaseService.is_fully_returned(invoice)
             if fully_returned and invoice.status != PurchaseInvoice.Status.RETURNED:
                 invoice.status = PurchaseInvoice.Status.RETURNED
                 invoice.save(update_fields=["status"])
 
         # BB-000263: auto purchase CN for AP relief (mirrors sales return).
-        from .models import PurchaseCreditNote, PurchaseNoteReason
+        from .models import PurchaseCreditNote
         from .notes_services import PurchaseNotesService
 
         existing_linked = PurchaseCreditNote.objects.filter(
@@ -1825,105 +2064,9 @@ class PurchaseService:
             status=PurchaseCreditNote.Status.COMPLETED,
         ).exists()
         if not existing_linked and invoice is not None:
-            note = PurchaseCreditNote.objects.create(
-                company=purchase_return.company,
-                supplier=purchase_return.supplier,
-                purchase_invoice=invoice,
-                purchase_return=purchase_return,
-                note_date=purchase_return.return_date,
-                reason=PurchaseNoteReason.PURCHASE_RETURN,
-                reason_detail=f"Auto from purchase return {purchase_return.number}",
-                invoice_discount=invoice.invoice_discount,
-                invoice_discount_mode=invoice.invoice_discount_mode,
-                auto_round_off=invoice.auto_round_off if fully_returned else False,
-                created_by=user,
-                updated_by=user,
+            note = PurchaseService.build_return_credit_note_draft(
+                purchase_return, invoice, items, fully_returned, user
             )
-            inv_taxable = Decimal(str(invoice.taxable_total or 0))
-            ret_taxable = sum((Decimal(str(i.taxable_amount or 0)) for i in items), Decimal("0"))
-            inv_discount = Decimal(str(invoice.invoice_discount or 0))
-            ratio = Decimal("1")
-            if inv_taxable > 0 and not fully_returned:
-                ratio = min(Decimal("1"), ret_taxable / inv_taxable)
-            elif not fully_returned:
-                inv_grand = Decimal(str(invoice.grand_total or 0))
-                ret_grand = sum(
-                    (Decimal(str(getattr(i, "line_total", None) or i.taxable_amount or 0)) for i in items),
-                    Decimal("0"),
-                )
-                ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
-            # R2-015: on the return that closes the invoice, give the CN the EXACT
-            # unallocated remainder of the invoice-level discount (what prior
-            # auto-CNs on this invoice haven't already taken) so repeated partial
-            # returns never leave a few paise of AP residue. Freight/additional
-            # charges are prorated the same way.
-            if fully_returned:
-                _prior_d = PurchaseCreditNote.objects.filter(
-                    purchase_invoice=invoice,
-                    purchase_return__isnull=False,
-                    status=PurchaseCreditNote.Status.COMPLETED,
-                ).exclude(purchase_return=purchase_return).aggregate(
-                    d=Sum("invoice_discount")
-                )["d"] or Decimal("0")
-                note.invoice_discount = (inv_discount - _prior_d).quantize(Decimal("0.01"))
-            else:
-                note.invoice_discount = (inv_discount * ratio).quantize(Decimal("0.01"))
-            inv_charges = Decimal(str(invoice.additional_charges or 0))
-            if fully_returned:
-                _prior_c = PurchaseCreditNote.objects.filter(
-                    purchase_invoice=invoice,
-                    purchase_return__isnull=False,
-                    status=PurchaseCreditNote.Status.COMPLETED,
-                ).exclude(purchase_return=purchase_return).aggregate(
-                    c=Sum("additional_charges")
-                )["c"] or Decimal("0")
-                note.additional_charges = (inv_charges - _prior_c).quantize(Decimal("0.01"))
-            else:
-                note.additional_charges = (inv_charges * ratio).quantize(Decimal("0.01"))
-            note.save(update_fields=["invoice_discount", "additional_charges"])
-            # BB-000364: map each returned line back to its originating invoice
-            # line (by product) so the auto CN carries the invoiced HSN/lineage
-            # instead of the product master's current (possibly since-changed) HSN.
-            items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
-            remaining_by_line = {
-                inv_item.id: Decimal(str(inv_item.quantity))
-                for inv_item in items_by_id.values()
-            }
-            lines_by_product = {}
-            for inv_item in items_by_id.values():
-                lines_by_product.setdefault(inv_item.product_id, []).append(inv_item.id)
-            items_data = []
-            for item in items:
-                need = Decimal(str(item.quantity))
-                for lid in lines_by_product.get(item.product_id, []):
-                    if need <= 0:
-                        break
-                    avail = remaining_by_line.get(lid, Decimal("0"))
-                    if avail <= 0:
-                        continue
-                    take = min(need, avail)
-                    remaining_by_line[lid] -= take
-                    need -= take
-                    source_item = items_by_id.get(lid)
-                    items_data.append({
-                        "product": item.product,
-                        "description": getattr(item, "description", "") or "",
-                        "quantity": take,
-                        "unit_price": item.unit_price,
-                        "discount_percent": item.discount_percent,
-                        "gst_rate": item.gst_rate,
-                        "cess_rate": getattr(item, "cess_rate", None)
-                        if getattr(item, "cess_rate", None) is not None
-                        else getattr(source_item, "cess_rate", Decimal("0")),
-                        "source_item": source_item,
-                        "hsn_code": getattr(source_item, "hsn_code", "") or "",
-                    })
-                if need > 0:
-                    raise BusinessRuleError(
-                        f"Return quantity for '{item.product.name}' exceeds remaining "
-                        "returnable quantity on matching invoice lines."
-                    )
-            PurchaseNotesService.set_credit_note_items(note, items_data, user)
             PurchaseNotesService.complete_credit_note(
                 note, user, confirm_paid_invoice=True, confirm_price_override=True
             )
@@ -2061,18 +2204,16 @@ class PurchaseService:
                 )
             if invoice and invoice.status == PurchaseInvoice.Status.RETURNED:
                 from .models import PurchaseInvoice as PI
-                from .models import PurchaseReturn as PR
 
-                # CR-095 twin: lock bill before other_open check + status flip.
+                # CR-095 twin: lock bill before the fully-returned check + status flip.
                 invoice = PI.objects.select_for_update().get(
                     pk=invoice.pk,
                     company_id=purchase_return.company_id,
                 )
-                other_open = PR.objects.filter(
-                    purchase_invoice=invoice,
-                    status=PR.Status.COMPLETED,
-                ).exclude(pk=purchase_return.pk).exists()
-                if not other_open and invoice.status == PI.Status.RETURNED:
+                still_fully_returned = PurchaseService.is_fully_returned(
+                    invoice, exclude_return=purchase_return
+                )
+                if not still_fully_returned and invoice.status == PI.Status.RETURNED:
                     invoice.status = PI.Status.COMPLETED
                     invoice.save(update_fields=["status"])
             # BB-000263: cancel linked auto purchase CNs. Mark the return

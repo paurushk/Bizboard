@@ -191,3 +191,184 @@ def test_mixed_units_headroom_is_computed_in_base_units_and_reported_in_the_line
     after = tenant_a.client.get(f"/api/v1/purchases/invoices/{invoice_id}/returnable-lines/").data[0]
     assert Decimal(str(after["returned"])) == Decimal("1")
     assert Decimal(str(after["returnable"])) == Decimal("1")
+
+
+# --- status, cost and layers (audit of the purchase side against the sales fixes) ---------------------
+
+
+def _invoice_status(tenant, invoice_id):
+    return tenant.client.get(f"/api/v1/purchases/invoices/{invoice_id}/").data["status"]
+
+
+def test_part_credited_then_fully_returned_bill_becomes_returned(tenant_a):
+    product = make_product(tenant_a.company, sku="PRA-1", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    invoice_id, src = _purchase(tenant_a, supplier, product, qty="5")
+    _standalone_credit(tenant_a, supplier, invoice_id, src, 2)
+    ret = _return(tenant_a, supplier, invoice_id, "3", product=product.id)
+    assert _complete(tenant_a, ret).status_code == 200
+    assert _invoice_status(tenant_a, invoice_id) == "RETURNED"
+    rows = tenant_a.client.get(f"/api/v1/purchases/invoices/{invoice_id}/returnable-lines/").data
+    assert Decimal(str(rows[0]["returnable"])) == Decimal("0")
+
+
+def test_cancelling_one_of_two_returns_reopens_a_fully_returned_bill(tenant_a):
+    product = make_product(tenant_a.company, sku="PRA-2", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    invoice_id, _src = _purchase(tenant_a, supplier, product, qty="4")
+    first = _return(tenant_a, supplier, invoice_id, "2", product=product.id)
+    second = _return(tenant_a, supplier, invoice_id, "2", product=product.id)
+    assert _complete(tenant_a, first).status_code == 200
+    assert _complete(tenant_a, second).status_code == 200
+    assert _invoice_status(tenant_a, invoice_id) == "RETURNED"
+    assert tenant_a.client.post(f"/api/v1/purchases/returns/{second}/cancel/").status_code == 200
+    assert _invoice_status(tenant_a, invoice_id) == "COMPLETED"
+    again = _return(tenant_a, supplier, invoice_id, "2", product=product.id)
+    assert _complete(tenant_a, again).status_code == 200
+    assert _invoice_status(tenant_a, invoice_id) == "RETURNED"
+
+
+def test_return_cost_is_the_cost_of_the_lot_being_returned(tenant_a):
+    from inventory.models import BatchLot, MovementType, StockMovement
+
+    product = make_product(tenant_a.company, sku="PRA-3", gst_rate="0", track_batch=True)
+    supplier = make_supplier(tenant_a.company)
+    exp = (date.today() + timedelta(days=90)).isoformat()
+    draft = create_draft_purchase(
+        tenant_a, supplier,
+        [
+            {"product": product.id, "quantity": "3", "unit_price": "100", "gst_rate": "0", "batch_no": "CA", "exp_date": exp},
+            {"product": product.id, "quantity": "3", "unit_price": "200", "gst_rate": "0", "batch_no": "CB", "exp_date": exp},
+        ],
+        purchase_type="NON_GST",
+    )
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/").status_code == 200
+    lot_b = BatchLot.objects.get(product=product, batch_no="CB")
+    ret = _return(tenant_a, supplier, draft["id"], "2", product=product.id, batch=lot_b.id)
+    assert _complete(tenant_a, ret).status_code == 200
+    move = StockMovement.objects.get(
+        product=product, movement_type=MovementType.PURCHASE_RETURN, reference_id=str(ret)
+    )
+    assert move.batch_id == lot_b.id
+    assert Decimal(str(move.unit_cost)) == Decimal("200")  # not the first receipt's 100
+
+
+def test_discount_remainder_on_the_closing_return_counts_standalone_credit_notes(tenant_a):
+    product = make_product(tenant_a.company, sku="PRA-4", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    created = tenant_a.client.post(
+        "/api/v1/purchases/invoices/",
+        {
+            "supplier": supplier.id,
+            "purchase_type": "NON_GST",
+            "invoice_discount": "40",
+            "items": [{"product": product.id, "quantity": "4", "unit_price": "100", "gst_rate": "0"}],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    draft = created.data
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/").status_code == 200
+    src = PurchaseItem.objects.get(invoice_id=draft["id"])
+    standalone = _standalone_credit(tenant_a, supplier, draft["id"], src, 1)
+    first = _return(tenant_a, supplier, draft["id"], "1", product=product.id)
+    assert _complete(tenant_a, first).status_code == 200
+    closing = _return(tenant_a, supplier, draft["id"], "2", product=product.id)
+    assert _complete(tenant_a, closing).status_code == 200
+    # The bill's discount (40) may be relieved once in total across every credit note.
+    notes = PurchaseCreditNote.objects.filter(purchase_invoice_id=draft["id"], status="COMPLETED")
+    total_discount = sum((Decimal(str(n.invoice_discount)) for n in notes), Decimal("0"))
+    assert total_discount <= Decimal("40.00"), (total_discount, standalone["number"])
+
+
+def test_purchase_return_cancel_restores_exactly_the_fifo_layers_it_took(tenant_a):
+    from inventory.models import InventoryCostLayer
+
+    tenant_a.company.inventory_valuation_method = "FIFO"
+    tenant_a.company.save(update_fields=["inventory_valuation_method"])
+    product = make_product(tenant_a.company, sku="PRA-5", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    draft = create_draft_purchase(
+        tenant_a, supplier,
+        [
+            {"product": product.id, "quantity": "3", "unit_price": "100", "gst_rate": "0"},
+            {"product": product.id, "quantity": "3", "unit_price": "200", "gst_rate": "0"},
+        ],
+        purchase_type="NON_GST",
+    )
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/").status_code == 200
+    layers = list(InventoryCostLayer.objects.filter(company=tenant_a.company, product=product).order_by("id"))
+
+    def qty():
+        rows = InventoryCostLayer.objects.filter(pk__in=[x.pk for x in layers]).order_by("id")
+        return [Decimal(str(r.qty_remaining)) for r in rows]
+
+    assert qty() == [Decimal("3"), Decimal("3")]
+    first = _return(tenant_a, supplier, draft["id"], "2", product=product.id)
+    second = _return(tenant_a, supplier, draft["id"], "2", product=product.id)
+    assert _complete(tenant_a, first).status_code == 200
+    assert qty() == [Decimal("1"), Decimal("3")]
+    done_second = _complete(tenant_a, second)
+    assert done_second.status_code == 200, done_second.data
+    assert qty() == [Decimal("0"), Decimal("2")]
+    # Cancel the first (middle) return: its two units go back on layer 1 only.
+    assert tenant_a.client.post(f"/api/v1/purchases/returns/{first}/cancel/").status_code == 200
+    assert qty() == [Decimal("2"), Decimal("2")]
+    assert tenant_a.client.post(f"/api/v1/purchases/returns/{second}/cancel/").status_code == 200
+    assert qty() == [Decimal("3"), Decimal("3")]
+
+
+def test_preview_totals_matches_the_credit_note_and_persists_nothing(tenant_a):
+    product = make_product(tenant_a.company, sku="PRP-1", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    created = tenant_a.client.post(
+        "/api/v1/purchases/invoices/",
+        {
+            "supplier": supplier.id,
+            "purchase_type": "NON_GST",
+            "invoice_discount": "50",
+            "additional_charges": "40",
+            "items": [{"product": product.id, "quantity": "10", "unit_price": "100", "gst_rate": "0"}],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    assert tenant_a.client.post(f"/api/v1/purchases/invoices/{created.data['id']}/complete/").status_code == 200
+    payload = {
+        "supplier": supplier.id,
+        "purchase_invoice": created.data["id"],
+        "items": [{"product": product.id, "quantity": "4", "unit_price": "100", "gst_rate": "0"}],
+    }
+    returns_before = PurchaseReturn.objects.count()
+    notes_before = PurchaseCreditNote.objects.count()
+    preview = tenant_a.client.post("/api/v1/purchases/returns/preview-totals/", payload, format="json")
+    assert preview.status_code == 200, preview.data
+    assert PurchaseReturn.objects.count() == returns_before
+    assert PurchaseCreditNote.objects.count() == notes_before
+
+    ret = _return(tenant_a, supplier, created.data["id"], "4", product=product.id)
+    assert _complete(tenant_a, ret).status_code == 200
+    note = PurchaseCreditNote.objects.get(purchase_return_id=ret)
+    assert Decimal(str(preview.data["grand_total"])) == note.grand_total
+    assert Decimal(str(preview.data["taxable_total"])) == note.taxable_total
+
+
+def test_preview_totals_reports_headroom_errors_and_caps_lines(tenant_a):
+    product = make_product(tenant_a.company, sku="PRP-2", gst_rate="0")
+    supplier = make_supplier(tenant_a.company)
+    invoice_id, _src = _purchase(tenant_a, supplier, product, qty="2")
+    over = tenant_a.client.post(
+        "/api/v1/purchases/returns/preview-totals/",
+        {"supplier": supplier.id, "purchase_invoice": invoice_id,
+         "items": [{"product": product.id, "quantity": "9", "unit_price": "100", "gst_rate": "0"}]},
+        format="json",
+    )
+    assert over.status_code == 400, over.data
+    many = tenant_a.client.post(
+        "/api/v1/purchases/returns/preview-totals/",
+        {"supplier": supplier.id, "purchase_invoice": invoice_id,
+         "items": [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "0"}] * 201},
+        format="json",
+    )
+    assert many.status_code == 400, many.data
+    assert "200" in str(many.data)

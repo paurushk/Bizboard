@@ -4,6 +4,7 @@
  * Covers the entry points ("Return goods" on an invoice, deep link), the dialog,
  * completing and saving a draft, the list filters, and that nothing overflows on a phone.
  */
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { loginAsOwner } from '../helpers/auth';
 
@@ -82,7 +83,7 @@ test.describe('Sales returns', () => {
     await dialog.getByRole('checkbox').first().check();
     await dialog.getByText('Defective / damaged').click();
     await expect(dialog.getByLabel(/^reason$/i)).toHaveValue('Defective / damaged');
-    await expect(dialog.getByRole('combobox', { name: /sellable|damaged/i }).first()).toContainText(/damaged/i);
+    await expect(dialog.getByRole('combobox', { name: /condition/i }).first()).toContainText(/damaged/i);
   });
 
   test('"Return goods" on an invoice opens Sales Returns, not Credit Notes', async ({ page }) => {
@@ -123,5 +124,38 @@ test.describe('Purchase returns', () => {
     await expect(dialog).toBeVisible({ timeout: 15_000 });
     await expect(dialog.getByText(/purchase credit note/i)).toBeVisible();
     await expect(dialog.getByRole('button', { name: /^complete$/i })).toBeDisabled();
+  });
+});
+
+
+test.describe('Returns accessibility (axe)', () => {
+  async function seriousViolations(page: Page) {
+    const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+    return results.violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+  }
+
+  test('the sales return list has no serious or critical violations', async ({ page }) => {
+    await loginAsOwner(page);
+    await page.goto('/sales/returns', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('heading', { name: /sales returns/i })).toBeVisible({ timeout: 15_000 });
+    const blocking = await seriousViolations(page);
+    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+  });
+
+  test('the sales return dialog, with a line ticked, has no serious or critical violations', async ({ page }) => {
+    await loginAsOwner(page);
+    const dialog = await openReturnsFor(page);
+    await dialog.getByRole('checkbox').first().check();
+    await expect(dialog.getByRole('button', { name: /^complete$/i })).toBeEnabled();
+    const blocking = await seriousViolations(page);
+    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
+  });
+
+  test('the purchase return dialog has no serious or critical violations', async ({ page }) => {
+    await loginAsOwner(page);
+    await page.goto('/purchases/returns?create=1', { waitUntil: 'domcontentloaded' });
+    await expect(page.getByRole('dialog', { name: /new purchase return/i })).toBeVisible({ timeout: 15_000 });
+    const blocking = await seriousViolations(page);
+    expect(blocking, JSON.stringify(blocking, null, 2)).toEqual([]);
   });
 });

@@ -2812,6 +2812,7 @@ export const hi = {
     staffDraftNotice: 'आप इस वापसी को ड्राफ्ट के रूप में सहेज सकते हैं। मालिक या एडमिन इसे पूर्ण कर सकते हैं।',
     linkedCreditNote: 'क्रेडिट नोट',
     cancelReturn: 'वापसी रद्द करें',
+    includeInReturn: 'वापसी में शामिल करें',
     purchaseReturnDraftSaved: 'खरीद वापसी ड्राफ्ट सहेजा गया',
     purchaseReturnCancelled: 'खरीद वापसी रद्द की गई',
     purchaseReturnDeleted: 'खरीद वापसी ड्राफ्ट हटाया गया',

@@ -826,3 +826,75 @@ def test_preview_has_its_own_rate_limit(tenant_a, monkeypatch):
     assert codes == [200, 200, 429]
     # Other return endpoints are not throttled by that scope.
     assert tenant_a.client.get("/api/v1/sales/returns/").status_code == 200
+
+
+# --- debit notes never change what can be returned ------------------------------------------------------
+
+
+def test_a_standalone_debit_note_does_not_reduce_what_can_be_returned(tenant_a):
+    product = make_product(tenant_a.company, sku="SRF-DN", gst_rate="0")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = _complete_invoice(
+        tenant_a, customer,
+        [{"product": product.id, "quantity": "4", "unit_price": "100", "gst_rate": "0"}],
+        invoice_type="NON_GST",
+    )
+    src = SalesItem.objects.get(invoice_id=inv["id"])
+    dn = tenant_a.client.post(
+        "/api/v1/sales/debit-notes/",
+        {
+            "customer": customer.id,
+            "sales_invoice": inv["id"],
+            "reason": "CORRECTION_OF_INVOICE",
+            "items": [{"product": product.id, "quantity": "4", "unit_price": "20", "gst_rate": "0", "source_item": src.id}],
+        },
+        format="json",
+    )
+    assert dn.status_code == 201, dn.data
+    done = tenant_a.client.post(
+        f"/api/v1/sales/debit-notes/{dn.data['id']}/complete/", {"confirm_additional_debit": True}, format="json"
+    )
+    assert done.status_code == 200, done.data
+
+    rows = tenant_a.client.get(f"/api/v1/sales/invoices/{inv['id']}/returnable-lines/").data
+    assert Decimal(str(rows[0]["returnable"])) == Decimal("4")
+    ret = _return(tenant_a, customer, inv["id"], [{"product": product.id, "quantity": "4", "unit_price": "100", "gst_rate": "0", "source_item": src.id}])
+    assert _complete_return(tenant_a, ret["id"]).status_code == 200
+
+
+# --- GST Guard contract the page relies on ---------------------------------------------------------------
+
+
+def test_gst_guard_block_and_override_on_return_complete_have_the_shape_the_page_parses(tenant_a):
+    product = make_product(tenant_a.company, sku="SRF-GG", gst_rate="18", hsn_code="3004")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = _complete_invoice(tenant_a, customer, [{"product": product.id, "quantity": "3", "unit_price": "100"}])
+    # The bill's buyer GSTIN was later found to be invalid.
+    SalesInvoice.objects.filter(pk=inv["id"]).update(filing_party_gstin="NOTAGSTIN123")
+    flags = dict(tenant_a.company.feature_flags or {})
+    flags["ENABLE_GST_GUARD"] = True
+    tenant_a.company.feature_flags = flags
+    tenant_a.company.save(update_fields=["feature_flags"])
+
+    ret = _return(tenant_a, customer, inv["id"], [{"product": product.id, "quantity": "1", "unit_price": "100"}])
+    blocked = _complete_return(tenant_a, ret["id"])
+    assert blocked.status_code == 400, blocked.data
+    err = blocked.data["error"]
+    assert err["code"] == "gst_guard_blocked"
+    blocking = err["details"]["blocking"]
+    assert blocking and all("code" in b and "message" in b for b in blocking)
+    assert any("GSTIN" in b["message"] for b in blocking)
+    assert SalesReturn.objects.get(pk=ret["id"]).status == SalesReturn.Status.DRAFT
+    assert not SalesCreditNote.objects.filter(sales_return_id=ret["id"], status="COMPLETED").exists()
+
+    # Staff cannot override (they cannot complete at all); the Owner can, with a reason.
+    done = tenant_a.client.post(
+        f"/api/v1/sales/returns/{ret['id']}/complete/",
+        {"gst_guard_override_reason": "Customer GSTIN is being corrected"},
+        format="json",
+    )
+    assert done.status_code == 200, done.data
+    note = SalesCreditNote.objects.get(sales_return_id=ret["id"])
+    assert note.gst_guard_override_reason == "Customer GSTIN is being corrected"

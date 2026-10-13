@@ -941,18 +941,38 @@ class InventoryService:
             remaining -= take
 
     @staticmethod
-    def retire_source_layers(source_movement, quantity) -> None:
-        """BB-000718: reduce/retire layers created by a specific inbound movement."""
+    def source_layers_available(source_movement):
+        """Quantity still on the layers an inbound movement created; None when not FIFO."""
         from .models import InventoryCostLayer
 
         if source_movement is None:
-            return
+            return None
         method = getattr(source_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
         if method != "FIFO":
-            return
+            return None
+        total = Decimal("0")
+        for layer in InventoryCostLayer.objects.filter(source_movement=source_movement):
+            total += layer.qty_remaining
+        return total
+
+    @staticmethod
+    def retire_source_layers(source_movement, quantity) -> list:
+        """BB-000718: reduce/retire layers created by a specific inbound movement.
+
+        Returns the per-layer detail (``layer_id``, ``qty``, ``unit_cost``) of what was taken,
+        so the caller can record it on the movement and a cancel can put back exactly that.
+        """
+        from .models import InventoryCostLayer
+
+        if source_movement is None:
+            return []
+        method = getattr(source_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return []
         need = Decimal(str(quantity))
         if need <= 0:
-            return
+            return []
+        taken: list = []
         layers = list(
             InventoryCostLayer.objects.select_for_update()
             .filter(source_movement=source_movement, qty_remaining__gt=0)
@@ -965,12 +985,14 @@ class InventoryService:
             take = min(remaining, layer.qty_remaining)
             layer.qty_remaining -= take
             layer.save(update_fields=["qty_remaining", "updated_at"])
+            taken.append({"layer_id": layer.pk, "qty": str(take), "unit_cost": str(layer.unit_cost)})
             remaining -= take
         if remaining > 0:
             raise BusinessRuleError(
                 f"Cannot reverse stock: source FIFO layer for '{source_movement.product.name}' "
                 f"has already been issued (short {remaining})."
             )
+        return taken
 
     @staticmethod
     def restore_source_layers(source_movement, quantity) -> None:

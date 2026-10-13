@@ -287,6 +287,8 @@ beforeEach(() => {
   }
   h.listSalesReturnsPage.mockResolvedValue(pageOf([]));
   h.listSalesReturns.mockResolvedValue([]);
+  h.getSalesReturn.mockReset();
+  h.getSalesReturn.mockImplementation(async (id: number) => completedRow({ id }));
   h.previewSalesReturnTotals.mockReset();
   h.previewSalesReturnTotals.mockResolvedValue({
     lineCount: 1,
@@ -770,6 +772,25 @@ describe('SalesReturnsPage totals preview (SRF-11)', () => {
   });
 });
 
+describe('SalesReturnsPage preview rate limit', () => {
+  it('says it is being rate limited, in plain words, and still lets Complete go ahead', async () => {
+    h.previewSalesReturnTotals.mockRejectedValue(
+      new AxiosError('throttled', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 429,
+        statusText: 'Too Many Requests',
+        headers: {},
+        config: {} as never,
+        data: { error: { code: 'throttled', message: 'Request was throttled.' } },
+      }),
+    );
+    wrap('/sales/returns?create=1&invoice=7');
+    await screen.findByDisplayValue(/INV-0007/);
+    await tickFirstLine();
+    expect(await screen.findByText(/total preview unavailable/i, undefined, { timeout: 3000 })).toBeTruthy();
+    expect((screen.getByRole('button', { name: /^complete$/i }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe('SalesReturnsPage reason presets', () => {
   it('fills the reason, and "Defective" marks the selected lines Damaged', async () => {
     wrap('/sales/returns?create=1&invoice=7');
@@ -876,6 +897,28 @@ describe('SalesReturnsPage row actions and detail (SR-03, SRF-04, SRF-12)', () =
     expect(within(totals).getByText(/CGST/)).toBeTruthy();
     expect(within(totals).getByText(/SGST/)).toBeTruthy();
     expect(within(totals).getByText(/round off/i)).toBeTruthy();
+  });
+});
+
+describe('SalesReturnsPage detail refresh', () => {
+  it('shows the return as it is on the server now, not the list row', async () => {
+    h.listSalesReturnsPage.mockResolvedValue(pageOf([completedRow({ reason: 'Old reason' })]));
+    h.getSalesReturn.mockResolvedValue(completedRow({ reason: 'Fresh reason from the server' }));
+    wrap('/sales/returns');
+    fireEvent.click(await screen.findByRole('button', { name: /^view$/i }));
+    const dialog = await screen.findByRole('dialog', { name: /SR-0052/ });
+    expect(await within(dialog).findByText(/fresh reason from the server/i)).toBeTruthy();
+    expect(within(dialog).queryByText(/old reason/i)).toBeNull();
+    expect(h.getSalesReturn).toHaveBeenCalledWith(52);
+  });
+
+  it('falls back to the list row when the fresh copy cannot be loaded', async () => {
+    h.listSalesReturnsPage.mockResolvedValue(pageOf([completedRow({ reason: 'Row reason' })]));
+    h.getSalesReturn.mockRejectedValue(new Error('offline'));
+    wrap('/sales/returns');
+    fireEvent.click(await screen.findByRole('button', { name: /^view$/i }));
+    const dialog = await screen.findByRole('dialog', { name: /SR-0052/ });
+    expect(await within(dialog).findByText(/row reason/i)).toBeTruthy();
   });
 });
 

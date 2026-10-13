@@ -22,7 +22,7 @@ export default defineConfig({
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testMatch: /(a11y|personas\/role-boundaries|mobile-layout)\.spec\.ts$/,
+      testMatch: /(a11y|personas\/role-boundaries|mobile-layout|sales\/returns)\.spec\.ts$/,
     },
   ],
   webServer: process.env.E2E_SKIP_WEBSERVER

@@ -144,6 +144,16 @@ export function SalesReturnsPage() {
   const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
 
   const [detailReturn, setDetailReturn] = useState<SalesReturn | null>(null);
+
+  // Show the return as it is on the server now, not the (possibly stale) list row.
+  const detailQuery = useQuery({
+    queryKey: ['sales-return-detail', detailReturn?.id],
+    queryFn: () => getSalesReturn(detailReturn!.id),
+    enabled: Boolean(detailReturn),
+    staleTime: 0,
+    retry: false,
+  });
+  const detail = detailQuery.data ?? detailReturn;
   const [confirmCancelReturn, setConfirmCancelReturn] = useState<SalesReturn | null>(null);
   const [confirmDeleteDraft, setConfirmDeleteDraft] = useState<SalesReturn | null>(null);
   const [rowGuard, setRowGuard] = useState<{
@@ -1018,40 +1028,40 @@ export function SalesReturnsPage() {
       {/* Sales Return Detail Dialog */}
       <Dialog open={Boolean(detailReturn)} onClose={() => setDetailReturn(null)} fullWidth maxWidth="md">
         <DialogTitle>
-          {detailReturn?.number || `#${detailReturn?.id ?? ''}`} — {t('nav.salesReturns')}
+          {detail?.number || `#${detail?.id ?? ''}`} — {t('nav.salesReturns')}
         </DialogTitle>
         <DialogContent>
-          {detailReturn ? (
+          {detail ? (
             <Stack spacing={2} sx={{ mt: 1 }}>
               <Stack direction="row" spacing={2} flexWrap="wrap" alignItems="center" useFlexGap>
                 <StatusChip
-                  tone={documentStatusTone(detailReturn.status)}
-                  labelKey={statusLabelKey(detailReturn.status)}
+                  tone={documentStatusTone(detail.status)}
+                  labelKey={statusLabelKey(detail.status)}
                 />
                 <Typography variant="body2">
-                  <strong>{t('common.date')}:</strong> {detailReturn.returnDate}
+                  <strong>{t('common.date')}:</strong> {detail.returnDate}
                 </Typography>
                 <Typography variant="body2">
-                  <strong>{t('billing.customer')}:</strong> {detailReturn.customerName}
+                  <strong>{t('billing.customer')}:</strong> {detail.customerName}
                 </Typography>
                 <Typography variant="body2">
                   <strong>{t('phase1.sourceInvoice')}:</strong>{' '}
-                  <RouterLink to={`/sales/invoices/${detailReturn.salesInvoice}`}>
-                    {detailReturn.salesInvoiceNumber || `#${detailReturn.salesInvoice}`}
+                  <RouterLink to={`/sales/invoices/${detail.salesInvoice}`}>
+                    {detail.salesInvoiceNumber || `#${detail.salesInvoice}`}
                   </RouterLink>
                 </Typography>
-                {detailReturn.creditNoteId ? (
+                {detail.creditNoteId ? (
                   <Typography variant="body2">
                     <strong>{t('phase1.linkedCreditNote')}:</strong>{' '}
-                    <RouterLink to={`/sales/credit-notes/${detailReturn.creditNoteId}`}>
-                      {detailReturn.creditNoteNumber || `#${detailReturn.creditNoteId}`}
+                    <RouterLink to={`/sales/credit-notes/${detail.creditNoteId}`}>
+                      {detail.creditNoteNumber || `#${detail.creditNoteId}`}
                     </RouterLink>
                   </Typography>
                 ) : null}
               </Stack>
-              {detailReturn.reason ? (
+              {detail.reason ? (
                 <Typography variant="body2" color="text.secondary">
-                  <strong>{t('common.reason')}:</strong> {detailReturn.reason}
+                  <strong>{t('common.reason')}:</strong> {detail.reason}
                 </Typography>
               ) : null}
               <Divider />
@@ -1070,7 +1080,7 @@ export function SalesReturnsPage() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {(detailReturn.items ?? []).map((it, idx) => (
+                    {(detail.items ?? []).map((it, idx) => (
                       <TableRow key={it.id ?? idx}>
                         <TableCell>{it.productName ?? `#${it.product}`}</TableCell>
                         <TableCell>
@@ -1096,35 +1106,35 @@ export function SalesReturnsPage() {
               </Paper>
               <Stack spacing={0.5} alignItems="flex-end" data-testid="return-detail-totals">
                 <Typography variant="body2">
-                  {t('phase1.detailTaxable')}: <strong>{formatMoney(detailReturn.taxableTotal)}</strong>
+                  {t('phase1.detailTaxable')}: <strong>{formatMoney(detail.taxableTotal)}</strong>
                 </Typography>
-                {toNumber(detailReturn.cgstTotal) > 0 ? (
+                {toNumber(detail.cgstTotal) > 0 ? (
                   <Typography variant="body2">
-                    CGST: <strong>{formatMoney(detailReturn.cgstTotal)}</strong>
+                    CGST: <strong>{formatMoney(detail.cgstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.sgstTotal) > 0 ? (
+                {toNumber(detail.sgstTotal) > 0 ? (
                   <Typography variant="body2">
-                    SGST: <strong>{formatMoney(detailReturn.sgstTotal)}</strong>
+                    SGST: <strong>{formatMoney(detail.sgstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.igstTotal) > 0 ? (
+                {toNumber(detail.igstTotal) > 0 ? (
                   <Typography variant="body2">
-                    IGST: <strong>{formatMoney(detailReturn.igstTotal)}</strong>
+                    IGST: <strong>{formatMoney(detail.igstTotal)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.cessTotal) > 0 ? (
+                {toNumber(detail.cessTotal) > 0 ? (
                   <Typography variant="body2">
-                    Cess: <strong>{formatMoney(detailReturn.cessTotal ?? 0)}</strong>
+                    Cess: <strong>{formatMoney(detail.cessTotal ?? 0)}</strong>
                   </Typography>
                 ) : null}
-                {toNumber(detailReturn.roundOff) !== 0 ? (
+                {toNumber(detail.roundOff) !== 0 ? (
                   <Typography variant="body2">
-                    {t('phase1.detailRoundOff')}: <strong>{formatMoney(detailReturn.roundOff)}</strong>
+                    {t('phase1.detailRoundOff')}: <strong>{formatMoney(detail.roundOff)}</strong>
                   </Typography>
                 ) : null}
                 <Typography variant="subtitle1">
-                  {t('common.total')}: <strong>{formatMoney(detailReturn.grandTotal)}</strong>
+                  {t('common.total')}: <strong>{formatMoney(detail.grandTotal)}</strong>
                 </Typography>
               </Stack>
             </Stack>

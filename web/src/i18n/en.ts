@@ -2821,6 +2821,7 @@ export const en = {
     staffDraftNotice: 'You can save this return as a draft. An Owner or Admin can complete it.',
     linkedCreditNote: 'Credit note',
     cancelReturn: 'Cancel return',
+    includeInReturn: 'Include in return',
     purchaseReturnDraftSaved: 'Purchase return draft saved',
     purchaseReturnCancelled: 'Purchase return cancelled',
     purchaseReturnDeleted: 'Purchase return draft deleted',

@@ -32,6 +32,7 @@ from .serializers import (
     BillOfEntrySerializer,
     PurchaseInvoiceSerializer,
     PurchaseReturnableLineSerializer,
+    PurchaseReturnPreviewSerializer,
     PurchaseReturnSerializer,
 )
 from .services import PurchaseService
@@ -307,11 +308,40 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "complete"):
+        if action in ("create", "update", "partial_update", "destroy", "complete", "preview_totals"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
+
+    def get_throttles(self):
+        # The live total fires on every (debounced) edit; give it its own budget.
+        if getattr(self, "action", None) == "preview_totals":
+            self.throttle_scope = "return_preview"
+        return super().get_throttles()
+
+    @extend_schema(request=PurchaseReturnSerializer, responses=PurchaseReturnPreviewSerializer)
+    @action(detail=False, methods=["post"], url_path="preview-totals")
+    def preview_totals(self, request):
+        """Exact purchase credit-note totals for a return that has not been saved."""
+        from django.utils import timezone
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if len(data["items"]) > 200:
+            raise BusinessRuleError("Preview is limited to 200 lines.")
+        if data.get("purchase_invoice") is None:
+            raise BusinessRuleError("Pick the purchase to preview a return against.")
+        result = PurchaseService.preview_return_totals(
+            company=self.company,
+            supplier=data["supplier"],
+            invoice=data["purchase_invoice"],
+            return_date=data.get("return_date") or timezone.localdate(),
+            items_data=data["items"],
+            user=request.user,
+        )
+        return Response(result)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):

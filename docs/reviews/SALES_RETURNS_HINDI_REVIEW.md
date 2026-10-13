@@ -42,6 +42,7 @@ Reviewer: ____________   Date: ____________
 | [ ] | `phase1.editPurchaseReturnDraft` | Edit purchase return draft | खरीद वापसी ड्राफ्ट संपादित करें |
 | [ ] | `phase1.sourcePurchase` | Source purchase | स्रोत खरीद |
 | [ ] | `phase1.autoPurchaseCreditNoteNotice` | Completing this return takes the items out of stock and automatically issues a purchase credit note. | इस वापसी को पूर्ण करने पर सामान स्टॉक से बाहर होगा और अपने आप खरीद क्रेडिट नोट जारी होगा। |
+| [ ] | `phase1.includeInReturn` | Include in return | वापसी में शामिल करें |
 
 ## Longer help text
 

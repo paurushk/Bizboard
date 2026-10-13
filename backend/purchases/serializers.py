@@ -570,3 +570,21 @@ class PurchaseReturnableLineSerializer(serializers.Serializer):
     credited_standalone = serializers.DecimalField(max_digits=14, decimal_places=3)
     returnable = serializers.DecimalField(max_digits=14, decimal_places=3)
     returned_serials = serializers.ListField(child=serializers.CharField())
+
+
+class PurchaseReturnPreviewSerializer(serializers.Serializer):
+    """Exact totals of the purchase credit note an unsaved return would issue."""
+
+    line_count = serializers.IntegerField()
+    units = serializers.DecimalField(max_digits=14, decimal_places=3)
+    taxable_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    cgst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    sgst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    igst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    cess_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    invoice_discount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    additional_charges = serializers.DecimalField(max_digits=14, decimal_places=2)
+    tcs_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    round_off = serializers.DecimalField(max_digits=14, decimal_places=2)
+    grand_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    fully_returned = serializers.BooleanField()

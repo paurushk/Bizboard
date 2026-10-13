@@ -26129,6 +26129,52 @@
                 }
             }
         },
+        "/api/v1/purchases/returns/preview-totals/": {
+            "post": {
+                "operationId": "purchases_returns_preview_totals_create",
+                "description": "Exact purchase credit-note totals for a return that has not been saved.",
+                "tags": [
+                    "purchases"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchaseReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchaseReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchaseReturn"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PurchaseReturnPreview"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/purchases/suppliers/{supplier_id}/price-history/": {
             "get": {
                 "operationId": "purchases_suppliers_price_history_retrieve",
@@ -54108,6 +54154,88 @@
                     "quantity",
                     "sgst",
                     "taxable_amount"
+                ]
+            },
+            "PurchaseReturnPreview": {
+                "type": "object",
+                "description": "Exact totals of the purchase credit note an unsaved return would issue.",
+                "properties": {
+                    "line_count": {
+                        "type": "integer"
+                    },
+                    "units": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "taxable_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "sgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "igst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cess_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "invoice_discount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "additional_charges": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tcs_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "round_off": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "grand_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "fully_returned": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "additional_charges",
+                    "cess_total",
+                    "cgst_total",
+                    "fully_returned",
+                    "grand_total",
+                    "igst_total",
+                    "invoice_discount",
+                    "line_count",
+                    "round_off",
+                    "sgst_total",
+                    "taxable_total",
+                    "tcs_amount",
+                    "units"
                 ]
             },
             "PurchaseReturnableLine": {

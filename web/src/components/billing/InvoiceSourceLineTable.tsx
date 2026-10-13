@@ -273,6 +273,7 @@ export function InvoiceReturnLineTable({
                 <TableCell padding="checkbox">
                   <Checkbox
                     checked={line.included}
+                    inputProps={{ 'aria-label': `${t('phase1.includeInReturn')}: ${line.productName}` }}
                     onChange={(e) => updateLine(line.key, { included: e.target.checked })}
                   />
                 </TableCell>
@@ -285,6 +286,7 @@ export function InvoiceReturnLineTable({
                   <TextField
                     select
                     size="small"
+                    inputProps={{ 'aria-label': `${t('sweep2.condition')}: ${line.productName}` }}
                     value={line.condition || 'SELLABLE'}
                     onChange={(e) =>
                       updateLine(line.key, { condition: e.target.value as 'SELLABLE' | 'DAMAGED' })
