@@ -30,6 +30,11 @@ _CANONICAL_LINE_KEYS = {
     "unitprice", "gst_rate", "gstrate", "mrp", "include", "confidence",
     "flags", "warnings", "printed_gross_amt", "printed_taxable_amt",
     "cs", "upc", "pcs", "extras", "pcode", "pc_price",
+    # Server-owned review fields (bill import v2) — never pack/qty side columns.
+    "line_id", "errors", "excluded_reason", "product_id", "create_new",
+    "product_match", "match_key", "cess_rate", "cess_amount", "price_list_price",
+    "below_price_list", "suggested_quantity", "deleted", "is_new",
+    "discount_percent", "discountpercent", "unit_name", "bbox", "edited",
 }
 
 _TOKEN_LABELS = {
@@ -439,7 +444,9 @@ def apply_qty_formula(
     enum_key = formula_enum(expr)
     for line in lines:
         flags: list[str] = []
-        if line.get("pcs") in (None, ""):
+        if line.get("pcs") in (None, "") and (
+            line.get("cs") or line.get("upc") or line.get("extras")
+        ):
             line["pcs"] = line.get("quantity")
         pool = count_pool(line)
         derived = eval_formula(expr, pool)
@@ -451,7 +458,15 @@ def apply_qty_formula(
         price = _safe_decimal(line.get("unit_price"))
         totals = candidate_printed_totals(line)
         total = totals[0] if totals else printed_total(line)
-        implied = qty_from_pack_and_print(pool, price, totals, tolerance=tolerance) if price else None
+        # 24.1: with a printed trade discount, "printed amount / rate" no longer
+        # gives the quantity (the taxable amount is net of the discount), so
+        # never second-guess the quantity from it; only check the totals below.
+        line_discount = _safe_decimal(line.get("discount_percent"))
+        implied = (
+            qty_from_pack_and_print(pool, price, totals, tolerance=tolerance)
+            if price and line_discount <= 0
+            else None
+        )
         if reconcile_print and implied is not None:
             check_total = printed_total(line) or total
             formula_err = abs(qty * price - check_total) if qty and price and check_total else None
@@ -487,8 +502,14 @@ def apply_qty_formula(
                 )
         if qty and price and total:
             recomputed = qty * price
+            candidates = [recomputed]
+            if line_discount > 0:
+                # The bill may print the amount before or after the line discount.
+                candidates.append((recomputed * (Decimal("100") - line_discount) / Decimal("100")).quantize(Decimal("0.01")))
             matched = any(
-                abs(recomputed - amt) <= _amount_match_tol(amt, tolerance) for amt in (totals or [total])
+                abs(candidate - amt) <= _amount_match_tol(amt, tolerance)
+                for candidate in candidates
+                for amt in (totals or [total])
             )
             if not matched:
                 flags.append(

@@ -58,6 +58,19 @@ export function canImport(user: User | null): boolean {
   return !!user && (user.canImport === true || isOwner(user.role));
 }
 
+/**
+ * Importing a bill creates a draft document, so the importer must also be
+ * allowed to create that document (same rule as the API: an import-only user
+ * would otherwise land on a forbidden page after committing).
+ */
+export function canImportSalesBill(user: User | null): boolean {
+  return canImport(user) && canCreateSales(user);
+}
+
+export function canImportPurchaseBill(user: User | null): boolean {
+  return canImport(user) && canCreatePurchases(user);
+}
+
 export function canCancelDocuments(user: User | null): boolean {
   return !!user && (user.canCancelDocuments === true || isOwner(user.role));
 }

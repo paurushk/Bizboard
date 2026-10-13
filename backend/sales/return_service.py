@@ -19,6 +19,7 @@ from inventory.services import InventoryService
 from .models import (
     NoteReason,
     SalesCreditNote,
+    SalesCreditNoteItem,
     SalesInvoice,
     SalesReturn,
     SalesReturnItem,
@@ -29,13 +30,13 @@ from .services import _build_items, _tax_enabled, _validate_lines
 class ReturnService:
     @staticmethod
     @transaction.atomic
-    def set_return_items(sales_return: SalesReturn, items_data, user):
+    def set_return_items(sales_return: SalesReturn, items_data, user, *, validate_serials=True):
         if sales_return.status != SalesReturn.Status.DRAFT:
             raise BusinessRuleError("Completed return cannot be edited.")
         _validate_lines(items_data, sales_return.company, check_active=False)
         for line in items_data:
             product = line["product"]
-            if getattr(product, "track_serial", False):
+            if validate_serials and getattr(product, "track_serial", False):
                 serial_numbers = line.get("serial_numbers") or []
                 numbers = [str(n).strip() for n in serial_numbers if str(n).strip()]
                 if len(numbers) != int(Decimal(str(line["quantity"]))):
@@ -62,6 +63,166 @@ class ReturnService:
         return sales_return
 
     @staticmethod
+    def _take_from(remaining, need, lids, *, overflow):
+        taken = []
+        for lid in lids:
+            if need <= 0:
+                break
+            if lid not in remaining:
+                raise BusinessRuleError("source_item does not belong to this invoice.")
+            avail = remaining[lid]
+            if avail <= 0:
+                continue
+            take = min(need, avail)
+            remaining[lid] -= take
+            need -= take
+            taken.append((lid, take))
+        if need > 0:
+            raise BusinessRuleError(overflow)
+        return taken
+
+    @staticmethod
+    def line_state(invoice, exclude_return=None):
+        """Per invoice line: sold, returned (completed returns) and credited by
+        standalone credit notes (SRF-06). One source of truth for the complete
+        path, the returnable-lines endpoint and the totals preview."""
+        sold_lines = list(invoice.items.order_by("id"))
+        sold = {row.id: Decimal(str(row.quantity)) for row in sold_lines}
+        remaining = dict(sold)
+        lines_by_product = defaultdict(list)
+        for row in sold_lines:
+            lines_by_product[row.product_id].append(row.id)
+
+        prior_qs = SalesReturnItem.objects.filter(
+            sales_return__sales_invoice=invoice,
+            sales_return__status=SalesReturn.Status.COMPLETED,
+        ).order_by("id")
+        if exclude_return is not None:
+            prior_qs = prior_qs.exclude(sales_return=exclude_return)
+        returned_serials = defaultdict(list)
+        for prior in prior_qs:
+            need = Decimal(str(prior.quantity))
+            if prior.source_item_id:
+                lids = [prior.source_item_id]
+                overflow = "Prior returns exceed the named invoice line; repair the return history."
+            else:
+                lids = lines_by_product.get(prior.product_id, [])
+                overflow = (
+                    "Prior returns exceed invoice quantity for this product; repair the return history."
+                )
+            ReturnService._take_from(remaining, need, lids, overflow=overflow)
+            if lids and prior.serial_numbers:
+                returned_serials[lids[0]].extend(str(n) for n in prior.serial_numbers)
+        after_returns = dict(remaining)
+
+        # SRF-06: units already credited by a standalone (non return-linked)
+        # credit note are not returnable either.
+        standalone = defaultdict(Decimal)
+        standalone_notes = defaultdict(list)
+        cn_rows = SalesCreditNoteItem.objects.filter(
+            credit_note__sales_invoice=invoice,
+            credit_note__status=SalesCreditNote.Status.COMPLETED,
+            credit_note__sales_return__isnull=True,
+            source_item__isnull=False,
+        ).values_list("source_item_id", "quantity", "credit_note__number")
+        for lid, qty, number in cn_rows:
+            if lid not in remaining:
+                continue
+            q = Decimal(str(qty or 0))
+            standalone[lid] += q
+            if number and number not in standalone_notes[lid]:
+                standalone_notes[lid].append(number)
+            remaining[lid] = max(Decimal("0"), remaining[lid] - q)
+        return {
+            "sold": sold,
+            "remaining": remaining,
+            "after_returns": after_returns,
+            "lines_by_product": lines_by_product,
+            "standalone": standalone,
+            "standalone_notes": standalone_notes,
+            "returned_serials": returned_serials,
+        }
+
+    @staticmethod
+    def returnable_lines(invoice):
+        rows = []
+        state = ReturnService.line_state(invoice)
+        for row in invoice.items.select_related("product").order_by("id"):
+            sold = state["sold"][row.id]
+            standalone = state["standalone"].get(row.id, Decimal("0"))
+            returned = sold - state["after_returns"][row.id]
+            rows.append({
+                "source_item": row.id,
+                "product": row.product_id,
+                "product_name": row.product.name,
+                "sold": sold,
+                "returned": returned,
+                "credited_standalone": standalone,
+                "returnable": state["remaining"][row.id],
+                "returned_serials": state["returned_serials"].get(row.id, []),
+            })
+        return rows
+
+    @staticmethod
+    def _standalone_hint(state, lids):
+        for lid in lids:
+            qty = state["standalone"].get(lid)
+            if qty:
+                notes = ", ".join(state["standalone_notes"].get(lid, [])) or "a credit note"
+                return (
+                    f" Credit note(s) {notes} already credited {qty.normalize():f} unit(s) on "
+                    f"this invoice line, so only {state['remaining'][lid].normalize():f} can still be returned."
+                )
+        return ""
+
+    @staticmethod
+    def plan_takes(items, state):
+        """Match each return line to invoice lines and enforce headroom."""
+        remaining = dict(state["remaining"])
+        lines_by_product = state["lines_by_product"]
+        source_takes = []
+        for item in items:
+            need = Decimal(str(item.quantity))
+            if item.source_item_id:
+                if item.source_item is not None and item.source_item.product_id != item.product_id:
+                    raise BusinessRuleError("source_item product does not match the return line.")
+                lids = [item.source_item_id]
+                overflow = (
+                    f"Return quantity for '{item.product.name}' exceeds the remaining "
+                    "quantity on the named invoice line."
+                )
+            else:
+                lids = lines_by_product.get(item.product_id, [])
+                if len(lids) > 1:
+                    raise BusinessRuleError(
+                        "Return lines must name the invoice line (source_item) when "
+                        "the same product is on more than one line."
+                    )
+                overflow = (
+                    f"Return quantity for '{item.product.name}' exceeds remaining "
+                    "returnable quantity on matching invoice lines."
+                )
+            overflow += ReturnService._standalone_hint(state, lids)
+            for lid, take in ReturnService._take_from(remaining, need, lids, overflow=overflow):
+                source_takes.append((item, lid, take))
+        return source_takes
+
+    @staticmethod
+    def is_fully_returned(invoice, exclude_return=None, extra_takes=None):
+        """True when nothing on the invoice can still be returned.
+
+        Units credited by a standalone credit note count as spent, so an invoice
+        that was part-credited and then fully returned does flip to RETURNED, and
+        cancelling one of two returns puts it back (``exclude_return``).
+        ``extra_takes`` is a list of ``(item, line_id, qty)`` not yet saved.
+        """
+        state = ReturnService.line_state(invoice, exclude_return=exclude_return)
+        left = dict(state["remaining"])
+        for _item, lid, take in extra_takes or []:
+            left[lid] = left.get(lid, Decimal("0")) - take
+        return all(v <= 0 for v in left.values())
+
+    @staticmethod
     def returned_quantities(invoice, exclude_return=None):
         qs = SalesReturnItem.objects.filter(
             sales_return__sales_invoice=invoice,
@@ -73,6 +234,185 @@ class ReturnService:
             row["product"]: row["total"]
             for row in qs.values("product").annotate(total=Sum("quantity"))
         }
+
+    @staticmethod
+    def preview_totals(company, customer, invoice, return_date, items_data, user):
+        """Exact totals of the credit note this return would issue (SRF-11).
+
+        Runs the real draft -> plan -> credit-note-build path inside a savepoint
+        and rolls everything back, so nothing (rows, numbers, stock) persists.
+        """
+        # An explicit atomic block, forced to roll back: a bare savepoint does
+        # nothing when the request is not already inside a transaction, which
+        # left the preview's draft return and credit note behind.
+        with transaction.atomic():
+            try:
+                return ReturnService._preview_in_transaction(
+                    company, customer, invoice, return_date, items_data, user
+                )
+            finally:
+                transaction.set_rollback(True)
+
+    @staticmethod
+    def _preview_in_transaction(company, customer, invoice, return_date, items_data, user):
+        sales_return = SalesReturn.objects.create(
+            company=company,
+            customer=customer,
+            sales_invoice=invoice,
+            return_date=return_date,
+            created_by=user,
+            updated_by=user,
+        )
+        ReturnService.set_return_items(
+            sales_return, [dict(line) for line in items_data], user, validate_serials=False
+        )
+        items = list(
+            sales_return.items.select_related("product", "product__alternate_unit", "source_item")
+        )
+        if not items:
+            raise BusinessRuleError("Select at least one line to preview.")
+        state = ReturnService.line_state(invoice)
+        source_takes = ReturnService.plan_takes(items, state)
+        fully_returned = ReturnService.is_fully_returned(invoice, extra_takes=source_takes)
+        note = ReturnService.build_credit_note_draft(
+            sales_return, invoice, items, source_takes, fully_returned, user
+        )
+        note.refresh_from_db()
+        return {
+            "line_count": len(items),
+            "units": sum((Decimal(str(i.quantity)) for i in items), Decimal("0")),
+            "taxable_total": note.taxable_total,
+            "cgst_total": note.cgst_total,
+            "sgst_total": note.sgst_total,
+            "igst_total": note.igst_total,
+            "cess_total": getattr(note, "cess_total", Decimal("0")),
+            "invoice_discount": note.invoice_discount,
+            "additional_charges": note.additional_charges,
+            "tcs_amount": note.tcs_amount,
+            "round_off": note.round_off,
+            "grand_total": note.grand_total,
+            "fully_returned": fully_returned,
+        }
+
+    @staticmethod
+    def build_credit_note_draft(sales_return, invoice, items, source_takes, fully_returned, user):
+        """Create the (uncompleted) credit note a return issues. Shared by
+        complete_return and the totals preview so the preview is exact."""
+        marker = f"AUTO_RETURN:{sales_return.pk}"
+        inv_taxable = Decimal(str(invoice.taxable_total or 0))
+        ret_taxable = sum(
+            (Decimal(str(getattr(it, "taxable_amount", 0) or 0)) for it in items),
+            Decimal("0"),
+        )
+        ratio = Decimal("1")
+        if inv_taxable > 0 and not fully_returned:
+            ratio = min(Decimal("1"), ret_taxable / inv_taxable)
+        elif not fully_returned:
+            # B2-003: SalesReturnItem is a DocumentLineModel — it has
+            # `line_total` / `taxable_amount`, not `grand_total` (that lives
+            # on the header). Reading `it.grand_total` raised AttributeError
+            # for a partial return of a fully NIL/exempt invoice.
+            inv_grand = Decimal(str(invoice.grand_total or 0))
+            ret_grand = sum(
+                (
+                    Decimal(str(
+                        getattr(it, "line_total", 0)
+                        or getattr(it, "taxable_amount", 0)
+                        or 0
+                    ))
+                    for it in items
+                ),
+                Decimal("0"),
+            )
+            ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
+        inv_discount = Decimal(str(invoice.invoice_discount or 0))
+        inv_charges = Decimal(str(invoice.additional_charges or 0))
+        inv_tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
+        # Every earlier completed credit note (return-linked or standalone) has
+        # already relieved its share of discount / charges / TCS.
+        prior_qs = SalesCreditNote.objects.filter(
+            sales_invoice=invoice,
+            status=SalesCreditNote.Status.COMPLETED,
+        ).exclude(sales_return=sales_return)
+        if fully_returned:
+            prior_d = prior_qs.aggregate(d=Sum("invoice_discount"))["d"] or Decimal("0")
+            prior_c = prior_qs.aggregate(c=Sum("additional_charges"))["c"] or Decimal("0")
+            prior_t = prior_qs.aggregate(t=Sum("tcs_amount"))["t"] or Decimal("0")
+            discount_share = (inv_discount - prior_d).quantize(Decimal("0.01"))
+            charges_share = (inv_charges - prior_c).quantize(Decimal("0.01"))
+            tcs_share = (inv_tcs - prior_t).quantize(Decimal("0.01"))
+        else:
+            discount_share = (inv_discount * ratio).quantize(Decimal("0.01"))
+            charges_share = (inv_charges * ratio).quantize(Decimal("0.01"))
+            tcs_share = (inv_tcs * ratio).quantize(Decimal("0.01"))
+        note = SalesCreditNote.objects.create(
+            company=sales_return.company,
+            customer=sales_return.customer,
+            sales_invoice=invoice,
+            sales_return=sales_return,
+            note_date=sales_return.return_date,
+            reason=NoteReason.SALES_RETURN,
+            reason_detail=f"Auto from sales return {sales_return.number} [{marker}]",
+            invoice_discount=max(Decimal("0"), discount_share),
+            invoice_discount_mode=invoice.invoice_discount_mode,
+            auto_round_off=invoice.auto_round_off if fully_returned else False,
+            created_by=user,
+            updated_by=user,
+        )
+        note.additional_charges = max(Decimal("0"), charges_share)
+        note.charges_hsn = getattr(invoice, "charges_hsn", "") or ""
+        note.charges_gst_rate = getattr(invoice, "charges_gst_rate", Decimal("0")) or Decimal("0")
+        note.save(update_fields=["additional_charges", "charges_hsn", "charges_gst_rate"])
+        inv_items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
+        items_data = []
+        for item, lid, take in source_takes:
+            src = inv_items_by_id.get(lid)
+            src_qty = Decimal(str(src.quantity)) if src else Decimal("0")
+            cess_full = (
+                Decimal(str(getattr(src, "cess_amount", 0) or 0))
+                if src
+                else Decimal(str(getattr(item, "cess_amount", 0) or 0))
+            )
+            cess_scaled = (
+                (cess_full * take / src_qty).quantize(Decimal("0.01"))
+                if src_qty
+                else cess_full
+            )
+            items_data.append({
+                "product": item.product,
+                "description": getattr(item, "description", "") or "",
+                "quantity": take,
+                "unit_price": item.unit_price,
+                "discount_percent": item.discount_percent,
+                "gst_rate": item.gst_rate,
+                "cess_rate": (
+                    getattr(src, "cess_rate", Decimal("0")) if src else Decimal(str(getattr(item, "cess_rate", 0) or 0))
+                ),
+                "cess_amount": cess_scaled,
+                "source_item": src,
+            })
+        from .notes_services import SalesNotesService
+
+        # R-006: set_credit_note_items applies RCM memo when the source
+        # invoice is reverse-charge so the auto-CN grand_total excludes GST.
+        SalesNotesService.set_credit_note_items(note, items_data, user)
+        if tcs_share > 0:
+            note.tcs_amount = tcs_share
+            note.tcs_in_grand_total = True
+            note.grand_total = (Decimal(str(note.grand_total or 0)) + tcs_share).quantize(Decimal("0.01"))
+            note.save(update_fields=["grand_total", "tcs_amount", "tcs_in_grand_total"])
+        if fully_returned:
+            # A full return must relieve the same rupees the invoice charged.
+            # Fold TCS in first. Recomputing tax can still leave the note
+            # up to ₹1 off the rounded invoice; that remainder goes into round-off.
+            target = Decimal(str(invoice.grand_total or 0))
+            current = Decimal(str(note.grand_total or 0))
+            gap = (target - current).quantize(Decimal("0.01"))
+            if gap != 0 and abs(gap) <= Decimal("1.00"):
+                note.round_off = (Decimal(str(note.round_off or 0)) + gap).quantize(Decimal("0.01"))
+                note.grand_total = target
+                note.save(update_fields=["round_off", "grand_total", "updated_at"])
+        return note
 
     @staticmethod
     @transaction.atomic
@@ -106,74 +446,8 @@ class ReturnService:
         if not items:
             raise BusinessRuleError("Cannot complete a return without line items.")
 
-        sold_lines = list(invoice.items.order_by("id"))
-        remaining_by_line = {row.id: Decimal(str(row.quantity)) for row in sold_lines}
-        lines_by_product = defaultdict(list)
-        for row in sold_lines:
-            lines_by_product[row.product_id].append(row.id)
-
-        def _take_from(need, lids, *, overflow):
-            taken = []
-            for lid in lids:
-                if need <= 0:
-                    break
-                if lid not in remaining_by_line:
-                    raise BusinessRuleError("source_item does not belong to this invoice.")
-                avail = remaining_by_line[lid]
-                if avail <= 0:
-                    continue
-                take = min(need, avail)
-                remaining_by_line[lid] -= take
-                need -= take
-                taken.append((lid, take))
-            if need > 0:
-                raise BusinessRuleError(overflow)
-            return taken
-
-        def _consume_prior(exclude=None):
-            qs = SalesReturnItem.objects.filter(
-                sales_return__sales_invoice=invoice,
-                sales_return__status=SalesReturn.Status.COMPLETED,
-            ).order_by("id")
-            if exclude is not None:
-                qs = qs.exclude(sales_return=exclude)
-            for prior in qs:
-                need = Decimal(str(prior.quantity))
-                if prior.source_item_id:
-                    lids = [prior.source_item_id]
-                    overflow = "Prior returns exceed the named invoice line; repair the return history."
-                else:
-                    lids = lines_by_product.get(prior.product_id, [])
-                    overflow = (
-                        "Prior returns exceed invoice quantity for this product; repair the return history."
-                    )
-                _take_from(need, lids, overflow=overflow)
-
-        _consume_prior(exclude=sales_return)
-        source_takes = []
-        for item in items:
-            need = Decimal(str(item.quantity))
-            if item.source_item_id:
-                if item.source_item is not None and item.source_item.product_id != item.product_id:
-                    raise BusinessRuleError("source_item product does not match the return line.")
-                lids = [item.source_item_id]
-                overflow = (
-                    f"Return quantity for '{item.product.name}' exceeds the remaining "
-                    "quantity on the named invoice line."
-                )
-            else:
-                lids = lines_by_product.get(item.product_id, [])
-                if len(lids) > 1:
-                    raise BusinessRuleError(
-                        "Return lines must name the invoice line (source_item) when "
-                        "the same product is on more than one line."
-                    )
-                overflow = (
-                    f"Return quantity for '{item.product.name}' exceeds remaining "
-                    "returnable quantity on matching invoice lines."
-                )
-            for lid, take in _take_from(need, lids, overflow=overflow):
-                source_takes.append((item, lid, take))
+        state = ReturnService.line_state(invoice, exclude_return=sales_return)
+        source_takes = ReturnService.plan_takes(items, state)
 
         sold = {
             row["product"]: row["total"]
@@ -195,10 +469,14 @@ class ReturnService:
 
         cogs_rev = CogsService.restore_return_stock_and_cogs(sales_return, invoice, items, user)
 
-        now_returned = ReturnService.returned_quantities(invoice)
-        fully_returned = all(
-            now_returned.get(pid, Decimal("0")) >= qty for pid, qty in sold.items()
-        )
+        try:
+            fully_returned = ReturnService.is_fully_returned(invoice)
+        except BusinessRuleError:
+            # Inconsistent legacy history: fall back to the plain per-product sums.
+            now_returned = ReturnService.returned_quantities(invoice)
+            fully_returned = all(
+                now_returned.get(pid, Decimal("0")) >= qty for pid, qty in sold.items()
+            )
         if fully_returned and invoice.status != SalesInvoice.Status.RETURNED:
             invoice.status = SalesInvoice.Status.RETURNED
             invoice.save(update_fields=["status"])
@@ -213,119 +491,11 @@ class ReturnService:
             status=SalesCreditNote.Status.COMPLETED,
         ).exists()
         if not existing_linked:
-            marker = f"AUTO_RETURN:{sales_return.pk}"
-            inv_taxable = Decimal(str(invoice.taxable_total or 0))
-            ret_taxable = sum(
-                (Decimal(str(getattr(it, "taxable_amount", 0) or 0)) for it in items),
-                Decimal("0"),
+            note = ReturnService.build_credit_note_draft(
+                sales_return, invoice, items, source_takes, fully_returned, user
             )
-            ratio = Decimal("1")
-            if inv_taxable > 0 and not fully_returned:
-                ratio = min(Decimal("1"), ret_taxable / inv_taxable)
-            elif not fully_returned:
-                # B2-003: SalesReturnItem is a DocumentLineModel — it has
-                # `line_total` / `taxable_amount`, not `grand_total` (that lives
-                # on the header). Reading `it.grand_total` raised AttributeError
-                # for a partial return of a fully NIL/exempt invoice.
-                inv_grand = Decimal(str(invoice.grand_total or 0))
-                ret_grand = sum(
-                    (
-                        Decimal(str(
-                            getattr(it, "line_total", 0)
-                            or getattr(it, "taxable_amount", 0)
-                            or 0
-                        ))
-                        for it in items
-                    ),
-                    Decimal("0"),
-                )
-                ratio = min(Decimal("1"), ret_grand / inv_grand) if inv_grand > 0 else Decimal("0")
-            inv_discount = Decimal(str(invoice.invoice_discount or 0))
-            inv_charges = Decimal(str(invoice.additional_charges or 0))
-            inv_tcs = Decimal(str(getattr(invoice, "tcs_amount", 0) or 0))
-            prior_qs = SalesCreditNote.objects.filter(
-                sales_invoice=invoice,
-                sales_return__isnull=False,
-                status=SalesCreditNote.Status.COMPLETED,
-            ).exclude(sales_return=sales_return)
-            if fully_returned:
-                prior_d = prior_qs.aggregate(d=Sum("invoice_discount"))["d"] or Decimal("0")
-                prior_c = prior_qs.aggregate(c=Sum("additional_charges"))["c"] or Decimal("0")
-                prior_t = prior_qs.aggregate(t=Sum("tcs_amount"))["t"] or Decimal("0")
-                discount_share = (inv_discount - prior_d).quantize(Decimal("0.01"))
-                charges_share = (inv_charges - prior_c).quantize(Decimal("0.01"))
-                tcs_share = (inv_tcs - prior_t).quantize(Decimal("0.01"))
-            else:
-                discount_share = (inv_discount * ratio).quantize(Decimal("0.01"))
-                charges_share = (inv_charges * ratio).quantize(Decimal("0.01"))
-                tcs_share = (inv_tcs * ratio).quantize(Decimal("0.01"))
-            note = SalesCreditNote.objects.create(
-                company=sales_return.company,
-                customer=sales_return.customer,
-                sales_invoice=invoice,
-                sales_return=sales_return,
-                note_date=sales_return.return_date,
-                reason=NoteReason.SALES_RETURN,
-                reason_detail=f"Auto from sales return {sales_return.number} [{marker}]",
-                invoice_discount=max(Decimal("0"), discount_share),
-                invoice_discount_mode=invoice.invoice_discount_mode,
-                auto_round_off=invoice.auto_round_off if fully_returned else False,
-                created_by=user,
-                updated_by=user,
-            )
-            note.additional_charges = max(Decimal("0"), charges_share)
-            note.charges_hsn = getattr(invoice, "charges_hsn", "") or ""
-            note.charges_gst_rate = getattr(invoice, "charges_gst_rate", Decimal("0")) or Decimal("0")
-            note.save(update_fields=["additional_charges", "charges_hsn", "charges_gst_rate"])
-            inv_items_by_id = {inv_item.id: inv_item for inv_item in invoice.items.all()}
-            items_data = []
-            for item, lid, take in source_takes:
-                src = inv_items_by_id.get(lid)
-                src_qty = Decimal(str(src.quantity)) if src else Decimal("0")
-                cess_full = (
-                    Decimal(str(getattr(src, "cess_amount", 0) or 0))
-                    if src
-                    else Decimal(str(getattr(item, "cess_amount", 0) or 0))
-                )
-                cess_scaled = (
-                    (cess_full * take / src_qty).quantize(Decimal("0.01"))
-                    if src_qty
-                    else cess_full
-                )
-                items_data.append({
-                    "product": item.product,
-                    "description": getattr(item, "description", "") or "",
-                    "quantity": take,
-                    "unit_price": item.unit_price,
-                    "discount_percent": item.discount_percent,
-                    "gst_rate": item.gst_rate,
-                    "cess_rate": (
-                        getattr(src, "cess_rate", Decimal("0")) if src else Decimal(str(getattr(item, "cess_rate", 0) or 0))
-                    ),
-                    "cess_amount": cess_scaled,
-                    "source_item": src,
-                })
             from .notes_services import SalesNotesService
 
-            # R-006: set_credit_note_items applies RCM memo when the source
-            # invoice is reverse-charge so the auto-CN grand_total excludes GST.
-            SalesNotesService.set_credit_note_items(note, items_data, user)
-            if tcs_share > 0:
-                note.tcs_amount = tcs_share
-                note.tcs_in_grand_total = True
-                note.grand_total = (Decimal(str(note.grand_total or 0)) + tcs_share).quantize(Decimal("0.01"))
-                note.save(update_fields=["grand_total", "tcs_amount", "tcs_in_grand_total"])
-            if fully_returned:
-                # A full return must relieve the same rupees the invoice charged.
-                # Fold TCS in first. Recomputing tax can still leave the note
-                # up to ₹1 off the rounded invoice; that remainder goes into round-off.
-                target = Decimal(str(invoice.grand_total or 0))
-                current = Decimal(str(note.grand_total or 0))
-                gap = (target - current).quantize(Decimal("0.01"))
-                if gap != 0 and abs(gap) <= Decimal("1.00"):
-                    note.round_off = (Decimal(str(note.round_off or 0)) + gap).quantize(Decimal("0.01"))
-                    note.grand_total = target
-                    note.save(update_fields=["round_off", "grand_total", "updated_at"])
             # CR-124: a return against a paid invoice must not silently override
             # payment allocations. confirm_paid_invoice=True routes through
             # complete_credit_note's single auto-unallocate pass (receipt money
@@ -352,14 +522,19 @@ class ReturnService:
                 Decimal("0"),
             )
             if damaged_qty > 0:
-                scrap_share = (
-                    (cogs_rev * damaged_qty / sum((Decimal(str(i.quantity or 0)) for i in items), Decimal("0"))).quantize(
-                        Decimal("0.01")
+                damaged_cogs = getattr(sales_return, "_damaged_cogs_rev", None)
+                if damaged_cogs is not None:
+                    scrap_share = damaged_cogs
+                else:
+                    scrap_share = (
+                        (cogs_rev * damaged_qty / sum((Decimal(str(i.quantity or 0)) for i in items), Decimal("0"))).quantize(
+                            Decimal("0.01")
+                        )
+                        if items
+                        else cogs_rev
                     )
-                    if items
-                    else cogs_rev
-                )
-                PostingService.post_sales_return_scrap(sales_return, scrap_share, user)
+                if scrap_share > 0:
+                    PostingService.post_sales_return_scrap(sales_return, scrap_share, user)
 
         record_document_event(document=sales_return, user=user, event="sales_return.completed")
         emit("document.completed", document=sales_return, user=user, event="sales_return.completed")
@@ -414,9 +589,18 @@ class ReturnService:
                     # N-002: reverse the peels that complete restored, don't skip FIFO.
                     remaining = abs(Decimal(str(move.quantity)))
                     if invoice_for_lots is not None:
-                        for sale_move in CogsService.invoice_sale_moves(
+                        candidates = CogsService.invoice_sale_moves(
                             invoice_for_lots, product=move.product
-                        ):
+                        )
+                        if move.reason and move.reason.startswith("SALE_LINE:"):
+                            tagged = [c for c in candidates if c.reason == move.reason]
+                            if tagged:
+                                candidates = tagged
+                        elif move.reason and move.reason.startswith("SALE_MOVE:"):
+                            exact = [c for c in candidates if f"SALE_MOVE:{c.pk}" == move.reason]
+                            if exact:
+                                candidates = exact
+                        for sale_move in candidates:
                             if remaining <= 0:
                                 break
                             if move.batch_id and sale_move.batch_id != move.batch_id:
@@ -470,11 +654,15 @@ class ReturnService:
                     pk=invoice.pk,
                     company_id=sales_return.company_id,
                 )
-                other_open = SR.objects.filter(
-                    sales_invoice=invoice,
-                    status=SR.Status.COMPLETED,
-                ).exclude(pk=sales_return.pk).exists()
-                if not other_open and invoice.status == SI.Status.RETURNED:
+                try:
+                    still_fully_returned = ReturnService.is_fully_returned(
+                        invoice, exclude_return=sales_return
+                    )
+                except BusinessRuleError:
+                    still_fully_returned = SR.objects.filter(
+                        sales_invoice=invoice, status=SR.Status.COMPLETED
+                    ).exclude(pk=sales_return.pk).exists()
+                if not still_fully_returned and invoice.status == SI.Status.RETURNED:
                     invoice.status = SI.Status.COMPLETED
                     invoice.save(update_fields=["status"])
                     from reporting.invoice_profit_service import InvoiceProfitService

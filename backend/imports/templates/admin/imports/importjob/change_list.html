@@ -1,0 +1,25 @@
+{% extends "admin/change_list.html" %}
+{% block content %}
+<div style="margin:0 0 16px">
+  <h2>Bill upload health, last {{ stats_days }} days</h2>
+  <table>
+    <thead><tr><th>Direction</th><th>Uploads</th><th>Status</th><th>Extraction failures</th><th>Minutes to draft</th><th>Lines edited</th><th>Lines left out</th><th>Refused commits</th></tr></thead>
+    <tbody>
+    {% for row in bill_stats %}
+      <tr>
+        <td>{{ row.kind }}</td>
+        <td>{{ row.uploads }}</td>
+        <td>{% for k, v in row.by_status.items %}{{ k }}: {{ v }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+        <td>{% if row.failure_rate is not None %}{% widthratio row.failure_rate 1 100 %}%{% else %}n/a{% endif %}</td>
+        <td>{% if row.mean_minutes_to_draft is not None %}{{ row.mean_minutes_to_draft|floatformat:1 }}{% else %}n/a{% endif %}</td>
+        <td>{% if row.edited_share is not None %}{% widthratio row.edited_share 1 100 %}%{% else %}n/a{% endif %}</td>
+        <td>{% if row.excluded_share is not None %}{% widthratio row.excluded_share 1 100 %}%{% else %}n/a{% endif %}</td>
+        <td>{% if row.rejected_commits is not None %}{{ row.rejected_commits }}{% else %}&ndash;{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p><a href="?stats_days=7">7 days</a> &middot; <a href="?stats_days=30">30 days</a> &middot; <a href="?stats_days=90">90 days</a></p>
+</div>
+{{ block.super }}
+{% endblock %}

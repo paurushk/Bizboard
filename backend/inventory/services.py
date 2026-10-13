@@ -789,10 +789,19 @@ class InventoryService:
                 if take <= 0:
                     break
                 layer = (
-                    InventoryCostLayer.objects.select_for_update()
+                    InventoryCostLayer.objects.select_for_update(of=("self",))
+                    .select_related("source_movement")
                     .filter(pk=peel.get("layer_id"))
                     .first()
                 )
+                if layer is not None and layer.source_movement is not None:
+                    # SRF: a layer can only get back what was taken from it. Without
+                    # this, a second partial return restored the first layer again
+                    # and pushed it above its original quantity.
+                    original = abs(Decimal(str(layer.source_movement.quantity or 0)))
+                    take = min(take, max(Decimal("0"), original - layer.qty_remaining))
+                    if take <= 0:
+                        continue
                 if layer is None:
                     InventoryCostLayer.objects.create(
                         company=outbound_movement.company,
@@ -846,7 +855,9 @@ class InventoryService:
         peels = outbound_movement.layer_peels or []
         if not peels:
             return
-        for peel in peels:
+        # Undo in reverse of the order restore fills layers (it fills from the
+        # first peel forward), so the last-restored layer is emptied first.
+        for peel in reversed(peels):
             if remaining <= 0:
                 break
             peel_qty = Decimal(str(peel.get("qty") or 0))
@@ -861,6 +872,7 @@ class InventoryService:
             if layer is None:
                 remaining -= take
                 continue
+            take = min(take, layer.qty_remaining)
             layer.qty_remaining = max(Decimal("0"), layer.qty_remaining - take)
             layer.save(update_fields=["qty_remaining", "updated_at"])
             remaining -= take

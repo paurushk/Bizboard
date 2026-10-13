@@ -1,6 +1,6 @@
 import Box from '@mui/material/Box';
 import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
-import { useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { t } from '@/i18n';
 
 /** F3-042: what a render-prop consumer needs to size rows dynamically instead
@@ -23,6 +23,7 @@ export function VirtualizedTable({
   rowCount,
   rowHeight = 52,
   chromeHeight = 0,
+  scrollToIndex = null,
 }: {
   children: ReactNode | ((args: VirtualizedTableRenderArgs) => ReactNode);
   maxHeight?: number;
@@ -30,6 +31,8 @@ export function VirtualizedTable({
   rowHeight?: number;
   /** Pixels of non-row content (a table header) rendered inside the sized box. */
   chromeHeight?: number;
+  /** Bring this row into view (for example the first row with a problem) when it changes. */
+  scrollToIndex?: number | null;
 }) {
   const parentRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
@@ -39,6 +42,11 @@ export function VirtualizedTable({
     overscan: 8,
     enabled: typeof rowCount === 'number' && rowCount > 0,
   });
+
+  useEffect(() => {
+    if (scrollToIndex != null && scrollToIndex >= 0) virtualizer.scrollToIndex(scrollToIndex, { align: 'center' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollToIndex]);
 
   if (typeof rowCount === 'number' && typeof children === 'function') {
     return (

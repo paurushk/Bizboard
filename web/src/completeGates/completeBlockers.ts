@@ -94,11 +94,17 @@ export function returnCompleteDisabledReason(input: {
   pending?: boolean;
   missingSource?: boolean;
   noLines?: boolean;
+  returnDateBeforeInvoice?: boolean;
+  missingSerialName?: string;
 }): string | undefined {
   if (input.writesBlocked) return t('billing.writesBlocked');
   if (input.permissionDenied) return t('phase1.salesReturnCompleteOwnerOnly');
   if (input.pending) return t('billing.completeDisabledSaving');
   if (input.missingSource) return t('billing.completeDisabledReason');
+  if (input.returnDateBeforeInvoice) return t('phase1.returnDateBeforeInvoice');
   if (input.noLines) return t('phase1.selectItemToReturn');
+  if (input.missingSerialName) {
+    return t('billing.completeDisabledMissingSerial', { name: input.missingSerialName });
+  }
   return undefined;
 }

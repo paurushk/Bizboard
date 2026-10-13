@@ -38,6 +38,8 @@ import {
   canCreatePurchases,
   canCreateSales,
   canImport,
+  canImportPurchaseBill,
+  canImportSalesBill,
   canManageGst,
   canExport,
   canManageUsers,
@@ -448,7 +450,7 @@ export function App() {
               <Route path="sales/history/:id/edit" element={<SalesInvoiceEditor />} />
               <Route path="sales/quick-entry" element={<QuickEntryPage />} />
             </Route>
-            <Route element={<RoleRoute allow={canImport} />}>
+            <Route element={<RoleRoute allow={canImportSalesBill} />}>
               <Route path="sales/bill-upload" element={<SalesBillUploadPage />} />
               <Route path="sales/upload" element={<Navigate to="/sales/bill-upload" replace />} />
             </Route>
@@ -522,7 +524,7 @@ export function App() {
               <Route path="purchases/suppliers" element={<SuppliersPage />} />
               <Route path="purchases/bills-of-entry" element={<BillsOfEntryPage />} />
             </Route>
-            <Route element={<RoleRoute allow={canImport} />}>
+            <Route element={<RoleRoute allow={canImportPurchaseBill} />}>
               <Route path="purchases/bill-upload" element={<PurchaseBillUploadPage />} />
               <Route path="purchases/upload" element={<Navigate to="/purchases/bill-upload" replace />} />
             </Route>

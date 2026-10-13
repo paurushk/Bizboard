@@ -82,6 +82,12 @@ class SalesInvoice(DocumentTotalsModel):
     )
     auto_round_off = models.BooleanField(default=True)
     notes = models.TextField(blank=True)
+    # Original bill number / file when the draft came from a sales-bill upload
+    # (UPLOAD_SALES_BILL_REVIEW 23.8, 23.17).
+    external_reference = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    attachment = models.ForeignKey(
+        "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
     terms_text = models.TextField(blank=True)
     credit_override_reason = models.CharField(max_length=500, blank=True, default="")
     credit_overridden_by = models.ForeignKey(

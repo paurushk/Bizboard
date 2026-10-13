@@ -7,6 +7,8 @@ import {
   canCreateSales,
   canExport,
   canImport,
+  canImportPurchaseBill,
+  canImportSalesBill,
   canManageGst,
   canManageUsers,
   canViewFinancialReports,
@@ -153,5 +155,16 @@ describe('permissions', () => {
         canViewFinancialReports: true,
       }),
     ).toBe(true);
+  });
+
+  it('needs the right to create the document as well as import for a bill upload', () => {
+    const importOnly = { ...mockSalesUser, canImport: true, canCreateSales: false, canCreatePurchases: false };
+    expect(canImportSalesBill(importOnly)).toBe(false);
+    expect(canImportPurchaseBill(importOnly)).toBe(false);
+    expect(canImportSalesBill({ ...importOnly, canCreateSales: true })).toBe(true);
+    expect(canImportPurchaseBill({ ...importOnly, canCreatePurchases: true })).toBe(true);
+    expect(canImportSalesBill({ ...mockSalesUser, canImport: false, canCreateSales: true })).toBe(false);
+    expect(canImportSalesBill(mockUser)).toBe(true);
+    expect(canImportSalesBill(null)).toBe(false);
   });
 });

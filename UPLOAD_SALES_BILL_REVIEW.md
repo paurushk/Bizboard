@@ -1246,3 +1246,57 @@ Disposition of the second review's comments, checked against the code:
 ## 24.7 Delivery order update
 
 Slot the new items into the 23.24 PR order: 24.5 with PR2 (23.1), 24.2 and 24.4 with PR3 (23.2), 24.6 with PR8 (23.10), 24.3 with PR9 (23.11), 24.1 with PR10 (23.15).
+
+
+---
+
+# 25. IMPLEMENTATION STATUS (built 2026-10-12, uncommitted)
+
+All of sections 22-24 are built except the items listed under "Not built". Backend: `imports/` (new `bill_validation.py`, `party_match.py`, `admin.py`, `report_import_permission_gaps` command; rewritten `update_preview` / `commit` / `_commit_*`; new `validate`, `cancel`, `switch-kind`, `file`, bill `void` actions), `sales/` and `masters/` field additions, `core/services/llm.py` schema. Frontend: `BillUploadPage` split into the upload container and `bill/BillReviewPanel` with `BillLinesTable`, `PartyBlock`, `BillTotalsPanel`, `SourceBillViewer`, `RecentBillUploads`, `ImportedBillNotice`.
+
+## Migrations (run in this order; all additive)
+- `masters.0032_bill_import_review_v2` — `Product.needs_review`
+- `imports.0010_bill_import_review_v2` — job entity ids + heartbeat, `CANCELLED` status, template `kind` + `signature_hash`, new unique key
+- `sales.0072_bill_import_review_v2` — `SalesInvoice.external_reference`, `SalesInvoice.attachment`
+
+Existing `SupplierBillTemplate` rows become `kind=PURCHASE_BILL` (no sales template can have been taught on purpose before). SQLite test DBs must be rebuilt once (`pytest --create-db`, ~15 min).
+
+## Decisions taken (change in one place if you disagree)
+| Decision | Where |
+|---|---|
+| Bill import needs `can_import` AND `can_create_sales` / `can_create_purchases` (API + UI) | `ImportJobViewSet._KIND_PERMISSIONS`, `canImportSalesBill/PurchaseBill` |
+| Below-price-list bills: OWNER and MANAGER keep the reviewed price (recorded on the line); everyone else gets `PRICE_BELOW_LIST` | `bill_validation.PRICE_OVERRIDE_ROLES` |
+| Default terms when the customer has no credit days: 30 days (mirrors the editor) | setting `BILL_IMPORT_DEFAULT_PAYMENT_TERMS_DAYS` |
+| Strict product confirmation and multi-GSTIN blocking are behind company flag `BILL_IMPORT_REVIEW_V2` (off by default); everything else is unconditional | `COMPANY_ROLLOUT_KEYS` |
+| Max 500 lines per bill (extraction fails with a clear message above that) | setting `BILL_IMPORT_MAX_LINES` |
+| Future-date window 7 days (warning only); a CLOSED GST/accounting period is an error, SOFT_CLOSED a warning | `bill_validation` |
+| Auto-created products are flagged `needs_review`; products first seen on a *sales* bill are stock-tracked from the start (owner decision 2026-10-12; switch off with `BILL_IMPORT_SALES_PRODUCTS_TRACK_INVENTORY=False`) | `_match_or_create_product` |
+
+## Corrections found while building
+- `HSN_RE` accepts 2, 4, 6 or 8 digits, so `"12"` is a *valid* HSN. Tests use `"123"` / `"AB"` as invalid examples.
+- The tax engine itself derives the exclusive base from `unit_price_inclusive` (net of the line discount), so the import passes the printed inclusive rate and does not divide by GST itself.
+- Raising the preview cap was replaced by never capping bill previews plus merge-by-`line_id` edits (409 on a stale copy).
+
+## Added after the first build (everything the first status listed as open or partial)
+- Windowed table above 100 rows (`VirtualizedTable`, verified in Chrome: 150 rows keep ~18 in the page and scroll); row position outlined on the bill image (single images only; positions are dropped for PDFs); drag-to-pan; bottom drawer on phones (this found and fixed a real 16px sideways overflow at 375px).
+- Totals computed by the real tax engine, with the CGST/SGST vs IGST split from the customer's state ("assumed" until the customer is known).
+- Freight / bill discount read from flat CSV columns as well as the Excel header block; purchase bills carry freight, bill discount and tax mode.
+- Original bill opens through the invoice (`/sales|purchases/invoices/:id/source-bill/`), so any user who can open the draft can see it; draft notice counts below-list lines.
+- Purchase duplicate check; inactive-supplier handling; GSTIN-one-character-off suggestion; read-only fallback after commit; in-app unsaved-changes guard; Upload Sales Bill moved to the top level of the Sales menu.
+- AI consent recorded for every photo/PDF upload and *required* when `BILL_IMPORT_REVIEW_V2` is on; friendlier throttle and AI-budget messages.
+- Persisted refusals (`IMPORT_REJECTED`), named audit events, metric log events, `report_bill_import_stats`, and a health table on the Django-admin import list.
+- Template backfill migration `imports.0011` (templates keyed by the company's own GSTIN become sales layouts).
+- Products first seen on a sales bill are stock-tracked from the start (owner decision); `BILL_IMPORT_SALES_PRODUCTS_TRACK_INVENTORY=False` turns that off.
+- Help and FAQ: both page-help entries (sales and purchase bill upload) rewritten in English and Hindi, 13 new sales FAQs and 2 new purchase FAQs (Help & FAQ, searchable); `web/src/pages/help/billUploadHelp.test.tsx` checks content, Hindi lines and search keywords.
+- Browser checks: `web/e2e/imports/bill-upload-review.spec.ts` (desktop + Pixel 5, mock API) passes in installed Chrome; PostgreSQL run of the whole backend suite including the simultaneous-commit test.
+
+## Still open (cannot be closed from code)
+- **Owner decisions: all three confirmed on 2026-10-12** — import needs create rights too; only Owner/Manager keep a below-list price; products first seen on a sales bill are stock-tracked.
+- **Legal sign-off** on the AI-consent wording (`billUpload.piiConfirmAi`, `billUpload.aiDisclosure`).
+- **Native-speaker review** of the Hindi strings added for this work.
+- **Real AI model behaviour** for the new extraction fields (discount %, freight, bill discount, row positions): the prompt and parsing are tested with a mocked model; run `pytest -m llm_accuracy` with a key to measure it.
+
+## Operator steps
+1. `python manage.py report_import_permission_gaps` and tell the listed people before deploy.
+2. Deploy migrations, then code. Turn `BILL_IMPORT_REVIEW_V2` on for pilot companies via `grant_company_flag`.
+3. Watch rejected commits (`BILL_VALIDATION`), stuck `EXTRACTING` jobs and `needs_review` product growth for two weeks; rollback is flag-off.

@@ -993,6 +993,22 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
+    @action(detail=False, methods=["post"], url_path="mark-reviewed")
+    def mark_reviewed(self, request):
+        """Clear the 'needs review' flag on products fixed after a bill import."""
+        raw = request.data.get("ids")
+        if not isinstance(raw, list) or not raw or len(raw) > 500:
+            raise ValidationError({"ids": "Send between 1 and 500 product ids."})
+        try:
+            ids = [int(x) for x in raw]
+        except (TypeError, ValueError):
+            raise ValidationError({"ids": "Product ids must be numbers."}) from None
+        updated = Product.objects.filter(company=self.company, pk__in=ids, needs_review=True).update(
+            needs_review=False, updated_by=request.user
+        )
+        self._bust_list_cache()
+        return Response({"updated": updated})
+
     @action(detail=False, methods=["get"], url_path="pos-catalog")
     def pos_catalog(self, request):
         """Paged POS fields for the offline catalogue, plus ids removed since `updated_after`."""
@@ -1088,6 +1104,9 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         status_filter = self.request.query_params.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
+        if (self.request.query_params.get("needs_review") or "").lower() in ("1", "true", "yes"):
+            # Products created by a bill import with no cost/stock yet (23.11).
+            qs = qs.filter(needs_review=True)
         raw_ids = self.request.query_params.get("ids")
         if raw_ids:
             # Quick Entry hydrates its recent-product chips by id (max 50, integers only).

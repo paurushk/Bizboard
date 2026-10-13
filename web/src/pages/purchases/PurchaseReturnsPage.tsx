@@ -51,7 +51,7 @@ import { canCreatePurchases } from '@/utils/permissions';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
-import { returnCompleteDisabledReason } from '@/completeGates/completeBlockers';
+import { returnCompleteDisabledReason, serialCountMatchesQty } from '@/completeGates/completeBlockers';
 
 const PAGE_SIZE = 50;
 
@@ -115,6 +115,10 @@ export function PurchaseReturnsPage() {
   }, [searchParams, setSearchParams]);
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
+    if (draftId !== null && pur?.id !== purchase?.id) {
+      setDraftId(null);
+      setGestureKey(null);
+    }
     setPurchase(pur);
     if (!pur) {
       setLines([]);
@@ -122,12 +126,12 @@ export function PurchaseReturnsPage() {
     }
     const full = pur.items?.length ? pur : await getPurchase(pur.id);
     setPurchase(full);
-    // F2-013: net off quantities already returned on prior return documents.
+    // F2-013 + SR-01: net off quantities already returned on prior COMPLETED return documents.
     const returnedByProduct = new Map<number, number>();
     try {
-      const prior = await listPurchaseReturns({ purchaseInvoice: String(full.id) });
+      const prior = await listPurchaseReturns({ purchase_invoice: String(full.id) });
       for (const ret of prior) {
-        if (ret.status === 'CANCELLED') continue;
+        if (ret.status !== 'COMPLETED') continue;
         for (const it of ret.items ?? []) {
           returnedByProduct.set(
             it.product,
@@ -159,8 +163,11 @@ export function PurchaseReturnsPage() {
       if (selected.length === 0) throw new Error(t('phase1.selectInvoiceLines'));
       const key = gestureKey ?? userGestureIdempotencyKey();
       if (!gestureKey) setGestureKey(key);
-      const items = selected.map((l) => sourceLineReturnPayload(l, { includeBatch: true }));
+      const items = selected.map((l) =>
+        sourceLineReturnPayload(l, { includeBatch: true, includeSourceItem: false }),
+      );
       let id = draftId;
+      let completeKey = `${key}-complete`;
       if (!id) {
         const draft = await createPurchaseReturn({
           supplier: purchase.supplier,
@@ -173,8 +180,9 @@ export function PurchaseReturnsPage() {
         setDraftId(id);
       } else {
         await updatePurchaseReturn(id, { reason, items });
+        completeKey = `${userGestureIdempotencyKey()}-complete`;
       }
-      return completePurchaseReturn(id, { idempotencyKey: `${key}-complete` });
+      return completePurchaseReturn(id, { idempotencyKey: completeKey });
     },
     onSuccess: () => {
       setOpen(false);
@@ -343,13 +351,23 @@ export function PurchaseReturnsPage() {
                 pending: createMutation.isPending,
                 missingSource: !purchase,
                 noLines: Boolean(purchase) && activeSourceLines(lines).length === 0,
+                missingSerialName: activeSourceLines(lines).find(
+                  (l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity),
+                )?.productName,
               }) ?? ''
             }
           >
             <span>
               <Button
                 variant="contained"
-                disabled={!purchase || activeSourceLines(lines).length === 0 || createMutation.isPending}
+                disabled={
+                  !purchase ||
+                  activeSourceLines(lines).length === 0 ||
+                  activeSourceLines(lines).some(
+                    (l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity),
+                  ) ||
+                  createMutation.isPending
+                }
                 onClick={() => createMutation.mutate()}
               >
                 {t('common.complete')}

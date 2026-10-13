@@ -10,6 +10,8 @@ ERROR_RESPONSE_CAP = 100
 class ImportJobSerializer(serializers.ModelSerializer):
     preview_truncated = serializers.SerializerMethodField()
     errors_truncated = serializers.SerializerMethodField()
+    file_name = serializers.SerializerMethodField()
+    file_type = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportJob
@@ -19,8 +21,10 @@ class ImportJobSerializer(serializers.ModelSerializer):
             "column_mappings", "voided_rows", "clarifications", "committed_at",
             "created_at", "supplier", "customer", "purchase_invoice",
             "sales_invoice", "bill_template", "failure_reason",
+            "file_name", "file_type", "extraction_heartbeat_at",
         ]
         read_only_fields = [
+            "file_name", "file_type", "extraction_heartbeat_at",
             "file", "status", "total_rows", "valid_rows", "error_rows",
             "preview", "errors", "preview_truncated", "errors_truncated",
             "column_mappings", "voided_rows", "clarifications", "committed_at",
@@ -33,14 +37,10 @@ class ImportJobSerializer(serializers.ModelSerializer):
         preview = data.get("preview")
         if isinstance(preview, list) and len(preview) > PREVIEW_RESPONSE_CAP:
             data["preview"] = preview[:PREVIEW_RESPONSE_CAP]
-        elif isinstance(preview, dict) and isinstance(preview.get("lines"), list):
-            # B3-017: bill-import previews are a dict ({"lines": [...], ...}),
-            # not a list — the cap above never applied to them, so every poll
-            # during the preview/clarify loop re-sent the full `lines` array
-            # (plus column_headers/resolved_answers/etc.) for a many-line bill.
-            lines = preview["lines"]
-            if len(lines) > PREVIEW_RESPONSE_CAP:
-                data["preview"] = {**preview, "lines": lines[:PREVIEW_RESPONSE_CAP]}
+        # Bill previews (dict) are NEVER capped: the review screen edits and
+        # sends back every line, so a capped copy would let a commit overwrite
+        # rows the client never saw (UPLOAD_SALES_BILL_REVIEW 23.1). The size
+        # is bounded at extraction by BILL_PREVIEW_MAX_LINES instead.
         errors = data.get("errors")
         if isinstance(errors, list) and len(errors) > ERROR_RESPONSE_CAP:
             data["errors"] = errors[:ERROR_RESPONSE_CAP]
@@ -50,11 +50,15 @@ class ImportJobSerializer(serializers.ModelSerializer):
         preview = instance.preview
         if isinstance(preview, list) and len(preview) > PREVIEW_RESPONSE_CAP:
             return len(preview) - PREVIEW_RESPONSE_CAP
-        if isinstance(preview, dict) and isinstance(preview.get("lines"), list):
-            lines = preview["lines"]
-            if len(lines) > PREVIEW_RESPONSE_CAP:
-                return len(lines) - PREVIEW_RESPONSE_CAP
         return 0
+
+    def get_file_name(self, instance):
+        asset = getattr(instance, "file", None)
+        return (getattr(asset, "original_name", "") or "") if asset else ""
+
+    def get_file_type(self, instance):
+        asset = getattr(instance, "file", None)
+        return (getattr(asset, "content_type", "") or "") if asset else ""
 
     def get_errors_truncated(self, instance):
         errors = instance.errors

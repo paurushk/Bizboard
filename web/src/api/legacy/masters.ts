@@ -201,9 +201,14 @@ export async function listProductsPage(params?: {
   pageSize?: number;
   q?: string;
   cf?: Record<string, string[]>;
+  /** Only products a bill import created and nobody has reviewed yet. */
+  needsReview?: boolean;
 }): Promise<PageResult<Product>> {
   return withMocks(
-    async () => fetchPage<Product>('/products/', params),
+    async () => {
+      const { needsReview, ...rest } = params ?? {};
+      return fetchPage<Product>('/products/', needsReview ? { ...rest, needs_review: 1 } : rest);
+    },
     () => {
       const all = filterProducts(params?.q, params?.cf);
       const pageSize = params?.pageSize ?? 50;

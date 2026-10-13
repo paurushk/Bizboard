@@ -66,7 +66,8 @@ import {
 import { isValidHsnSac } from '@/utils/gst';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
-import { canAccessPos, canCreatePayments, canCreateSales, canImport, canViewFinancialReports } from '@/utils/permissions';
+import { ImportedBillNotice } from '@/pages/imports/bill/ImportedBillNotice';
+import { canAccessPos, canCreatePayments, canCreateSales, canImportSalesBill, canViewFinancialReports } from '@/utils/permissions';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
@@ -169,6 +170,7 @@ export function NewInvoicePage() {
   const fromBillUpload = Boolean(
     (location.state as { fromBillUpload?: boolean } | null)?.fromBillUpload,
   );
+  const billUploadState = location.state as { importJobId?: number; productsCreated?: number } | null;
   const qc = useQueryClient();
   const { user, login } = useAuth();
   const canSeeMargin = canViewFinancialReports(user);
@@ -1771,7 +1773,7 @@ export function NewInvoicePage() {
               {t('invoiceDetail.profitDetails')}
             </Button>
           ) : null}
-          {canImport(user) ? (
+          {canImportSalesBill(user) ? (
             <Button component={RouterLink} to="/sales/bill-upload" variant="outlined" size="small">
               {t('nav.uploadSalesBill')}
             </Button>
@@ -1826,6 +1828,18 @@ export function NewInvoicePage() {
       }
       infoBanner={
         <Stack spacing={1}>
+          {isEdit && (existingInvoice.data?.externalReference || existingInvoice.data?.attachment) ? (
+            <ImportedBillNotice
+              uploadPath="/sales/bill-upload"
+              reference={existingInvoice.data?.externalReference}
+              hasSourceBill={Boolean(existingInvoice.data?.attachment)}
+              sourceBillPath={editId ? `/sales/invoices/${editId}/source-bill/` : null}
+              belowListLines={(existingInvoice.data?.items ?? []).filter((i) => i.priceOverrideBy != null).length}
+              importJobId={billUploadState?.importJobId}
+              productsCreated={billUploadState?.productsCreated}
+              isDraft={editingStatus === 'DRAFT'}
+            />
+          ) : null}
           <Typography variant="body2">{t('billing.threeStarts')}</Typography>
           {canAccessPos(user) ? (
             <Typography variant="body2">

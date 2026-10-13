@@ -11,13 +11,21 @@ import MenuItem from '@mui/material/MenuItem';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { calculateLineTax } from '@/utils/tax';
 import type { InvoiceSourceLine } from './invoiceSourceLines';
-import { clampSourceLineQty } from './invoiceSourceLines';
-import { parseSerialNumbersText } from './lineHelpers';
+import {
+  clampSourceLineQty,
+  hasSerialPickList,
+  pickedSerials,
+  toggleSerialPick,
+  trimSerialsToQty,
+} from './invoiceSourceLines';
+import { formatSerialNumbersText } from './lineHelpers';
 
 interface Props {
   lines: InvoiceSourceLine[];
@@ -226,6 +234,13 @@ export function InvoiceReturnLineTable({
         }
         if (patch.included === true && next.quantity === 0) {
           next.quantity = Math.min(1, next.maxQty);
+          if (hasSerialPickList(next) && next.quantity > 0 && pickedSerials(next).length === 0) {
+            // A serial-tracked line starts with its first available serial picked.
+            next.serialNumbersText = formatSerialNumbersText([next.soldSerialNumbers![0]]);
+          }
+        }
+        if (patch.quantity != null && next.trackSerial && !hasSerialPickList(next)) {
+          next.serialNumbersText = trimSerialsToQty(next.serialNumbersText, next.quantity);
         }
         if (patch.included === false) {
           next.quantity = 0;
@@ -306,12 +321,40 @@ export function InvoiceReturnLineTable({
                 <TableCell>
                   {readOnly || !line.included || !line.trackSerial ? (
                     line.serialNumbersText || '—'
+                  ) : hasSerialPickList(line) ? (
+                    <Stack spacing={0.5}>
+                      <Stack direction="row" flexWrap="wrap" gap={0.5}>
+                        {line.soldSerialNumbers!.map((sn) => {
+                          const selected = pickedSerials(line).includes(sn);
+                          const full = !selected && pickedSerials(line).length >= Math.floor(line.maxQty);
+                          return (
+                            <Chip
+                              key={sn}
+                              label={sn}
+                              size="small"
+                              disabled={full}
+                              color={selected ? 'primary' : 'default'}
+                              variant={selected ? 'filled' : 'outlined'}
+                              aria-pressed={selected}
+                              onClick={() => updateLine(line.key, toggleSerialPick(line, sn))}
+                            />
+                          );
+                        })}
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        {t('billing.serialPicked', {
+                          count: pickedSerials(line).length,
+                          max: Math.floor(line.maxQty),
+                        })}
+                      </Typography>
+                    </Stack>
                   ) : (
                     <TextField
                       size="small"
                       value={line.serialNumbersText ?? ''}
                       onChange={(e) => updateLine(line.key, { serialNumbersText: e.target.value })}
-                      helperText={`${parseSerialNumbersText(line.serialNumbersText ?? '').length} serial(s)`}
+                      error={pickedSerials(line).length !== Math.trunc(line.quantity)}
+                      helperText={`${pickedSerials(line).length} / ${Math.trunc(line.quantity)} serial(s)`}
                       FormHelperTextProps={{ sx: { m: 0 } }}
                       sx={{ minWidth: 160 }}
                     />
@@ -319,7 +362,7 @@ export function InvoiceReturnLineTable({
                 </TableCell>
               ) : null}
               <TableCell align="right">
-                {readOnly || !line.included ? (
+                {readOnly || !line.included || hasSerialPickList(line) ? (
                   line.included ? line.quantity : '—'
                 ) : (
                   <TextField

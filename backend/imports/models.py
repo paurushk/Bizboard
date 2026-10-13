@@ -25,6 +25,7 @@ class ImportJob(CompanyScopedModel):
         COMMITTED = "COMMITTED"
         FAILED = "FAILED"
         VOIDED = "VOIDED"
+        CANCELLED = "CANCELLED"
 
     kind = models.CharField(max_length=16, choices=Kind.choices)
     file = models.ForeignKey("core.FileAsset", on_delete=models.PROTECT, related_name="+")
@@ -82,6 +83,14 @@ class ImportJob(CompanyScopedModel):
         related_name="jobs",
     )
     failure_reason = models.TextField(blank=True)
+    # Entities this bill import created, so a draft can be undone cleanly
+    # (UPLOAD_SALES_BILL_REVIEW 23.14).
+    created_product_ids = models.JSONField(default=list, blank=True)
+    created_customer_id = models.IntegerField(null=True, blank=True)
+    created_supplier_id = models.IntegerField(null=True, blank=True)
+    # Refreshed by the extraction task between batches; lets a stalled job be
+    # retried early (23.13).
+    extraction_heartbeat_at = models.DateTimeField(null=True, blank=True)
 
     BILL_KINDS = (Kind.PURCHASE_BILL, Kind.SALES_BILL)
 
@@ -116,6 +125,11 @@ class SupplierBillTemplate(CompanyScopedModel):
         HEADER_LEVEL = "HEADER_LEVEL"  # discount/tax applied once for the whole bill, not per line
 
     gstin = models.CharField(max_length=15, db_index=True)
+    # 23.6: a sales bill's "supplier" GSTIN is the tenant's own, so purchase and
+    # sales layouts must not share a row; signature_hash separates two billing
+    # formats printed under one GSTIN.
+    kind = models.CharField(max_length=16, default="PURCHASE_BILL", db_index=True)
+    signature_hash = models.CharField(max_length=40, blank=True, default="", db_index=True)
     party_name = models.CharField(max_length=255, blank=True)
     column_mapping = models.JSONField(default=dict, blank=True)
     line_total_formula = models.CharField(
@@ -138,8 +152,8 @@ class SupplierBillTemplate(CompanyScopedModel):
         ordering = ["-confirmed_at"]
         constraints = [
             models.UniqueConstraint(
-                fields=["company", "gstin"],
+                fields=["company", "kind", "gstin", "signature_hash"],
                 condition=~models.Q(gstin=""),
-                name="uniq_bill_template_company_gstin",
+                name="uniq_bill_template_company_kind_gstin_sig",
             )
         ]

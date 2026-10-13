@@ -711,8 +711,25 @@ def _preview_bill_line(raw_line: dict, *, index: int, rate_warnings: list[str]) 
         "extras": extras,
         "flags": list(raw_line.get("flags") or []) if isinstance(raw_line.get("flags"), list) else [],
         "si": _line_get(raw_line, "si", "sl", "s_no", "sno") or str(index),
-        "pcs": _line_get(raw_line, "pcs") or qty,
+        # 24.5: only backfill the loose-piece count when the bill actually has
+        # pack columns; otherwise `pcs` is not a pack concept at all.
+        "pcs": _line_get(raw_line, "pcs") or (qty if (extras.get("cs") or extras.get("upc") or _line_get(raw_line, "cs") or _line_get(raw_line, "upc")) else ""),
+        "discount_percent": _line_get(raw_line, "discount_percent", "discountPercent", "disc"),
+        "errors": [],
     }
+    bbox = raw_line.get("bbox")
+    if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+        try:
+            line["bbox"] = [round(max(0.0, min(1.0, float(x))), 4) for x in bbox]
+        except (TypeError, ValueError):
+            pass
+    # Stable, server-owned identity (never the printed S.No). Preserved across
+    # edits; assigned for new lines by _finalize_preview_lines.
+    if raw_line.get("line_id") not in (None, ""):
+        try:
+            line["line_id"] = int(raw_line["line_id"])
+        except (TypeError, ValueError):
+            pass
     if line_warnings:
         line["warnings"] = line_warnings
         rate_warnings.extend(line_warnings)
@@ -720,22 +737,15 @@ def _preview_bill_line(raw_line: dict, *, index: int, rate_warnings: list[str]) 
 
 
 def _bill_line_errors(line: dict) -> list[str]:
-    errors = []
-    if not str(line.get("name") or "").strip():
-        errors.append("name is required")
-    try:
-        if _as_decimal(line.get("quantity"), "0") <= 0:
-            errors.append("quantity must be > 0")
-    except BusinessRuleError:
-        errors.append("quantity must be a number")
-    try:
-        _as_decimal(line.get("unit_price"), "0")
-    except BusinessRuleError:
-        errors.append("unit_price must be a number")
-    hsn = str(line.get("hsn_code") or "").strip()
-    if hsn and not HSN_RE.match(hsn):
-        errors.append("invalid HSN code")
-    return errors
+    """Extraction-time line problems (messages only).
+
+    GST presence is excluded here on purpose: extraction already leaves a line
+    unchecked when its rate is unreadable. Commit uses the full structured
+    validator in `imports.bill_validation`.
+    """
+    from imports.bill_validation import line_errors
+
+    return [e["message"] for e in line_errors(line) if e["code"] not in ("GST_REQUIRED", "GST_SLAB", "GST_NUMBER")]
 
 
 def _safe_decimal(value) -> Decimal:
@@ -785,8 +795,10 @@ def _refresh_line_validity(lines: list[dict]) -> list[dict]:
         line_errors = _bill_line_errors(line)
         if line_errors:
             line["include"] = False
+            line["excluded_reason"] = "; ".join(line_errors)
             errors.append({"row": index, "errors": line_errors, "data": line})
             continue
+        line.pop("excluded_reason", None)
         gst_ok = bool(str(line.get("gst_rate") or "").strip())
         try:
             qty_ok = _as_decimal(line.get("quantity"), "0") > 0
@@ -797,22 +809,37 @@ def _refresh_line_validity(lines: list[dict]) -> list[dict]:
     return errors
 
 
-def _match_bill_template(company, gstin: str, column_headers: list[str]) -> SupplierBillTemplate | None:
-    """GSTIN is the primary key; column signature (order-independent) guards
-    against applying a stale template after the vendor changes their layout."""
+def _signature_hash(headers) -> str:
+    """Order-independent fingerprint of a bill's column headers (23.6)."""
+    norm = sorted({str(h).strip().upper() for h in (headers or []) if str(h or "").strip()})
+    return hashlib.sha256("|".join(norm).encode("utf-8")).hexdigest()[:40] if norm else ""
+
+
+def _match_bill_template(
+    company, gstin: str, column_headers: list[str], kind: str = ImportJob.Kind.PURCHASE_BILL,
+) -> SupplierBillTemplate | None:
+    """GSTIN + direction are the key; column signature (order-independent)
+    guards against applying a stale template after the vendor changes layout,
+    and lets two billing formats under one GSTIN keep separate templates."""
     if not gstin:
         return None
-    template = SupplierBillTemplate.objects.filter(company=company, gstin__iexact=gstin).first()
-    if template is None:
-        return None
-    stored = {str(h).strip().upper() for h in (template.column_signature or [])}
+    qs = SupplierBillTemplate.objects.filter(
+        company=company, kind=kind, gstin__iexact=gstin
+    ).order_by("-confirmed_at", "-id")
+    sig = _signature_hash(column_headers)
+    if sig:
+        exact = qs.filter(signature_hash=sig).first()
+        if exact is not None:
+            return exact
     seen = {str(h).strip().upper() for h in (column_headers or [])}
-    if not stored or not seen:
-        return template
-    overlap = len(stored & seen) / max(len(stored), 1)
-    if overlap < BILL_TEMPLATE_SIGNATURE_MATCH_THRESHOLD:
-        return None
-    return template
+    for template in qs:
+        stored = {str(h).strip().upper() for h in (template.column_signature or [])}
+        if not stored or not seen:
+            return template
+        overlap = len(stored & seen) / max(len(stored), 1)
+        if overlap >= BILL_TEMPLATE_SIGNATURE_MATCH_THRESHOLD:
+            return template
+    return None
 
 
 def _template_answers(template: SupplierBillTemplate) -> dict:
@@ -846,32 +873,68 @@ def _skip_simple_qty_template(template: SupplierBillTemplate | None, lines: list
     return _lines_have_pack_columns(lines)
 
 
-def _resolve_import_company_gstin(company, preview: dict, *, kind: str):
-    """Stamp filing identity from buyer GSTIN (sales) or primary CompanyGstin."""
-    known = {
-        (g or "").upper()
-        for g in CompanyGstin.objects.filter(company=company, is_active=True).values_list("gstin", flat=True)
-    }
+def _within_one_edit(a: str, b: str) -> bool:
+    """True when a and b differ by at most one substitution, insertion or deletion."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return a == b
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def company_gstin_status(company, preview: dict, *, kind: str) -> dict:
+    """Which of the company's GSTINs issued/received this bill (23.12).
+
+    status: ok (recognised or user-chosen) | defaulted_single (one GSTIN, or the
+    bill carried none) | unresolved (several GSTINs and the bill's is missing or
+    not recognised). `unresolved` only blocks when BILL_IMPORT_REVIEW_V2 is on.
+    """
+    from core.services.feature_flags import flag_enabled
+
+    qs = CompanyGstin.objects.filter(company=company, is_active=True)
+    options = [
+        {"id": g.pk, "gstin": g.gstin, "state": getattr(g, "state", "") or "", "is_primary": bool(g.is_primary)}
+        for g in qs.order_by("-is_primary", "id")
+    ]
+    chosen = preview.get("company_gstin_id")
+    if chosen not in (None, ""):
+        hit = qs.filter(pk=chosen).first()
+        if hit is not None:
+            return {"status": "ok", "obj": hit, "options": options}
+    known = {(g["gstin"] or "").upper() for g in options}
     if getattr(company, "gstin", ""):
         known.add(company.gstin.upper())
     if kind == ImportJob.Kind.SALES_BILL:
-        # B3-007: on a sales invoice the company IS the supplier/issuer, so the
-        # filing identity is the "supplier" GSTIN on the document — validated
-        # against the company's own GSTIN set, exactly like the purchase branch
-        # validates buyer_gstin. buyer_gstin here is the customer's.
-        wanted = str(
-            preview.get("company_gstin") or preview.get("supplier_gstin") or ""
-        ).strip().upper()
+        wanted = str(preview.get("company_gstin") or preview.get("supplier_gstin") or "").strip().upper()
     else:
         wanted = str(preview.get("company_gstin") or preview.get("buyer_gstin") or "").strip().upper()
-    if wanted and wanted not in known:
-        wanted = ""
-    qs = CompanyGstin.objects.filter(company=company, is_active=True)
-    if wanted:
+    if wanted and wanted in known:
         hit = qs.filter(gstin__iexact=wanted).first()
-        if hit:
-            return hit
-    return qs.filter(is_primary=True).order_by("-id").first() or qs.order_by("id").first()
+        if hit is not None:
+            return {"status": "ok", "obj": hit, "options": options}
+    default = qs.filter(is_primary=True).order_by("-id").first() or qs.order_by("id").first()
+    suggestion = None
+    if wanted:
+        # An OCR slip of one character: offer our own GSTIN, never apply it silently.
+        for option in options:
+            if _within_one_edit(wanted, (option["gstin"] or "").upper()):
+                suggestion = {"id": option["id"], "gstin": option["gstin"]}
+                break
+    if len(options) > 1 and flag_enabled(company, "BILL_IMPORT_REVIEW_V2"):
+        return {"status": "unresolved", "obj": None, "options": options, "default": default, "suggestion": suggestion}
+    return {"status": "defaulted_single", "obj": default, "options": options, "suggestion": suggestion}
+
+
+def _resolve_import_company_gstin(company, preview: dict, *, kind: str):
+    """Stamp filing identity from the bill's own GSTIN, else the primary CompanyGstin."""
+    status = company_gstin_status(company, preview, kind=kind)
+    if status["status"] == "unresolved":
+        raise BusinessRuleError(
+            "Choose which of your GSTINs issued this bill before creating the draft.",
+            code="COMPANY_GSTIN_UNRESOLVED",
+        )
+    return status["obj"]
 
 
 def _infer_direction_warning(kind: str, payload: dict, company) -> str:
@@ -913,6 +976,11 @@ BILL_COLUMN_ALIASES = {
     "cs": ["cs", "cases", "ctn", "cartons"],
     "upc": ["upc", "units per case", "pcs/cs"],
     "printed_gross_amt": ["printed_gross_amt", "gross amt", "gross amount", "gross", "gross value"],
+    # Explicit percentage headers only: a bare "discount" column is usually an amount.
+    "discount_percent": [
+        "discount_percent", "disc %", "disc%", "discount %", "discount%", "td %", "td%",
+        "trade disc %", "trade discount %", "disc percent",
+    ],
 }
 
 _INVOICE_META_ALIASES = {
@@ -922,6 +990,8 @@ _INVOICE_META_ALIASES = {
     "buyer_gstin": ("customer gstin", "buyer gstin"),
     "bill_number": ("invoice no", "invoice number", "bill no", "bill number"),
     "bill_date": ("invoice date", "bill date"),
+    "freight": ("freight", "freight charges", "packing", "packing charges", "other charges"),
+    "invoice_discount": ("bill discount", "invoice discount", "cash discount"),
 }
 
 
@@ -1145,9 +1215,29 @@ def _read_structured_bill(raw: bytes, filename: str) -> tuple[list[dict], dict]:
     return rows, {}
 
 
+# Header-level money that a flat CSV can only carry as a repeated column.
+_CSV_FREIGHT_KEYS = ("freight", "freight charges", "packing", "packing charges", "other charges")
+_CSV_BILL_DISCOUNT_KEYS = ("bill discount", "invoice discount", "cash discount")
+
+
+def _csv_header_money(rows: list[dict]) -> dict:
+    """First non-empty freight / bill-discount cell of a flat file (same value on every row)."""
+    found = {}
+    for target, keys in (("freight", _CSV_FREIGHT_KEYS), ("invoice_discount", _CSV_BILL_DISCOUNT_KEYS)):
+        for row in rows:
+            for key in keys:
+                value = row.get(key)
+                if value not in (None, "") and str(value).strip():
+                    found[target] = str(value).strip().replace(",", "")
+                    break
+            if target in found:
+                break
+    return found
+
+
 def _map_structured_row(row: dict) -> dict:
     mapped = {}
-    claimed = set()
+    claimed = set(_CSV_FREIGHT_KEYS) | set(_CSV_BILL_DISCOUNT_KEYS)
     for field, aliases in BILL_COLUMN_ALIASES.items():
         for alias in aliases:
             if alias in row and row[alias] not in (None, ""):
@@ -2288,7 +2378,240 @@ class ImportService:
         return {"voided": [v["sku"] for v in voided], "blocked": blocked, "job": job}
 
 
+class StalePreviewError(BusinessRuleError):
+    """The client edited a version of the preview that is no longer current."""
+
+    status_code = 409
+    default_code = "preview_stale"
+
+
+BILL_PREVIEW_MAX_LINES = int(getattr(settings, "BILL_IMPORT_MAX_LINES", 500) or 500)
+# Server-computed fields on a stored line that a client edit must not drop.
+_CARRY_LINE_KEYS = (
+    "suggested_quantity", "product_id", "create_new", "product_match", "match_key",
+    "cess_rate", "cess_amount", "price_list_price", "below_price_list", "excluded_reason", "line_id",
+    "printed_taxable_amt", "extras", "flags", "confidence", "bbox", "edited",
+)
+_NEXT_LINE_ID = "next_line_id"
+
+
+def _q2(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
+
+
+def preview_totals(job: ImportJob, preview: dict, *, intra_state: bool | None = None) -> dict:
+    """Taxable / GST / cess / grand total of the included lines (23.15, 24.1).
+
+    Runs the *same* tax engine the saved draft uses (line discounts, tax-inclusive
+    base extraction, per-unit cess, freight, bill discount, round-off), on
+    in-memory stand-ins, so the review screen shows the draft's real numbers.
+    """
+    from types import SimpleNamespace
+
+    from core.services.tax_engine.india import compute_document_totals
+
+    inclusive = str(preview.get("price_mode") or "").upper() == "INCLUSIVE"
+
+    def _dec(value, default="0"):
+        if value in (None, ""):
+            return Decimal(default)
+        try:
+            return Decimal(str(value).strip().rstrip("%").strip() or default)
+        except InvalidOperation:
+            return Decimal(default)
+
+    items = []
+    for ln in preview.get("lines") or []:
+        if not ln.get("include"):
+            continue
+        qty = _dec(ln.get("quantity"))
+        if qty <= 0:
+            continue
+        price = _dec(ln.get("unit_price"))
+        items.append(SimpleNamespace(
+            quantity=qty,
+            unit_price=price,
+            unit_price_inclusive=price if inclusive else None,
+            discount_percent=_dec(ln.get("discount_percent")),
+            gst_rate=_dec(ln.get("gst_rate")),
+            cess_rate=_dec(ln.get("cess_rate")),
+            cess_amount=_dec(ln.get("cess_amount")),
+            supply_nature="TAXABLE",
+            taxable_amount=Decimal("0"), cgst=Decimal("0"), sgst=Decimal("0"), igst=Decimal("0"),
+            cess=Decimal("0"), line_total=Decimal("0"), applied_rate=Decimal("0"),
+            rate_override=False, rate_override_reason="", rate_version="",
+        ))
+    document = SimpleNamespace(
+        price_mode="INCLUSIVE" if inclusive else "EXCLUSIVE",
+        additional_charges=_dec(preview.get("additional_charges")),
+        invoice_discount=_dec(preview.get("invoice_discount")),
+        invoice_discount_mode="AFTER_TAX",
+        auto_round_off=True,
+        charges_hsn="", charges_gst_rate=Decimal("0"),
+        status="DRAFT", company=job.company,
+        subtotal=Decimal("0"), discount_total=Decimal("0"), taxable_total=Decimal("0"),
+        cgst_total=Decimal("0"), sgst_total=Decimal("0"), igst_total=Decimal("0"),
+        cess_total=Decimal("0"), round_off=Decimal("0"), grand_total=Decimal("0"),
+    )
+    # Only the CGST/SGST vs IGST split depends on the states; the grand total does not.
+    out = {"included_lines": len(items)}
+    try:
+        compute_document_totals(document, items, tax_enabled=True, intra_state=intra_state is not False)
+    except BusinessRuleError as exc:
+        out.update(
+            taxable="0.00", gst="0.00", cess="0.00", charges="0.00", invoice_discount="0.00",
+            grand_total="0.00", rounded_total="0", error=str(exc.detail),
+        )
+        return out
+    gst = document.cgst_total + document.sgst_total + document.igst_total
+    out.update(
+        cgst=str(_q2(document.cgst_total)),
+        sgst=str(_q2(document.sgst_total)),
+        igst=str(_q2(document.igst_total)),
+        # INTRA / INTER when both states are known; ASSUMED_INTRA until the customer's state is.
+        tax_type=("ASSUMED_INTRA" if intra_state is None else ("INTRA" if intra_state else "INTER")),
+    )
+    out.update(
+        taxable=str(_q2(document.taxable_total)),
+        gst=str(_q2(gst)),
+        cess=str(_q2(document.cess_total)),
+        charges=str(_q2(document.additional_charges)),
+        invoice_discount=str(_q2(document.invoice_discount)),
+        grand_total=str(_q2(document.grand_total)),
+        rounded_total=str(document.grand_total.quantize(Decimal("1"))),
+    )
+    printed = preview.get("printed_total")
+    if printed not in (None, ""):
+        try:
+            diff = _q2(_as_decimal(printed) - document.grand_total)
+            out["printed_total"] = str(_q2(_as_decimal(printed)))
+            out["printed_difference"] = str(diff)
+            out["printed_matches"] = abs(diff) <= Decimal("1.00")
+        except BusinessRuleError:
+            pass
+    return out
+
+
 class BillImportService:
+    @staticmethod
+    def finalize_preview_lines(preview: dict, lines: list[dict], *, bump: bool = True) -> list[dict]:
+        """Give every line a stable `line_id` and bump `preview_version` (24.5).
+
+        `line_id` is server-owned (never the printed S.No, which repeats across
+        pages). Existing ids are preserved across edits and clarification.
+        """
+        highest = max(
+            [int(preview.get(_NEXT_LINE_ID) or 1) - 1]
+            + [int(ln.get("line_id") or 0) for ln in lines if isinstance(ln, dict)]
+        )
+        for ln in lines:
+            if isinstance(ln, dict) and not ln.get("line_id"):
+                highest += 1
+                ln["line_id"] = highest
+        preview[_NEXT_LINE_ID] = highest + 1
+        current = int(preview.get("preview_version") or 0)
+        if bump or not current:
+            preview["preview_version"] = current + 1
+        return lines
+
+    @staticmethod
+    def enrich_preview(job: ImportJob, preview: dict) -> dict:
+        """Add server-derived review aids: party match, product match per line,
+        price-list deviation, company-GSTIN status, totals. Mutates `preview`
+        and may bind `job.customer` / `job.supplier` on an exact match."""
+        from imports import party_match
+        from masters.pricing import resolve_party_price
+
+        is_sales = job.kind == ImportJob.Kind.SALES_BILL
+        lines = preview.get("lines") or []
+
+        if is_sales:
+            name = preview.get("customer_name") or preview.get("buyer_name") or ""
+            gstin = preview.get("buyer_gstin") or ""
+        else:
+            name = preview.get("supplier_name") or ""
+            gstin = preview.get("supplier_gstin") or ""
+        # Autosave calls this every few seconds; only rescan the party master
+        # when what the bill says about the party actually changed.
+        party_key = f"{job.kind}|{gstin}|{name}"
+        pm = preview.get("party_match") if preview.get("party_match_key") == party_key else None
+        if pm is None:
+            if is_sales:
+                pm = party_match.match_customer(job.company, gstin=gstin, name=name)
+            else:
+                pm = party_match.match_supplier(job.company, gstin=gstin, name=name)
+            preview["party_match_key"] = party_key
+        if is_sales and job.customer_id is None and pm["status"] == "matched" and pm.get("exact"):
+            job.customer_id = pm["id"]
+        if not is_sales and job.supplier_id is None and pm["status"] == "matched" and pm.get("exact"):
+            job.supplier_id = pm["id"]
+        pm["bound_id"] = job.customer_id if is_sales else job.supplier_id
+        preview["party_match"] = pm
+
+        catalog = None
+        customer = None
+        if is_sales and job.customer_id:
+            customer = Customer.objects.filter(pk=job.customer_id, company=job.company).first()
+        for ln in lines:
+            chosen = ln.get("product_id")
+            key = f"{ln.get('sku') or ''}|{ln.get('name') or ''}|{chosen or ''}"
+            if ln.get("product_match") and ln.get("match_key") == key and not (customer and customer.price_list_id):
+                continue
+            if catalog is None:
+                catalog = party_match.build_catalog(job.company)
+            if chosen and int(chosen) in catalog["by_id"]:
+                match = party_match.product_match_row("matched", catalog["by_id"][int(chosen)], "chosen", 1.0)
+            else:
+                match = party_match.match_product(ln, catalog)
+            ln["product_match"] = match
+            ln["match_key"] = key
+            if match.get("cess_rate") and ln.get("cess_rate") in (None, ""):
+                ln["cess_rate"] = match["cess_rate"]
+            if match.get("cess_amount") and ln.get("cess_amount") in (None, ""):
+                ln["cess_amount"] = match["cess_amount"]
+            ln.pop("price_list_price", None)
+            ln.pop("below_price_list", None)
+            if customer is not None and customer.price_list_id and match.get("product_id"):
+                product = Product.objects.filter(pk=match["product_id"]).first()
+                if product is not None:
+                    try:
+                        list_price, _name = resolve_party_price(
+                            customer=customer, product=product, quantity=ln.get("quantity") or None
+                        )
+                    except Exception:  # noqa: BLE001 — a pricing lookup must not break review
+                        list_price = None
+                    if list_price is not None:
+                        ln["price_list_price"] = str(list_price)
+                        try:
+                            ln["below_price_list"] = _as_decimal(ln.get("unit_price"), "0") < list_price
+                        except BusinessRuleError:
+                            ln["below_price_list"] = False
+        status = company_gstin_status(job.company, preview, kind=job.kind)
+        preview["company_gstin_status"] = {
+            "status": status["status"],
+            "options": status["options"],
+            "resolved_id": status["obj"].pk if status.get("obj") else None,
+            "suggestion": status.get("suggestion"),
+        }
+        preview["new_product_count"] = len(
+            [
+                ln for ln in lines
+                if ln.get("include")
+                and not ln.get("product_id")
+                and (ln.get("product_match") or {}).get("status") in ("none", "candidates")
+            ]
+        )
+        intra = None
+        if is_sales and job.customer_id:
+            seller_state = (status["obj"].state if status.get("obj") and getattr(status["obj"], "state", "") else "") or (
+                getattr(job.company, "state", "") or ""
+            )
+            buyer_state = (customer.state if customer is not None else "") or ""
+            if seller_state and buyer_state:
+                intra = seller_state.strip().casefold() == buyer_state.strip().casefold()
+        preview["totals"] = preview_totals(job, preview, intra_state=intra)
+        return preview
+
     @staticmethod
     def start_extraction(job: ImportJob):
         if job.kind not in ImportJob.BILL_KINDS:
@@ -2304,6 +2627,12 @@ class BillImportService:
             stale_after = timedelta(seconds=480 + 120)
             if _tz.now() - job.updated_at > stale_after:
                 allowed.add(ImportJob.Status.EXTRACTING)
+            # 23.13: the task refreshes a heartbeat between batches; a job
+            # with no heartbeat for 2 minutes is wedged, retry it early.
+            beat = job.extraction_heartbeat_at
+            if beat is not None and _tz.now() - beat > timedelta(seconds=120):
+                allowed.add(ImportJob.Status.EXTRACTING)
+        allowed.add(ImportJob.Status.CANCELLED)
         if job.status not in allowed:
             raise BusinessRuleError(
                 "Extraction can only start from UPLOADED or FAILED "
@@ -2312,7 +2641,8 @@ class BillImportService:
         job.status = ImportJob.Status.EXTRACTING
         job.failure_reason = ""
         job.errors = []
-        job.save(update_fields=["status", "failure_reason", "errors", "updated_at"])
+        job.extraction_heartbeat_at = timezone.now()
+        job.save(update_fields=["status", "failure_reason", "errors", "extraction_heartbeat_at", "updated_at"])
         from django.conf import settings
         from imports.tasks import extract_purchase_bill_task
 
@@ -2340,6 +2670,8 @@ class BillImportService:
         if not rows:
             raise BusinessRuleError("The file has no data rows.")
 
+        for key, value in _csv_header_money(rows).items():
+            meta.setdefault(key, value)
         raw_lines = [_map_structured_row(row) for row in rows]
         preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
         answers = _infer_qty_answers(preview_lines, tolerance=Decimal("0.50")) or {}
@@ -2361,6 +2693,8 @@ class BillImportService:
             "buyer_gstin": meta.get("buyer_gstin") or "",
             "bill_number": meta.get("bill_number") or "",
             "bill_date": meta.get("bill_date") or "",
+            **({"additional_charges": str(meta["freight"])} if meta.get("freight") else {}),
+            **({"invoice_discount": str(meta["invoice_discount"])} if meta.get("invoice_discount") else {}),
             "extraction_confidence": 1.0,
             "low_confidence_accepted": True,
             "column_headers": list(rows[0].keys()) if rows else [],
@@ -2391,6 +2725,9 @@ class BillImportService:
         )
         if direction_warning:
             preview["direction_warning"] = direction_warning
+        BillImportService._guard_line_limit(preview_lines)
+        BillImportService.finalize_preview_lines(preview, preview_lines)
+        BillImportService.enrich_preview(job, preview)
         included = [ln for ln in preview_lines if ln.get("include")]
         job.preview = preview
         job.errors = errors
@@ -2402,6 +2739,14 @@ class BillImportService:
         job.failure_reason = ""
         job.save()
         return job
+
+    @staticmethod
+    def _guard_line_limit(lines: list[dict]) -> None:
+        if len(lines) > BILL_PREVIEW_MAX_LINES:
+            raise BusinessRuleError(
+                f"This bill has {len(lines)} lines; the maximum is {BILL_PREVIEW_MAX_LINES}. "
+                "Split the file and upload it in parts."
+            )
 
     @staticmethod
     def _build_preview_lines(raw_lines: list[dict]) -> tuple[list[dict], list[dict], list[str]]:
@@ -2417,6 +2762,7 @@ class BillImportService:
                 if line_errors:
                     errors.append({"row": index, "errors": line_errors, "data": line})
                     line["include"] = False
+                    line["excluded_reason"] = "; ".join(line_errors)
             preview_lines.append(line)
         return preview_lines, errors, rate_warnings
 
@@ -2432,7 +2778,7 @@ class BillImportService:
         # For a sales bill the "vendor" whose layout we're learning is still
         # the document's issuer (the seller) — that's who prints the columns.
         template_gstin = str(payload.get("supplier_gstin") or "").strip() or gstin
-        template = _match_bill_template(job.company, template_gstin, column_headers)
+        template = _match_bill_template(job.company, template_gstin, column_headers, job.kind)
 
         preview = {
             "supplier_name": str(payload.get("supplier_name") or "").strip(),
@@ -2450,7 +2796,21 @@ class BillImportService:
         direction_warning = _infer_direction_warning(job.kind, payload, job.company)
         if direction_warning:
             preview["direction_warning"] = direction_warning
+        # 24.1: header charges / discount / tax-mode hint read off the bill.
+        for key in ("freight", "invoice_discount"):
+            if str(payload.get(key) or "").strip():
+                preview["additional_charges" if key == "freight" else key] = str(payload[key]).strip()
+        if str(payload.get("price_mode_hint") or "").upper() == "INCLUSIVE":
+            preview["price_mode"] = "INCLUSIVE"
 
+        # Row positions are fractions of ONE picture. A PDF is rasterised page by page and the
+        # viewer shows the PDF itself, so a position there would point at the wrong place.
+        file_name = (getattr(job.file, "original_name", "") or "").lower()
+        file_type = (getattr(job.file, "content_type", "") or "").lower()
+        if file_type == "application/pdf" or file_name.endswith(".pdf"):
+            for raw in raw_lines:
+                if isinstance(raw, dict):
+                    raw.pop("bbox", None)
         preview_lines, errors, rate_warnings = BillImportService._build_preview_lines(raw_lines)
         if rate_warnings:
             preview["warnings"] = rate_warnings
@@ -2511,6 +2871,9 @@ class BillImportService:
                     job.clarifications = []
                     job.status = ImportJob.Status.PREVIEWED
 
+        BillImportService._guard_line_limit(preview["lines"])
+        BillImportService.finalize_preview_lines(preview, preview["lines"])
+        BillImportService.enrich_preview(job, preview)
         included = [ln for ln in preview["lines"] if ln.get("include")]
         job.preview = preview
         job.errors = errors
@@ -2571,6 +2934,8 @@ class BillImportService:
         preview["resolved_formula"] = formula_key
         preview["resolved_answers"] = resolved_answers
         preview["lines"] = preview_lines
+        BillImportService.finalize_preview_lines(preview, preview_lines)
+        BillImportService.enrich_preview(job, preview)
 
         job.preview = preview
         job.errors = errors
@@ -2584,13 +2949,29 @@ class BillImportService:
 
     @staticmethod
     def mark_failed(job: ImportJob, reason: str):
+        from imports import metrics
+
+        metrics.record_failure(job, reason)
         job.status = ImportJob.Status.FAILED
         job.failure_reason = (reason or "Extraction failed.")[:2000]
         job.save(update_fields=["status", "failure_reason", "updated_at"])
         return job
 
     @staticmethod
-    def update_preview(job: ImportJob, data: dict, user=None):
+    def update_preview(job: ImportJob, data: dict, user=None, *, strict_included: bool = False):
+        """Edit the extracted bill (header, party, lines) before commit.
+
+        Lines are *merged by `line_id`* (UPLOAD_SALES_BILL_REVIEW 23.1): stored
+        lines the client did not send are kept, `deleted: true` removes one, and
+        `is_new: true` appends one. A legacy full-array payload (no ids) is
+        mapped by position and only accepted when its length matches. Included
+        lines with problems are NOT silently unchecked any more; their
+        structured errors are stored on the line and enforced at commit.
+        `strict_included` is accepted for API symmetry: the strict gate lives
+        in `BillImportService.commit`, which every caller goes through.
+        """
+        from imports import bill_validation
+
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Preview update is only for bill imports.")
         if job.status != ImportJob.Status.PREVIEWED:
@@ -2599,78 +2980,174 @@ class BillImportService:
         preview = dict(job.preview or {})
         if not isinstance(preview, dict):
             preview = {"lines": []}
+        stored = [dict(ln) for ln in (preview.get("lines") or []) if isinstance(ln, dict)]
+        BillImportService.finalize_preview_lines(preview, stored, bump=False)
 
-        if "supplier_name" in data:
-            preview["supplier_name"] = str(data.get("supplier_name") or "").strip()
+        version_in = data.get("preview_version")
+        if version_in not in (None, ""):
+            try:
+                version_in = int(version_in)
+            except (TypeError, ValueError):
+                raise BusinessRuleError("preview_version must be a number.")
+            if version_in != int(preview.get("preview_version") or 1):
+                raise StalePreviewError(
+                    "This bill was changed elsewhere since you opened it. Reload to continue."
+                )
+
+        text_fields = (
+            "supplier_name", "customer_name", "buyer_name", "bill_number", "bill_date",
+        )
+        for field in text_fields:
+            if field in data:
+                preview[field] = str(data.get(field) or "").strip()
         if "supplier_gstin" in data:
             preview["supplier_gstin"] = str(data.get("supplier_gstin") or "").strip()
-        if "customer_name" in data:
-            preview["customer_name"] = str(data.get("customer_name") or "").strip()
         # B3-024: _resolve_customer (SALES_BILL commit) and the direction-
         # warning / import-company-GSTIN checks all key off buyer_gstin /
-        # buyer_name specifically — a mis-read buyer GSTIN had no way to be
-        # corrected before commit because this endpoint didn't accept them.
+        # buyer_name specifically.
         if "buyer_gstin" in data:
             preview["buyer_gstin"] = str(data.get("buyer_gstin") or "").strip().upper()
-        if "buyer_name" in data:
-            preview["buyer_name"] = str(data.get("buyer_name") or "").strip()
-        if "bill_number" in data:
-            preview["bill_number"] = str(data.get("bill_number") or "").strip()
-        if "bill_date" in data:
-            preview["bill_date"] = str(data.get("bill_date") or "").strip()
-        if "low_confidence_accepted" in data:
-            preview["low_confidence_accepted"] = bool(data.get("low_confidence_accepted"))
+        for field in ("low_confidence_accepted", "confirm_duplicate", "confirm_new_products"):
+            if field in data:
+                preview[field] = bool(data.get(field))
         if "confirm_non_gst" in data or "confirmNonGst" in data:
             # CR-041 / CR-137: operator opts into NON_GST when all lines are 0-rated.
             val = data.get("confirm_non_gst") if "confirm_non_gst" in data else data.get("confirmNonGst")
             preview["confirm_non_gst"] = bool(val)
+        if "price_mode" in data:
+            mode = str(data.get("price_mode") or "EXCLUSIVE").strip().upper()
+            if mode not in ("EXCLUSIVE", "INCLUSIVE"):
+                raise BusinessRuleError("price_mode must be EXCLUSIVE or INCLUSIVE.")
+            preview["price_mode"] = mode
+        for money in ("additional_charges", "invoice_discount", "printed_total"):
+            if money in data:
+                raw = data.get(money)
+                if raw in (None, ""):
+                    preview.pop(money, None)
+                else:
+                    value = _as_decimal(raw)
+                    if value < 0:
+                        raise BusinessRuleError(f"{money.replace('_', ' ').capitalize()} cannot be negative.")
+                    preview[money] = str(value)
+        if "company_gstin_id" in data:
+            raw = data.get("company_gstin_id")
+            if raw in (None, ""):
+                preview.pop("company_gstin_id", None)
+            else:
+                if not CompanyGstin.objects.filter(pk=raw, company=job.company, is_active=True).exists():
+                    raise BusinessRuleError("Invalid company GSTIN.")
+                preview["company_gstin_id"] = int(raw)
 
         if "lines" in data:
             lines_in = data.get("lines") or []
             if not isinstance(lines_in, list):
                 raise BusinessRuleError("lines must be an array.")
-            lines, errors = [], []
+            incoming = [ln for ln in lines_in if isinstance(ln, dict)]
             rate_warnings: list[str] = []
-            for index, raw_line in enumerate(lines_in, start=1):
-                if not isinstance(raw_line, dict):
-                    continue
-                line = _preview_bill_line(raw_line, index=index, rate_warnings=rate_warnings)
-                # User edits may toggle include even with previously blank fields.
-                if "include" in raw_line:
-                    line["include"] = bool(raw_line.get("include"))
-                line_errors = _bill_line_errors(line) if line.get("include") else []
-                if line_errors:
-                    errors.append({"row": index, "errors": line_errors, "data": line})
-                    line["include"] = False
-                lines.append(line)
-            preview["lines"] = lines
+            by_id = {int(ln["line_id"]): ln for ln in stored}
+            order = [int(ln["line_id"]) for ln in stored]
+            deleted: set[int] = set()
+            appended: list[dict] = []
+
+            def _merge(base: dict | None, raw: dict, index: int) -> dict:
+                merged = {**(base or {}), **{k: v for k, v in raw.items() if k not in ("deleted", "is_new")}}
+                # Server-owned review fields must not be treated as bill columns.
+                clean = {k: v for k, v in merged.items() if k not in _CARRY_LINE_KEYS and k not in ("errors",)}
+                line = _preview_bill_line(clean, index=index, rate_warnings=rate_warnings)
+                if base is not None and any(
+                    str(line.get(f) or "") != str(base.get(f) or "")
+                    for f in ("name", "sku", "hsn_code", "quantity", "unit_price", "gst_rate", "mrp", "discount_percent")
+                ):
+                    merged["edited"] = True
+                for key in _CARRY_LINE_KEYS:
+                    if key in merged and key not in line:
+                        line[key] = merged[key]
+                if "include" in raw:
+                    line["include"] = bool(raw.get("include"))
+                if "product_id" in raw:
+                    line["product_id"] = raw.get("product_id") or None
+                if "create_new" in raw:
+                    line["create_new"] = bool(raw.get("create_new"))
+                if base is not None and base.get("line_id"):
+                    line["line_id"] = base["line_id"]
+                return line
+
+            has_ids = any(ln.get("line_id") not in (None, "") for ln in incoming)
+            has_new = any(ln.get("is_new") for ln in incoming)
+            if not has_ids and not has_new:
+                # Legacy full-array payload: positional, same length only.
+                if len(incoming) != len(stored):
+                    raise StalePreviewError(
+                        "This bill has a different number of lines than your copy. Reload to continue."
+                    )
+                for index, (lid, raw) in enumerate(zip(order, incoming), start=1):
+                    by_id[lid] = _merge(by_id[lid], raw, index)
+            else:
+                for raw in incoming:
+                    lid_raw = raw.get("line_id")
+                    if lid_raw in (None, ""):
+                        if raw.get("deleted"):
+                            continue
+                        appended.append(_merge(None, raw, len(order) + len(appended) + 1))
+                        continue
+                    try:
+                        lid = int(lid_raw)
+                    except (TypeError, ValueError):
+                        raise BusinessRuleError("line_id must be a number.")
+                    if lid not in by_id:
+                        raise StalePreviewError(
+                            "A line you edited no longer exists. Reload to continue."
+                        )
+                    if raw.get("deleted"):
+                        deleted.add(lid)
+                        continue
+                    by_id[lid] = _merge(by_id[lid], raw, order.index(lid) + 1)
+            merged_lines = [by_id[lid] for lid in order if lid not in deleted] + appended
+            BillImportService._guard_line_limit(merged_lines)
+            BillImportService.finalize_preview_lines(preview, merged_lines, bump=False)
+            errors = []
+            for index, line in enumerate(merged_lines, start=1):
+                structured = bill_validation.line_errors(line, kind=job.kind) if line.get("include") else []
+                line["errors"] = structured
+                if structured:
+                    errors.append({
+                        "row": index,
+                        "errors": [e["message"] for e in structured],
+                        "data": {k: v for k, v in line.items() if k != "errors"},
+                    })
+            preview["lines"] = merged_lines
             if rate_warnings:
                 preview["warnings"] = rate_warnings
             else:
                 preview.pop("warnings", None)
             job.errors = errors
-            job.total_rows = len(lines)
-            job.valid_rows = len([ln for ln in lines if ln.get("include")])
+            job.total_rows = len(merged_lines)
+            job.valid_rows = len([ln for ln in merged_lines if ln.get("include") and not ln.get("errors")])
             job.error_rows = len(errors)
 
-        job.preview = preview
-
         supplier_id = data.get("supplier_id", data.get("supplier"))
-        if supplier_id is not None and supplier_id != "":
-            try:
-                supplier = Supplier.objects.get(pk=supplier_id, company=job.company)
-            except (Supplier.DoesNotExist, ValueError, TypeError):
-                raise BusinessRuleError("Invalid supplier.")
-            job.supplier = supplier
+        if "supplier_id" in data or "supplier" in data:
+            if supplier_id in (None, ""):
+                job.supplier = None
+            else:
+                try:
+                    job.supplier = Supplier.objects.get(pk=supplier_id, company=job.company)
+                except (Supplier.DoesNotExist, ValueError, TypeError):
+                    raise BusinessRuleError("Invalid supplier.")
 
         customer_id = data.get("customer_id", data.get("customer"))
-        if customer_id is not None and customer_id != "":
-            try:
-                customer = Customer.objects.get(pk=customer_id, company=job.company)
-            except (Customer.DoesNotExist, ValueError, TypeError):
-                raise BusinessRuleError("Invalid customer.")
-            job.customer = customer
+        if "customer_id" in data or "customer" in data:
+            if customer_id in (None, ""):
+                job.customer = None
+            else:
+                try:
+                    job.customer = Customer.objects.get(pk=customer_id, company=job.company)
+                except (Customer.DoesNotExist, ValueError, TypeError):
+                    raise BusinessRuleError("Invalid customer.")
 
+        BillImportService.finalize_preview_lines(preview, preview.get("lines") or [], bump=True)
+        BillImportService.enrich_preview(job, preview)
+        job.preview = preview
         if user is not None:
             job.updated_by = user
         job.save()
@@ -2678,10 +3155,16 @@ class BillImportService:
 
     @staticmethod
     def _match_or_create_product(company, line: dict, user, *, direction: str = "PURCHASE") -> tuple[Product, bool]:
+        # A product the reviewer picked (or confirmed) wins over any matching.
+        chosen = line.get("product_id")
+        product = None
+        if chosen not in (None, ""):
+            product = Product.objects.filter(pk=chosen, company=company).first()
+            if product is None:
+                raise BusinessRuleError("The product chosen for a line no longer exists.")
         sku = str(line.get("sku") or "").strip()
         name = str(line.get("name") or "").strip()
-        product = None
-        if sku:
+        if product is None and sku:
             product = Product.objects.filter(company=company).filter(
                 Q(sku__iexact=sku) | Q(barcode__iexact=sku)
             ).first()
@@ -2706,6 +3189,16 @@ class BillImportService:
                 purchase_price=unit_price if direction == "PURCHASE" else Decimal("0"),
                 selling_price=unit_price if direction == "SALES" else Decimal("0"),
                 mrp=mrp,
+                # Owner decision (2026-10-12): products first seen on a sales bill are stock-
+                # tracked from the start, like any item. They have no stock yet, so Complete
+                # can be blocked until stock is received (flagged needs_review). A deployment
+                # can switch this off with BILL_IMPORT_SALES_PRODUCTS_TRACK_INVENTORY=False.
+                track_inventory=(
+                    direction == "PURCHASE"
+                    or bool(getattr(settings, "BILL_IMPORT_SALES_PRODUCTS_TRACK_INVENTORY", True))
+                ),
+                # No cost/stock yet: surface it for review (23.11).
+                needs_review=True,
                 created_by=user,
                 updated_by=user,
             )
@@ -2734,16 +3227,28 @@ class BillImportService:
 
     @staticmethod
     def _resolve_supplier(job: ImportJob, user) -> Supplier:
+        from imports import party_match
+
         if job.supplier_id:
             return job.supplier
         preview = job.preview if isinstance(job.preview, dict) else {}
         gstin = str(preview.get("supplier_gstin") or "").strip()
-        name = str(preview.get("supplier_name") or "").strip()
+        name = party_match.sanitize_party_name(preview.get("supplier_name") or "")
+        match = party_match.match_supplier(job.company, gstin=gstin, name=name)
         supplier = None
-        if gstin:
-            supplier = Supplier.objects.filter(company=job.company, gstin__iexact=gstin).first()
-        if supplier is None and name:
-            supplier = Supplier.objects.filter(company=job.company, name__iexact=name).first()
+        if match["status"] == "conflict":
+            raise BusinessRuleError(
+                "The supplier GSTIN and name on the bill match two different suppliers. "
+                "Select the right supplier before creating the draft.",
+                code="PARTY_CONFLICT",
+            )
+        if match["status"] == "inactive_match":
+            raise BusinessRuleError(
+                "; ".join(match["notes"]) or "That supplier is inactive.",
+                code="PARTY_INACTIVE",
+            )
+        if match["status"] == "matched":
+            supplier = Supplier.objects.get(pk=match["id"])
         if supplier is None:
             if not name:
                 raise BusinessRuleError("Select a supplier before committing the purchase bill.")
@@ -2754,25 +3259,38 @@ class BillImportService:
                 created_by=user,
                 updated_by=user,
             )
+            job.created_supplier_id = supplier.pk
         job.supplier = supplier
-        job.save(update_fields=["supplier", "updated_at"])
+        job.save(update_fields=["supplier", "created_supplier_id", "updated_at"])
         return supplier
 
     @staticmethod
     def _resolve_customer(job: ImportJob, user) -> Customer:
+        from imports import party_match
+
         if job.customer_id:
             return job.customer
         preview = job.preview if isinstance(job.preview, dict) else {}
-        gstin = str(preview.get("buyer_gstin") or "").strip()
-        name = (
+        gstin = str(preview.get("buyer_gstin") or "").strip().upper()
+        name = party_match.sanitize_party_name(
             str(preview.get("customer_name") or "").strip()
             or str(preview.get("buyer_name") or "").strip()
         )
+        match = party_match.match_customer(job.company, gstin=gstin, name=name)
         customer = None
-        if gstin:
-            customer = Customer.objects.filter(company=job.company, gstin__iexact=gstin).first()
-        if customer is None and name:
-            customer = Customer.objects.filter(company=job.company, name__iexact=name).first()
+        if match["status"] == "conflict":
+            raise BusinessRuleError(
+                "The customer GSTIN and name on the bill match two different customers. "
+                "Select the right customer before creating the draft.",
+                code="PARTY_CONFLICT",
+            )
+        if match["status"] == "inactive_match":
+            raise BusinessRuleError(
+                "; ".join(match["notes"]) or "That customer is inactive or blocked.",
+                code="PARTY_INACTIVE",
+            )
+        if match["status"] == "matched":
+            customer = Customer.objects.get(pk=match["id"])
         if customer is None:
             if not name:
                 raise BusinessRuleError("Select a customer before committing the sales bill.")
@@ -2780,10 +3298,11 @@ class BillImportService:
                 company=job.company,
                 user=user,
                 name=name,
-                gstin=gstin.upper() if gstin and GSTIN_RE.match(gstin.upper()) else "",
+                gstin=gstin if gstin and GSTIN_RE.match(gstin) else "",
             )
+            job.created_customer_id = customer.pk
         job.customer = customer
-        job.save(update_fields=["customer", "updated_at"])
+        job.save(update_fields=["customer", "created_customer_id", "updated_at"])
         return customer
 
     @staticmethod
@@ -2794,6 +3313,10 @@ class BillImportService:
         gstin = str(preview.get("supplier_gstin") or "").strip()
         if not gstin or not GSTIN_RE.match(gstin):
             return
+        # A bill uploaded on the wrong screen must not teach the wrong
+        # direction's template (23.6).
+        if preview.get("direction_warning"):
+            return
         formula_key = preview.get("resolved_formula") or SupplierBillTemplate.LineTotalFormula.SIMPLE
         column_headers = preview.get("column_headers") or []
         mapping = dict(preview.get("column_mapping") or {})
@@ -2803,7 +3326,9 @@ class BillImportService:
             mapping["qty_formula"] = qty_formula
         SupplierBillTemplate.objects.update_or_create(
             company=job.company,
+            kind=job.kind,
             gstin=gstin,
+            signature_hash=_signature_hash(column_headers),
             defaults={
                 "party_name": str(preview.get("supplier_name") or "")[:255],
                 "line_total_formula": formula_key,
@@ -2852,9 +3377,14 @@ class BillImportService:
     @transaction.atomic
     def commit(job: ImportJob, user):
         """CR-042: Bill commit is all-or-nothing in one atomic transaction.
-        Any error during product matching or line validation aborts the transaction,
-        leaving no partial drafts. Re-commit is guarded by PREVIEWED -> COMMITTED.
+
+        Order matters (24.2): validate the header and *every* included line
+        first -- no master data is created until the whole bill is known to be
+        committable. Any error aborts the transaction, leaving no partial
+        drafts. Re-commit is guarded by PREVIEWED -> COMMITTED.
         """
+        from imports import bill_validation, metrics
+
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Not a bill import.")
         job = ImportJob.objects.select_for_update().get(pk=job.pk)
@@ -2862,21 +3392,55 @@ class BillImportService:
             raise BusinessRuleError("Import must be previewed before commit.")
 
         preview = job.preview if isinstance(job.preview, dict) else {}
-        confidence = _parse_extraction_confidence(preview.get("extraction_confidence", 1))
-        if confidence < OCR_BILL_MIN_CONFIDENCE and not preview.get("low_confidence_accepted"):
-            raise BusinessRuleError(
-                f"OCR confidence ({confidence:.2f}) is below {OCR_BILL_MIN_CONFIDENCE:.2f}. "
-                "Review extracted fields and set low_confidence_accepted on preview before commit."
-            )
-
-        lines = [ln for ln in (preview.get("lines") or []) if ln.get("include")]
-        if not lines:
-            raise BusinessRuleError("Select at least one valid line to commit.")
+        all_lines = list(preview.get("lines") or [])
+        try:
+            bill_validation.raise_if_invalid(job, preview, all_lines, user=user)
+        except BusinessRuleError as exc:
+            metrics.record_rejection(job, exc)
+            raise
+        lines = [ln for ln in all_lines if ln.get("include")]
 
         if job.kind == ImportJob.Kind.SALES_BILL:
             result = BillImportService._commit_sales(job, preview, lines, user)
         else:
             result = BillImportService._commit_purchase(job, preview, lines, user)
+
+        excluded = [
+            {"line_id": ln.get("line_id"), "name": ln.get("name"), "reason": ln.get("excluded_reason") or "unchecked"}
+            for ln in all_lines
+            if not ln.get("include")
+        ]
+        if excluded:
+            AuditService.log(
+                company=job.company, user=user, action="IMPORT",
+                entity_type="ImportJob", entity_id=job.pk,
+                description=f"{len(excluded)} bill line(s) were left out of the draft",
+                metadata={
+                    "event": "IMPORT_SYSTEM_EXCLUDED",
+                    "excluded_lines": excluded[:100], "excluded_count": len(excluded),
+                },
+            )
+        below = [ln.get("line_id") for ln in lines if ln.get("below_price_list")]
+        if below:
+            AuditService.log(
+                company=job.company, user=user, action="IMPORT",
+                entity_type="ImportJob", entity_id=job.pk,
+                description=f"{len(below)} line(s) kept below the customer's price list",
+                metadata={"event": "IMPORT_PRICE_BELOW_LIST", "line_ids": below},
+            )
+        if job.created_product_ids or job.created_customer_id or job.created_supplier_id:
+            AuditService.log(
+                company=job.company, user=user, action="IMPORT",
+                entity_type="ImportJob", entity_id=job.pk,
+                description="Master data created from a bill import",
+                metadata={
+                    "event": "IMPORT_ENTITIES_CREATED",
+                    "product_ids": list(job.created_product_ids or []),
+                    "customer_id": job.created_customer_id,
+                    "supplier_id": job.created_supplier_id,
+                },
+            )
+        metrics.record_commit(job, all_lines, lines, excluded)
 
         # Learn this vendor's layout for next time (§4.4) — only once we have
         # a resolved formula (i.e. any clarification was actually answered,
@@ -2906,36 +3470,71 @@ class BillImportService:
         )
 
     @staticmethod
-    def _commit_purchase(job: ImportJob, preview: dict, lines: list[dict], user) -> dict:
-        supplier = BillImportService._resolve_supplier(job, user)
-        infer_rcm = BillImportService._infer_supplier_rcm(supplier)
+    def _line_items(job: ImportJob, lines: list[dict], user, *, direction: str, noun: str):
+        """Resolve products and build `items_data` (shared by both directions).
+
+        Returns (items_data, products_created_ids, rate_warnings).
+        """
         items_data = []
-        products_created = 0
-        # B3-025: the preview-time normalize already snapped/warned on an
-        # off-slab rate, but that warning lives on the ImportJob, not the
-        # invoice the bookkeeper actually opens later. Re-collect any snap
-        # here too so it's visible on the created document, not silent.
+        created_ids: list[int] = []
+        # B3-025: surface any commit-time rate snap on the created document.
         rate_warnings: list[str] = []
+        inclusive = str((job.preview or {}).get("price_mode") or "").upper() == "INCLUSIVE"
         for idx, line in enumerate(lines, start=1):
+            if line.get("quantity") in (None, ""):
+                raise BusinessRuleError(f"Quantity is required for each imported {noun} line.")
+            if line.get("gst_rate") in (None, ""):
+                raise BusinessRuleError(f"GST rate is required for each imported {noun} line.")
             product, created = BillImportService._match_or_create_product(
-                job.company, line, user, direction="PURCHASE"
+                job.company, line, user, direction=direction
             )
             if created:
-                products_created += 1
-            if line.get("quantity") in (None, ""):
-                raise BusinessRuleError("Quantity is required for each imported purchase line.")
-            if line.get("gst_rate") in (None, ""):
-                raise BusinessRuleError("GST rate is required for each imported purchase line.")
-            items_data.append({
+                created_ids.append(product.pk)
+            gst = _normalize_gst_rate(
+                line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+            )
+            unit_price = _as_decimal(line.get("unit_price"), "0")
+            item = {
                 "product": product,
                 "description": product.name,
                 "quantity": _as_decimal(line.get("quantity")),
-                "unit_price": _as_decimal(line.get("unit_price"), "0"),
-                "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(
-                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
+                "unit_price": unit_price,
+                "discount_percent": (
+                    _as_decimal(line.get("discount_percent"), "0")
+                    if line.get("discount_percent") not in (None, "")
+                    else Decimal("0")
                 ),
-            })
+                "gst_rate": gst,
+            }
+            # 23.4: the reviewed HSN / MRP belong on the *line*, even when the
+            # product master already has its own (the master is never changed).
+            hsn = str(line.get("hsn_code") or "").strip()
+            if hsn and HSN_RE.match(hsn):
+                item["hsn_code"] = hsn
+            mrp = _as_decimal(line.get("mrp"), "0")
+            if mrp > 0:
+                item["mrp"] = mrp
+            if line.get("cess_rate") not in (None, "", "0", "0.00"):
+                item["cess_rate"] = _as_decimal(line.get("cess_rate"), "0")
+            if line.get("cess_amount") not in (None, "", "0", "0.00"):
+                item["cess_amount"] = _as_decimal(line.get("cess_amount"), "0")
+            if inclusive and gst:
+                # The printed rate already contains GST: keep it as the
+                # inclusive price and store the exclusive base on the line.
+                # The tax engine (apply_inclusive_prices_to_items) derives the
+                # exclusive base -- net of the line discount -- from this.
+                item["unit_price_inclusive"] = unit_price
+            items_data.append(item)
+        return items_data, created_ids, rate_warnings
+
+    @staticmethod
+    def _commit_purchase(job: ImportJob, preview: dict, lines: list[dict], user) -> dict:
+        supplier = BillImportService._resolve_supplier(job, user)
+        infer_rcm = BillImportService._infer_supplier_rcm(supplier)
+        items_data, created_ids, rate_warnings = BillImportService._line_items(
+            job, lines, user, direction="PURCHASE", noun="purchase"
+        )
+        products_created = len(created_ids)
 
         # B3-027 / CR-041: all 0-rated lines default to GST (nil-rated / exempt /
         # composition bills are still GST docs). Flip to NON_GST only when the
@@ -2962,6 +3561,13 @@ class BillImportService:
             )
         if infer_rcm:
             notes += " — supplier unregistered / blank GSTIN: reverse charge set, review before Complete"
+        purchase_extra = {}
+        if preview.get("additional_charges") not in (None, ""):
+            purchase_extra["additional_charges"] = _as_decimal(preview.get("additional_charges"), "0")
+        if preview.get("invoice_discount") not in (None, ""):
+            purchase_extra["invoice_discount"] = _as_decimal(preview.get("invoice_discount"), "0")
+        if str(preview.get("price_mode") or "").upper() in ("EXCLUSIVE", "INCLUSIVE"):
+            purchase_extra["price_mode"] = str(preview["price_mode"]).upper()
         invoice = PurchaseInvoice.objects.create(
             company=job.company,
             supplier=supplier,
@@ -2977,16 +3583,19 @@ class BillImportService:
             attachment=job.file,
             created_by=user,
             updated_by=user,
+            **purchase_extra,
         )
         PurchaseService.set_items(invoice, items_data, user)
 
         job.purchase_invoice = invoice
+        job.created_product_ids = created_ids
         AuditService.log(
             company=job.company, user=user, action="IMPORT",
             entity_type="ImportJob", entity_id=job.pk,
             description=f"Imported purchase bill → draft purchase #{invoice.pk}",
             metadata={
                 "products_created": products_created,
+                "created_product_ids": created_ids,
                 "lines": len(items_data),
                 "purchase_invoice_id": invoice.pk,
                 "purchase_type": purchase_type,
@@ -3001,61 +3610,96 @@ class BillImportService:
         }
 
     @staticmethod
+    def _import_role(job: ImportJob, user) -> str:
+        from accounts.models import CompanyUser
+
+        cu = CompanyUser.objects.filter(company=job.company, user=user).first()
+        return (getattr(cu, "role", "") or "").upper()
+
+    @staticmethod
     def _commit_sales(job: ImportJob, preview: dict, lines: list[dict], user) -> dict:
         customer = BillImportService._resolve_customer(job, user)
-        items_data = []
-        products_created = 0
-        # B3-025: see _commit_purchase — surface any commit-time rate snap on
-        # the created document, not just the (harder to find) ImportJob.
-        rate_warnings: list[str] = []
-        for idx, line in enumerate(lines, start=1):
-            product, created = BillImportService._match_or_create_product(
-                job.company, line, user, direction="SALES"
-            )
-            if created:
-                products_created += 1
-            if line.get("quantity") in (None, ""):
-                raise BusinessRuleError("Quantity is required for each imported sales line.")
-            if line.get("gst_rate") in (None, ""):
-                raise BusinessRuleError("GST rate is required for each imported sales line.")
-            items_data.append({
-                "product": product,
-                "description": product.name,
-                "quantity": _as_decimal(line.get("quantity")),
-                "unit_price": _as_decimal(line.get("unit_price"), "0"),
-                "discount_percent": Decimal("0"),
-                "gst_rate": _normalize_gst_rate(
-                    line.get("gst_rate"), required=True, warnings=rate_warnings, row=idx,
-                ),
-            })
+        items_data, created_ids, rate_warnings = BillImportService._line_items(
+            job, lines, user, direction="SALES", noun="sales"
+        )
+        products_created = len(created_ids)
 
-        notes = f"Created from sales bill upload (bill #{str(preview.get('bill_number') or '')[:64]})"
+        # 23.3: keep the reviewed price. The role gate already ran in
+        # validation, so anyone reaching here may preserve below-list prices.
+        below_list = []
+        for item, line in zip(items_data, lines):
+            if line.get("below_price_list"):
+                item["price_override_by"] = user
+                below_list.append(line.get("line_id") or line.get("name"))
+
+        all_zero = bool(items_data) and all(
+            Decimal(str(it["gst_rate"] or 0)) == 0 for it in items_data
+        )
+        confirm_non_gst = bool(preview.get("confirm_non_gst"))
+        invoice_type = (
+            SalesInvoice.InvoiceType.NON_GST
+            if all_zero and confirm_non_gst
+            else SalesInvoice.InvoiceType.GST
+        )
+
+        bill_number = str(preview.get("bill_number") or "")[:64]
+        notes = f"Created from sales bill upload (bill #{bill_number})"
         if rate_warnings:
             notes += " — " + "; ".join(rate_warnings)
+        if invoice_type == SalesInvoice.InvoiceType.NON_GST:
+            notes += " — all lines 0-rated: booked as non-GST (bill of supply, confirmed)"
+
+        invoice_date = BillImportService._parse_bill_date(
+            str(preview.get("bill_date") or ""),
+            required=True,
+        )
+        # 23.8: a historical bill still has terms; mirror the editor default
+        # (customer credit days, else the standard terms) instead of "due now".
+        terms_days = int(customer.credit_days or 0) or int(
+            getattr(settings, "BILL_IMPORT_DEFAULT_PAYMENT_TERMS_DAYS", 30) or 0
+        )
+        extra_fields = {}
+        if preview.get("additional_charges") not in (None, ""):
+            extra_fields["additional_charges"] = _as_decimal(preview.get("additional_charges"), "0")
+        if preview.get("invoice_discount") not in (None, ""):
+            extra_fields["invoice_discount"] = _as_decimal(preview.get("invoice_discount"), "0")
+        price_mode = str(preview.get("price_mode") or "").upper()
+        if price_mode in ("EXCLUSIVE", "INCLUSIVE"):
+            extra_fields["price_mode"] = price_mode
         invoice = SalesInvoice.objects.create(
             company=job.company,
             customer=customer,
             company_gstin=_resolve_import_company_gstin(job.company, preview, kind=ImportJob.Kind.SALES_BILL),
-            invoice_type=SalesInvoice.InvoiceType.GST,
-            invoice_date=BillImportService._parse_bill_date(
-                str(preview.get("bill_date") or ""),
-                required=True,
-            ),
+            invoice_type=invoice_type,
+            invoice_date=invoice_date,
+            payment_terms_days=terms_days,
+            due_date=invoice_date + timedelta(days=terms_days),
             notes=notes,
+            external_reference=bill_number,
+            attachment=job.file,
             created_by=user,
             updated_by=user,
+            **extra_fields,
         )
+        # The reviewed prices must not be silently re-priced to the customer's
+        # price list (23.3); deviations are recorded on the line instead.
+        invoice._preserve_requested_prices = True
+        invoice._price_role = BillImportService._import_role(job, user)
         SalesService.set_items(invoice, items_data, user)
 
         job.sales_invoice = invoice
+        job.created_product_ids = created_ids
         AuditService.log(
             company=job.company, user=user, action="IMPORT",
             entity_type="ImportJob", entity_id=job.pk,
             description=f"Imported sales bill → draft sales invoice #{invoice.pk}",
             metadata={
                 "products_created": products_created,
+                "created_product_ids": created_ids,
+                "created_customer_id": job.created_customer_id,
                 "lines": len(items_data),
                 "sales_invoice_id": invoice.pk,
+                **({"price_below_list_lines": below_list} if below_list else {}),
                 **({"gst_rate_warnings": rate_warnings} if rate_warnings else {}),
             },
         )
@@ -3063,4 +3707,191 @@ class BillImportService:
             "created": len(items_data),
             "products_created": products_created,
             "sales_invoice_id": invoice.pk,
+        }
+
+    # ------------------------------------------------------------------ undo
+    @staticmethod
+    @transaction.atomic
+    def void_bill(job: ImportJob, user) -> ImportJob:
+        """Undo a committed bill import while its draft is still a draft (23.14)."""
+        if job.kind not in ImportJob.BILL_KINDS:
+            raise BusinessRuleError("Only bill imports can be undone here.")
+        job = ImportJob.objects.select_for_update().get(pk=job.pk)
+        if job.status != ImportJob.Status.COMMITTED:
+            raise BusinessRuleError("Only a committed bill import can be undone.")
+        if job.kind == ImportJob.Kind.SALES_BILL:
+            invoice = job.sales_invoice
+            draft = SalesInvoice.Status.DRAFT
+        else:
+            invoice = job.purchase_invoice
+            draft = PurchaseInvoice.Status.DRAFT
+        if invoice is not None and invoice.status != draft:
+            raise BusinessRuleError(
+                "The invoice created from this bill is no longer a draft, so the import "
+                "cannot be undone. Cancel the invoice instead."
+            )
+        archived = {"products": [], "customer": None, "supplier": None, "kept": []}
+        if invoice is not None:
+            invoice.delete()
+        now = timezone.now()
+        for product in Product.objects.filter(
+            company=job.company, pk__in=list(job.created_product_ids or [])
+        ):
+            if product.is_referenced():
+                archived["kept"].append(product.pk)
+                continue
+            product.is_deleted = True
+            product.deleted_at = now
+            product.updated_by = user
+            product.save(update_fields=["is_deleted", "deleted_at", "updated_by", "updated_at"])
+            archived["products"].append(product.pk)
+        for attr, model, key in (
+            ("created_customer_id", Customer, "customer"),
+            ("created_supplier_id", Supplier, "supplier"),
+        ):
+            pk = getattr(job, attr)
+            if not pk:
+                continue
+            party = model.objects.filter(pk=pk, company=job.company).first()
+            if party is None:
+                continue
+            if party.is_referenced():
+                archived["kept"].append(f"{key}:{pk}")
+                continue
+            party.is_deleted = True
+            party.deleted_at = now
+            party.updated_by = user
+            party.save(update_fields=["is_deleted", "deleted_at", "updated_by", "updated_at"])
+            archived[key] = pk
+        job.status = ImportJob.Status.VOIDED
+        job.failure_reason = f"Undone by user at {now.isoformat()}"
+        job.sales_invoice = None
+        job.purchase_invoice = None
+        job.updated_by = user
+        job.save()
+        AuditService.log(
+            company=job.company, user=user, action="VOID",
+            entity_type="ImportJob", entity_id=job.pk,
+            description=f"Undid bill import #{job.pk}",
+            metadata={"event": "IMPORT_VOID", **archived},
+        )
+        return job
+
+    @staticmethod
+    def cancel(job: ImportJob, user) -> ImportJob:
+        """Abandon a bill import that has not been committed (23.9/23.13)."""
+        if job.kind not in ImportJob.BILL_KINDS:
+            raise BusinessRuleError("Only bill imports can be cancelled.")
+        if job.status in (
+            ImportJob.Status.COMMITTED, ImportJob.Status.VOIDED, ImportJob.Status.CANCELLED,
+        ):
+            raise BusinessRuleError("This import can no longer be cancelled.")
+        job.status = ImportJob.Status.CANCELLED
+        job.failure_reason = "Cancelled by user."
+        job.updated_by = user
+        job.save(update_fields=["status", "failure_reason", "updated_by", "updated_at"])
+        return job
+
+    @staticmethod
+    @transaction.atomic
+    def switch_kind(job: ImportJob, target_kind: str, user) -> ImportJob:
+        """Move a mis-uploaded bill to the other direction without re-extracting (23.20)."""
+        target_kind = str(target_kind or "").upper()
+        if target_kind not in ImportJob.BILL_KINDS:
+            raise BusinessRuleError("kind must be PURCHASE_BILL or SALES_BILL.")
+        if job.kind == target_kind:
+            return job
+        if job.status not in (ImportJob.Status.PREVIEWED, ImportJob.Status.NEEDS_CLARIFICATION):
+            raise BusinessRuleError("Only a bill still under review can be switched.")
+        preview = dict(job.preview or {})
+        # The party printed as "buyer" on a sales bill is the counter-party; on
+        # a purchase bill the counter-party is the supplier. Swap the roles.
+        if target_kind == ImportJob.Kind.PURCHASE_BILL:
+            preview["supplier_name"], preview["buyer_name"] = (
+                preview.get("buyer_name") or preview.get("supplier_name") or "",
+                preview.get("supplier_name") or "",
+            )
+            preview["supplier_gstin"], preview["buyer_gstin"] = (
+                preview.get("buyer_gstin") or preview.get("supplier_gstin") or "",
+                preview.get("supplier_gstin") or "",
+            )
+        else:
+            preview["buyer_name"], preview["supplier_name"] = (
+                preview.get("supplier_name") or preview.get("buyer_name") or "",
+                preview.get("buyer_name") or "",
+            )
+            preview["buyer_gstin"], preview["supplier_gstin"] = (
+                preview.get("supplier_gstin") or preview.get("buyer_gstin") or "",
+                preview.get("buyer_gstin") or "",
+            )
+        preview.pop("direction_warning", None)
+        preview.pop("customer_name", None)
+        preview.pop("party_match", None)
+        preview.pop("party_match_key", None)
+        job.kind = target_kind
+        job.customer = None
+        job.supplier = None
+        warn = _infer_direction_warning(
+            target_kind,
+            {
+                "supplier_gstin": preview.get("supplier_gstin"),
+                "buyer_gstin": preview.get("buyer_gstin"),
+            },
+            job.company,
+        )
+        if warn:
+            preview["direction_warning"] = warn
+        for ln in preview.get("lines") or []:
+            ln.pop("product_match", None)
+            ln.pop("match_key", None)
+        BillImportService.finalize_preview_lines(preview, preview.get("lines") or [])
+        BillImportService.enrich_preview(job, preview)
+        job.preview = preview
+        job.updated_by = user
+        job.save()
+        AuditService.log(
+            company=job.company, user=user, action="IMPORT",
+            entity_type="ImportJob", entity_id=job.pk,
+            description=f"Switched bill import to {target_kind}",
+            metadata={"kind": target_kind},
+        )
+        return job
+
+    @staticmethod
+    def validation_report(job: ImportJob, user=None) -> dict:
+        """Dry run of commit validation: every problem at once, no writes (23.2)."""
+        from imports import bill_validation
+
+        if job.kind not in ImportJob.BILL_KINDS:
+            raise BusinessRuleError("Validation is only for bill imports.")
+        preview = job.preview if isinstance(job.preview, dict) else {}
+        lines = list(preview.get("lines") or [])
+        included = [(i, ln) for i, ln in enumerate(lines, start=1) if ln.get("include")]
+        line_problems = []
+        for index, ln in included:
+            errs = bill_validation.line_errors(ln, kind=job.kind)
+            errs += bill_validation.line_policy_errors(job, ln, user=user)
+            if errs:
+                line_problems.append(
+                    {"row": index, "lineId": ln.get("line_id"), "name": ln.get("name") or "", "errors": errs}
+                )
+        header = bill_validation.header_errors(job, preview, [ln for _, ln in included])
+        header += bill_validation.policy_header_errors(job, preview, [ln for _, ln in included])
+        if not included:
+            header.append(
+                {"field": "lines", "code": "NO_LINES", "severity": "error",
+                 "message": "Select at least one valid line to commit."}
+            )
+        blocking_header = [e for e in header if e["severity"] == "error"]
+        return {
+            "ok": not line_problems and not blocking_header,
+            "headerErrors": header,
+            "lineErrors": line_problems,
+            "summary": {
+                "included": len(included),
+                "excluded": len(lines) - len(included),
+                "newProducts": preview.get("new_product_count", 0),
+                "newParty": bool((preview.get("party_match") or {}).get("will_create")),
+            },
+            "totals": preview_totals(job, preview),
         }

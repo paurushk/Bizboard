@@ -129,7 +129,8 @@ export type ImportJobStatus =
   | 'PREVIEWED'
   | 'COMMITTED'
   | 'FAILED'
-  | 'VOIDED';
+  | 'VOIDED'
+  | 'CANCELLED';
 export type ImportKind =
   | 'CUSTOMERS'
   | 'SUPPLIERS'
@@ -339,6 +340,8 @@ export interface Product {
   id: number;
   name: string;
   sku: string;
+  /** Created by a bill import and not yet checked (no cost or stock). */
+  needsReview?: boolean;
   barcode?: string;
   hsnCode?: string;
   description?: string;
@@ -410,6 +413,8 @@ export interface LineItem {
   lineTotal?: string | number;
   supplyNature?: 'TAXABLE' | 'NIL' | 'EXEMPT' | 'NON_GST';
   appliedPriceListName?: string;
+  /** Set when someone kept a price below the customer's price list on this line. */
+  priceOverrideBy?: number | null;
   convertedQuantity?: string | number;
 }
 
@@ -443,6 +448,10 @@ export interface SalesInvoice extends DocumentTotals {
   invoiceDate: string;
   dueDate?: string | null;
   paymentTermsDays?: number;
+  /** Bill number of the uploaded source bill, when the draft came from a bill upload. */
+  externalReference?: string;
+  /** FileAsset id of the uploaded source bill. */
+  attachment?: number | null;
   additionalCharges?: string | number;
   chargesHsn?: string;
   chargesGstRate?: string | number;
@@ -602,9 +611,43 @@ export interface SalesReturn extends DocumentTotals {
   customer: number;
   customerName?: string;
   salesInvoice: number;
+  salesInvoiceNumber?: string;
+  creditNoteId?: number | null;
+  creditNoteNumber?: string;
   returnDate: string;
   reason?: string;
   items: LineItem[];
+  completedAt?: string | null;
+  cancelledAt?: string | null;
+}
+
+/** One invoice line's return headroom (GET /sales/invoices/:id/returnable-lines/). */
+export interface ReturnableLine {
+  sourceItem: number;
+  product: number;
+  productName: string;
+  sold: number;
+  returned: number;
+  creditedStandalone: number;
+  returnable: number;
+  returnedSerials: string[];
+}
+
+/** Exact totals of the credit note a not-yet-saved return would issue. */
+export interface SalesReturnPreview {
+  lineCount: number;
+  units: number;
+  taxableTotal: number;
+  cgstTotal: number;
+  sgstTotal: number;
+  igstTotal: number;
+  cessTotal: number;
+  invoiceDiscount: number;
+  additionalCharges: number;
+  tcsAmount: number;
+  roundOff: number;
+  grandTotal: number;
+  fullyReturned: boolean;
 }
 
 export interface SalesCreditNote extends DocumentTotals {
@@ -1148,6 +1191,25 @@ export interface PurchaseBillLinePreview {
   mrp?: string;
   include?: boolean;
   flags?: string[];
+  /** Server-owned stable identity (never the printed S.No). */
+  lineId?: number;
+  /** Per-line trade discount % read off the bill. */
+  discountPercent?: string;
+  cessRate?: string;
+  /** Structured problems from the backend validator (shown per row). */
+  errors?: BillLineError[];
+  excludedReason?: string;
+  productId?: number | null;
+  createNew?: boolean;
+  productMatch?: BillProductMatch;
+  priceListPrice?: string;
+  belowPriceList?: boolean;
+  /** Position of this row on the uploaded image: [x, y, width, height] as 0-1 fractions. */
+  bbox?: number[] | null;
+  /** The reviewer changed something the AI read on this row. */
+  edited?: boolean;
+  /** Client-only: a row the reviewer added by hand. */
+  isNew?: boolean;
   /** F2-020: cs*upc+pcs — shown as a suggestion when it differs from the
    *  existing quantity, instead of silently overwriting it. */
   packQtyHint?: string;
@@ -1165,7 +1227,90 @@ export interface BillClarification {
   answer: string | null;
 }
 
+export interface BillLineError {
+  field: string;
+  code: string;
+  message: string;
+  severity?: 'error' | 'warning';
+}
+
+export interface BillProductCandidate {
+  id: number;
+  name: string;
+  sku?: string;
+  score?: number;
+}
+
+export interface BillProductMatch {
+  status: 'matched' | 'candidates' | 'none';
+  productId: number | null;
+  name?: string;
+  method?: string;
+  trackBatch?: boolean;
+  candidates: BillProductCandidate[];
+}
+
+export interface BillPartyMatch {
+  status: 'matched' | 'candidates' | 'conflict' | 'inactive_match' | 'none';
+  id: number | null;
+  boundId?: number | null;
+  candidates: { id: number; name: string; gstin?: string; score?: number }[];
+  extracted: { name: string; gstin: string };
+  willCreate: boolean;
+  notes: string[];
+}
+
+export interface BillTotals {
+  taxable: string;
+  gst: string;
+  cess: string;
+  charges: string;
+  invoiceDiscount: string;
+  grandTotal: string;
+  roundedTotal: string;
+  includedLines: number;
+  cgst?: string;
+  sgst?: string;
+  igst?: string;
+  /** INTRA / INTER when both states are known; ASSUMED_INTRA until the customer's state is. */
+  taxType?: 'INTRA' | 'INTER' | 'ASSUMED_INTRA';
+  /** Set when the totals could not be computed (for example a discount larger than the bill). */
+  error?: string;
+  printedTotal?: string;
+  printedDifference?: string;
+  printedMatches?: boolean;
+}
+
+export interface BillCompanyGstinStatus {
+  status: 'ok' | 'defaulted_single' | 'unresolved';
+  options: { id: number; gstin: string; state: string; isPrimary: boolean }[];
+  resolvedId: number | null;
+  /** Our own GSTIN that the printed one is a single character away from. */
+  suggestion?: { id: number; gstin: string } | null;
+}
+
+export interface BillValidationReport {
+  ok: boolean;
+  headerErrors: BillLineError[];
+  lineErrors: { row: number; lineId?: number; name: string; errors: BillLineError[] }[];
+  summary: { included: number; excluded: number; newProducts: number; newParty: boolean };
+  totals: BillTotals;
+}
+
 export interface PurchaseBillPreview {
+  previewVersion?: number;
+  priceMode?: 'EXCLUSIVE' | 'INCLUSIVE';
+  additionalCharges?: string;
+  invoiceDiscount?: string;
+  printedTotal?: string;
+  confirmDuplicate?: boolean;
+  confirmNewProducts?: boolean;
+  confirmNonGst?: boolean;
+  companyGstinId?: number | null;
+  partyMatch?: BillPartyMatch;
+  totals?: BillTotals;
+  companyGstinStatus?: BillCompanyGstinStatus;
+  newProductCount?: number;
   supplierName?: string;
   supplierGstin?: string;
   buyerName?: string;
@@ -1207,6 +1352,9 @@ export interface ImportJob {
   salesInvoice?: number | null;
   billTemplate?: number | null;
   failureReason?: string;
+  fileName?: string;
+  fileType?: string;
+  extractionHeartbeatAt?: string | null;
 }
 
 export interface PurchaseBillCommitResult {

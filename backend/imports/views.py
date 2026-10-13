@@ -1,6 +1,7 @@
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -17,7 +18,14 @@ from core.idempotency import (
     store_record,
 )
 from core.models import FileAsset
-from core.permissions import CanImport, HasCompany, IsOwner, get_company_user
+from core.permissions import (
+    CanCreatePurchases,
+    CanCreateSales,
+    CanImport,
+    HasCompany,
+    IsOwner,
+    get_company_user,
+)
 from core.throttles import CompanyRateThrottle
 from core.services.files import FileService
 from masters.models import Customer, Supplier
@@ -66,8 +74,73 @@ class ImportJobViewSet(
     def company(self):
         return get_company_user(self.request).company
 
+    # 23.5: importing a bill creates a draft document, so the importer must be
+    # allowed to create that document too -- one rule at the API and the UI.
+    _KIND_PERMISSIONS = {
+        ImportJob.Kind.SALES_BILL: (CanCreateSales, "Sales create permission is required to import sales bills."),
+        ImportJob.Kind.PURCHASE_BILL: (
+            CanCreatePurchases,
+            "Purchases create permission is required to import purchase bills.",
+        ),
+    }
+
+    def _has_kind_permission(self, kind: str) -> bool:
+        entry = self._KIND_PERMISSIONS.get(kind)
+        if entry is None:
+            return True
+        return entry[0]().has_permission(self.request, self)
+
+    def _assert_kind_permission(self, kind: str) -> None:
+        entry = self._KIND_PERMISSIONS.get(kind)
+        if entry is not None and not entry[0]().has_permission(self.request, self):
+            try:
+                from core.services.audit import AuditService
+
+                AuditService.log(
+                    company=self.company, user=self.request.user, action="IMPORT",
+                    entity_type="ImportJob", entity_id=0,
+                    description=f"Bill import refused: missing create permission for {kind}",
+                    metadata={"kind": kind, "event": "IMPORT_PERMISSION_DENIED"},
+                )
+            except Exception:  # noqa: BLE001 — auditing must never mask the 403
+                pass
+            raise PermissionDenied(entry[1])
+
+    def throttled(self, request, wait):
+        """Say what was limited and when to try again (bill reading costs real money)."""
+        from rest_framework.exceptions import Throttled
+
+        minutes = max(1, int((wait or 60) // 60) + 1)
+        raise Throttled(
+            wait=wait,
+            detail=(
+                "You have started many bill scans this hour, so scanning is paused to control "
+                f"cost. Try again in about {minutes} minute(s), or upload a CSV/Excel export, "
+                "which is not limited."
+            ),
+        )
+
+    def get_object(self):
+        job = super().get_object()
+        self._assert_kind_permission(job.kind)
+        return job
+
     def get_queryset(self):
-        return self.queryset.filter(company=self.company)
+        qs = self.queryset.filter(company=self.company)
+        if self.action == "list":
+            params = self.request.query_params
+            kind = (params.get("kind") or "").upper()
+            if kind:
+                qs = qs.filter(kind=kind)
+            statuses = [x.strip().upper() for x in (params.get("status") or "").split(",") if x.strip()]
+            if statuses:
+                qs = qs.filter(status__in=statuses)
+            if (params.get("mine") or "").lower() in ("1", "true", "yes"):
+                qs = qs.filter(created_by=self.request.user)
+            hidden = [k for k in self._KIND_PERMISSIONS if not self._has_kind_permission(k)]
+            if hidden:
+                qs = qs.exclude(kind__in=hidden)
+        return qs
 
     def get_throttles(self):
         if self.action == "create":
@@ -82,6 +155,7 @@ class ImportJobViewSet(
         kind = (request.data.get("kind") or "").upper()
         if kind not in ImportJob.Kind.values:
             raise BusinessRuleError(f"kind must be one of {', '.join(ImportJob.Kind.values)}.")
+        self._assert_kind_permission(kind)
         uploaded = request.FILES.get("file")
         if not uploaded:
             raise BusinessRuleError("A file is required.")
@@ -128,7 +202,8 @@ class ImportJobViewSet(
                 )
                 if not (is_structured or is_image_pdf):
                     raise BusinessRuleError(
-                        "Bill must be a PDF, image, CSV, or XLSX export from your supplier's system."
+                        "Bill must be a PDF, image, CSV, or XLSX export from your "
+                        + ("billing system." if kind == ImportJob.Kind.SALES_BILL else "supplier's system.")
                     )
                 with transaction.atomic():
                     # CR-034: Compute file_sha256 on bill uploads
@@ -151,6 +226,26 @@ class ImportJobViewSet(
                     if is_structured:
                         BillImportService.parse_structured_file(job)
                     else:
+                        # The photo/PDF goes to a third-party AI service: record that the
+                        # uploader was told so and agreed, and when (23.10).
+                        consent_given = str(request.data.get("ai_consent") or "").lower() in ("1", "true", "yes")
+                        from core.services.feature_flags import flag_enabled
+
+                        if not consent_given and flag_enabled(self.company, "BILL_IMPORT_REVIEW_V2"):
+                            raise BusinessRuleError(
+                                "Confirm that this image may be sent to the AI service before scanning, "
+                                "or upload a CSV/Excel export instead.",
+                                code="AI_CONSENT_REQUIRED",
+                            )
+                        if consent_given:
+                            from core.services.audit import AuditService
+
+                            AuditService.log(
+                                company=self.company, user=request.user, action="IMPORT",
+                                entity_type="ImportJob", entity_id=job.pk,
+                                description="AI processing consent given for a bill upload",
+                                metadata={"event": "IMPORT_CONSENT", "kind": kind, "file_sha256": sha256_hash},
+                            )
                         BillImportService.start_extraction(job)
                     job.refresh_from_db()
                     response = Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
@@ -230,16 +325,42 @@ class ImportJobViewSet(
 
         try:
             job = self.get_object()
-            if job.kind in ImportJob.BILL_KINDS and request.data:
-                # Allow last-minute supplier/customer / line tweaks on commit body.
-                BillImportService.update_preview(job, request.data, user=request.user)
-                job.refresh_from_db()
-            result = ImportService.commit(job, request.user)
-        except Exception:
+            # One atomic unit: a commit rejected by validation must leave the
+            # stored preview exactly as it was (23.10).
+            with transaction.atomic():
+                if job.kind in ImportJob.BILL_KINDS and request.data:
+                    # Allow last-minute supplier/customer / line tweaks on commit body.
+                    BillImportService.update_preview(
+                        job, request.data, user=request.user, strict_included=True
+                    )
+                    job.refresh_from_db()
+                result = ImportService.commit(job, request.user)
+        except Exception as exc:
             if raw_key:
                 release_record(
                     company=self.company, scope="import_job_commit", raw_key=raw_key
                 )
+            extra = getattr(exc, "extra", None) or {}
+            if isinstance(exc, BusinessRuleError) and ("lineErrors" in extra or "headerErrors" in extra):
+                # Written after the atomic block rolled back, so the refusal itself is kept.
+                try:
+                    from core.services.audit import AuditService
+
+                    codes = sorted(
+                        {e.get("code") for r in extra.get("lineErrors", []) for e in r.get("errors", [])}
+                        | {e.get("code") for e in extra.get("headerErrors", [])}
+                    )
+                    AuditService.log(
+                        company=self.company, user=request.user, action="IMPORT",
+                        entity_type="ImportJob", entity_id=pk or 0,
+                        description="Bill commit refused: rows or header need fixing",
+                        metadata={
+                            "event": "IMPORT_REJECTED", "codes": codes,
+                            "bad_lines": len(extra.get("lineErrors", [])),
+                        },
+                    )
+                except Exception:  # noqa: BLE001 — auditing must never mask the real error
+                    pass
             raise
         job.refresh_from_db()
         if isinstance(result, dict):
@@ -267,13 +388,58 @@ class ImportJobViewSet(
 
     @action(detail=True, methods=["post"], url_path="void")
     def void_import(self, request, pk=None):
-        """Owner recovery: reverse a committed PRODUCTS/OPENING_STOCK import."""
-        if not IsOwner().has_permission(request, self):
-            raise BusinessRuleError("Owner role required to void an import.")
+        """Owner recovery: reverse a committed import (master data, or a bill's draft)."""
         job = self.get_object()
-        ImportService.void(job, request.user)
+        if job.kind in ImportJob.BILL_KINDS:
+            cu = get_company_user(request)
+            allowed = cu is not None and (
+                cu.role in ("OWNER", "MANAGER") or job.created_by_id == request.user.pk
+            )
+            if not allowed:
+                raise PermissionDenied("Only an owner, a manager, or the uploader can undo a bill import.")
+            BillImportService.void_bill(job, request.user)
+        else:
+            if not IsOwner().has_permission(request, self):
+                raise BusinessRuleError("Owner role required to void an import.")
+            ImportService.void(job, request.user)
         job.refresh_from_db()
         return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["post"], url_path="validate")
+    def validate_bill(self, request, pk=None):
+        """Dry run of commit: every header/line problem at once, nothing written."""
+        job = self.get_object()
+        if job.kind not in ImportJob.BILL_KINDS:
+            raise BusinessRuleError("Validation is only for bill imports.")
+        with transaction.atomic():
+            if request.data:
+                BillImportService.update_preview(job, request.data, user=request.user)
+            report = BillImportService.validation_report(job, request.user)
+            transaction.set_rollback(True)
+        return Response(report)
+
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel_import(self, request, pk=None):
+        job = self.get_object()
+        BillImportService.cancel(job, request.user)
+        job.refresh_from_db()
+        return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["post"], url_path="switch-kind")
+    def switch_kind(self, request, pk=None):
+        """Move a mis-uploaded bill to the other direction (purchase <-> sales)."""
+        job = self.get_object()
+        target = (request.data.get("kind") or "").upper()
+        self._assert_kind_permission(target)
+        BillImportService.switch_kind(job, target, request.user)
+        job.refresh_from_db()
+        return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["get"], url_path="file")
+    def source_file(self, request, pk=None):
+        """The uploaded bill, inline, for the side-by-side review viewer."""
+        job = self.get_object()
+        return FileService.inline_response(job.file)
 
     @action(detail=True, methods=["post"], url_path="void-rows")
     def void_rows(self, request, pk=None):

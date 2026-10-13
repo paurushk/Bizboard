@@ -19,10 +19,10 @@ import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { csvCell } from '@/utils/csv';
-import { deleteProduct, listProducts, listProductsPage, listStock } from '@/api/resources';
+import { deleteProduct, listProducts, listProductsPage, listStock, markProductsReviewed } from '@/api/resources';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
@@ -38,7 +38,7 @@ import { t, useLocale } from '@/i18n';
 import type { Product } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
-import { canAdjustInventory, canImport, canViewInventorySurfaces } from '@/utils/permissions';
+import { canAdjustInventory, canImport, canImportPurchaseBill, canViewInventorySurfaces } from '@/utils/permissions';
 import { productStatusTone, statusLabelKey } from '@/utils/status';
 import { isItemCustomFieldsV2Enabled, isSetupWizardEnabled } from '@/config/features';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -82,14 +82,17 @@ export function ProductsPage() {
     [customDefs, locale],
   );
   const prefs = useColumnPrefs('items', columns, user?.companyId, user?.id);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const needsReview = searchParams.get('needsReview') === '1';
   const query = useQuery({
-    queryKey: ['products', page, debouncedSearch, cfFilters],
+    queryKey: ['products', page, debouncedSearch, cfFilters, needsReview],
     queryFn: () =>
       listProductsPage({
         page,
         pageSize: PAGE_SIZE,
         q: debouncedSearch || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
+        needsReview,
       }),
   });
   // The filters below work on whole products and stock, but the list is paged. While a filter is
@@ -125,6 +128,14 @@ export function ProductsPage() {
   const [notice, setNotice] = useState<{ severity: 'success' | 'info' | 'error'; message: string } | null>(null);
   const [exporting, setExporting] = useState(false);
   const [bulkAnchor, setBulkAnchor] = useState<null | HTMLElement>(null);
+  const markReviewed = useMutation({
+    mutationFn: (ids: number[]) => markProductsReviewed(ids),
+    onSuccess: (result) => {
+      setNotice({ severity: 'success', message: t('products.markedReviewed', { count: result.updated }) });
+      void qc.invalidateQueries({ queryKey: ['products'] });
+    },
+    onError: (err) => setNotice({ severity: 'error', message: getErrorMessage(err) }),
+  });
   const removeProduct = useMutation({
     mutationFn: (id: number) => deleteProduct(id),
     onSuccess: (result) => {
@@ -293,6 +304,7 @@ export function ProductsPage() {
                     secondary={t('products.bulkAddItemsHint')}
                   />
                 </MenuItem>
+                {canImportPurchaseBill(user) ? (
                 <MenuItem
                   onClick={() => {
                     setBulkAnchor(null);
@@ -307,6 +319,7 @@ export function ProductsPage() {
                     secondary={t('products.purchaseBillUploadHint')}
                   />
                 </MenuItem>
+                ) : null}
               </Menu>
             </>
           ) : null}
@@ -316,6 +329,35 @@ export function ProductsPage() {
             </Button>
           ) : null}
         </Stack>
+      </Stack>
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+        <Chip
+          clickable
+          color={needsReview ? 'warning' : 'default'}
+          variant={needsReview ? 'filled' : 'outlined'}
+          label={t('products.needsReviewFilter')}
+          onClick={() => {
+            const next = new URLSearchParams(searchParams);
+            if (needsReview) next.delete('needsReview');
+            else next.set('needsReview', '1');
+            setSearchParams(next, { replace: true });
+            setPage(1);
+          }}
+        />
+        {needsReview ? (
+          <>
+            <Typography variant="body2" color="text.secondary">
+              {t('products.needsReviewHint')}
+            </Typography>
+            <Button
+              size="small"
+              disabled={markReviewed.isPending || (query.data?.results.length ?? 0) === 0}
+              onClick={() => markReviewed.mutate((query.data?.results ?? []).map((p) => p.id))}
+            >
+              {t('products.markReviewed')}
+            </Button>
+          </>
+        ) : null}
       </Stack>
       <CustomFieldFilterBar
         defs={customDefs}

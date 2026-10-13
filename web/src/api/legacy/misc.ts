@@ -9,7 +9,8 @@ import {
   mockJournalEntries,
   mockSearchResults,
 } from '@/mocks/data';
-import type { ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
+import type { BillValidationReport, ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
+import { mockBillImageUrl, mockBillJob } from '@/mocks/billImport';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
 
 /** Master import validate/commit can run long for multi-thousand-row CSVs. */
@@ -86,7 +87,7 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
 export async function uploadImport(
   file: File,
   kind: ImportKind,
-  extra?: { supplierId?: number; customerId?: number; idempotencyKey?: string },
+  extra?: { supplierId?: number; customerId?: number; idempotencyKey?: string; aiConsent?: boolean },
 ): Promise<ImportJob> {
   return withMocks(async () => {
     const form = new FormData();
@@ -97,6 +98,9 @@ export async function uploadImport(
     }
     if (extra?.customerId != null) {
       form.append('customer_id', String(extra.customerId));
+    }
+    if (extra?.aiConsent) {
+      form.append('ai_consent', 'true');
     }
     const key = extra?.idempotencyKey ?? newIdempotencyKey();
     // Let the browser set multipart boundary — do not force Content-Type.
@@ -126,7 +130,7 @@ export async function getImportJob(id: number | string): Promise<ImportJob> {
   return withMocks(async () => {
     const { data } = await apiClient.get(`/imports/${id}/`);
     return unwrapData<ImportJob>(data);
-  }, {
+  }, mockBillJob(Number(id), 'SALES_BILL') ?? {
     id: Number(id),
     kind: 'PURCHASE_BILL',
     status: 'PREVIEWED',
@@ -176,6 +180,16 @@ export async function updateImportPreview(
     billNumber?: string;
     billDate?: string;
     lines?: Array<Record<string, unknown>>;
+    buyerName?: string;
+    buyerGstin?: string;
+    previewVersion?: number;
+    priceMode?: 'EXCLUSIVE' | 'INCLUSIVE';
+    additionalCharges?: string;
+    invoiceDiscount?: string;
+    printedTotal?: string;
+    companyGstinId?: number | null;
+    confirmDuplicate?: boolean;
+    confirmNewProducts?: boolean;
     confirmNonGst?: boolean;
     confirm_non_gst?: boolean;
     lowConfidenceAccepted?: boolean;
@@ -202,6 +216,93 @@ export async function updateImportPreview(
     supplier: payload.supplierId ?? null,
     customer: payload.customerId ?? null,
   });
+}
+
+export async function validateImportBill(
+  id: number | string,
+  payload?: Record<string, unknown>,
+): Promise<BillValidationReport> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/imports/${id}/validate/`, payload ?? {});
+    return unwrapData<BillValidationReport>(data);
+  }, {
+    ok: true,
+    headerErrors: [],
+    lineErrors: [],
+    summary: { included: 0, excluded: 0, newProducts: 0, newParty: false },
+    totals: {
+      taxable: '0.00', gst: '0.00', cess: '0.00', charges: '0.00', invoiceDiscount: '0.00',
+      grandTotal: '0.00', roundedTotal: '0', includedLines: 0,
+    },
+  });
+}
+
+export async function cancelImport(id: number | string): Promise<ImportJob> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/imports/${id}/cancel/`);
+    return unwrapData<ImportJob>(data);
+  }, {
+    id: Number(id), kind: 'PURCHASE_BILL', status: 'CANCELLED',
+    totalRows: 0, validRows: 0, errorRows: 0, preview: { lines: [] },
+  });
+}
+
+export async function switchImportKind(
+  id: number | string,
+  kind: 'PURCHASE_BILL' | 'SALES_BILL',
+): Promise<ImportJob> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/imports/${id}/switch-kind/`, { kind });
+    return unwrapData<ImportJob>(data);
+  }, {
+    id: Number(id), kind, status: 'PREVIEWED',
+    totalRows: 0, validRows: 0, errorRows: 0, preview: { lines: [] },
+  });
+}
+
+export async function listBillImportJobs(
+  kind: 'PURCHASE_BILL' | 'SALES_BILL',
+  statuses = 'UPLOADED,EXTRACTING,NEEDS_CLARIFICATION,PREVIEWED,FAILED',
+): Promise<ImportJob[]> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/imports/', { params: { kind, status: statuses, mine: 1 } });
+    const body = unwrapData<ImportJob[] | { results: ImportJob[] }>(data);
+    return Array.isArray(body) ? body : body.results ?? [];
+  }, [] as ImportJob[]);
+}
+
+/** The uploaded bill as an object URL (auth header required, so not a plain <img src>). */
+export async function fetchImportSourceFile(
+  id: number | string,
+): Promise<{ url: string; contentType: string }> {
+  if (shouldUseMocks()) {
+    await new Promise((r) => setTimeout(r, 100));
+    return { url: mockBillImageUrl(), contentType: 'image/png' };
+  }
+  const response = await apiClient.get(`/imports/${id}/file/`, {
+    responseType: 'blob',
+    timeout: IMPORT_TIMEOUT_MS,
+  });
+  const blob = response.data as Blob;
+  return { url: URL.createObjectURL(blob), contentType: blob.type || '' };
+}
+
+/** Open an API file (needs the auth header, so it is fetched, not linked) in a new tab. */
+export async function openAuthenticatedFile(apiPath: string): Promise<void> {
+  const response = await apiClient.get(apiPath, {
+    responseType: 'blob',
+    timeout: IMPORT_TIMEOUT_MS,
+  });
+  const url = URL.createObjectURL(response.data as Blob);
+  window.open(url, '_blank', 'noopener');
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function markProductsReviewed(ids: number[]): Promise<{ updated: number }> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/products/mark-reviewed/', { ids });
+    return unwrapData<{ updated: number }>(data);
+  }, { updated: ids.length });
 }
 
 export async function answerImportClarifications(

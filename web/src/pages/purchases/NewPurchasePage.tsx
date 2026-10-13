@@ -90,7 +90,8 @@ import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } f
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
-import { canImport } from '@/utils/permissions';
+import { ImportedBillNotice } from '@/pages/imports/bill/ImportedBillNotice';
+import { canImportPurchaseBill } from '@/utils/permissions';
 import {
   addDaysIso,
   calculateInvoiceTotals,
@@ -168,6 +169,7 @@ export function NewPurchasePage() {
   const fromBillUpload = Boolean(
     (location.state as { fromBillUpload?: boolean } | null)?.fromBillUpload,
   );
+  const billUploadState = location.state as { importJobId?: number; productsCreated?: number } | null;
   const qc = useQueryClient();
   const barcodeRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1483,7 +1485,7 @@ export function NewPurchasePage() {
       onOpenShortcuts={() => setShortcutsOpen(true)}
       onOpenSettings={() => setSettingsOpen(true)}
       extraActions={
-        canImport(user) ? (
+        canImportPurchaseBill(user) ? (
           <Button
             component={RouterLink}
             to="/purchases/bill-upload"
@@ -1496,9 +1498,22 @@ export function NewPurchasePage() {
         ) : null
       }
       infoBanner={
-        completeDisabledReason && canSave && !canComplete ? (
-          <Alert severity="warning">{completeDisabledReason}</Alert>
-        ) : null
+        <>
+          {isEdit && (existingInvoice.data?.attachment || billUploadState?.importJobId) ? (
+            <ImportedBillNotice
+              uploadPath="/purchases/bill-upload"
+              reference={existingInvoice.data?.supplierBillNumber}
+              hasSourceBill={Boolean(existingInvoice.data?.attachment)}
+              sourceBillPath={editId ? `/purchases/invoices/${editId}/source-bill/` : null}
+              importJobId={billUploadState?.importJobId}
+              productsCreated={billUploadState?.productsCreated}
+              isDraft={existingInvoice.data?.status === 'DRAFT'}
+            />
+          ) : null}
+          {completeDisabledReason && canSave && !canComplete ? (
+            <Alert severity="warning">{completeDisabledReason}</Alert>
+          ) : null}
+        </>
       }
     >
       <Stack spacing={2}>

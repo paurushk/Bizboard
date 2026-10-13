@@ -9552,6 +9552,62 @@
                 }
             }
         },
+        "/api/v1/imports/{id}/cancel/": {
+            "post": {
+                "operationId": "imports_cancel_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this import job.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "imports"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/imports/{id}/clarify/": {
             "post": {
                 "operationId": "imports_clarify_create",
@@ -9669,6 +9725,43 @@
         "/api/v1/imports/{id}/errors/": {
             "get": {
                 "operationId": "imports_errors_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this import job.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "imports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/imports/{id}/file/": {
+            "get": {
+                "operationId": "imports_file_retrieve",
+                "description": "The uploaded bill, inline, for the side-by-side review viewer.",
                 "parameters": [
                     {
                         "in": "path",
@@ -9870,10 +9963,124 @@
                 }
             }
         },
+        "/api/v1/imports/{id}/switch-kind/": {
+            "post": {
+                "operationId": "imports_switch_kind_create",
+                "description": "Move a mis-uploaded bill to the other direction (purchase <-> sales).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this import job.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "imports"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/imports/{id}/validate/": {
+            "post": {
+                "operationId": "imports_validate_create",
+                "description": "Dry run of commit: every header/line problem at once, nothing written.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this import job.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "imports"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ImportJob"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportJob"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/imports/{id}/void/": {
             "post": {
                 "operationId": "imports_void_create",
-                "description": "Owner recovery: reverse a committed PRODUCTS/OPENING_STOCK import.",
+                "description": "Owner recovery: reverse a committed import (master data, or a bill's draft).",
                 "parameters": [
                     {
                         "in": "path",
@@ -21566,6 +21773,52 @@
                 }
             }
         },
+        "/api/v1/products/mark-reviewed/": {
+            "post": {
+                "operationId": "products_mark_reviewed_create",
+                "description": "Clear the 'needs review' flag on products fixed after a bill import.",
+                "tags": [
+                    "products"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Product"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Product"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Product"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Product"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/products/pos-catalog/": {
             "get": {
                 "operationId": "products_pos_catalog_retrieve",
@@ -24705,6 +24958,43 @@
             "get": {
                 "operationId": "purchases_invoices_pdf_retrieve",
                 "description": "Render GST Purchase Bill PDF (Rule 46 / Rule 54 CGST Rules).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this purchase invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "purchases"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PurchaseInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/purchases/invoices/{id}/source-bill/": {
+            "get": {
+                "operationId": "purchases_invoices_source_bill_retrieve",
+                "description": "The bill this draft was created from, for anyone who may open the invoice.",
                 "parameters": [
                     {
                         "in": "path",
@@ -32009,6 +32299,61 @@
                 }
             }
         },
+        "/api/v1/sales/invoices/{id}/returnable-lines/": {
+            "get": {
+                "operationId": "sales_invoices_returnable_lines_list",
+                "description": "Per invoice line: sold / returned / credited by standalone notes / returnable (SRF-06).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedReturnableLineList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/invoices/{id}/share/": {
             "post": {
                 "operationId": "sales_invoices_share_create",
@@ -32047,6 +32392,43 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/invoices/{id}/source-bill/": {
+            "get": {
+                "operationId": "sales_invoices_source_bill_retrieve",
+                "description": "The bill this draft was created from, for anyone who may open the invoice.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this sales invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -35543,6 +35925,52 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SalesReturn"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/returns/preview-totals/": {
+            "post": {
+                "operationId": "sales_returns_preview_totals_create",
+                "description": "Exact credit-note totals for a return that has not been saved (SRF-11).",
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesReturn"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesReturn"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SalesReturn"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SalesReturnPreview"
                                 }
                             }
                         },
@@ -41560,6 +41988,20 @@
                     "failure_reason": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "file_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "extraction_heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
@@ -41571,8 +42013,11 @@
                     "error_rows",
                     "errors",
                     "errors_truncated",
+                    "extraction_heartbeat_at",
                     "failure_reason",
                     "file",
+                    "file_name",
+                    "file_type",
                     "id",
                     "kind",
                     "preview",
@@ -41605,10 +42050,11 @@
                     "PREVIEWED",
                     "COMMITTED",
                     "FAILED",
-                    "VOIDED"
+                    "VOIDED",
+                    "CANCELLED"
                 ],
                 "type": "string",
-                "description": "* `UPLOADED` - Uploaded\n* `EXTRACTING` - Extracting\n* `NEEDS_CLARIFICATION` - Needs Clarification\n* `PREVIEWED` - Previewed\n* `COMMITTED` - Committed\n* `FAILED` - Failed\n* `VOIDED` - Voided"
+                "description": "* `UPLOADED` - Uploaded\n* `EXTRACTING` - Extracting\n* `NEEDS_CLARIFICATION` - Needs Clarification\n* `PREVIEWED` - Previewed\n* `COMMITTED` - Committed\n* `FAILED` - Failed\n* `VOIDED` - Voided\n* `CANCELLED` - Cancelled"
             },
             "ImsActionEnum": {
                 "enum": [
@@ -44385,6 +44831,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ReferralReward"
+                        }
+                    }
+                }
+            },
+            "PaginatedReturnableLineList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReturnableLine"
                         }
                     }
                 }
@@ -47462,6 +47939,20 @@
                     "failure_reason": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "file_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "file_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "extraction_heartbeat_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 }
             },
@@ -47975,6 +48466,9 @@
                     "rack_code": {
                         "type": "string",
                         "maxLength": 32
+                    },
+                    "needs_review": {
+                        "type": "boolean"
                     }
                 }
             },
@@ -49743,6 +50237,15 @@
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
+                    "external_reference": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "attachment": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "transporter_name": {
                         "type": "string",
                         "maxLength": 128
@@ -50233,6 +50736,18 @@
                     },
                     "sales_invoice": {
                         "type": "integer"
+                    },
+                    "sales_invoice_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_number": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "return_date": {
                         "type": "string",
@@ -51794,6 +52309,9 @@
                     "rack_code": {
                         "type": "string",
                         "maxLength": 32
+                    },
+                    "needs_review": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
@@ -54317,6 +54835,57 @@
                 "type": "string",
                 "description": "* `DRAFT_DELETED` - Draft Deleted\n* `ORDER_CANCELLED` - Order Cancelled\n* `INVOICE_CANCELLED` - Invoice Cancelled\n* `MANUAL_REOPEN` - Manual Reopen"
             },
+            "ReturnableLine": {
+                "type": "object",
+                "description": "One invoice line's return headroom (GET /sales/invoices/:id/returnable-lines/).",
+                "properties": {
+                    "source_item": {
+                        "type": "integer"
+                    },
+                    "product": {
+                        "type": "integer"
+                    },
+                    "product_name": {
+                        "type": "string"
+                    },
+                    "sold": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returned": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "credited_standalone": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returnable": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returned_serials": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "credited_standalone",
+                    "product",
+                    "product_name",
+                    "returnable",
+                    "returned",
+                    "returned_serials",
+                    "sold",
+                    "source_item"
+                ]
+            },
             "RewardStatusEnum": {
                 "enum": [
                     "PENDING",
@@ -55267,6 +55836,15 @@
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
+                    "external_reference": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "attachment": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "transporter_name": {
                         "type": "string",
                         "maxLength": 128
@@ -55521,6 +56099,7 @@
                     "ack_date",
                     "ack_no",
                     "amend_revision",
+                    "attachment",
                     "balance",
                     "cancel_approval_pending",
                     "cancel_reason",
@@ -55539,6 +56118,7 @@
                     "eway_error",
                     "eway_status",
                     "eway_valid_upto",
+                    "external_reference",
                     "grand_total",
                     "id",
                     "igst_total",
@@ -56132,6 +56712,18 @@
                     "sales_invoice": {
                         "type": "integer"
                     },
+                    "sales_invoice_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "return_date": {
                         "type": "string",
                         "format": "date"
@@ -56229,6 +56821,8 @@
                     "cgst_total",
                     "completed_at",
                     "created_at",
+                    "credit_note_id",
+                    "credit_note_number",
                     "customer",
                     "customer_name",
                     "discount_total",
@@ -56239,6 +56833,7 @@
                     "number",
                     "round_off",
                     "sales_invoice",
+                    "sales_invoice_number",
                     "sgst_total",
                     "status",
                     "subtotal",
@@ -56340,6 +56935,88 @@
                     "quantity",
                     "sgst",
                     "taxable_amount"
+                ]
+            },
+            "SalesReturnPreview": {
+                "type": "object",
+                "description": "Exact totals of the credit note an unsaved return would issue.",
+                "properties": {
+                    "line_count": {
+                        "type": "integer"
+                    },
+                    "units": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "taxable_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "sgst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "igst_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "cess_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "invoice_discount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "additional_charges": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "tcs_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "round_off": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "grand_total": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "fully_returned": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "additional_charges",
+                    "cess_total",
+                    "cgst_total",
+                    "fully_returned",
+                    "grand_total",
+                    "igst_total",
+                    "invoice_discount",
+                    "line_count",
+                    "round_off",
+                    "sgst_total",
+                    "taxable_total",
+                    "tcs_amount",
+                    "units"
                 ]
             },
             "SerialNumber": {

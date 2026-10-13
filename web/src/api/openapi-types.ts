@@ -3215,6 +3215,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["imports_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/{id}/clarify/": {
         parameters: {
             query?: never;
@@ -3268,6 +3284,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/{id}/file/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The uploaded bill, inline, for the side-by-side review viewer. */
+        get: operations["imports_file_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/{id}/preview/": {
         parameters: {
             query?: never;
@@ -3303,6 +3336,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/imports/{id}/switch-kind/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Move a mis-uploaded bill to the other direction (purchase <-> sales). */
+        post: operations["imports_switch_kind_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/imports/{id}/validate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Dry run of commit: every header/line problem at once, nothing written. */
+        post: operations["imports_validate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/imports/{id}/void/": {
         parameters: {
             query?: never;
@@ -3312,7 +3379,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Owner recovery: reverse a committed PRODUCTS/OPENING_STOCK import. */
+        /** @description Owner recovery: reverse a committed import (master data, or a bill's draft). */
         post: operations["imports_void_create"];
         delete?: never;
         options?: never;
@@ -7452,6 +7519,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/mark-reviewed/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Clear the 'needs review' flag on products fixed after a bill import. */
+        post: operations["products_mark_reviewed_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/pos-catalog/": {
         parameters: {
             query?: never;
@@ -8417,6 +8501,23 @@ export interface paths {
         };
         /** @description Render GST Purchase Bill PDF (Rule 46 / Rule 54 CGST Rules). */
         get: operations["purchases_invoices_pdf_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/invoices/{id}/source-bill/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The bill this draft was created from, for anyone who may open the invoice. */
+        get: operations["purchases_invoices_source_bill_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10914,6 +11015,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/invoices/{id}/returnable-lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Per invoice line: sold / returned / credited by standalone notes / returnable (SRF-06). */
+        get: operations["sales_invoices_returnable_lines_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/invoices/{id}/share/": {
         parameters: {
             query?: never;
@@ -10925,6 +11043,23 @@ export interface paths {
         put?: never;
         /** @description Share via Notification Service — email or whatsapp (E4.10). */
         post: operations["sales_invoices_share_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/invoices/{id}/source-bill/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The bill this draft was created from, for anyone who may open the invoice. */
+        get: operations["sales_invoices_source_bill_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12091,6 +12226,23 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["sales_returns_number_series_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/sales/returns/preview-totals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Exact credit-note totals for a return that has not been saved (SRF-11). */
+        post: operations["sales_returns_preview_totals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/sales/salespeople/": {
@@ -14051,6 +14203,10 @@ export interface components {
             readonly salesInvoice: number | null;
             readonly billTemplate: number | null;
             readonly failureReason: string;
+            readonly fileName: string;
+            readonly fileType: string;
+            /** Format: date-time */
+            readonly extractionHeartbeatAt: string | null;
         };
         /**
          * @description * `CUSTOMERS` - Customers
@@ -14070,9 +14226,10 @@ export interface components {
          *     * `COMMITTED` - Committed
          *     * `FAILED` - Failed
          *     * `VOIDED` - Voided
+         *     * `CANCELLED` - Cancelled
          * @enum {string}
          */
-        ImportJobStatusEnum: "UPLOADED" | "EXTRACTING" | "NEEDS_CLARIFICATION" | "PREVIEWED" | "COMMITTED" | "FAILED" | "VOIDED";
+        ImportJobStatusEnum: "UPLOADED" | "EXTRACTING" | "NEEDS_CLARIFICATION" | "PREVIEWED" | "COMMITTED" | "FAILED" | "VOIDED" | "CANCELLED";
         /**
          * @description * `NO_ACTION` - No Action
          *     * `ACCEPT` - Accept
@@ -15323,6 +15480,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["ReferralReward"][];
         };
+        PaginatedReturnableLineList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ReturnableLine"][];
+        };
         PaginatedSalesCreditNoteList: {
             /** @example 123 */
             count: number;
@@ -16373,6 +16545,10 @@ export interface components {
             readonly salesInvoice?: number | null;
             readonly billTemplate?: number | null;
             readonly failureReason?: string;
+            readonly fileName?: string;
+            readonly fileType?: string;
+            /** Format: date-time */
+            readonly extractionHeartbeatAt?: string | null;
         };
         PatchedLead: {
             readonly id?: number;
@@ -16530,6 +16706,7 @@ export interface components {
             manufacturer?: string;
             drugSchedule?: string;
             rackCode?: string;
+            needsReview?: boolean;
         };
         PatchedPurchaseCreditNote: {
             readonly id?: number;
@@ -17092,6 +17269,8 @@ export interface components {
             filingPlaceOfSupply?: string;
             readonly posAssumedLocal?: boolean;
             priceMode?: components["schemas"]["PriceModeEnum"];
+            readonly externalReference?: string;
+            readonly attachment?: number | null;
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
@@ -17240,6 +17419,9 @@ export interface components {
             customer?: number;
             readonly customerName?: string;
             salesInvoice?: number;
+            readonly salesInvoiceNumber?: string;
+            readonly creditNoteId?: string;
+            readonly creditNoteNumber?: string;
             /** Format: date */
             returnDate?: string;
             reason?: string;
@@ -17727,6 +17909,7 @@ export interface components {
             manufacturer?: string;
             drugSchedule?: string;
             rackCode?: string;
+            needsReview?: boolean;
         };
         /**
          * @description * `GOODS` - Goods
@@ -18517,6 +18700,21 @@ export interface components {
          * @enum {string}
          */
         ReleaseReasonEnum: "DRAFT_DELETED" | "ORDER_CANCELLED" | "INVOICE_CANCELLED" | "MANUAL_REOPEN";
+        /** @description One invoice line's return headroom (GET /sales/invoices/:id/returnable-lines/). */
+        ReturnableLine: {
+            sourceItem: number;
+            product: number;
+            productName: string;
+            /** Format: decimal */
+            sold: string;
+            /** Format: decimal */
+            returned: string;
+            /** Format: decimal */
+            creditedStandalone: string;
+            /** Format: decimal */
+            returnable: string;
+            returnedSerials: string[];
+        };
         /**
          * @description * `PENDING` - Pending
          *     * `APPROVED` - Approved
@@ -18797,6 +18995,8 @@ export interface components {
             filingPlaceOfSupply?: string;
             readonly posAssumedLocal: boolean;
             priceMode?: components["schemas"]["PriceModeEnum"];
+            readonly externalReference: string;
+            readonly attachment: number | null;
             transporterName?: string;
             transporterId?: string;
             vehicleNumber?: string;
@@ -19045,6 +19245,9 @@ export interface components {
             customer: number;
             readonly customerName: string;
             salesInvoice: number;
+            readonly salesInvoiceNumber: string;
+            readonly creditNoteId: string;
+            readonly creditNoteNumber: string;
             /** Format: date */
             returnDate?: string;
             reason?: string;
@@ -19104,6 +19307,33 @@ export interface components {
             readonly cess: string;
             /** Format: decimal */
             readonly lineTotal: string;
+        };
+        /** @description Exact totals of the credit note an unsaved return would issue. */
+        SalesReturnPreview: {
+            lineCount: number;
+            /** Format: decimal */
+            units: string;
+            /** Format: decimal */
+            taxableTotal: string;
+            /** Format: decimal */
+            cgstTotal: string;
+            /** Format: decimal */
+            sgstTotal: string;
+            /** Format: decimal */
+            igstTotal: string;
+            /** Format: decimal */
+            cessTotal: string;
+            /** Format: decimal */
+            invoiceDiscount: string;
+            /** Format: decimal */
+            additionalCharges: string;
+            /** Format: decimal */
+            tcsAmount: string;
+            /** Format: decimal */
+            roundOff: string;
+            /** Format: decimal */
+            grandTotal: string;
+            fullyReturned: boolean;
         };
         SerialNumber: {
             readonly id: number;
@@ -25393,6 +25623,34 @@ export interface operations {
             };
         };
     };
+    imports_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
     imports_clarify_create: {
         parameters: {
             query?: never;
@@ -25471,6 +25729,28 @@ export interface operations {
             };
         };
     };
+    imports_file_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
     imports_preview_create: {
         parameters: {
             query?: never;
@@ -25528,6 +25808,62 @@ export interface operations {
         };
     };
     imports_retry_extract_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_switch_kind_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this import job. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportJob"];
+                "multipart/form-data": components["schemas"]["ImportJob"];
+                "application/x-www-form-urlencoded": components["schemas"]["ImportJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJob"];
+                };
+            };
+        };
+    };
+    imports_validate_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -32668,6 +33004,31 @@ export interface operations {
             };
         };
     };
+    products_mark_reviewed_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Product"];
+                "multipart/form-data": components["schemas"]["Product"];
+                "application/x-www-form-urlencoded": components["schemas"]["Product"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
     products_pos_catalog_retrieve: {
         parameters: {
             query?: never;
@@ -34415,6 +34776,28 @@ export interface operations {
         };
     };
     purchases_invoices_pdf_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this purchase invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseInvoice"];
+                };
+            };
+        };
+    };
+    purchases_invoices_source_bill_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -38639,6 +39022,33 @@ export interface operations {
             };
         };
     };
+    sales_invoices_returnable_lines_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedReturnableLineList"];
+                };
+            };
+        };
+    };
     sales_invoices_share_create: {
         parameters: {
             query?: never;
@@ -38656,6 +39066,28 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["SalesInvoice"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesInvoice"];
+                };
+            };
+        };
+    };
+    sales_invoices_source_bill_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this sales invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -40591,6 +41023,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalesReturn"];
+                };
+            };
+        };
+    };
+    sales_returns_preview_totals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SalesReturn"];
+                "multipart/form-data": components["schemas"]["SalesReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["SalesReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SalesReturnPreview"];
                 };
             };
         };

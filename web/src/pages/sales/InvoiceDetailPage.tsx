@@ -22,6 +22,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams, useSearchParams } from 'react-router-dom';
 import { getErrorCode, getErrorMessage } from '@/api/client';
+import { gstGuardIssuesFromError } from '@/pages/sales/gstGuardErrors';
 import { PageTitle } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { invalidateInvoiceSideEffects } from '@/pages/sales/invalidateInvoiceSideEffects';
@@ -223,11 +224,9 @@ export function InvoiceDetailPage() {
           return;
         }
       }
-      if (getErrorCode(err) === 'gst_guard_blocked') {
-        const data = (err as { response?: { data?: Record<string, unknown> } })?.response?.data;
-        const nested = data?.error as { details?: { blocking?: unknown } } | undefined;
-        const blocking = Array.isArray(nested?.details?.blocking) ? nested.details.blocking : [];
-        setGstGuardIssues(blocking as { code: string; message: string }[]);
+      const guardIssues = gstGuardIssuesFromError(err);
+      if (guardIssues) {
+        setGstGuardIssues(guardIssues);
         return;
       }
       captureError(err);
@@ -656,8 +655,23 @@ export function InvoiceDetailPage() {
                 }}
               >{t('common.cancel')}</MenuItem>
             ) : null}
+            {canAct && inv.status !== 'RETURNED' ? (
+              <MenuItem
+                component={RouterLink}
+                to={`/sales/returns?create=1&invoice=${inv.id}`}
+                onClick={() => setMoreAnchor(null)}
+              >
+                {t('cog.returnGoods')}
+              </MenuItem>
+            ) : null}
             {canAct ? (
-              <MenuItem component={RouterLink} to={`/sales/credit-notes/new?fromInvoice=${inv.id}`} onClick={() => setMoreAnchor(null)}>{t('cog.returnGoods')}</MenuItem>
+              <MenuItem
+                component={RouterLink}
+                to={`/sales/credit-notes/new?fromInvoice=${inv.id}`}
+                onClick={() => setMoreAnchor(null)}
+              >
+                {t('phase1.newCreditNote')}
+              </MenuItem>
             ) : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('ORIGINAL'); }}>{t('billing.downloadOriginal')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('DUPLICATE'); }}>{t('billing.downloadDuplicate')}</MenuItem> : null}

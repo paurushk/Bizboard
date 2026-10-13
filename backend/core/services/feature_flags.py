@@ -65,6 +65,9 @@ COMPANY_ROLLOUT_KEYS = (
     "QUICK_ENTRY_ORDER_MODE",
     "QUICK_ENTRY_AUTO_CONFIRM",
     "QUICK_ENTRY_PRICE_PREVIEW",
+    # Bill upload review v2 (UPLOAD_SALES_BILL_REVIEW.md 23.x): strict product
+    # confirmation and multi-GSTIN blocking. Company JSON true is the opt-in.
+    "BILL_IMPORT_REVIEW_V2",
 )
 
 # Rollout keys that are on unless the company JSON sets them to false (a kill-switch).

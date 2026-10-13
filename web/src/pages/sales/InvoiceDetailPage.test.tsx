@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { InvoiceDetailPage } from '@/pages/sales/InvoiceDetailPage';
@@ -406,5 +406,54 @@ describe('InvoiceDetailPage — promise to pay', () => {
     await screen.findByText('INV-0001');
     expect(screen.queryByRole('button', { name: /log a promise to pay/i })).toBeNull();
     expect(screen.queryByText(/promise to pay/i)).toBeNull();
+  });
+});
+
+describe('InvoiceDetailPage — return goods entry point (SR-04)', () => {
+  function Destination({ label }: { label: string }) {
+    const location = useLocation();
+    return <div data-testid={label}>{location.pathname + location.search}</div>;
+  }
+
+  function wrapWithDestinations(path: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[path]}>
+          <Routes>
+            <Route path="/sales/history/:id" element={<InvoiceDetailPage />} />
+            <Route path="/sales/returns" element={<Destination label="returns" />} />
+            <Route path="/sales/credit-notes/new" element={<Destination label="credit-note" />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  async function openMore() {
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /^more$/i }));
+    return user;
+  }
+
+  it('routes "Return goods" to Sales Returns, which moves stock', async () => {
+    wrapWithDestinations('/sales/history/2');
+    const user = await openMore();
+    await user.click(await screen.findByRole('menuitem', { name: /return goods/i }));
+    expect((await screen.findByTestId('returns')).textContent).toBe('/sales/returns?create=1&invoice=2');
+  });
+
+  it('offers a separate "New credit note" for value-only adjustments', async () => {
+    wrapWithDestinations('/sales/history/2');
+    const user = await openMore();
+    await user.click(await screen.findByRole('menuitem', { name: /new credit note/i }));
+    expect((await screen.findByTestId('credit-note')).textContent).toBe('/sales/credit-notes/new?fromInvoice=2');
+  });
+
+  it('does not offer "Return goods" on a fully returned invoice', async () => {
+    wrapWithDestinations('/sales/history/1');
+    await openMore();
+    await screen.findByRole('menuitem', { name: /new credit note/i });
+    expect(screen.queryByRole('menuitem', { name: /return goods/i })).toBeNull();
   });
 });

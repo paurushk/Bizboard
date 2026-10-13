@@ -1,105 +1,57 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
-import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Table from '@mui/material/Table';
-import TableBody from '@mui/material/TableBody';
-import TableCell from '@mui/material/TableCell';
-import TableHead from '@mui/material/TableHead';
-import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage, newIdempotencyKey } from '@/api/client';
 import {
   answerImportClarifications,
-  commitImport,
-  getCustomer,
+  cancelImport,
   getImportJob,
-  getSupplier,
   retryImportExtract,
-  updateImportPreview,
   uploadImport,
+  voidImport,
 } from '@/api/resources';
 import { StatusChip } from '@/components/StatusChip';
 import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
-import type {
-  Customer,
-  ImportJob,
-  ImportKind,
-  PurchaseBillCommitResult,
-  PurchaseBillLinePreview,
-  PurchaseBillPreview,
-  Supplier,
-} from '@/types/domain';
+import type { Customer, ImportKind, Supplier } from '@/types/domain';
 import { statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { BillReviewPanel } from './bill/BillReviewPanel';
+import { RecentBillUploads } from './bill/RecentBillUploads';
+import { SourceBillViewer } from './bill/SourceBillViewer';
+import { isBillPreview } from './bill/billLines';
+import { useSourceVisibility } from './bill/useSourceVisibility';
 
-function isBillPreview(preview: ImportJob['preview']): preview is PurchaseBillPreview {
-  return !!preview && !Array.isArray(preview) && Array.isArray((preview as PurchaseBillPreview).lines);
-}
+const STILL_WORKING_MS = 180_000;
+const STALE_HEARTBEAT_MS = 120_000;
 
-// Bill Import Redesign Plan §7 Phase 0: unread OCR fields must render as
-// genuinely blank, never a fabricated default like qty=1 or GST=18 — a
-// fabricated default is indistinguishable from a real read and hides
-// exactly the rows that need the user's attention.
-function billedFromPack(cs?: string, pcs?: string, upc?: string): string | null {
-  const u = Number(upc);
-  if (!Number.isFinite(u) || u <= 0) return null;
-  const c = Number(cs || 0);
-  const p = Number(pcs || 0);
-  if (!Number.isFinite(c) || !Number.isFinite(p)) return null;
-  return String(c * u + p);
-}
+const PHOTO_EXT = /\.(pdf|png|jpe?g|webp|gif)$/i;
+const STRUCTURED_EXT = /\.(csv|xlsx|xlsm)$/i;
 
-function toPreviewLines(preview: PurchaseBillPreview | null): PurchaseBillLinePreview[] {
-  if (!preview?.lines) return [];
-  return preview.lines.map((line, index) => {
-    const raw = line as PurchaseBillLinePreview & {
-      hsn_code?: string;
-      unit_price?: string;
-      gst_rate?: string;
-    };
-    return {
-      si: raw.si ? String(raw.si) : String(index + 1),
-      name: raw.name ?? '',
-      sku: raw.sku ?? '',
-      hsnCode: raw.hsnCode ?? raw.hsn_code ?? '',
-      quantity: raw.quantity != null ? String(raw.quantity) : '',
-      pcs: raw.pcs != null && raw.pcs !== '' ? String(raw.pcs) : '',
-      cs: raw.cs != null && raw.cs !== '' ? String(raw.cs) : '',
-      upc: raw.upc != null && raw.upc !== '' ? String(raw.upc) : '',
-      unitPrice:
-        raw.unitPrice != null
-          ? String(raw.unitPrice)
-          : raw.unit_price != null
-            ? String(raw.unit_price)
-            : '',
-      gstRate:
-        raw.gstRate != null
-          ? String(raw.gstRate)
-          : raw.gst_rate != null
-            ? String(raw.gst_rate)
-            : '',
-      mrp: raw.mrp != null ? String(raw.mrp) : '',
-      include: raw.include !== false,
-      flags: Array.isArray(raw.flags) ? raw.flags : [],
-    };
-  });
+function fileAllowed(file: File, mode: 'photo' | 'structured'): boolean {
+  if (mode === 'structured') return STRUCTURED_EXT.test(file.name);
+  return PHOTO_EXT.test(file.name) || file.type.startsWith('image/') || file.type === 'application/pdf';
 }
 
 export interface BillUploadPageProps {
@@ -109,79 +61,65 @@ export interface BillUploadPageProps {
 
 export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const isSales = kind === 'SALES_BILL';
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // F2-025: search-as-you-type party picker instead of loading every
-  // customer/supplier up front.
+
+  // The job lives in the URL so a refresh, a Back from the draft, or a shared
+  // link brings the same review back instead of losing it.
+  const jobId = Number(searchParams.get('job')) || null;
+  const setJobId = useCallback(
+    (id: number | null) => {
+      const next = new URLSearchParams(searchParams);
+      if (id == null) next.delete('job');
+      else next.set('job', String(id));
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+
   const [uploadMode, setUploadMode] = useState<'photo' | 'structured'>('photo');
   const [file, setFile] = useState<File | null>(null);
-  // `party` is always a full Customer (sales) or Supplier (purchase) — never
-  // both at once — but its shape can't be narrowed from `isSales` alone
-  // since the state's own type doesn't depend on it.
+  const [dragging, setDragging] = useState(false);
   const [party, setParty] = useState<Customer | Supplier | null>(null);
   const partyId = party?.id ?? '';
-  const customerSearch = useCustomerSearch({
-    selected: isSales ? (party as Customer | null) : undefined,
-  });
-  const supplierSearch = useSupplierSearch({
-    selected: !isSales ? (party as Supplier | null) : undefined,
-  });
+  const customerSearch = useCustomerSearch({ selected: isSales ? (party as Customer | null) : undefined });
+  const supplierSearch = useSupplierSearch({ selected: !isSales ? (party as Supplier | null) : undefined });
   const partySearch = isSales ? customerSearch : supplierSearch;
-  const [jobId, setJobId] = useState<number | null>(null);
-  const [lines, setLines] = useState<PurchaseBillLinePreview[]>([]);
-  const [billNumber, setBillNumber] = useState('');
-  const [billDate, setBillDate] = useState('');
   const [piiConsent, setPiiConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
-  const [confirmNonGst, setConfirmNonGst] = useState(false);
-  const [lowConfidenceAccepted, setLowConfidenceAccepted] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [undoDialog, setUndoDialog] = useState(false);
+  const [showSource, setShowSource] = useSourceVisibility();
+  const [now, setNow] = useState(() => Date.now());
 
   const jobQuery = useQuery({
     queryKey: ['import-job', jobId],
     queryFn: () => getImportJob(jobId!),
     enabled: jobId != null,
+    retry: false,
+    // Back off while a long extraction runs instead of polling every 1.5s for 10 minutes.
     refetchInterval: (q) => {
       const status = q.state.data?.status;
-      if (status === 'UPLOADED' || status === 'EXTRACTING') return 1500;
+      if (status === 'UPLOADED' || status === 'EXTRACTING') {
+        return Math.min(5000, 1500 + q.state.dataUpdateCount * 250);
+      }
       return false;
     },
   });
-
   const job = jobQuery.data;
+  const jobMissing = jobQuery.isError && jobId != null;
 
-  // When a job reaches PREVIEWED, load its extracted bill into the editable form.
-  const previewedJob = job && isBillPreview(job.preview) && job.status === 'PREVIEWED' ? job : null;
-  const [seenPreview, setSeenPreview] = useState<{ job: typeof previewedJob; isSales: boolean } | null>(null);
-  if (previewedJob && isBillPreview(previewedJob.preview) && (seenPreview?.job !== previewedJob || seenPreview.isSales !== isSales)) {
-    setSeenPreview({ job: previewedJob, isSales });
-    setLines(toPreviewLines(previewedJob.preview));
-    setBillNumber(previewedJob.preview.billNumber ?? '');
-    setBillDate(previewedJob.preview.billDate ?? '');
-    setLowConfidenceAccepted(Boolean(previewedJob.preview.lowConfidenceAccepted));
-    if ('confirm_non_gst' in previewedJob.preview) {
-      setConfirmNonGst(Boolean(previewedJob.preview.confirm_non_gst));
-    }
-  }
-
-  useEffect(() => {
-    if (!previewedJob) return;
-    const detectedPartyId = isSales ? previewedJob.customer : previewedJob.supplier;
-    if (!detectedPartyId) return;
-    let cancelled = false;
-    void (isSales ? getCustomer(detectedPartyId) : getSupplier(detectedPartyId))
-      .then((p) => {
-        if (!cancelled) setParty(p);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [previewedJob, isSales]);
+  const resetAll = useCallback(() => {
+    setJobId(null);
+    setFile(null);
+    setError(null);
+    setNotice(null);
+    setParty(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [setJobId]);
 
   const uploadMutation = useMutation({
     mutationFn: () => {
@@ -192,21 +130,17 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         // A new key each click: the same WhatsApp JPEG must be allowed to
         // re-extract after a prior job was previewed or committed.
         idempotencyKey: newIdempotencyKey(),
+        aiConsent: uploadMode === 'photo' && piiConsent,
       });
     },
     onMutate: () => {
-      setJobId(null);
-      setLines([]);
       setError(null);
-      setSuccessMsg(null);
+      setNotice(null);
     },
     onSuccess: (data) => {
+      queryClient.setQueryData(['import-job', data.id], data);
       setJobId(data.id);
-      setError(null);
-      setSuccessMsg(null);
-      if (data.status === 'FAILED') {
-        setError(data.failureReason || 'Extraction failed');
-      }
+      if (data.status === 'FAILED') setError(data.failureReason || 'Extraction failed');
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -223,154 +157,145 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  const commitMutation = useMutation({
-    mutationFn: async () => {
-      if (!jobId) throw new Error('No job');
-      const payloadLines = lines.map((line) => ({
-        si: line.si ?? '',
-        name: line.name,
-        sku: line.sku ?? '',
-        hsnCode: line.hsnCode ?? '',
-        quantity: line.quantity,
-        pcs: line.pcs ?? '',
-        cs: line.cs ?? '',
-        upc: line.upc ?? '',
-        unitPrice: line.unitPrice,
-        gstRate: line.gstRate,
-        mrp: line.mrp ?? '0',
-        include: line.include !== false,
-      }));
-      await updateImportPreview(jobId, {
-        supplierId: !isSales ? (partyId === '' ? null : partyId) : undefined,
-        customerId: isSales ? (partyId === '' ? null : partyId) : undefined,
-        billNumber,
-        billDate,
-        lines: payloadLines,
-        lowConfidenceAccepted,
-        low_confidence_accepted: lowConfidenceAccepted,
-        confirmNonGst: !isSales ? confirmNonGst : undefined,
-        confirm_non_gst: !isSales ? confirmNonGst : undefined,
-      });
-      return commitImport(
-        jobId,
-        {
-          billNumber,
-          billDate,
-          lines: payloadLines,
-          confirmNonGst: !isSales ? confirmNonGst : undefined,
-          confirm_non_gst: !isSales ? confirmNonGst : undefined,
-        },
-        { idempotencyKey: commitKey.key || undefined },
-      );
-    },
-    onSuccess: (result) => {
-      const purchaseId =
-        'purchaseInvoiceId' in result ? (result as PurchaseBillCommitResult).purchaseInvoiceId : undefined;
-      const salesId =
-        'salesInvoiceId' in result ? (result as PurchaseBillCommitResult).salesInvoiceId : undefined;
-      setSuccessMsg(t(isSales ? 'billUpload.successSales' : 'billUpload.success'));
-      setError(null);
-      if (salesId) {
-        void navigate(`/sales/history/${salesId}/edit`, {
-          replace: true,
-          state: { fromBillUpload: true },
-        });
-      } else if (purchaseId) {
-        void navigate(`/purchases/history/${purchaseId}/edit`, {
-          replace: true,
-          state: { fromBillUpload: true },
-        });
-      }
+  const cancelMutation = useMutation({
+    mutationFn: () => cancelImport(jobId!),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['recent-bill-uploads', kind] });
+      void jobQuery.refetch();
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
-  const extracting = useMemo(
-    () =>
-      uploadMutation.isPending ||
-      job?.status === 'UPLOADED' ||
-      job?.status === 'EXTRACTING' ||
-      (jobId != null && jobQuery.isLoading),
-    [uploadMutation.isPending, job?.status, jobId, jobQuery.isLoading],
+  const undoImportMutation = useMutation({
+    mutationFn: () => voidImport(jobId!),
+    onSuccess: () => {
+      setUndoDialog(false);
+      setNotice(t('billUpload.undone'));
+      void jobQuery.refetch();
+    },
+    onError: (err) => {
+      setUndoDialog(false);
+      setError(getErrorMessage(err));
+    },
+  });
+
+  const acceptFile = useCallback(
+    (next: File | null) => {
+      if (next && !fileAllowed(next, uploadMode)) {
+        setError(
+          t('billUpload.wrongFileType', {
+            types: uploadMode === 'structured' ? 'CSV / XLSX' : 'PDF / PNG / JPG / WEBP',
+          }),
+        );
+        return;
+      }
+      setFile(next);
+      setError(null);
+    },
+    [uploadMode],
   );
 
-  const billPreview = job && isBillPreview(job.preview) ? job.preview : null;
-  const extractionConfidence = Number(billPreview?.extractionConfidence ?? 1);
-  const lowConfidence = billPreview != null && Number.isFinite(extractionConfidence) && extractionConfidence < 0.7;
-  const includedLines = lines.filter((l) => l.include !== false);
-  const includedCount = includedLines.length;
-  // F2-021: every included line must have a name, a positive qty and a
-  // non-negative price before the commit is allowed — otherwise blank/zero
-  // lines commit as zero-value invoice lines.
-  const invalidIncludedCount = includedLines.filter(
-    (l) =>
-      !String(l.name ?? '').trim() ||
-      !(Number(l.quantity) > 0) ||
-      !(Number(l.unitPrice) >= 0) ||
-      Number.isNaN(Number(l.unitPrice)),
-  ).length;
-  const allZeroRate =
-    includedCount > 0 && includedLines.every((l) => Number(l.gstRate || 0) === 0);
-  // one stable idempotency key per job so a retry after the button re-enables
-  // doesn't create a second draft.
-  const [commitKey, setCommitKey] = useState<{ jobId: number | null; key: string }>({ jobId: null, key: '' });
-  if (jobId != null && commitKey.jobId !== jobId) {
-    setCommitKey({ jobId, key: `import-commit-${jobId}-${newIdempotencyKey()}` });
-  }
-  const flaggedIndices = useMemo(
-    () => lines.map((l, i) => (l.flags && l.flags.length > 0 ? i : -1)).filter((i) => i >= 0),
-    [lines],
-  );
-  const flaggedSet = useMemo(() => new Set(flaggedIndices), [flaggedIndices]);
-  // Keep the printed bill order (SI 1…n). Flagged rows stay in place and
-  // highlight in orange — pulling them to the top reordered the invoice.
-  const billOrderIndices = useMemo(() => lines.map((_, i) => i), [lines]);
-  const visibleIndices = showFlaggedOnly ? flaggedIndices : billOrderIndices;
+  // Paste a screenshot or photo straight from the clipboard.
+  useEffect(() => {
+    if (jobId != null || uploadMode !== 'photo') return undefined;
+    const onPaste = (event: ClipboardEvent) => {
+      const pasted = event.clipboardData?.files?.[0];
+      if (pasted) acceptFile(pasted);
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, [jobId, uploadMode, acceptFile]);
 
-  const updateLine = (idx: number, patch: Partial<PurchaseBillLinePreview>) => {
-    setLines((prev) =>
-      prev.map((l, i) => {
-        if (i !== idx) return l;
-        const next = { ...l, ...patch };
-        if ('cs' in patch || 'pcs' in patch || 'upc' in patch) {
-          const billed = billedFromPack(next.cs, next.pcs, next.upc);
-          if (billed != null) {
-            const hasQty = next.quantity != null && String(next.quantity).trim() !== '' && Number(next.quantity) !== 0;
-            if (!hasQty) {
-              // F2-020: only auto-fill when the quantity is blank.
-              next.quantity = billed;
-              next.packQtyHint = undefined;
-            } else if (Number(billed) !== Number(next.quantity)) {
-              // otherwise offer it as a suggestion, don't overwrite.
-              next.packQtyHint = billed;
-            } else {
-              next.packQtyHint = undefined;
-            }
-          }
-        }
-        return next;
-      }),
-    );
-  };
+  const extracting =
+    uploadMutation.isPending ||
+    job?.status === 'UPLOADED' ||
+    job?.status === 'EXTRACTING' ||
+    (jobId != null && jobQuery.isLoading);
+
+  // Tick while a job is extracting so the "still working" prompt appears.
+  useEffect(() => {
+    if (!extracting) return undefined;
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, [extracting]);
 
   if (!canAccess) return <ForbiddenPage />;
 
+  const elapsedMs = job?.createdAt ? now - new Date(job.createdAt).getTime() : 0;
+  const heartbeatAge = job?.extractionHeartbeatAt ? now - new Date(job.extractionHeartbeatAt).getTime() : 0;
   const clarifications = job?.clarifications ?? [];
   const needsClarification = job?.status === 'NEEDS_CLARIFICATION' && clarifications.length > 0;
-  const preview = job && isBillPreview(job.preview) ? job.preview : null;
+  const needsPiiConsent = uploadMode === 'photo';
+  const draftId = isSales ? job?.salesInvoice : job?.purchaseInvoice;
+  const draftPath = draftId ? `${isSales ? '/sales/history' : '/purchases/history'}/${draftId}/edit` : null;
 
   return (
     <Stack spacing={2}>
       <PageTitle>{t(isSales ? 'billUpload.titleSales' : 'billUpload.title')}</PageTitle>
-      <Typography color="text.secondary">
-        {t(isSales ? 'billUpload.subtitleSales' : 'billUpload.subtitle')}
-      </Typography>
-      <Alert severity="warning">{t('billUpload.aiAccuracyDisclaimer')}</Alert>
-      <Alert severity="info">{t(isSales ? 'billUpload.piiDisclaimerSales' : 'billUpload.piiDisclaimer')}</Alert>
+      <Typography color="text.secondary">{t(isSales ? 'billUpload.subtitleSales' : 'billUpload.subtitle')}</Typography>
+      {!job && !jobMissing ? (
+        <Alert severity="info">
+          {t(isSales ? 'billUpload.piiDisclaimerSales' : 'billUpload.piiDisclaimer')} {t('billUpload.aiDisclosure')}
+        </Alert>
+      ) : null}
       {error ? <HelpErrorAlert message={error} /> : null}
-      {successMsg ? <Alert severity="success">{successMsg}</Alert> : null}
+      {notice ? (
+        <Alert severity="info" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      ) : null}
+      {jobMissing ? (
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" onClick={resetAll}>
+              {t('billUpload.reset')}
+            </Button>
+          }
+        >
+          {t('billUpload.jobNotFound')}
+        </Alert>
+      ) : null}
+
       {job?.status === 'COMMITTED' ? (
-        <Alert severity="info">{t('billUpload.alreadyCommitted')}</Alert>
+        <Alert
+          severity="success"
+          action={
+            <Stack direction="row" spacing={1}>
+              {draftPath ? (
+                <Button
+                  color="inherit"
+                  size="small"
+                  component={RouterLink}
+                  to={draftPath}
+                  state={{ fromBillUpload: true, importJobId: jobId }}
+                >
+                  {t('billUpload.openDraft')}
+                </Button>
+              ) : null}
+              <Button color="inherit" size="small" onClick={() => setUndoDialog(true)}>
+                {t('billUpload.undoImport')}
+              </Button>
+              <Button color="inherit" size="small" onClick={resetAll}>
+                {t('billUpload.reset')}
+              </Button>
+            </Stack>
+          }
+        >
+          {t('billUpload.committedBanner')}
+        </Alert>
+      ) : null}
+      {job?.status === 'CANCELLED' || job?.status === 'VOIDED' ? (
+        <Alert
+          severity="info"
+          action={
+            <Button color="inherit" size="small" onClick={resetAll}>
+              {t('billUpload.reset')}
+            </Button>
+          }
+        >
+          {t('billUpload.cancelled')}
+        </Alert>
       ) : null}
       {job?.status === 'FAILED' && job.failureReason ? (
         <Alert
@@ -381,24 +306,12 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                 color="inherit"
                 size="small"
                 onClick={() => {
-                  if (jobId != null) {
-                    void retryImportExtract(jobId).then(() => void jobQuery.refetch());
-                  }
+                  if (jobId != null) void retryImportExtract(jobId).then(() => void jobQuery.refetch());
                 }}
               >
                 {t('billUpload.retryExtract')}
               </Button>
-              <Button
-                color="inherit"
-                size="small"
-                onClick={() => {
-                  setJobId(null);
-                  setFile(null);
-                  setLines([]);
-                  setError(null);
-                  if (fileInputRef.current) fileInputRef.current.value = '';
-                }}
-              >
+              <Button color="inherit" size="small" onClick={resetAll}>
                 {t('billUpload.reset')}
               </Button>
             </Stack>
@@ -408,547 +321,227 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         </Alert>
       ) : null}
 
-      <Paper sx={{ p: 2 }}>
-        <Stack spacing={2}>
-          <ToggleButtonGroup
-            size="small"
-            exclusive
-            value={uploadMode}
-            onChange={(_e, next) => {
-              if (next) {
-                setUploadMode(next);
-                setFile(null);
-                if (fileInputRef.current) fileInputRef.current.value = '';
-              }
-            }}
-          >
-            <ToggleButton value="photo">{t('billUpload.uploadModePhoto')}</ToggleButton>
-            <ToggleButton value="structured">{t('billUpload.uploadModeStructured')}</ToggleButton>
-          </ToggleButtonGroup>
-          {uploadMode === 'structured' ? (
-            <Typography variant="body2" color="text.secondary">
-              {t('billUpload.uploadModeHint')}
-            </Typography>
-          ) : null}
-
-          <Autocomplete
-            options={partySearch.options}
-            getOptionLabel={(o: Customer | Supplier) => o.name}
-            isOptionEqualToValue={(o, v) => o.id === v.id}
-            value={party}
-            onChange={(_, v) => setParty(v)}
-            onInputChange={(_, v) => partySearch.setQuery(v)}
-            filterOptions={(opts) => opts}
-            loading={partySearch.isFetching}
-            sx={{ maxWidth: 420 }}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
-                placeholder="— Auto from bill / create —"
-                helperText={!partySearch.enabled ? t('common.typeToSearch') : undefined}
-              />
-            )}
-          />
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={
-              uploadMode === 'structured'
-                ? '.csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-                : '.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*'
-            }
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const next = e.target.files?.[0] ?? null;
-              setFile(next);
-              setError(null);
-            }}
-          />
-          <Button
-            variant="outlined"
-            sx={{ alignSelf: 'flex-start' }}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {t(uploadMode === 'structured' ? 'billUpload.chooseFileStructured' : 'billUpload.chooseFile')}
-          </Button>
-          {file ? <Typography variant="body2">Selected: {file.name}</Typography> : null}
-
-          <FormControlLabel
-            control={<Checkbox checked={piiConsent} onChange={(e) => setPiiConsent(e.target.checked)} />}
-            label={t('billUpload.piiConfirm')}
-          />
-
-          <Button
-            variant="contained"
-            disabled={!file || !piiConsent || extracting}
-            onClick={() => uploadMutation.mutate()}
-            startIcon={extracting ? <CircularProgress size={16} color="inherit" /> : undefined}
-          >
-            {extracting ? t('billUpload.extracting') : t('common.upload')}
-          </Button>
-        </Stack>
-      </Paper>
-
-      {extracting ? (
-        <Stack direction="row" spacing={1} alignItems="center">
-          <CircularProgress size={22} aria-label={t('common.loading')} />
-          <Typography>{t('billUpload.extracting')}</Typography>
-          {job ? <StatusChip tone="info" labelKey={statusLabelKey(job.status)} /> : null}
-        </Stack>
-      ) : null}
-
-      {needsClarification ? (
-        <Paper sx={{ p: 2 }}>
-          <Stack spacing={2}>
-            <Typography variant="h6">{t('billUpload.clarificationsTitle')}</Typography>
-            <Typography variant="body2" color="text.secondary">
-              {t('billUpload.clarificationsHint')}
-            </Typography>
-            {clarifications.map((c) => (
-              <TextField
-                key={c.field}
-                select
-                label={c.question}
-                value={clarificationAnswers[c.field] ?? ''}
-                onChange={(e) =>
-                  setClarificationAnswers((prev) => ({ ...prev, [c.field]: e.target.value }))
-                }
-                sx={{ maxWidth: 480 }}
+      {jobId == null ? (
+        <>
+          <Paper sx={{ p: 2 }}>
+            <Stack spacing={2}>
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={uploadMode}
+                onChange={(_e, next) => {
+                  if (next) {
+                    setUploadMode(next);
+                    setFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }
+                }}
               >
-                {c.options.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            ))}
-            <Button
-              variant="contained"
-              disabled={
-                clarifications.some((c) => !clarificationAnswers[c.field]) || clarifyMutation.isPending
-              }
-              onClick={() => clarifyMutation.mutate()}
-              sx={{ alignSelf: 'flex-start' }}
-            >
-              {t('billUpload.clarificationsSubmit')}
-            </Button>
-          </Stack>
-        </Paper>
-      ) : null}
+                <ToggleButton value="photo">{t('billUpload.uploadModePhoto')}</ToggleButton>
+                <ToggleButton value="structured">
+                  {t(isSales ? 'billUpload.uploadModeStructuredSales' : 'billUpload.uploadModeStructured')}
+                </ToggleButton>
+              </ToggleButtonGroup>
+              <Typography variant="body2" color="text.secondary">
+                {t(uploadMode === 'structured' ? 'billUpload.uploadModeHint' : 'billUpload.aiDisclosure')}
+              </Typography>
 
-      {job?.status === 'PREVIEWED' ? (
-        <Paper sx={{ p: 2 }}>
-          <Stack spacing={2}>
-            {preview?.directionWarning ? (
-              <Alert severity="warning">
-                <strong>{t('billUpload.directionWarning')}:</strong> {preview.directionWarning}
-              </Alert>
-            ) : null}
-            {preview?.injectionFlagged ? (
-              <Alert severity="error">
-                <strong>{t('billUpload.injectionWarningTitle')}:</strong>{' '}
-                {t('billUpload.injectionWarningBody')}
-              </Alert>
-            ) : preview?.warnings && preview.warnings.length > 0 ? (
-              <Alert severity="warning">
-                <strong>{t('billUpload.extractionWarningsTitle')}:</strong>
-                <ul style={{ margin: '4px 0 0', paddingLeft: '1.2em' }}>
-                  {preview.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </Alert>
-            ) : null}
-            {typeof preview?.printedLineCount === 'number' &&
-            preview.printedLineCount > lines.length ? (
-              <Alert
-                severity="warning"
-                action={
-                  jobId != null ? (
-                    <Button
-                      color="inherit"
-                      size="small"
-                      onClick={() => {
-                        void retryImportExtract(jobId).then(() => void jobQuery.refetch());
-                      }}
-                    >
-                      {t('billUpload.retryExtract')}
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {t('billUpload.truncatedLines', {
-                  got: lines.length,
-                  expected: preview.printedLineCount,
-                })}
-              </Alert>
-            ) : lines.length >= 18 && lines.length <= 22 ? (
-              <Alert
-                severity="info"
-                action={
-                  jobId != null ? (
-                    <Button
-                      color="inherit"
-                      size="small"
-                      onClick={() => {
-                        void retryImportExtract(jobId).then(() => void jobQuery.refetch());
-                      }}
-                    >
-                      {t('billUpload.retryExtract')}
-                    </Button>
-                  ) : undefined
-                }
-              >
-                {t('billUpload.maybeTruncated', { got: lines.length })}
-              </Alert>
-            ) : null}
-            {job.billTemplate && clarifications.length === 0 ? (
-              <Alert severity="success">{t('billUpload.templateApplied')}</Alert>
-            ) : null}
-            <Alert severity="warning">{t('billUpload.aiAccuracyDisclaimer')}</Alert>
-
-            <Stack direction="row" spacing={2} flexWrap="wrap">
-              <TextField
-                label={t('billUpload.billNumber')}
-                value={billNumber}
-                onChange={(e) => setBillNumber(e.target.value)}
-                sx={{ minWidth: 200 }}
-              />
-              <TextField
-                label={t('billUpload.billDate')}
-                type="date"
-                InputLabelProps={{ shrink: true }}
-                value={billDate}
-                onChange={(e) => setBillDate(e.target.value)}
-                sx={{ minWidth: 200 }}
-              />
-            </Stack>
-
-            {lines.length === 0 ? (
-              <Alert severity="warning">{t('billUpload.noLines')}</Alert>
-            ) : (
-              <>
-                <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap">
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={t('billUpload.extractedRows', { count: lines.length })}
+              <Autocomplete
+                options={partySearch.options}
+                getOptionLabel={(o: Customer | Supplier) => o.name}
+                isOptionEqualToValue={(o, v) => o.id === v.id}
+                value={party}
+                onChange={(_, v) => setParty(v)}
+                onInputChange={(_, v) => partySearch.setQuery(v)}
+                filterOptions={(opts) => opts}
+                loading={partySearch.isFetching}
+                sx={{ maxWidth: 420 }}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
+                    placeholder="— Auto from bill / create —"
+                    helperText={!partySearch.enabled ? t('common.typeToSearch') : undefined}
                   />
-                  <Chip
-                    size="small"
-                    color={flaggedIndices.length > 0 ? 'warning' : 'success'}
-                    label={
-                      flaggedIndices.length > 0
-                        ? t('billUpload.flaggedSummary', {
-                            flagged: flaggedIndices.length,
-                            total: lines.length,
-                          })
-                        : t('billUpload.flaggedNone')
-                    }
-                  />
-                  {flaggedIndices.length > 0 ? (
-                    <Button
-                      size="small"
-                      onClick={() => setShowFlaggedOnly((v) => !v)}
-                    >
-                      {t(showFlaggedOnly ? 'billUpload.showAllRows' : 'billUpload.showFlaggedOnly')}
-                    </Button>
-                  ) : null}
-                  <Button
-                    size="small"
-                    onClick={() =>
-                      setLines((prev) => prev.map((l) => (l.flags?.length ? l : { ...l, include: true })))
-                    }
-                  >
-                    {t('billUpload.bulkAcceptClean')}
+                )}
+              />
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={
+                  uploadMode === 'structured'
+                    ? '.csv,.xlsx,.xlsm,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    : '.pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*'
+                }
+                style={{ display: 'none' }}
+                onChange={(e) => acceptFile(e.target.files?.[0] ?? null)}
+              />
+              <Box
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragging(true);
+                }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(false);
+                  acceptFile(e.dataTransfer.files?.[0] ?? null);
+                }}
+                sx={{
+                  border: '2px dashed',
+                  borderColor: dragging ? 'primary.main' : 'divider',
+                  borderRadius: 1,
+                  p: 2,
+                  textAlign: 'center',
+                  bgcolor: dragging ? 'action.hover' : undefined,
+                }}
+              >
+                <Stack spacing={1} alignItems="center">
+                  <Typography variant="body2" color="text.secondary">
+                    {t('billUpload.dropHere')}
+                  </Typography>
+                  <Button variant="outlined" onClick={() => fileInputRef.current?.click()}>
+                    {t(uploadMode === 'structured' ? 'billUpload.chooseFileStructured' : 'billUpload.chooseFile')}
                   </Button>
-                  {flaggedIndices.length > 0 ? (
-                    <Button
-                      size="small"
-                      color="warning"
-                      onClick={() =>
-                        setLines((prev) =>
-                          prev.map((l) => (l.flags?.length ? { ...l, include: false } : l)),
-                        )
-                      }
-                    >
-                      {t('billUpload.bulkExcludeFlagged')}
-                    </Button>
-                  ) : null}
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={showAdvanced}
-                        onChange={(e) => setShowAdvanced(e.target.checked)}
-                      />
-                    }
-                    label={t('billUpload.advancedColumns')}
-                  />
+                  {file ? <Typography variant="body2">Selected: {file.name}</Typography> : null}
                 </Stack>
+              </Box>
 
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>{t('billUpload.siNo')}</TableCell>
-                      <TableCell>{t('billUpload.include')}</TableCell>
-                      <TableCell>{t('common.name')}</TableCell>
-                      {showAdvanced ? <TableCell>{t('common.sku')}</TableCell> : null}
-                      {showAdvanced ? <TableCell>HSN</TableCell> : null}
-                      <TableCell align="right">{t('billUpload.colCs')}</TableCell>
-                      <TableCell align="right">{t('billUpload.colPcs')}</TableCell>
-                      <TableCell align="right">{t('billUpload.colUpc')}</TableCell>
-                      <TableCell align="right">{t('billing.qty')}</TableCell>
-                      <TableCell align="right">{t('billing.price')}</TableCell>
-                      <TableCell align="right">GST %</TableCell>
-                      <TableCell align="right">{t('billUpload.mrp')}</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {visibleIndices.map((idx) => {
-                      const line = lines[idx];
-                      const isFlagged = flaggedSet.has(idx);
-                      const expanded = isFlagged || expandedRows.has(idx);
-                      if (!expanded) {
-                        return (
-                          <TableRow
-                            key={idx}
-                            hover
-                            // F2-047: the collapsed row expands on click — make it
-                            // reachable and operable from the keyboard too.
-                            role="button"
-                            tabIndex={0}
-                            aria-expanded={false}
-                            aria-label={t('billUpload.expandRow')}
-                            sx={{ cursor: 'pointer' }}
-                            onClick={() => setExpandedRows((prev) => new Set(prev).add(idx))}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                e.preventDefault();
-                                setExpandedRows((prev) => new Set(prev).add(idx));
-                              }
-                            }}
-                          >
-                            <TableCell>{line.si || idx + 1}</TableCell>
-                            <TableCell padding="checkbox">
-                              <Checkbox
-                                checked={line.include !== false}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateLine(idx, { include: e.target.checked })}
-                              />
-                            </TableCell>
-                            <TableCell colSpan={showAdvanced ? 3 : 1}>{line.name}</TableCell>
-                            <TableCell align="right">{line.cs || '—'}</TableCell>
-                            <TableCell align="right">{line.pcs || '—'}</TableCell>
-                            <TableCell align="right">{line.upc || '—'}</TableCell>
-                            <TableCell align="right">{line.quantity || '—'}</TableCell>
-                            <TableCell align="right">{line.unitPrice || '—'}</TableCell>
-                            <TableCell align="right">{line.gstRate || '—'}</TableCell>
-                            <TableCell align="right">{line.mrp || '—'}</TableCell>
-                          </TableRow>
-                        );
-                      }
-                      return (
-                        <TableRow key={idx} sx={isFlagged ? { bgcolor: 'warning.light' } : undefined}>
-                          <TableCell>{line.si || idx + 1}</TableCell>
-                          <TableCell padding="checkbox">
-                            <Checkbox
-                              checked={line.include !== false}
-                              onChange={(e) => updateLine(idx, { include: e.target.checked })}
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Stack spacing={0.5}>
-                              <TextField
-                                size="small"
-                                value={line.name}
-                                onChange={(e) => updateLine(idx, { name: e.target.value })}
-                              />
-                              {(line.flags ?? []).map((flag, fi) => (
-                                <Typography key={fi} variant="caption" color="warning.dark">
-                                  {t('billUpload.rowFlagged')}: {flag}
-                                </Typography>
-                              ))}
-                            </Stack>
-                          </TableCell>
-                          {showAdvanced ? (
-                            <TableCell>
-                              <TextField
-                                size="small"
-                                value={line.sku ?? ''}
-                                onChange={(e) => updateLine(idx, { sku: e.target.value })}
-                              />
-                            </TableCell>
-                          ) : null}
-                          {showAdvanced ? (
-                            <TableCell>
-                              <TextField
-                                size="small"
-                                value={line.hsnCode ?? ''}
-                                onChange={(e) => updateLine(idx, { hsnCode: e.target.value })}
-                              />
-                            </TableCell>
-                          ) : null}
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.cs ?? ''}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { cs: e.target.value })}
-                              sx={{ width: 72 }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.pcs ?? ''}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { pcs: e.target.value })}
-                              sx={{ width: 72 }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.upc ?? ''}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { upc: e.target.value })}
-                              sx={{ width: 72 }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.quantity}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { quantity: e.target.value })}
-                              sx={{ width: 90 }}
-                            />
-                            {line.packQtyHint ? (
-                              <Typography
-                                variant="caption"
-                                color="warning.main"
-                                sx={{ display: 'block', cursor: 'pointer', mt: 0.25 }}
-                                onClick={() =>
-                                  updateLine(idx, { quantity: line.packQtyHint, packQtyHint: undefined })
-                                }
-                              >
-                                pack = {line.packQtyHint} · apply
-                              </Typography>
-                            ) : null}
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.unitPrice}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { unitPrice: e.target.value })}
-                              sx={{ width: 110 }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.gstRate}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { gstRate: e.target.value })}
-                              sx={{ width: 90 }}
-                            />
-                          </TableCell>
-                          <TableCell align="right">
-                            <TextField
-                              size="small"
-                              type="number"
-                              value={line.mrp ?? ''}
-                              placeholder="—"
-                              onChange={(e) => updateLine(idx, { mrp: e.target.value })}
-                              sx={{ width: 100 }}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </>
-            )}
+              {needsPiiConsent ? (
+                <FormControlLabel
+                  control={<Checkbox checked={piiConsent} onChange={(e) => setPiiConsent(e.target.checked)} />}
+                  label={t('billUpload.piiConfirmAi')}
+                />
+              ) : null}
 
-            <Box>
-              {allZeroRate && !isSales ? (
-                <Box sx={{ mb: 2, p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={confirmNonGst}
-                        onChange={(e) => setConfirmNonGst(e.target.checked)}
-                        color="primary"
-                      />
-                    }
-                    label={
-                      <Box>
-                        <Typography variant="body2" fontWeight={600}>
-                          {t('sweep2.bookNonGst')}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          All lines have 0% GST. Check this box to record as Non-GST bill; leave unchecked to record as Nil/Exempt GST.
-                        </Typography>
-                      </Box>
-                    }
-                  />
-                </Box>
-              ) : null}
-              {lowConfidence ? (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  <Typography variant="body2">
-                    {t('billUpload.lowConfidence', { confidence: extractionConfidence.toFixed(2) })}
-                  </Typography>
-                  <Typography variant="caption" display="block">
-                    {t('billUpload.lineReviewHint')}
-                  </Typography>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={lowConfidenceAccepted}
-                        onChange={(e) => setLowConfidenceAccepted(e.target.checked)}
-                      />
-                    }
-                    label={t('billUpload.acceptReviewed')}
-                  />
-                </Alert>
-              ) : null}
               <Button
                 variant="contained"
-                color="secondary"
-                disabled={
-                  includedCount === 0 ||
-                  invalidIncludedCount > 0 ||
-                  (lowConfidence && !lowConfidenceAccepted) ||
-                  commitMutation.isPending
-                }
-                onClick={() => commitMutation.mutate()}
+                disabled={!file || (needsPiiConsent && !piiConsent) || extracting}
+                onClick={() => uploadMutation.mutate()}
+                startIcon={extracting ? <CircularProgress size={16} color="inherit" /> : undefined}
+                sx={{ alignSelf: 'flex-start' }}
               >
-                {t(isSales ? 'billUpload.commitDraftSales' : 'billUpload.commitDraft')}
+                {extracting ? t('billUpload.extracting') : t('common.upload')}
               </Button>
-              {invalidIncludedCount > 0 ? (
-                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>
-                  {invalidIncludedCount} included line(s) need a name, a quantity &gt; 0 and a valid price.
-                </Typography>
-              ) : null}
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                {t(isSales ? 'billUpload.commitDraftHintSales' : 'billUpload.commitDraftHint')}
-              </Typography>
-            </Box>
-          </Stack>
-        </Paper>
+            </Stack>
+          </Paper>
+          <RecentBillUploads kind={kind} onResume={(id) => setJobId(id)} />
+        </>
       ) : null}
+
+      {extracting && jobId != null ? (
+        <Stack spacing={1}>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <CircularProgress size={22} aria-label={t('common.loading')} />
+            <Typography>{t('billUpload.extracting')}</Typography>
+            {job ? <StatusChip tone="info" labelKey={statusLabelKey(job.status)} /> : null}
+          </Stack>
+          {elapsedMs > STILL_WORKING_MS ? (
+            <Alert
+              severity="info"
+              action={
+                <Stack direction="row" spacing={1}>
+                  {heartbeatAge > STALE_HEARTBEAT_MS ? (
+                    <Button
+                      color="inherit"
+                      size="small"
+                      onClick={() => void retryImportExtract(jobId).then(() => void jobQuery.refetch())}
+                    >
+                      {t('billUpload.retryExtract')}
+                    </Button>
+                  ) : null}
+                  <Button color="inherit" size="small" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
+                    {t('billUpload.cancelExtract')}
+                  </Button>
+                </Stack>
+              }
+            >
+              {t('billUpload.stillWorking')}
+            </Alert>
+          ) : null}
+        </Stack>
+      ) : null}
+
+      {needsClarification && jobId != null ? (
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', lg: showSource ? 'minmax(300px, 2fr) 3fr' : '1fr' },
+            alignItems: 'start',
+          }}
+        >
+          {showSource ? <SourceBillViewer key={jobId} jobId={jobId} /> : null}
+          <Paper sx={{ p: 2 }}>
+            <Stack spacing={2}>
+              <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => setShowSource(!showSource)}>
+                {t(showSource ? 'billUpload.hideSource' : 'billUpload.showSource')}
+              </Button>
+              <Typography variant="h6">{t('billUpload.clarificationsTitle')}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t('billUpload.clarificationsHint')}
+              </Typography>
+              {clarifications.map((c) => (
+                <TextField
+                  key={c.field}
+                  select
+                  label={c.question}
+                  value={clarificationAnswers[c.field] ?? ''}
+                  onChange={(e) => setClarificationAnswers((prev) => ({ ...prev, [c.field]: e.target.value }))}
+                  sx={{ maxWidth: 480 }}
+                >
+                  {c.options.map((opt) => (
+                    <MenuItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              ))}
+              <Button
+                variant="contained"
+                disabled={clarifications.some((c) => !clarificationAnswers[c.field]) || clarifyMutation.isPending}
+                onClick={() => clarifyMutation.mutate()}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                {t('billUpload.clarificationsSubmit')}
+              </Button>
+            </Stack>
+          </Paper>
+        </Box>
+      ) : null}
+
+      {job?.status === 'PREVIEWED' && isBillPreview(job.preview) ? (
+        <BillReviewPanel
+          key={`${job.id}:${reloadToken}`}
+          kind={kind}
+          job={job}
+          onStale={() => {
+            setNotice(t('billUpload.staleReload'));
+            void jobQuery.refetch().then(() => setReloadToken((n) => n + 1));
+          }}
+          onError={setError}
+          onCommittedElsewhere={() => {
+            void jobQuery.refetch();
+          }}
+          onCancelled={() => {
+            void jobQuery.refetch();
+          }}
+        />
+      ) : null}
+
+      <Dialog open={undoDialog} onClose={() => setUndoDialog(false)}>
+        <DialogTitle>{t('billUpload.undoImportTitle')}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{t('billUpload.undoImportBody')}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setUndoDialog(false)}>{t('common.cancel')}</Button>
+          <Button color="error" disabled={undoImportMutation.isPending} onClick={() => undoImportMutation.mutate()}>
+            {t('billUpload.undoImport')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

@@ -306,27 +306,36 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
   helpPage('purchase-bill-upload', {
     title: ['Upload purchase bill', 'खरीद बिल अपलोड'],
     summary: [
-      'Photo or PDF extract → a draft purchase. It will not invent GST rate or quantity. You still Complete after checking HSN and GSTIN.',
-      'फोटो/PDF से ड्राफ्ट खरीद। GST दर या मात्रा नहीं गढ़ता। HSN/GSTIN जाँचकर Complete आप करते हैं।',
+      'Turns a photo, PDF or CSV/Excel file of a supplier bill into a **draft** purchase for you to check. It never invents a GST rate or quantity; stock, payable and input tax do not change until you Complete the draft.',
+      'सप्लायर बिल की फोटो, PDF या CSV/Excel फ़ाइल से **ड्राफ्ट** खरीद बनाता है, जिसे आप जाँचते हैं। यह GST दर या मात्रा कभी गढ़ता नहीं; ड्राफ्ट Complete होने तक स्टॉक, देनदारी और इनपुट टैक्स नहीं बदलते।',
     ],
     howItWorks: [
-      ['Needs import capability. Review every line before Complete.', 'इम्पोर्ट अनुमति चाहिए। Complete से पहले हर लाइन जाँचें।'],
+      ['Needs the Import permission and the right to create purchases. Upload a photo / PDF (read by an AI service, you must agree to that) or a CSV / Excel export (read directly, no AI).', 'Import अनुमति और खरीद बनाने का अधिकार चाहिए। फोटो / PDF (AI सेवा से पढ़ा जाता है, इसकी सहमति देनी होगी) या CSV / Excel निर्यात (सीधे पढ़ा जाता है, AI नहीं) अपलोड करें।'],
+      ['Check each row against the original bill shown beside the rows (a drawer on a phone). Fix every row marked red, add a missed row, delete a row that is not an item.', 'पंक्तियों के बगल में दिख रहे मूल बिल से हर पंक्ति मिलाएँ (फोन पर नीचे से खुलने वाला पैनल)। लाल पंक्तियाँ ठीक करें, छूटी पंक्ति जोड़ें, जो आइटम नहीं उसे हटाएँ।'],
+      ['The supplier is matched only on an exact GSTIN or name; otherwise a new supplier is created from the bill. Set whether prices include GST, and enter freight and any bill discount.', 'सप्लायर केवल सटीक GSTIN या नाम पर मिलाया जाता है; नहीं तो बिल से नया सप्लायर बनता है। तय करें कि दरों में GST शामिल है या नहीं, और भाड़ा व बिल छूट भरें।'],
+      ['Check before creating lists every problem at once. Your edits save by themselves, and unfinished uploads are listed under Recent uploads.', 'बनाने से पहले जाँचें सभी समस्याएँ एक साथ दिखाता है। बदलाव अपने आप सहेजे जाते हैं, और अधूरे अपलोड हाल के अपलोड में दिखते हैं।'],
+      ['Create the draft, open it, check HSN and GSTIN, then Complete. The original file is attached to the purchase.', 'ड्राफ्ट बनाएँ, खोलें, HSN और GSTIN जाँचें, फिर Complete करें। मूल फ़ाइल खरीद से जुड़ी रहती है।'],
     ],
     businessImpact: [
-      ['No stock or payable until Complete.', 'Complete तक स्टॉक या देनदारी नहीं।'],
+      ['No stock, payable or ITC until you Complete the draft.', 'ड्राफ्ट Complete होने तक स्टॉक, देनदारी या ITC नहीं।'],
+      ['New items are created at the bill price as their cost and marked **needs review**. An unregistered supplier makes the draft reverse-charge.', 'नए आइटम बिल के भाव को लागत मानकर बनते हैं और **समीक्षा चाहिए** चिह्नित होते हैं। अपंजीकृत सप्लायर पर ड्राफ्ट रिवर्स-चार्ज बनता है।'],
     ],
     keyRules: [
-      ['OCR is aid-only.', 'OCR केवल सहायता है।'],
+      ['OCR is aid-only. A row with a problem is never dropped silently: the draft is refused until it is fixed.', 'OCR केवल सहायता है। समस्या वाली पंक्ति चुपचाप नहीं छूटती: ठीक होने तक ड्राफ्ट नहीं बनता।'],
+      ['A bill already booked for this supplier with the same number and date asks you to confirm before it is booked again.', 'इसी सप्लायर का उसी नंबर और तारीख का बिल दोबारा बुक करने से पहले पुष्टि माँगी जाती है।'],
+      ['If every line is 0% GST you can choose to book it as a Non-GST bill (bill of supply).', 'सभी पंक्तियों पर 0% GST हो तो आप उसे गैर-GST बिल (बिल ऑफ सप्लाई) के रूप में बुक करना चुन सकते हैं।'],
     ],
     commonMistakes: [
       ['Completing an extract that used the wrong supplier GSTIN.', 'गलत सप्लायर GSTIN वाले निकाल पर Complete।'],
+      ['Uploading a sales bill here: the page warns when the supplier GSTIN is yours and offers to switch.', 'यहाँ बिक्री बिल अपलोड करना: सप्लायर GSTIN आपका हो तो पेज चेतावनी देता है और बदलने का विकल्प देता है।'],
     ],
     relatedPages: [
       { path: '/purchases/history', labelKey: 'nav.purchaseHistory' },
       { path: '/purchases/new', labelKey: 'nav.newPurchase' },
+      { path: '/inventory/products?needsReview=1', labelKey: 'products.needsReviewFilter' },
     ],
     nextActions: [
-      ['Open the draft, fix supplier and lines, Complete.', 'ड्राफ्ट खोलें, सप्लायर/लाइनें ठीक करें, Complete करें।'],
+      ['Open the draft, check lines, HSN and GSTIN, then Complete.', 'ड्राफ्ट खोलें, पंक्तियाँ, HSN और GSTIN जाँचें, फिर Complete करें।'],
     ],
   }),
 

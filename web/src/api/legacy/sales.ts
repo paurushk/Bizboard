@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { apiClient, idempotencyHeaders, shouldUseMocks, unwrapData } from '../client';
 import { mockInvoices, mockQuotations } from '@/mocks/data';
-import type { LineItem, Quotation, ReportResponse, SalesCreditNote, SalesDebitNote, SalesInvoice, SalesOrder, SalesReturn, DeliveryChallan, AdjustableInvoiceSummary, PdfStatus } from '@/types/domain';
+import type { LineItem, Quotation, ReportResponse, SalesCreditNote, SalesDebitNote, SalesInvoice, SalesOrder, SalesReturn, ReturnableLine, SalesReturnPreview, DeliveryChallan, AdjustableInvoiceSummary, PdfStatus } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 
 export async function listSalesInvoices(params?: Record<string, string>): Promise<SalesInvoice[]> {
@@ -1025,6 +1025,87 @@ export async function listSalesReturnsPage(params?: PageParams): Promise<PageRes
   });
 }
 
+export async function getSalesReturn(id: number | string): Promise<SalesReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/sales/returns/${id}/`);
+    return unwrapData<SalesReturn>(data);
+  }, {
+    id: Number(id),
+    status: 'DRAFT',
+    customer: 0,
+    salesInvoice: 0,
+    returnDate: new Date().toISOString().slice(0, 10),
+    items: [],
+    subtotal: 0,
+    discountTotal: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    roundOff: 0,
+    grandTotal: 0,
+  });
+}
+
+export async function getInvoiceReturnableLines(invoiceId: number): Promise<ReturnableLine[]> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/sales/invoices/${invoiceId}/returnable-lines/`);
+    const rows = unwrapData<Array<Record<string, unknown>>>(data) ?? [];
+    return rows.map((r) => ({
+      sourceItem: Number(r.sourceItem),
+      product: Number(r.product),
+      productName: String(r.productName ?? ''),
+      sold: Number(r.sold ?? 0),
+      returned: Number(r.returned ?? 0),
+      creditedStandalone: Number(r.creditedStandalone ?? 0),
+      returnable: Number(r.returnable ?? 0),
+      returnedSerials: Array.isArray(r.returnedSerials) ? (r.returnedSerials as string[]) : [],
+    }));
+  }, []);
+}
+
+export async function previewSalesReturnTotals(payload: {
+  customer: number;
+  salesInvoice: number;
+  returnDate?: string;
+  items: Array<Partial<LineItem>>;
+}): Promise<SalesReturnPreview> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post('/sales/returns/preview-totals/', payload);
+    const r = unwrapData<Record<string, unknown>>(data);
+    const n = (k: string) => Number(r[k] ?? 0);
+    return {
+      lineCount: n('lineCount'),
+      units: n('units'),
+      taxableTotal: n('taxableTotal'),
+      cgstTotal: n('cgstTotal'),
+      sgstTotal: n('sgstTotal'),
+      igstTotal: n('igstTotal'),
+      cessTotal: n('cessTotal'),
+      invoiceDiscount: n('invoiceDiscount'),
+      additionalCharges: n('additionalCharges'),
+      tcsAmount: n('tcsAmount'),
+      roundOff: n('roundOff'),
+      grandTotal: n('grandTotal'),
+      fullyReturned: Boolean(r.fullyReturned),
+    };
+  }, {
+    lineCount: payload.items.length,
+    units: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    cessTotal: 0,
+    invoiceDiscount: 0,
+    additionalCharges: 0,
+    tcsAmount: 0,
+    roundOff: 0,
+    grandTotal: 0,
+    fullyReturned: false,
+  });
+}
+
 export async function createSalesReturn(payload: {
   customer: number;
   salesInvoice: number;
@@ -1058,6 +1139,7 @@ export async function createSalesReturn(payload: {
 export async function updateSalesReturn(
   id: number,
   payload: {
+    returnDate?: string;
     reason?: string;
     items?: Array<Partial<LineItem>>;
   },
@@ -1070,7 +1152,7 @@ export async function updateSalesReturn(
     status: 'DRAFT',
     customer: 0,
     salesInvoice: 0,
-    returnDate: '',
+    returnDate: payload.returnDate ?? '',
     items: (payload.items ?? []) as LineItem[],
     subtotal: 0,
     discountTotal: 0,
@@ -1083,15 +1165,49 @@ export async function updateSalesReturn(
   });
 }
 
-export async function completeSalesReturn(id: number, options?: { idempotencyKey?: string }): Promise<SalesReturn> {
+export async function deleteSalesReturn(id: number): Promise<void> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/sales/returns/${id}/complete/`, undefined, {
+    await apiClient.delete(`/sales/returns/${id}/`);
+  }, undefined);
+}
+
+export async function completeSalesReturn(
+  id: number,
+  options?: { idempotencyKey?: string; gstGuardOverrideReason?: string },
+): Promise<SalesReturn> {
+  return withMocks(async () => {
+    const body = options?.gstGuardOverrideReason
+      ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
+      : undefined;
+    const { data } = await apiClient.post(`/sales/returns/${id}/complete/`, body, {
       headers: idempotencyHeaders(options?.idempotencyKey),
     });
     return unwrapData<SalesReturn>(data);
   }, {
     id,
     status: 'COMPLETED',
+    customer: 0,
+    salesInvoice: 0,
+    returnDate: '',
+    items: [],
+    subtotal: 0,
+    discountTotal: 0,
+    taxableTotal: 0,
+    cgstTotal: 0,
+    sgstTotal: 0,
+    igstTotal: 0,
+    roundOff: 0,
+    grandTotal: 0,
+  });
+}
+
+export async function cancelSalesReturn(id: number): Promise<SalesReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/sales/returns/${id}/cancel/`);
+    return unwrapData<SalesReturn>(data);
+  }, {
+    id,
+    status: 'CANCELLED',
     customer: 0,
     salesInvoice: 0,
     returnDate: '',

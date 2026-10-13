@@ -282,14 +282,30 @@ def _build_items(model_cls, parent_field, parent, items_data):
         else:
             from masters.pricing import resolve_party_price, resolve_unit_price
 
-            unit_price = resolve_unit_price(
-                customer=getattr(parent, "customer", None),
-                product=product,
-                requested_price=line.get("unit_price", None),
-                role=getattr(parent, "_price_role", None),
-                quantity=line.get("quantity"),
-            )
+            if (
+                getattr(parent, "_preserve_requested_prices", False)
+                and line.get("unit_price") not in (None, "")
+            ):
+                # Bill import: the price the reviewer approved is the price on
+                # the draft, never clamped up to the customer's price list.
+                unit_price = Decimal(str(line["unit_price"]))
+            else:
+                unit_price = resolve_unit_price(
+                    customer=getattr(parent, "customer", None),
+                    product=product,
+                    requested_price=line.get("unit_price", None),
+                    role=getattr(parent, "_price_role", None),
+                    quantity=line.get("quantity"),
+                )
             discount_percent = line.get("discount_percent", Decimal("0"))
+            if return_source is not None:
+                # SR-02: a return line that names its invoice line carries that
+                # line's price and discount unless the caller sends its own, so an
+                # API client cannot refund the undiscounted price by omission.
+                if line.get("unit_price") in (None, ""):
+                    unit_price = return_source.unit_price
+                if line.get("discount_percent") is None:
+                    discount_percent = return_source.discount_percent
             gst_rate = line.get("gst_rate", product.gst_rate)
             # D9b: default compensation cess from the product master, like gst_rate.
             cess_rate = line.get("cess_rate", getattr(product, "cess_rate", None) or Decimal("0"))
@@ -348,6 +364,7 @@ def _build_items(model_cls, parent_field, parent, items_data):
                     "serial_numbers": line.get("serial_numbers") or [],
                     "rate_override": bool(line.get("rate_override")),
                     "rate_override_reason": (line.get("rate_override_reason") or "")[:255],
+                    "price_override_by": line.get("price_override_by"),
                 })
         if model_cls is QuotationItem:
             nature = (line.get("supply_nature") or "TAXABLE").upper()

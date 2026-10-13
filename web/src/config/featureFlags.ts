@@ -47,6 +47,8 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   QUICK_ENTRY_ORDER_MODE: false,
   QUICK_ENTRY_AUTO_CONFIRM: false,
   QUICK_ENTRY_PRICE_PREVIEW: false,
+  // Bill upload review v2: strict product confirmation + multi-GSTIN selection.
+  BILL_IMPORT_REVIEW_V2: false,
   ENABLE_CUSTOMER_ACTIONS: false,
   ENABLE_CROSS_SELL: false,
   ENABLE_ROUTE_OPTIMIZATION: false,

@@ -8,10 +8,16 @@ from core.exceptions import BusinessRuleError
 from inventory.models import MovementType, SerialNumber, StockMovement
 from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 
-from .models import SalesReturn
+from .models import SalesReturn, SalesReturnItem
 
 
 class CogsService:
+    @staticmethod
+    def line_tag(line_pk):
+        """Stamped on SALE / SALES_RETURN movements so a return restores the lot
+        its own invoice line sold from (SRF line-exact restore)."""
+        return f"SALE_LINE:{line_pk}" if line_pk else ""
+
     @staticmethod
     def invoice_sale_moves(invoice, *, product=None):
         from sales.models import DeliveryChallan
@@ -93,6 +99,7 @@ class CogsService:
                         quantity=quantity,
                         reference_type="sales_invoice",
                         reference_id=invoice.pk,
+                        reason=CogsService.line_tag(item.pk),
                         user=user,
                     )
                     if cost_basis_counts is not None:
@@ -297,9 +304,67 @@ class CogsService:
         return cogs_rev
 
     @staticmethod
+    def line_sale_moves(invoice, item, sale_moves):
+        """Sale movements that belong to the invoice line a return line names.
+
+        Returns ``(moves, mode, keys)``. ``mode`` is ``"tag"`` (movements carry
+        ``SALE_LINE:<id>``), ``"seq"`` (older invoice: the postings are replayed in
+        the order they were made and accepted only if they add up exactly),
+        ``"batch"`` (the line names a batch, e.g. a delivery-challan sale) or ``""``
+        (cannot tell: whole-product FIFO order). ``keys`` are the invoice-line ids
+        that share those movements, used to count what earlier returns consumed.
+        """
+        from inventory.item_stock import base_quantity
+
+        sid = getattr(item, "source_item_id", None)
+        if not sid:
+            return sale_moves, "", []
+        tagged = [m for m in sale_moves if m.reason == CogsService.line_tag(sid)]
+        if tagged:
+            return tagged, "tag", [sid]
+        inv_items = list(
+            invoice.items.filter(product_id=item.product_id).select_related("product").order_by("id")
+        )
+        target = next((i for i in inv_items if i.id == sid), None)
+        if target is None or not sale_moves:
+            return sale_moves, "", []
+        # A product-level return (no source line) in the history makes per-line
+        # attribution unreliable: stay on whole-product order.
+        if SalesReturnItem.objects.filter(
+            sales_return__sales_invoice=invoice,
+            sales_return__status=SalesReturn.Status.COMPLETED,
+            product_id=item.product_id,
+            source_item__isnull=True,
+        ).exists():
+            return sale_moves, "", []
+        if all(m.reference_type == "sales_invoice" for m in sale_moves):
+            ordered = sorted(inv_items, key=lambda i: (i.batch_id or 0, i.pk))
+            pos, mapping, ok = 0, {}, True
+            for it in ordered:
+                need = base_quantity(it.product, it.quantity, getattr(it, "unit_name", None))
+                got, mine = Decimal("0"), []
+                while pos < len(sale_moves) and got < need:
+                    got += abs(Decimal(str(sale_moves[pos].quantity)))
+                    mine.append(sale_moves[pos])
+                    pos += 1
+                if got != need:
+                    ok = False
+                    break
+                mapping[it.id] = mine
+            if ok and pos == len(sale_moves):
+                return mapping[sid], "seq", [sid]
+        if target.batch_id:
+            by_batch = [m for m in sale_moves if m.batch_id == target.batch_id]
+            if by_batch:
+                return by_batch, "batch", [i.id for i in inv_items if i.batch_id == target.batch_id]
+        return sale_moves, "", []
+
+    @staticmethod
     def restore_return_stock_and_cogs(sales_return: SalesReturn, invoice, items, user) -> Decimal:
         """Restore stock on return complete; return COGS reversal total."""
         cogs_rev = Decimal("0")
+        damaged_cogs_rev = Decimal("0")
+        done_by_line: dict[int, Decimal] = {}
         unit_names = {
             row.product_id: getattr(row, "unit_name", None)
             for row in invoice.items.all()
@@ -322,36 +387,53 @@ class CogsService:
                     target=SerialNumber.Status.SCRAPPED if damaged else SerialNumber.Status.AVAILABLE,
                     user=user,
                 )
-            sale_moves = CogsService.invoice_sale_moves(invoice, product=item.product)
+            all_moves = CogsService.invoice_sale_moves(invoice, product=item.product)
+            sale_moves, mode, line_keys = CogsService.line_sale_moves(invoice, item, all_moves)
+            tag = CogsService.line_tag(getattr(item, "source_item_id", None)) if mode == "tag" else ""
             remaining = base_quantity(
                 item.product,
                 item.quantity,
                 getattr(item, "unit_name", None) or unit_names.get(item.product_id),
             )
-            # R2-009: loop-invariant — the other completed returns on this
-            # invoice don't change as we walk this return's sale moves.
+            # R2-009 + SR-06: include current sales_return.pk so multi-line returns
+            # of the same product within the same return advance through sale_moves
+            # sequentially instead of double-restoring the first lot.
             prior_sr_ids = [
                 str(pk)
                 for pk in SalesReturn.objects.filter(
                     sales_invoice=invoice,
                     status=SalesReturn.Status.COMPLETED,
-                )
-                .exclude(pk=sales_return.pk)
-                .values_list("id", flat=True)
+                ).values_list("id", flat=True)
             ]
+            if str(sales_return.pk) not in prior_sr_ids:
+                prior_sr_ids.append(str(sales_return.pk))
             restored_lots = []
             if sale_moves:
-                prior_returned = (
-                    StockMovement.objects.filter(
-                        company=sales_return.company,
-                        movement_type=MovementType.SALES_RETURN,
-                        product=item.product,
-                        reference_type="sales_return",
-                        reference_id__in=prior_sr_ids,
-                    ).aggregate(total=Sum("quantity"))["total"]
-                    or Decimal("0")
+                prior_qs = StockMovement.objects.filter(
+                    company=sales_return.company,
+                    movement_type=MovementType.SALES_RETURN,
+                    product=item.product,
+                    reference_type="sales_return",
+                    reference_id__in=prior_sr_ids,
                 )
-                consumed_prior = Decimal(str(prior_returned))
+                if tag:
+                    prior_qs = prior_qs.filter(reason=tag)
+                if mode in ("seq", "batch"):
+                    # Earlier returns are attributed through the invoice lines they
+                    # named (their movements carry no line tag on these invoices).
+                    consumed_prior = Decimal("0")
+                    for row in SalesReturnItem.objects.filter(
+                        sales_return__sales_invoice=invoice,
+                        sales_return__status=SalesReturn.Status.COMPLETED,
+                        source_item_id__in=line_keys,
+                    ).exclude(sales_return=sales_return).select_related("product"):
+                        consumed_prior += base_quantity(
+                            row.product, row.quantity, getattr(row, "unit_name", None) or unit_names.get(row.product_id)
+                        )
+                    consumed_prior += sum((done_by_line.get(k, Decimal("0")) for k in line_keys), Decimal("0"))
+                else:
+                    prior_returned = prior_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+                    consumed_prior = Decimal(str(prior_returned))
                 for move in sale_moves:
                     if remaining <= 0:
                         break
@@ -374,12 +456,18 @@ class CogsService:
                         unit_cost=move_unit_cost,
                         reference_type="sales_return",
                         reference_id=sales_return.pk,
+                        # tag mode: the line tag; otherwise point at the exact sale
+                        # movement restored so cancel can undo that same movement.
+                        reason=tag or f"SALE_MOVE:{move.pk}",
                         user=user,
                     )
                     InventoryService.restore_fifo_peels(move, inbound)
                     cogs_rev += move_unit_cost * take
                     remaining -= take
-                    restored_lots.append((move.batch, take))
+                    restored_lots.append((move.batch, take, move_unit_cost))
+                    for k in line_keys:
+                        done_by_line[k] = done_by_line.get(k, Decimal("0")) + take
+                        break
             if remaining > 0:
                 # R2-008 (kept as-is): a return whose sold lots can't be
                 # identified is refused by design (test_sales_return_unidentified
@@ -390,7 +478,7 @@ class CogsService:
                     "Post an ADJUSTMENT with reason RETURN_UNIDENTIFIED for the leftover quantity."
                 )
             if damaged:
-                for batch, take in restored_lots:
+                for batch, take, move_unit_cost in restored_lots:
                     InventoryService.post_movement(
                         company=sales_return.company,
                         warehouse=invoice.warehouse,
@@ -398,9 +486,12 @@ class CogsService:
                         batch=batch,
                         movement_type=MovementType.ADJUSTMENT,
                         quantity=-take,
+                        unit_cost=move_unit_cost,
                         reason="DAMAGED",
                         reference_type="sales_return_damaged",
                         reference_id=sales_return.pk,
                         user=user,
                     )
+                    damaged_cogs_rev += move_unit_cost * take
+        sales_return._damaged_cogs_rev = damaged_cogs_rev.quantize(Decimal("0.01"))
         return cogs_rev

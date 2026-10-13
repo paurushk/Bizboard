@@ -68,6 +68,8 @@ import {
   canCreatePurchases,
   canCreateSales,
   canImport,
+  canImportPurchaseBill,
+  canImportSalesBill,
   canManageCrm,
   canManageGst,
   canExport,
@@ -134,12 +136,12 @@ export const navigation: NavItem[] = [
       { id: 'quotations', labelKey: 'nav.quotations', path: '/sales/quotations', visible: canViewSalesSurfaces },
       { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canViewPaymentSurfaces },
       { id: 'customers', labelKey: 'nav.customers', path: '/sales/customers', visible: canViewSalesSurfaces },
+      { id: 'sales-bill-upload', labelKey: 'nav.uploadSalesBill', path: '/sales/bill-upload', visible: canImportSalesBill },
       {
         id: 'sales-more',
         labelKey: 'nav.more',
         children: [
           { id: 'quick-entry', labelKey: 'nav.quickEntry', path: '/sales/quick-entry', visible: canCreateSales },
-          { id: 'sales-bill-upload', labelKey: 'nav.uploadSalesBill', path: '/sales/bill-upload', visible: canImport },
           { id: 'sales-returns', labelKey: 'nav.salesReturns', path: '/sales/returns', visible: canViewSalesSurfaces },
           { id: 'credit-notes', labelKey: 'nav.creditNotes', path: '/sales/credit-notes', visible: canViewSalesSurfaces },
           { id: 'debit-notes', labelKey: 'nav.debitNotes', path: '/sales/debit-notes', visible: canViewSalesSurfaces },
@@ -163,7 +165,7 @@ export const navigation: NavItem[] = [
         id: 'bill-upload',
         labelKey: 'nav.uploadBill',
         path: '/purchases/bill-upload',
-        visible: canImport,
+        visible: canImportPurchaseBill,
       },
       {
         id: 'supplier-payments',

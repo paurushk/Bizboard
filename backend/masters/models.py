@@ -294,6 +294,9 @@ class Product(SoftDeleteFields, CompanyScopedModel):
         max_length=16, choices=ProductType.choices, default=ProductType.GOODS, db_index=True,
     )
     track_inventory = models.BooleanField(default=True)
+    # Set on products auto-created by a bill import (no cost/stock yet) so they
+    # can be reviewed and fixed in bulk (UPLOAD_SALES_BILL_REVIEW 23.11).
+    needs_review = models.BooleanField(default=False)
     track_batch = models.BooleanField(default=False)
     track_serial = models.BooleanField(default=False)
     # D15 / QOS-0027: gates the ARCH-05 statutory-licence guard — a no-op for

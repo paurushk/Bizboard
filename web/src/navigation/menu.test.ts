@@ -129,7 +129,10 @@ describe('sales nav length', () => {
     expect(ids).toContain('receipts');
     expect(ids).toContain('customers');
     expect(ids).not.toContain('sales-returns');
+    // Upload Sales Bill sits up front, like Upload Bill under Purchases, not buried under More.
+    expect(ids).toContain('sales-bill-upload');
     const more = sales?.children?.find((child) => child.id === 'sales-more');
+    expect(more?.children?.some((child) => child.id === 'sales-bill-upload')).toBe(false);
     expect(more?.children?.some((child) => child.id === 'sales-returns')).toBe(true);
     expect(isReallyReachable(owner, '/sales/returns')).toBe(true);
   });
@@ -265,5 +268,18 @@ describe('flag-gated release surfaces (full-demo profile)', () => {
       expect(pack).not.toContain(id);
     }
     ff({});
+  });
+});
+
+describe('Sales Returns navigation (SRF-14)', () => {
+  // The app has no separate "Simple Mode" menu: every role that can see sales
+  // surfaces gets Sales Returns under Sales > More, next to Credit Notes.
+  it('lists Sales Returns beside Credit Notes for a sales user', () => {
+    const sales = filterNav(mockSalesUser).find((i) => i.id === 'sales');
+    const more = sales?.children?.find((c) => c.id === 'sales-more');
+    const ids = (more?.children ?? []).map((c) => c.id);
+    expect(ids).toContain('sales-returns');
+    expect(ids).toContain('credit-notes');
+    expect(more?.children?.find((c) => c.id === 'sales-returns')?.path).toBe('/sales/returns');
   });
 });

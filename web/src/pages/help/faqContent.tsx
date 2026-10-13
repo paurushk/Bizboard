@@ -524,10 +524,142 @@ const MORE_FAQ: FaqItem[] = [
     'upload-sales-bill',
     'Sales invoices',
     'What does Upload Sales Bill do?',
-    ['ocr', 'photo bill', 'scan invoice', 'ai extract', 'upload sales'],
+    ['ocr', 'photo bill', 'scan invoice', 'ai extract', 'upload sales', 'csv bill', 'excel bill', 'import sales bill'],
     [
-      'It is an assist: photo or PDF → a draft invoice for you to check. It does not invent GST rate or quantity, and it does not complete the bill.',
-      'You still **t:billing.saveAndComplete** the draft after checking lines, godown, and GSTIN. You need the import capability. Open it from **t:nav.sales** → **t:nav.uploadSalesBill**, or from the same link on Create Sales Invoice.',
+      'It turns a photo, PDF or CSV/Excel file of a sales bill into a **draft** sales invoice for you to check. It never invents a GST rate or a quantity, and it never completes the bill: stock, GST and the ledger move only when you **t:billing.saveAndComplete** the draft.',
+      'You need the Import permission **and** the right to create sales invoices. Open it from **t:nav.sales** → **t:nav.uploadSalesBill**, or from the same link on Create Sales Invoice.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-review',
+    'Sales invoices',
+    'How do I check the extracted rows against the original bill?',
+    ['review bill', 'original bill', 'side by side', 'red row', 'amber row', 'flagged', 'add row', 'delete row', 'autosave', 'saved'],
+    [
+      'The original bill is shown beside the rows (on a phone it opens from the bottom: use **t:billUpload.showSource**). Point at a row and it is outlined on the picture when the scanner could locate it. Zoom with the magnifier buttons and drag to move around.',
+      'A **red** row has a problem you must fix (a blank GST rate, a bad HSN, no quantity). An **amber** row was flagged because quantity × rate did not match the printed amount. Open a row to edit it, tick or untick to include or leave it out, add a row the scanner missed, or delete one that is not an item (you can undo a delete).',
+      'Your changes save by themselves a moment after you stop typing. Wait for “All changes saved” before closing the tab. Use **t:billUpload.checkBeforeCreate** to see every problem at once without creating anything.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-cannot-create',
+    'Sales invoices',
+    'Why will it not create the draft?',
+    ['rows need fixing', 'cannot create draft', 'hsn invalid', 'gst rate required', 'bill date missing', 'refused', 'blocked', 'low confidence'],
+    [
+      'Creating the draft is refused when an included row or the header is wrong, and every problem is listed together. Common ones: the **GST rate** is blank or not a valid slab (0, 0.25, 3, 5, 12, 18, 28); the **HSN** is not 2, 4, 6 or 8 digits; a **quantity** is blank or zero; the **bill date** is missing; no **customer** is chosen or named.',
+      'A row with a problem is never dropped quietly. Fix it, or untick it to leave it out on purpose. If the scan was low-confidence, tick that you reviewed every line. A bill dated in a closed GST or accounting period is blocked; a future date only warns.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-customer',
+    'Sales invoices',
+    'Which customer will the draft be for?',
+    ['customer match', 'buyer', 'new customer', 'walk-in', 'blocked customer', 'inactive customer', 'gstin on bill', 'wrong customer'],
+    [
+      'The customer is matched only when the **GSTIN** or the **name** on the bill matches exactly. If nothing matches, a new customer is created from the name on the bill (and the GSTIN, if it is valid). You see which will happen under “Customer on the bill”, and you can pick a different customer or edit the name and GSTIN.',
+      'Similar names are offered as suggestions but never applied for you. Inactive and blocked customers, and the walk-in customer, are never picked automatically; a GSTIN that belongs to a blocked customer stops the draft with a clear message.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-products',
+    'Sales invoices',
+    'Will it create new products, and what is “needs review”?',
+    ['new product', 'duplicate product', 'needs review', 'catalogue', 'cost zero', 'stock blocked', 'similar product', 'mark reviewed'],
+    [
+      'A row that matches no item in your catalogue creates a **new product** when the draft is created. Rows that only look similar to an existing item offer it as a suggestion: choose the right item (or “Create as new”) so you do not end up with copies like “Olay NA 40gm” and “Olay Natural Aura 40g”.',
+      'New products are marked **needs review** because they have no cost and no stock yet. Completing a sale of them can be blocked on stock, or show a zero margin, until you receive stock and set a cost. Find them with **t:products.needsReviewFilter** on the Products page and mark them reviewed when done.',
+      'When the strict review setting is on for your company you must also tick **t:billUpload.confirmNewProducts** before creating. You can undo the whole import while the draft is still a draft.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-price-list',
+    'Sales invoices',
+    'Why does the draft keep a price below my price list?',
+    ['price list', 'below list', 'lower price', 'override price', 'dealer price', 'historical bill'],
+    [
+      'A bill you upload records what was actually charged. So the price you reviewed is the price on the draft, even when it is lower than the customer’s price list. The line is marked, and the draft shows how many lines are below the list.',
+      'Only an **Owner or Manager** may keep a lower price. For anyone else the row is blocked with a message asking an owner or manager to approve the bill. Prices at or above the list are never changed.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-totals',
+    'Sales invoices',
+    'How do discount, freight, GST-inclusive prices and the printed total work?',
+    ['discount percent', 'trade discount', 'freight', 'packing', 'bill discount', 'inclusive', 'gst included', 'printed total', 'total mismatch', 'igst', 'cgst'],
+    [
+      'Set **t:billUpload.priceModeLabel** to “With GST included” when the rates on the bill already contain GST; otherwise GST is added on top. A **Disc %** column appears when the bill has line discounts. Enter freight and any bill-level discount in their own boxes.',
+      'The totals shown are what the draft will have, from the same tax engine. Type the total printed on the bill (**t:billUpload.printedTotal**) and the difference is shown, so you can spot a misread row. The CGST/SGST or IGST split follows the customer’s state, and says “assumed” until the customer is known; the total does not change.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-resume',
+    'Sales invoices',
+    'I closed the page or my phone locked. Is my upload lost?',
+    ['resume upload', 'lost upload', 'refresh', 'recent uploads', 'closed tab', 'discard upload', 'unfinished', 'cancel upload'],
+    [
+      'No. Unfinished uploads are listed under **t:billUpload.recentTitle** on the upload page: choose Resume. The address also carries the upload (`?job=`), so a refresh or the browser Back button brings the same review back with your edits.',
+      'Discard removes an upload you do not want. If a scan is taking long you can cancel it; if it is stuck for a couple of minutes you can retry it. Photo scans are limited per hour to control cost; a CSV/Excel upload is not limited.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-csv',
+    'Sales invoices',
+    'Can I upload a CSV or Excel file instead of a photo?',
+    ['csv', 'excel', 'xlsx', 'export from billing software', 'no ai', 'columns', 'structured'],
+    [
+      'Yes: choose “I have a CSV or Excel bill export”. It is read directly with no AI, so it needs no AI consent and is not limited per hour.',
+      'Use clear headers such as item description, HSN, Qty, Rate, GST %, Disc % (a percentage), and optionally Freight and Bill Discount. Bill number, date and customer can be read from a header block in Excel, or typed on the review screen. Only `.csv`, `.xlsx` and `.xlsm` files work; re-save an old `.xls` first.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-undo',
+    'Sales invoices',
+    'I imported the wrong bill. Can I undo it?',
+    ['undo import', 'wrong bill', 'delete draft', 'remove import', 'revert'],
+    [
+      'Yes, while the invoice is still a **draft**. Use **t:billUpload.undoImport** on the upload page or on the draft. The draft is deleted, and the products and customer that were created only for this bill are removed if nothing else uses them.',
+      'Once the invoice is completed it cannot be undone this way: cancel the invoice instead. Owners, managers and the person who uploaded it can undo an import.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-ai-privacy',
+    'Sales invoices',
+    'Is my bill sent to an AI service, and what does it cost?',
+    ['privacy', 'ai consent', 'third party', 'monthly allowance', 'token budget', 'ai budget', 'scanner'],
+    [
+      'A photo or PDF is sent to a third-party AI service so it can read the items; you must tick the consent first, and the consent is recorded. A CSV/Excel file is never sent to AI.',
+      'Scanning uses your company’s monthly AI allowance, which is shared with the AI assistant. If it is used up, scanning pauses with a message; ask the owner to raise it, enter the bill by hand, or upload a CSV/Excel export. Always check the result: AI can misread names, quantities and rates.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-wrong-screen',
+    'Sales invoices',
+    'The page says it looks like a purchase bill. What now?',
+    ['purchase bill', 'wrong screen', 'switch', 'direction warning', 'buyer gstin is mine'],
+    [
+      'The page warns when the buyer GSTIN on a sales bill is your own company’s (so it is probably a bill you received). Use **t:billUpload.switchToPurchase** to move the same upload to the purchase screen without scanning again; the supplier and customer details are swapped for you.',
+      'You need the right to create purchases to switch. The same button works the other way from the purchase screen.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-gstin',
+    'Sales invoices',
+    'It asks which of my GSTINs issued the bill. Why?',
+    ['multiple gstin', 'company gstin', 'branch', 'gstin one character off', 'place of supply', 'seller gstin'],
+    [
+      'If your company has more than one GSTIN and the one printed on the bill is missing or not recognised, you choose which of yours issued it, because that decides the tax type and the filing. When the printed GSTIN is just one character away from one of yours, it is suggested; use it only if it is right.',
+      'A company with a single GSTIN is never asked.',
+    ],
+  ),
+  faq(
+    'upload-sales-bill-duplicate',
+    'Sales invoices',
+    'It says this bill may be a duplicate. What should I do?',
+    ['duplicate bill', 'already imported', 'same bill number', 'not a duplicate', 'same file'],
+    [
+      'The same bill number for the same customer on the same date already exists, so you are asked to tick **t:billUpload.notDuplicate** before creating another. If the same file was already imported you get a warning only.',
+      'If it really is the same bill, open the existing draft or invoice from Sales History instead of creating a second one.',
     ],
   ),
   faq(
@@ -1319,10 +1451,30 @@ const MORE_FAQ: FaqItem[] = [
     'upload-purchase-bill',
     'Purchases & ITC',
     'What does Upload Bill on purchases do?',
-    ['ocr purchase', 'scan bill', 'upload bill', 'ai purchase'],
+    ['ocr purchase', 'scan bill', 'upload bill', 'ai purchase', 'csv purchase bill', 'supplier bill'],
     [
-      'Photo or PDF extract → a draft purchase for review. It will not invent GST rate or quantity.',
-      'You still check HSN, GSTIN and **t:common.complete**. Needs import capability. Open **t:nav.purchases** → **t:nav.uploadBill**.',
+      'Photo, PDF or CSV/Excel of a supplier bill → a draft purchase for review. It will not invent a GST rate or quantity, and nothing posts until you Complete the draft.',
+      'You still check HSN, GSTIN and **t:common.complete**. You need the Import permission and the right to create purchases. Open **t:nav.purchases** → **t:nav.uploadBill**.',
+    ],
+  ),
+  faq(
+    'upload-purchase-bill-review',
+    'Purchases & ITC',
+    'How do I review a purchase bill upload, and what if it will not create the draft?',
+    ['review purchase bill', 'original bill', 'red row', 'rows need fixing', 'autosave', 'resume', 'recent uploads', 'supplier match'],
+    [
+      'The review works like the sales one: the original bill sits beside the rows, red rows must be fixed, edits save by themselves, and unfinished uploads are under **t:billUpload.recentTitle**. Use **t:billUpload.checkBeforeCreate** to see every problem at once.',
+      'The supplier is matched only on an exact GSTIN or name (an inactive supplier is never picked); otherwise a new supplier is created from the bill. New items are created at the bill price as their cost and marked **needs review**.',
+    ],
+  ),
+  faq(
+    'upload-purchase-bill-duplicate-nongst',
+    'Purchases & ITC',
+    'Why am I asked to confirm a duplicate, or to book a bill as Non-GST?',
+    ['duplicate purchase', 'same supplier bill number', 'non gst', 'bill of supply', 'reverse charge', 'unregistered supplier', 'freight', 'inclusive'],
+    [
+      'A bill with the same number and date already booked for the same supplier asks you to tick **t:billUpload.notDuplicate**. If every line is 0% GST you can choose to book it as a Non-GST bill (bill of supply); leave it unticked to keep nil-rated/exempt GST.',
+      'An unregistered supplier (or a blank GSTIN) makes the draft reverse-charge, which you should check before Complete. Freight, a bill-level discount and GST-inclusive prices flow to the draft just as on sales.',
     ],
   ),
 

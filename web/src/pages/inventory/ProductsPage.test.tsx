@@ -9,8 +9,11 @@ const listProductsPage = vi.hoisted(() => vi.fn());
 const listProducts = vi.hoisted(() => vi.fn());
 const listStock = vi.hoisted(() => vi.fn());
 
+const markProductsReviewed = vi.hoisted(() => vi.fn());
+
 vi.mock('@/api/resources', () => ({
   deleteProduct: vi.fn(),
+  markProductsReviewed: (...args: unknown[]) => markProductsReviewed(...args),
   listProducts: (...args: unknown[]) => listProducts(...args),
   listProductsPage: (...args: unknown[]) => listProductsPage(...args),
   listStock: (...args: unknown[]) => listStock(...args),
@@ -37,11 +40,11 @@ const product = (id: number, name: string, categoryName: string) => ({
   categoryName, brandName: '', unitName: 'PCS', customFields: {},
 });
 
-function wrap() {
+function wrap(entry = '/') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[entry]}>
         <ProductsPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -82,5 +85,35 @@ describe('ProductsPage filters', () => {
     // Neither product has a stock row, so both are out of stock and both are listed.
     await waitFor(() => expect(screen.getByText('Tea')).toBeTruthy());
     expect(within(document.body).getByText('Soap')).toBeTruthy();
+  });
+});
+
+describe('ProductsPage needs-review filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listProductsPage.mockResolvedValue({ count: 1, next: null, previous: null, results: [product(7, 'From a bill', 'Home')] });
+    listProducts.mockResolvedValue([]);
+    listStock.mockResolvedValue([]);
+    markProductsReviewed.mockResolvedValue({ updated: 1 });
+  });
+
+  it('asks the server only for items a bill import created, when opened from the draft notice', async () => {
+    wrap('/inventory/products?needsReview=1');
+    await screen.findByText('From a bill');
+    expect(listProductsPage).toHaveBeenCalledWith(expect.objectContaining({ needsReview: true }));
+    expect(screen.getByText(/have no cost or stock yet/i)).toBeInTheDocument();
+  });
+
+  it('marks the listed items as reviewed', async () => {
+    wrap('/inventory/products?needsReview=1');
+    await screen.findByText('From a bill');
+    await userEvent.click(screen.getByRole('button', { name: 'Mark these as reviewed' }));
+    await waitFor(() => expect(markProductsReviewed).toHaveBeenCalledWith([7]));
+  });
+
+  it('does not filter by default', async () => {
+    wrap('/');
+    await screen.findByText('From a bill');
+    expect(listProductsPage).toHaveBeenCalledWith(expect.objectContaining({ needsReview: false }));
   });
 });

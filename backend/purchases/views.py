@@ -39,6 +39,18 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
     queryset = PurchaseInvoice.objects.select_related("supplier", "bill_of_entry").prefetch_related("items__product")
     serializer_class = PurchaseInvoiceSerializer
 
+    @action(detail=True, methods=["get"], url_path="source-bill")
+    def source_bill(self, request, pk=None):
+        """The bill this draft was created from, for anyone who may open the invoice."""
+        from django.http import Http404
+
+        from core.services.files import FileService
+
+        invoice = self.get_object()
+        if not invoice.attachment_id:
+            raise Http404("This invoice has no source bill.")
+        return FileService.inline_response(invoice.attachment)
+
     def get_throttles(self):
         throttles = super().get_throttles()
         if getattr(self, "action", None) == "complete":
@@ -322,6 +334,16 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
                 qs = qs.filter(supplier_id=int(params["supplier"]))
             except (TypeError, ValueError):
                 raise BusinessRuleError("supplier must be a numeric id.")
+        bill_id = (
+            params.get("purchase_invoice")
+            or params.get("purchase_bill")
+            or params.get("purchaseBill")
+        )
+        if bill_id:
+            try:
+                qs = qs.filter(purchase_invoice_id=int(bill_id))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("purchase_invoice must be a numeric id.")
         return qs
 
     def create(self, request, *args, **kwargs):

@@ -685,13 +685,69 @@ def test_sales_return_damaged_batched_posts_lot_adjustment(tenant_a):
     assert ret.status_code == 201, ret.data
     done = tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/")
     assert done.status_code == 200, done.data
+    assert done.data["sales_invoice_number"]
+    assert done.data["credit_note_id"] is not None
+    assert done.data["credit_note_number"]
     adj = StockMovement.objects.get(
         product=product, movement_type=MovementType.ADJUSTMENT, reason="DAMAGED",
     )
     assert adj.batch_id is not None
+    assert adj.unit_cost == Decimal("10")
     warehouse = InventoryService.default_warehouse(tenant_a.company)
     lot = BatchLot.objects.get(product=product, batch_no="LOT-A")
     assert StockBalance.objects.get(product=product, warehouse=warehouse, batch=lot).on_hand == Decimal("3")
+
+
+def test_sales_return_mixed_sellable_damaged_posts_exact_damaged_cogs(tenant_a):
+    from accounting.models import JournalEntry
+    from accounting.services import seed_chart_of_accounts
+
+    tenant_a.company.accounting_enabled = True
+    tenant_a.company.save(update_fields=["accounting_enabled"])
+    seed_chart_of_accounts(tenant_a.company)
+
+    prod_a = make_product(tenant_a.company, sku="MIX-A")
+    prod_b = make_product(tenant_a.company, sku="MIX-B")
+    _opening(tenant_a, product=prod_a.id, quantity="5", unit_cost="10")
+    _opening(tenant_a, product=prod_b.id, quantity="5", unit_cost="100")
+
+    customer = make_customer(tenant_a.company)
+    inv = create_draft_invoice(tenant_a, customer, [
+        {"product": prod_a.id, "quantity": "1", "unit_price": "50"},
+        {"product": prod_b.id, "quantity": "1", "unit_price": "200"},
+    ])
+    assert tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/").status_code == 200
+
+    ret = tenant_a.client.post("/api/v1/sales/returns/", {
+        "customer": customer.id,
+        "sales_invoice": inv["id"],
+        "items": [
+            {"product": prod_a.id, "quantity": "1", "unit_price": "50", "condition": "SELLABLE"},
+            {"product": prod_b.id, "quantity": "1", "unit_price": "200", "condition": "DAMAGED"},
+        ],
+    }, format="json")
+    assert ret.status_code == 201, ret.data
+    done = tenant_a.client.post(f"/api/v1/sales/returns/{ret.data['id']}/complete/")
+    assert done.status_code == 200, done.data
+
+    cogs_entry = JournalEntry.objects.get(
+        company=tenant_a.company,
+        source_type="SALES_RETURN",
+        source_id=ret.data["id"],
+        purpose="COGS_REVERSE",
+    )
+    cogs_debit = sum(line.debit for line in cogs_entry.lines.all())
+    assert cogs_debit == Decimal("110.00")
+
+    scrap_entry = JournalEntry.objects.get(
+        company=tenant_a.company,
+        source_type="SALES_RETURN",
+        source_id=ret.data["id"],
+        purpose="DAMAGED_SCRAP",
+    )
+    total_debit = sum(line.debit for line in scrap_entry.lines.all())
+    assert total_debit == Decimal("100.00")
+
 
 
 def test_j_godown_p4_reorder_flags_the_low_godown(tenant_a):

@@ -31,8 +31,12 @@ export { NoteReasonSelect } from './NoteReasonSelect';
 export {
   activeSourceLines,
   clampSourceLineQty,
+  hasSerialPickList,
   invoiceItemsToSourceLines,
   noteItemsToSourceLines,
+  pickedSerials,
   sourceLineReturnPayload,
+  toggleSerialPick,
+  trimSerialsToQty,
 } from './invoiceSourceLines';
 export type { InvoiceSourceLine, SourceLineProductMeta } from './invoiceSourceLines';

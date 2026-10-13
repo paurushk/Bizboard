@@ -52,7 +52,9 @@ from .models import Quotation, QuotationConversion, RecurringInvoiceSchedule, Sa
 from .serializers import (
     QuotationSerializer,
     RecurringInvoiceScheduleSerializer,
+    ReturnableLineSerializer,
     SalesInvoiceSerializer,
+    SalesReturnPreviewSerializer,
     SalesReturnSerializer,
 )
 from .services import SalesService, _tax_enabled
@@ -131,6 +133,26 @@ class InvoiceBulkPdfZipSerializer(drf_serializers.Serializer):
 
 
 class SalesInvoiceViewSet(IdempotentCreateMixin, InvoiceEinvoiceEwayActionsMixin, CompanyScopedViewSet):
+    @extend_schema(responses=ReturnableLineSerializer(many=True))
+    @action(detail=True, methods=["get"], url_path="returnable-lines")
+    def returnable_lines(self, request, pk=None):
+        """Per invoice line: sold / returned / credited by standalone notes / returnable (SRF-06)."""
+        from .return_service import ReturnService
+
+        return Response(ReturnService.returnable_lines(self.get_object()))
+
+    @action(detail=True, methods=["get"], url_path="source-bill")
+    def source_bill(self, request, pk=None):
+        """The bill this draft was created from, for anyone who may open the invoice."""
+        from django.http import Http404
+
+        from core.services.files import FileService
+
+        invoice = self.get_object()
+        if not invoice.attachment_id:
+            raise Http404("This invoice has no source bill.")
+        return FileService.inline_response(invoice.attachment)
+
     queryset = SalesInvoice.objects.select_related("customer").prefetch_related("items__product")
     serializer_class = SalesInvoiceSerializer
 
@@ -206,6 +228,7 @@ class SalesInvoiceViewSet(IdempotentCreateMixin, InvoiceEinvoiceEwayActionsMixin
         if action in (
             "list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "thermal_pdf",
             "preview_totals", "preview_pdf", "payment_stats", "hsn_summary", "export_csv",
+            "returnable_lines",
         ):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         if action == "audit":
@@ -2178,7 +2201,9 @@ class QuotationViewSet(CompanyScopedViewSet):
 
 
 class SalesReturnViewSet(CompanyScopedViewSet):
-    queryset = SalesReturn.objects.select_related("customer", "sales_invoice").prefetch_related("items__product")
+    queryset = SalesReturn.objects.select_related("customer", "sales_invoice").prefetch_related(
+        "items__product", "credit_notes"
+    )
     serializer_class = SalesReturnSerializer
 
     def get_permissions(self):
@@ -2189,11 +2214,32 @@ class SalesReturnViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action == "complete":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy"):
+        if action in ("create", "update", "partial_update", "destroy", "preview_totals"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
+
+    @extend_schema(request=SalesReturnSerializer, responses=SalesReturnPreviewSerializer)
+    @action(detail=False, methods=["post"], url_path="preview-totals")
+    def preview_totals(self, request):
+        """Exact credit-note totals for a return that has not been saved (SRF-11)."""
+        from django.utils import timezone
+
+        from .return_service import ReturnService
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        result = ReturnService.preview_totals(
+            company=self.company,
+            customer=data["customer"],
+            invoice=data["sales_invoice"],
+            return_date=data.get("return_date") or timezone.localdate(),
+            items_data=data["items"],
+            user=request.user,
+        )
+        return Response(result)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):
@@ -2214,12 +2260,27 @@ class SalesReturnViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        if self.request.query_params.get("customer"):
-            qs = qs.filter(customer_id=self.request.query_params["customer"])
-        if self.request.query_params.get("sales_invoice"):
-            qs = qs.filter(sales_invoice_id=self.request.query_params["sales_invoice"])
+        params = self.request.query_params
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
+        if params.get("customer"):
+            qs = qs.filter(customer_id=params["customer"])
+        invoice_id = params.get("sales_invoice") or params.get("salesInvoice")
+        if invoice_id:
+            qs = qs.filter(sales_invoice_id=invoice_id)
+        if params.get("date_from"):
+            qs = qs.filter(return_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(return_date__lte=params["date_to"])
+        q = (params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(
+                Q(number__icontains=q)
+                | Q(sales_invoice__number__icontains=q)
+                | Q(customer__name__icontains=q)
+                | Q(reason__icontains=q)
+                | Q(credit_notes__number__icontains=q)
+            ).distinct()
         return qs
 
     def create(self, request, *args, **kwargs):

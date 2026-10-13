@@ -20,6 +20,7 @@ from .models import (
     QuotationConversion,
     QuotationItem,
     RecurringInvoiceSchedule,
+    SalesCreditNote,
     SalesInvoice,
     SalesItem,
     SalesReturn,
@@ -216,6 +217,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "filing_party_gstin", "filing_place_of_supply", "pos_assumed_local", "price_mode",
+            "external_reference", "attachment",
             "transporter_name", "transporter_id", "vehicle_number", "transport_distance_km",
             "sub_supply_type", "trans_mode",
             "supply_type", "company_gstin", "is_reverse_charge",
@@ -236,7 +238,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
             "einvoice_status", "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_error",
             "eway_status", "eway_bill_no", "eway_valid_upto", "eway_error",
             "completed_at", "cancelled_at", "cancel_reason", "amend_revision", "is_opening_balance",
-            "pos_assumed_local",
+            "pos_assumed_local", "external_reference", "attachment",
             "whatsapp_send_status", "whatsapp_message_id", "whatsapp_share_link",
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
@@ -981,15 +983,42 @@ class SalesReturnItemSerializer(_BaseLineSerializer):
 class SalesReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = SalesReturnItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    sales_invoice_number = serializers.CharField(source="sales_invoice.number", read_only=True)
+    credit_note_id = serializers.SerializerMethodField()
+    credit_note_number = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesReturn
         fields = [
             "id", "number", "status", "customer", "customer_name", "sales_invoice",
+            "sales_invoice_number", "credit_note_id", "credit_note_number",
             "return_date", "reason", "items", "completed_at", "cancelled_at",
             "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "completed_at", "cancelled_at"] + TOTAL_READONLY
+        read_only_fields = [
+            "number", "status", "sales_invoice_number", "credit_note_id", "credit_note_number",
+            "completed_at", "cancelled_at",
+        ] + TOTAL_READONLY
+
+    @staticmethod
+    def _linked_credit_note(obj):
+        # Prefer the live note; a cancelled return (or note) has no live link.
+        notes = list(obj.credit_notes.all())
+        for note in notes:
+            if note.status == SalesCreditNote.Status.COMPLETED:
+                return note
+        for note in notes:
+            if note.status != SalesCreditNote.Status.CANCELLED:
+                return note
+        return None
+
+    def get_credit_note_id(self, obj):
+        note = self._linked_credit_note(obj)
+        return note.id if note else None
+
+    def get_credit_note_number(self, obj):
+        note = self._linked_credit_note(obj)
+        return note.number if note else ""
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -1022,6 +1051,37 @@ class SalesReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSeria
         if items_data is not None:
             SalesService.set_return_items(instance, [dict(l) for l in items_data], self.context["request"].user)
         return instance
+
+
+class ReturnableLineSerializer(serializers.Serializer):
+    """One invoice line's return headroom (GET /sales/invoices/:id/returnable-lines/)."""
+
+    source_item = serializers.IntegerField()
+    product = serializers.IntegerField()
+    product_name = serializers.CharField()
+    sold = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returned = serializers.DecimalField(max_digits=14, decimal_places=3)
+    credited_standalone = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returnable = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returned_serials = serializers.ListField(child=serializers.CharField())
+
+
+class SalesReturnPreviewSerializer(serializers.Serializer):
+    """Exact totals of the credit note an unsaved return would issue."""
+
+    line_count = serializers.IntegerField()
+    units = serializers.DecimalField(max_digits=14, decimal_places=3)
+    taxable_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    cgst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    sgst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    igst_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    cess_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    invoice_discount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    additional_charges = serializers.DecimalField(max_digits=14, decimal_places=2)
+    tcs_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    round_off = serializers.DecimalField(max_digits=14, decimal_places=2)
+    grand_total = serializers.DecimalField(max_digits=14, decimal_places=2)
+    fully_returned = serializers.BooleanField()
 
 
 class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):

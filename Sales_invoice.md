@@ -1883,7 +1883,8 @@ Land shared files in the order in the table. Two actions that edit the same file
 
 **Depends on:** nothing.  
 **Change:** `NewInvoicePage` passes `extraActions` a link labelled Upload Sales Bill (`nav.uploadSalesBill`) to `/sales/bill-upload`, only when `canImport` is true. Same slot `NewPurchasePage` uses for the purchase link.  
-**Do not change:** `BillUploadPage`. The purchase link target `/purchases/bill-upload`. The `canImport` rule. The review warning `billUpload.reviewOnEditDisclaimerSales`.  
+**Do not change:** The purchase link target `/purchases/bill-upload`. The review warning `billUpload.reviewOnEditDisclaimerSales`.  
+**Superseded (bill upload review v2):** the link, the menu item and the `/sales/bill-upload` route now need `canImport` **and** `canCreateSales` (`canImportSalesBill`), and the API enforces the same pair for `SALES_BILL`. An import-only user could previously commit a draft and then land on a forbidden page. See `UPLOAD_SALES_BILL_REVIEW.md` 23.5.  
 **Cross-module impact:** `DocumentEditorShell` already renders `extraActions` for every editor. Passing the node from the sales page does not affect purchase. Changing the shell's layout of that slot would move the purchase button. The upload page creates a draft and returns to this editor. ACT-02 must keep the extracted prices. ACT-15 must keep that draft on screen if complete then fails.  
 **Regression checks:** An importer sees the link and it opens `/sales/bill-upload`. A user who cannot import does not see it. Create Purchase still opens `/purchases/bill-upload`. A bill uploaded from this link still opens as a draft with the review warning.
 

@@ -86,12 +86,16 @@ def _merge_extraction_payloads(payloads: list[dict]) -> dict:
         "supplier_name": "", "supplier_gstin": "", "buyer_name": "", "buyer_gstin": "",
         "bill_number": "", "bill_date": "", "confidence": None,
         "printed_line_count": None, "column_headers": [], "lines": [],
+        "freight": "", "invoice_discount": "", "price_mode_hint": "",
     }
     confidences = []
     seen_headers: list[str] = []
     line_counts = []
     for payload in payloads:
-        for field in ("supplier_name", "supplier_gstin", "buyer_name", "buyer_gstin", "bill_number", "bill_date"):
+        for field in (
+            "supplier_name", "supplier_gstin", "buyer_name", "buyer_gstin", "bill_number", "bill_date",
+            "freight", "invoice_discount", "price_mode_hint",
+        ):
             if not merged[field] and payload.get(field):
                 merged[field] = payload[field]
         if payload.get("printed_line_count") not in (None, ""):
@@ -123,6 +127,8 @@ def _merge_extraction_payloads(payloads: list[dict]) -> dict:
 @shared_task(time_limit=480, soft_time_limit=450)
 def extract_purchase_bill_task(job_id: int, company_id=None):
     from celery.exceptions import SoftTimeLimitExceeded
+    from django.utils import timezone
+
     from core.exceptions import BusinessRuleError
     from core.services.llm import extract_purchase_bill
     from imports.models import ImportJob
@@ -146,7 +152,16 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
         # off extraction jobs.
         from insights.assistant import assert_within_budget
 
-        assert_within_budget(job.company)
+        try:
+            assert_within_budget(job.company)
+        except BusinessRuleError as exc:
+            # 4.3: say what is exhausted (the allowance is shared with the AI
+            # assistant) and what the user can do instead of a bare token count.
+            raise BusinessRuleError(
+                "Bill reading is paused: this month's AI allowance is used up (it is shared "
+                "with the AI assistant). Ask the owner to raise it in Settings, enter the bill "
+                f"by hand, or upload a CSV/Excel export, which needs no AI. ({exc.detail})"
+            ) from exc
         asset = job.file
         with asset.file.open("rb") as handle:
             raw = handle.read()
@@ -156,9 +171,21 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
                 images[i:i + EXTRACT_BATCH_SIZE]
                 for i in range(0, len(images), EXTRACT_BATCH_SIZE)
             ]
-            payload = _merge_extraction_payloads([extract_purchase_bill(batch) for batch in batches])
+            # 23.13: a plain loop (not a comprehension) so the job's heartbeat
+            # is refreshed, and a user cancel is honoured, between batches.
+            payloads = []
+            for batch in batches:
+                job.refresh_from_db(fields=["status"])
+                if job.status == ImportJob.Status.CANCELLED:
+                    return
+                payloads.append(extract_purchase_bill(batch))
+                ImportJob.objects.filter(pk=job.pk).update(extraction_heartbeat_at=timezone.now())
+            payload = _merge_extraction_payloads(payloads)
         else:
             payload = extract_purchase_bill(images)
+        job.refresh_from_db(fields=["status"])
+        if job.status == ImportJob.Status.CANCELLED:
+            return
         logger.info(
             "Bill extract job=%s lines=%s printed_line_count=%s",
             job_id,

@@ -447,6 +447,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",
             "default_discount_percent", "has_movements", "status", "created_at", "updated_at",
             "salt", "composition", "manufacturer", "drug_schedule", "rack_code",
+            "needs_review",
         ]
 
     def _check_company(self, attrs):

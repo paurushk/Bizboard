@@ -26,6 +26,9 @@ Return ONLY valid JSON (no markdown) with this exact shape:
   "bill_date": "",
   "confidence": "0.85",
   "printed_line_count": "",
+  "freight": "",
+  "invoice_discount": "",
+  "price_mode_hint": "",
   "column_headers": ["the", "literal", "header", "row", "left-to-right"],
   "lines": [
     {
@@ -38,6 +41,8 @@ Return ONLY valid JSON (no markdown) with this exact shape:
       "gst_rate": "",
       "mrp": "0",
       "printed_gross_amt": "",
+      "discount_percent": "",
+      "bbox": [],
       "raw_columns": {},
       "confidence": "0.85"
     }
@@ -66,6 +71,13 @@ Canonical fields:
 - gst_rate ← total GST % (CGST%+SGST%, or IGST%, or GST%). Examples: 2.5+2.5 → "5"; 9+9 → "18".
 - printed_gross_amt ← the line amount that should equal billed-qty × unit_price when no line
   discount applies: Gross Amt, Amount, Value, or Taxable Amt — read verbatim.
+- discount_percent ← a per-line trade discount / scheme percentage when the bill prints one
+  (e.g. "Disc %", "TD %"); "" when absent. Never fold the discount into unit_price.
+- bbox ← [x, y, width, height] of THIS row on the image, each a fraction 0-1 of the image width
+  or height. Only for a single image; use [] when unsure. Never guess.
+- freight ← freight / packing / other charges added at bill level (plain number), else "".
+- invoice_discount ← bill-level cash/special discount amount, else "".
+- price_mode_hint ← "INCLUSIVE" only if the bill clearly says rates include GST, else "".
 - raw_columns ← EVERY other quantity / pack-size column on that row, keyed by the printed header
   (lower-case). Examples of different vendors:
     {"cs": "5", "upc": "24"}
@@ -315,6 +327,8 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
             "upc": extras.get("upc") or _raw_num("upc", "UPC"),
             "printed_gross_amt": _raw_num("printed_gross_amt", "gross_amt", "grossAmt", "amount")[:20],
             "printed_taxable_amt": _raw_num("printed_taxable_amt", "taxable_amt", "taxableAmt")[:20],
+            "discount_percent": _raw_num("discount_percent", "disc_percent", "disc", "td_percent")[:8],
+            "bbox": item.get("bbox") if isinstance(item.get("bbox"), list) else None,
             "extras": extras,
         })
     overall_conf = raw.get("confidence")
@@ -355,6 +369,13 @@ def _normalize_payload(raw: dict[str, Any]) -> dict[str, Any]:
         "bill_number": bill_number,
         "bill_date": bill_date,
         "confidence": overall,
+        "freight": _clean_header_str(raw.get("freight"), cap=16).replace(",", ""),
+        "invoice_discount": _clean_header_str(raw.get("invoice_discount"), cap=16).replace(",", ""),
+        "price_mode_hint": (
+            "INCLUSIVE"
+            if str(raw.get("price_mode_hint") or "").strip().upper() == "INCLUSIVE"
+            else ""
+        ),
         "injection_flagged": injection_flagged,
         "printed_line_count": _coerce_printed_line_count(raw, lines),
         "column_headers": column_headers,

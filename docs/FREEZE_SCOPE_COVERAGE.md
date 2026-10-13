@@ -372,6 +372,47 @@ Fixed:
   now covers OWNER / SALES / ACCOUNTANT / VIEWER (added `mockAccountantUser` +
   `loginAsSales` / `loginAsAccountant`). Runs in the `e2e` CI job.
 
+## Now covered (2026-10-13 — sales returns fix plan)
+
+Sales Returns (`/sales/returns`), see `SALES_RETURNS_FIX_PLAN.md` (SRF-01 .. SRF-15).
+
+| Behaviour | Status | Tests |
+|---|---|---|
+| A return lists only its own invoice's returns (`sales_invoice` / `salesInvoice`), plus `q`, status and date filters | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| A named invoice line keeps its price and discount on the return and the auto credit note, even if the client omits them | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| Same product on two invoice lines: the return restores that line's own lot and reverses that line's cost; cancel undoes the same lot | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| Mixed SELLABLE + DAMAGED return posts exact COGS reversal and exact scrap | ✅ | `backend/tests/test_sales_returns_fix.py`, `backend/tests/test_item_godown_expiry.py` |
+| Units already credited by a standalone credit note are not returnable; the refusal is early, names the note, and changes nothing | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| `GET /sales/invoices/:id/returnable-lines/` matches what Complete will accept | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| `POST /sales/returns/preview-totals/` equals the credit note actually issued and writes nothing | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| Cancel reverses stock, the credit note and the invoice status; a cancelled return shows no credit-note link | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| Staff can save a draft but not complete or cancel | ✅ | `backend/tests/test_sales_returns_fix.py`, `web/src/pages/sales/SalesReturnsPage.test.tsx` |
+| Serial lines: pick sold serials, quantity follows the picks, already-returned serials are not offered | ✅ | `web/src/pages/sales/SalesReturnsPage.test.tsx`, `web/src/components/billing/invoiceSourceLines.test.ts`, `web/src/pages/purchases/PurchaseReturnsPage.test.tsx` |
+| Draft lifecycle: resume, complete, delete, cancel; invoice switch and Discard never leave an orphan draft | ✅ | `web/src/pages/sales/SalesReturnsPage.test.tsx` |
+| GST Guard block on Complete (dialog and list row) with Owner/Manager override | ✅ | `web/src/pages/sales/SalesReturnsPage.test.tsx` |
+| Complete and Cancel refresh returns, invoices, credit notes, stock, products and customers | ✅ | `web/src/pages/sales/SalesReturnsPage.test.tsx` |
+| Older (untagged) and challan-origin invoices restore the lot of the line named | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| A second partial return never pushes a FIFO cost layer above its original quantity; cancel undoes the right layer | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| A part-credited invoice that is fully returned becomes RETURNED; cancelling one of two returns reopens it | ✅ | `backend/tests/test_sales_returns_fix.py` |
+| Two returns completing together cannot return more than was sold; complete racing cancel stays consistent | ⚠️ runs only on Postgres | `backend/tests/test_sales_returns_concurrency_postgres.py` (`-m postgres`) |
+| "Return goods" on an invoice opens Sales Returns (not Credit Notes); hidden once fully returned | ✅ | `web/src/pages/sales/InvoiceDetailPage.test.tsx` |
+
+## Now covered (2026-10-12 — bill upload review v2)
+
+Sales and purchase bill upload (`/sales/bill-upload`, `/purchases/bill-upload`), see `UPLOAD_SALES_BILL_REVIEW.md` sections 22-25.
+
+| Behaviour | Status | Tests |
+|---|---|---|
+| A bill over 50 lines keeps every row through edit and commit (both directions) | ✅ | `backend/tests/test_sales_bill_import.py` |
+| A line with a problem is never dropped silently; commit lists every bad row | ✅ | `backend/tests/test_sales_bill_import.py`, `web/src/pages/imports/BillUploadPage.test.tsx` |
+| Reviewed prices are kept below the customer's price list (Owner/Manager), others are told why | ✅ | `backend/tests/test_sales_bill_import.py` |
+| Importing needs Import AND the right to create the document (API + UI) | ✅ | `backend/tests/test_sales_bill_import.py`, `web/src/utils/permissions.test.ts` |
+| Sales and purchase layouts no longer share a template | ✅ | `backend/tests/test_sales_bill_import.py` |
+| Customers/suppliers: exact match only, inactive/blocked/walk-in never bound | ✅ | `backend/tests/test_sales_bill_import.py` |
+| Draft carries terms, source bill number, file; undo while still a draft | ✅ | `backend/tests/test_sales_bill_import.py`, `web/src/pages/imports/bill/ImportedBillNotice.test.tsx` |
+| Review screen: autosave, resume from `?job=`, side-by-side bill with row highlight, add/delete rows | ✅ | `web/src/pages/imports/BillUploadPage.test.tsx` |
+| Two simultaneous commits make one draft (needs PostgreSQL) | ⚠️ runs only on Postgres | `backend/tests/test_sales_bill_import.py` (`-m postgres`) |
+
 ## Now covered (2026-09-10 — round 2)
 
 - **WF-15** structured-CSV purchase-bill upload + Idempotency-Key commit replay

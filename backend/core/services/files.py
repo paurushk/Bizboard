@@ -130,6 +130,26 @@ def _sniff_mime(header: bytes, filename: str, declared: str) -> str:
 
 class FileService:
     @staticmethod
+    def inline_response(asset):
+        """Stream a stored file for in-page viewing (no attachment prompt)."""
+        from django.http import FileResponse, Http404
+
+        try:
+            handle = asset.file.open("rb")
+        except (FileNotFoundError, OSError) as exc:
+            raise Http404("File is no longer available.") from exc
+        raw_name = (asset.original_name or "").replace("\r", "").replace("\n", "").replace('"', "").strip()
+        response = FileResponse(
+            handle,
+            as_attachment=False,
+            filename=raw_name[:200] or "bill",
+            content_type=asset.content_type or "application/octet-stream",
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Cache-Control"] = "private, max-age=300"
+        return response
+
+    @staticmethod
     def _clamav_scan(uploaded_file) -> None:
         """Scan when CLAMAV_HOST is set; fail-closed if the daemon is down."""
         import logging
