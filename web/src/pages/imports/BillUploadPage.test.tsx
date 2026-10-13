@@ -623,3 +623,57 @@ describe('BillUploadPage (round 2)', () => {
     }
   });
 });
+
+describe('BillUploadPage (deep review fixes)', () => {
+  it('does not edit a sales bill with the purchase screen: it points to the right one', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob());
+    renderPage('/purchases/bill-upload?job=5', 'PURCHASE_BILL');
+    expect(await screen.findByText(/cannot be edited on this screen/i)).toBeInTheDocument();
+    const link = screen.getByRole('link', { name: 'Open in Sales' });
+    expect(link.getAttribute('href')).toBe('/sales/bill-upload?job=5');
+    expect(screen.queryByText('Item 1')).not.toBeInTheDocument();
+  });
+
+  it('asks before discarding an unfinished upload', async () => {
+    api.listBillImportJobs.mockResolvedValue([
+      { id: 9, kind: 'SALES_BILL', status: 'PREVIEWED', fileName: 'lost-tab.png', createdAt: '2026-07-05T10:00:00Z' },
+    ]);
+    api.cancelImport.mockResolvedValue({});
+    renderPage('/sales/bill-upload');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Discard' }));
+    expect(api.cancelImport).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('button', { name: 'Discard' }));
+    await waitFor(() => expect(api.cancelImport).toHaveBeenCalledWith(9));
+  });
+
+  it('labels the save retry as a save, not an extraction, and retries it', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob());
+    api.updateImportPreview.mockRejectedValueOnce(new Error('Network Error'));
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByText('Item 1'));
+    await user.type(await screen.findByRole('textbox', { name: /Name, row 1/i }), 'x');
+    const retry = await screen.findByRole('button', { name: 'Try saving again' }, { timeout: 5000 });
+    expect(screen.queryByRole('button', { name: 'Retry extraction' })).not.toBeInTheDocument();
+    await user.click(retry);
+    await waitFor(() => expect(api.updateImportPreview).toHaveBeenCalledTimes(2));
+  }, 15_000);
+
+  it('sends an edited row again when its deletion is undone', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob());
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByText('Item 2'));
+    const name = await screen.findByRole('textbox', { name: /Name, row 2/i });
+    await user.clear(name);
+    await user.type(name, 'Renamed');
+    await user.click(screen.getByRole('button', { name: 'Delete row 2' }));
+    await user.click(await screen.findByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(api.updateImportPreview).toHaveBeenCalled(), { timeout: 5000 });
+    const lines = api.updateImportPreview.mock.calls.at(-1)![1].lines as Array<Record<string, unknown>>;
+    expect(lines.some((l) => l.lineId === 2 && l.name === 'Renamed')).toBe(true);
+    expect(lines.some((l) => l.deleted)).toBe(false);
+  }, 15_000);
+});

@@ -676,6 +676,22 @@ export const SALES_HELP: ContextHelpPage[] = [
         'दिखाया गया कुल सटीक है: यह वही क्रेडिट नोट है जो यह रिटर्न जारी करेगा, इनवॉइस छूट, शुल्क और TCS के आपके हिस्से सहित।',
       ],
       [
+        'Give each line its condition. Sellable items go back into stock; Damaged items are written off and do not. The **Quick reasons** buttons fill the reason for you, and "Defective / damaged" also marks the ticked lines as Damaged.',
+        'हर पंक्ति की स्थिति चुनें। Sellable माल स्टॉक में लौटता है; Damaged माल बट्टे खाते जाता है, स्टॉक में नहीं। **Quick reasons** बटन कारण भर देते हैं, और "Defective / damaged" चुनी पंक्तियों को Damaged भी कर देता है।',
+      ],
+      [
+        'Stock comes back into the same lot and at the same cost it was sold from, line by line, so a bill with the same item on two lines restores each one correctly. Returns made before this tracking existed are restored at product level.',
+        'माल उसी लॉट में और उसी लागत पर लौटता है जहाँ से बिका था, पंक्ति-दर-पंक्ति; इसलिए एक ही सामान दो पंक्तियों में हो तो हर पंक्ति सही लौटती है। इस ट्रैकिंग से पहले के रिटर्न प्रोडक्ट स्तर पर लौटते हैं।',
+      ],
+      [
+        'If GST Guard blocks the return, the message lists exactly what to fix. Only an Owner or Manager can override a block, and they must type a reason, which is kept on the record.',
+        'GST Guard रिटर्न रोके तो संदेश में ठीक-ठीक लिखा होता है क्या सुधारना है। ब्लॉक को सिर्फ़ मालिक या मैनेजर ओवरराइड कर सकते हैं और कारण लिखना ज़रूरी है, जो रिकॉर्ड में रहता है।',
+      ],
+      [
+        'Use the search box (invoice number or customer) and the From / To dates to find a return. The From date cannot be after the To date.',
+        'रिटर्न खोजने के लिए सर्च बॉक्स (बिल नंबर या ग्राहक) और From / To तारीख़ें इस्तेमाल करें। From तारीख़ To के बाद की नहीं हो सकती।',
+      ],
+      [
         'Save keeps a draft you can edit, complete or delete later. Staff can save drafts; an Owner or Admin completes or cancels a return. Cancelling a completed return puts stock and serials back as they were and cancels its credit note.',
         'Save से ड्राफ्ट बनता है जिसे बाद में एडिट, Complete या हटा सकते हैं। स्टाफ ड्राफ्ट सहेज सकता है; रिटर्न Complete या रद्द मालिक/एडमिन करते हैं। पूर्ण रिटर्न रद्द करने पर स्टॉक और सीरियल पहले जैसे हो जाते हैं और उसका क्रेडिट नोट रद्द होता है।',
       ],
@@ -689,14 +705,19 @@ export const SALES_HELP: ContextHelpPage[] = [
     keyRules: [
       ['Return against a completed sale only. Quantity cannot exceed what remains returnable on each line.', 'केवल पूर्ण बिक्री पर रिटर्न। मात्रा प्रत्येक लाइन की बची वापसी से ज्यादा नहीं।'],
       ['Units already credited by a standalone credit note cannot be returned as well; the message names that credit note.', 'जो इकाइयाँ अलग क्रेडिट नोट से पहले ही क्रेडिट हो चुकी हैं, वे दोबारा वापस नहीं हो सकतीं; संदेश में उस क्रेडिट नोट का नाम आता है।'],
+      ['The return date cannot be earlier than the invoice date.', 'रिटर्न की तारीख़ बिल की तारीख़ से पहले की नहीं हो सकती।'],
+      ['When every unit on the invoice has come back, the invoice shows Returned. Cancelling one of the returns reopens it as Completed.', 'बिल की सारी इकाइयाँ लौट आने पर बिल Returned दिखता है। किसी एक रिटर्न को रद्द करने पर वह फिर Completed हो जाता है।'],
       ['If the credit is more than the customer still owes, the excess is kept as unallocated customer advance (the screen warns you).', 'यदि क्रेडिट ग्राहक के बकाया से अधिक है तो अधिक राशि अनावंटित ग्राहक अग्रिम में रखी जाती है (स्क्रीन चेतावनी देती है)।'],
     ],
     commonMistakes: [
       ['Cancelling instead of returning after the customer already booked the invoice.', 'ग्राहक के बुक कर लेने के बाद रद्द करना — रिटर्न/क्रेडिट नोट लें।'],
+      ['Marking damaged goods as Sellable, which puts them back on the shelf and into stock value.', 'खराब माल को Sellable चुनना — वह स्टॉक और स्टॉक मूल्य में वापस जुड़ जाता है।'],
+      ['Making a return for a price or discount change. No goods come back, so use a credit note.', 'दाम या छूट बदलने के लिए रिटर्न बनाना। माल लौटता नहीं, इसलिए क्रेडिट नोट बनाएँ।'],
     ],
     relatedPages: [
       { path: '/sales/history', labelKey: 'nav.salesHistory' },
       { path: '/sales/credit-notes', labelKey: 'nav.creditNotes' },
+      { path: '/purchases/returns', labelKey: 'nav.purchaseReturns' },
       { path: '/inventory/stock', labelKey: 'nav.currentStock' },
     ],
     nextActions: [

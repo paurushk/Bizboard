@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import List from '@mui/material/List';
 import ListItem from '@mui/material/ListItem';
@@ -6,7 +8,9 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { getErrorMessage } from '@/api/client';
 import { cancelImport, listBillImportJobs } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { t } from '@/i18n';
 import type { ImportKind } from '@/types/domain';
 import { statusLabelKey } from '@/utils/status';
@@ -26,9 +30,19 @@ export function RecentBillUploads({ kind, onResume }: Props) {
     queryKey: ['recent-bill-uploads', kind],
     queryFn: () => listBillImportJobs(kind),
   });
+  const [pendingDiscard, setPendingDiscard] = useState<number | null>(null);
+  const [discardError, setDiscardError] = useState<string | null>(null);
   const discard = useMutation({
     mutationFn: (id: number) => cancelImport(id),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['recent-bill-uploads', kind] }),
+    onSuccess: () => {
+      setPendingDiscard(null);
+      setDiscardError(null);
+      void queryClient.invalidateQueries({ queryKey: ['recent-bill-uploads', kind] });
+    },
+    onError: (err) => {
+      setPendingDiscard(null);
+      setDiscardError(getErrorMessage(err));
+    },
   });
   const rows = (jobs.data ?? []).slice(0, 10);
   if (rows.length === 0) return null;
@@ -37,6 +51,21 @@ export function RecentBillUploads({ kind, onResume }: Props) {
       <Typography variant="subtitle1" gutterBottom>
         {t('billUpload.recentTitle')}
       </Typography>
+      {discardError ? (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setDiscardError(null)}>
+          {discardError}
+        </Alert>
+      ) : null}
+      <ConfirmDialog
+        open={pendingDiscard != null}
+        title={t('billUpload.discardTitle')}
+        body={t('billUpload.discardBody')}
+        confirmLabel={t('billUpload.recentDiscard')}
+        confirmColor="error"
+        confirming={discard.isPending}
+        onConfirm={() => pendingDiscard != null && discard.mutate(pendingDiscard)}
+        onClose={() => setPendingDiscard(null)}
+      />
       <List dense disablePadding>
         {rows.map((job) => (
           <ListItem
@@ -51,7 +80,7 @@ export function RecentBillUploads({ kind, onResume }: Props) {
                   size="small"
                   color="inherit"
                   disabled={discard.isPending}
-                  onClick={() => discard.mutate(job.id)}
+                  onClick={() => setPendingDiscard(job.id)}
                 >
                   {t('billUpload.recentDiscard')}
                 </Button>

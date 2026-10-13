@@ -988,7 +988,8 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             cache.delete(f"masters:products:{self.company.pk}:{variant}")
 
     def get_permissions(self):
-        if getattr(self, "action", None) in _MUTATE_ACTIONS:
+        # mark-reviewed writes product rows: it needs the same right as an edit.
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "mark_reviewed"):
             return [IsAuthenticated(), HasCompany(), CanManageInventory()]
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
@@ -1003,8 +1004,10 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             ids = [int(x) for x in raw]
         except (TypeError, ValueError):
             raise ValidationError({"ids": "Product ids must be numbers."}) from None
+        from django.utils import timezone
+
         updated = Product.objects.filter(company=self.company, pk__in=ids, needs_review=True).update(
-            needs_review=False, updated_by=request.user
+            needs_review=False, updated_by=request.user, updated_at=timezone.now()
         )
         self._bust_list_cache()
         return Response({"updated": updated})

@@ -3,6 +3,7 @@
 import csv
 import hashlib
 import io
+import re
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -2768,6 +2769,10 @@ class BillImportService:
 
     @staticmethod
     def apply_extraction(job: ImportJob, payload: dict):
+        # A cancel that landed while the AI call was running must stick.
+        if ImportJob.objects.filter(pk=job.pk, status=ImportJob.Status.CANCELLED).exists():
+            job.status = ImportJob.Status.CANCELLED
+            return job
         raw_lines = list(payload.get("lines") or [])
         column_headers = list(payload.get("column_headers") or [])
         gstin = (
@@ -2799,7 +2804,16 @@ class BillImportService:
         # 24.1: header charges / discount / tax-mode hint read off the bill.
         for key in ("freight", "invoice_discount"):
             if str(payload.get(key) or "").strip():
-                preview["additional_charges" if key == "freight" else key] = str(payload[key]).strip()
+                # OCR text like "Rs. 1,200" must not reach commit as an unparseable string.
+                found = re.search(r"\d[\d,]*(?:\.\d+)?", str(payload[key]))
+                if found is None:
+                    continue
+                try:
+                    amount = _as_decimal(found.group(0).replace(",", ""))
+                except BusinessRuleError:
+                    continue
+                if amount > 0:
+                    preview["additional_charges" if key == "freight" else key] = str(amount)
         if str(payload.get("price_mode_hint") or "").upper() == "INCLUSIVE":
             preview["price_mode"] = "INCLUSIVE"
 
@@ -2951,6 +2965,13 @@ class BillImportService:
     def mark_failed(job: ImportJob, reason: str):
         from imports import metrics
 
+        # A user cancel (or a finished commit) wins over a late extraction failure.
+        current = ImportJob.objects.filter(pk=job.pk).values_list("status", flat=True).first()
+        if current in (
+            ImportJob.Status.CANCELLED, ImportJob.Status.COMMITTED, ImportJob.Status.VOIDED,
+        ):
+            job.status = current
+            return job
         metrics.record_failure(job, reason)
         job.status = ImportJob.Status.FAILED
         job.failure_reason = (reason or "Extraction failed.")[:2000]
@@ -2958,6 +2979,7 @@ class BillImportService:
         return job
 
     @staticmethod
+    @transaction.atomic
     def update_preview(job: ImportJob, data: dict, user=None, *, strict_included: bool = False):
         """Edit the extracted bill (header, party, lines) before commit.
 
@@ -2974,6 +2996,10 @@ class BillImportService:
 
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Preview update is only for bill imports.")
+        # Lock the row and re-read it: the version check below is only a real
+        # guard if two concurrent autosaves cannot both pass it.
+        ImportJob.objects.select_for_update().filter(pk=job.pk).first()
+        job.refresh_from_db()
         if job.status != ImportJob.Status.PREVIEWED:
             raise BusinessRuleError("Only previewed bill jobs can be edited.")
 
@@ -3154,7 +3180,9 @@ class BillImportService:
         return job
 
     @staticmethod
-    def _match_or_create_product(company, line: dict, user, *, direction: str = "PURCHASE") -> tuple[Product, bool]:
+    def _match_or_create_product(
+        company, line: dict, user, *, direction: str = "PURCHASE", catalog: dict | None = None
+    ) -> tuple[Product, bool]:
         # A product the reviewer picked (or confirmed) wins over any matching.
         chosen = line.get("product_id")
         product = None
@@ -3170,6 +3198,15 @@ class BillImportService:
             ).first()
         if product is None and name:
             product = Product.objects.filter(company=company, name__iexact=name).first()
+        if product is None and catalog is not None:
+            # The review screen showed the reviewer the normalised-name match
+            # (legal suffixes, punctuation ignored); commit must bind to that
+            # same product instead of creating a duplicate of it.
+            from imports import party_match
+
+            found = party_match.match_product(line, catalog)
+            if found.get("status") == "matched":
+                product = Product.objects.filter(pk=found["product_id"], company=company).first()
 
         unit_price = _as_decimal(line.get("unit_price"), "0")
         gst_rate = _normalize_gst_rate(line.get("gst_rate"))
@@ -3480,13 +3517,16 @@ class BillImportService:
         # B3-025: surface any commit-time rate snap on the created document.
         rate_warnings: list[str] = []
         inclusive = str((job.preview or {}).get("price_mode") or "").upper() == "INCLUSIVE"
+        from imports import party_match
+
+        catalog = party_match.build_catalog(job.company)
         for idx, line in enumerate(lines, start=1):
             if line.get("quantity") in (None, ""):
                 raise BusinessRuleError(f"Quantity is required for each imported {noun} line.")
             if line.get("gst_rate") in (None, ""):
                 raise BusinessRuleError(f"GST rate is required for each imported {noun} line.")
             product, created = BillImportService._match_or_create_product(
-                job.company, line, user, direction=direction
+                job.company, line, user, direction=direction, catalog=catalog
             )
             if created:
                 created_ids.append(product.pk)
@@ -3778,10 +3818,14 @@ class BillImportService:
         return job
 
     @staticmethod
+    @transaction.atomic
     def cancel(job: ImportJob, user) -> ImportJob:
         """Abandon a bill import that has not been committed (23.9/23.13)."""
         if job.kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("Only bill imports can be cancelled.")
+        # A commit finishing between our read and write must not be turned back into CANCELLED.
+        ImportJob.objects.select_for_update().filter(pk=job.pk).first()
+        job.refresh_from_db()
         if job.status in (
             ImportJob.Status.COMMITTED, ImportJob.Status.VOIDED, ImportJob.Status.CANCELLED,
         ):
@@ -3799,6 +3843,8 @@ class BillImportService:
         target_kind = str(target_kind or "").upper()
         if target_kind not in ImportJob.BILL_KINDS:
             raise BusinessRuleError("kind must be PURCHASE_BILL or SALES_BILL.")
+        ImportJob.objects.select_for_update().filter(pk=job.pk).first()
+        job.refresh_from_db()
         if job.kind == target_kind:
             return job
         if job.status not in (ImportJob.Status.PREVIEWED, ImportJob.Status.NEEDS_CLARIFICATION):

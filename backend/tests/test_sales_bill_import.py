@@ -1181,10 +1181,19 @@ def test_scan_throttle_message_says_what_and_when():
 
     from imports.views import ImportJobViewSet
 
+    view = ImportJobViewSet()
+    view.action = "create"
     with pytest.raises(Throttled) as caught:
-        ImportJobViewSet().throttled(None, 190)
+        view.throttled(None, 190)
     text = str(caught.value.detail)
     assert "paused" in text and "4 minute" in text and "CSV/Excel" in text
+
+    # Autosave and the other actions keep the general wording, not the "scans" one.
+    other = ImportJobViewSet()
+    other.action = "partial_update"
+    with pytest.raises(Throttled) as general:
+        other.throttled(None, 190)
+    assert "paused" not in str(general.value.detail)
 
 
 @patch(LLM)
@@ -1484,3 +1493,75 @@ def test_row_positions_are_dropped_for_a_pdf_upload(mock_llm, tenant_a):
         )
     assert resp.status_code == 201, resp.data
     assert "bbox" not in resp.data["preview"]["lines"][0]
+
+
+# ------------------------------------------------- deep-review regressions
+@patch(LLM)
+def test_late_extraction_failure_cannot_undo_a_cancel(mock_llm, tenant_a):
+    from imports.services import BillImportService
+
+    mock_llm.return_value = _payload(1)
+    customer = make_customer(tenant_a.company, name="Retail Buyer LLP")
+    job_id = _upload(tenant_a.client, customer_id=customer.id).data["id"]
+    assert tenant_a.client.post(f"/api/v1/imports/{job_id}/cancel/").status_code == 200
+    stale = ImportJob.objects.get(pk=job_id)
+    stale.status = ImportJob.Status.EXTRACTING  # the worker's in-memory copy
+    BillImportService.mark_failed(stale, "AI timed out")
+    assert ImportJob.objects.get(pk=job_id).status == ImportJob.Status.CANCELLED
+
+
+@patch(LLM)
+def test_extraction_result_is_ignored_once_the_job_is_cancelled(mock_llm, tenant_a):
+    from imports.services import BillImportService
+
+    mock_llm.return_value = _payload(1)
+    customer = make_customer(tenant_a.company, name="Retail Buyer LLP")
+    job_id = _upload(tenant_a.client, customer_id=customer.id).data["id"]
+    tenant_a.client.post(f"/api/v1/imports/{job_id}/cancel/")
+    BillImportService.apply_extraction(ImportJob.objects.get(pk=job_id), _payload(3))
+    assert ImportJob.objects.get(pk=job_id).status == ImportJob.Status.CANCELLED
+
+
+@patch(LLM)
+def test_commit_binds_to_the_product_the_review_screen_showed(mock_llm, tenant_a):
+    """Preview matches on a normalised name (suffixes/punctuation ignored); commit must agree."""
+    existing = make_product(tenant_a.company, name="Nirma Soap Pvt. Ltd.", sku="NIRMA-EXISTING")
+    customer = make_customer(tenant_a.company, name="Retail Buyer LLP")
+    lines = [{
+        "name": "NIRMA SOAP", "sku": "", "hsn_code": "3402", "quantity": "1",
+        "unit_price": "100", "gst_rate": "18", "mrp": "150", "include": True,
+    }]
+    mock_llm.return_value = _payload(1, lines=lines)
+    job = _upload(tenant_a.client, customer_id=customer.id).data
+    shown = job["preview"]["lines"][0]["product_match"]
+    assert shown["status"] == "matched" and shown["product_id"] == existing.pk
+    before = Product.objects.filter(company=tenant_a.company).count()
+    commit = tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/")
+    assert commit.status_code == 201 or commit.status_code == 200, commit.data
+    assert Product.objects.filter(company=tenant_a.company).count() == before
+    assert commit.data["products_created"] == 0
+
+
+@patch(LLM)
+def test_unreadable_freight_text_is_dropped_not_carried_to_commit(mock_llm, tenant_a):
+    customer = make_customer(tenant_a.company, name="Retail Buyer LLP")
+    mock_llm.return_value = _payload(1, freight="Rs. 1,200", invoice_discount="n/a")
+    job = _upload(tenant_a.client, customer_id=customer.id).data
+    preview = job["preview"]
+    assert preview["additional_charges"] == "1200"
+    assert "invoice_discount" not in preview
+    assert tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/").status_code in (200, 201)
+
+
+def test_mark_reviewed_needs_the_right_to_manage_inventory(tenant_a):
+    product = make_product(tenant_a.company, name="Flagged", sku="FLG-1")
+    Product.objects.filter(pk=product.pk).update(needs_review=True)
+    staff = _user_client(tenant_a, "viewer-mr@example.test")
+    from accounts.models import CompanyUser
+
+    CompanyUser.objects.filter(user__email="viewer-mr@example.test").update(role=CompanyUser.Role.VIEWER)
+    denied = staff.post("/api/v1/products/mark-reviewed/", {"ids": [product.pk]}, format="json")
+    assert denied.status_code == 403
+    assert Product.objects.get(pk=product.pk).needs_review is True
+    ok = tenant_a.client.post("/api/v1/products/mark-reviewed/", {"ids": [product.pk]}, format="json")
+    assert ok.status_code == 200 and ok.data["updated"] == 1

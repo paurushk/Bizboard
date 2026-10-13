@@ -1348,6 +1348,86 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'sales-return-partial-or-full',
+    'Returns & notes',
+    'What happens to the invoice when only some goods come back?',
+    ['partial return', 'full return', 'returned status', 'invoice status after return', 'returnable quantity'],
+    [
+      'A partial return leaves the invoice **Completed**: the customer kept some lines. Each line shows how many units are still returnable, and you cannot enter more than that.',
+      'Once every unit on the invoice has come back, the invoice shows **Returned**. If you later cancel one of those returns, the invoice goes back to Completed and the units become returnable again.',
+    ],
+  ),
+  faq(
+    'sales-return-damaged-goods',
+    'Returns & notes',
+    'What is the difference between Sellable and Damaged on a return?',
+    ['sellable', 'damaged', 'defective', 'scrap', 'restock', 'write off'],
+    [
+      '**Sellable** items go back into stock. **Damaged** items are written off and do not come back into stock, but the customer is still credited for them.',
+      'The **Quick reasons** buttons fill the reason for you. "Defective / damaged" also marks the lines you ticked as Damaged. You can still change each line before saving.',
+    ],
+  ),
+  faq(
+    'sales-return-which-lot',
+    'Returns & notes',
+    'Which batch or cost does returned stock go back to?',
+    ['return lot', 'return batch', 'return cost', 'fifo', 'same item two lines', 'serial numbers'],
+    [
+      'Returned stock goes back into the same lot and at the same cost it was sold from, line by line. If one invoice has the same item on two lines, returning one line restores that line only.',
+      'For serial-tracked items, tap the serials that were sold. Serials already returned are not offered again. Returns made before lot tracking existed are restored at product level, which can be less exact.',
+    ],
+  ),
+  faq(
+    'sales-return-credit-note',
+    'Returns & notes',
+    'Does a sales return also create a credit note?',
+    ['return credit note', 'scn', 'auto credit note', 'credit note total', 'discount share', 'tcs'],
+    [
+      'Yes. Completing a return automatically issues a linked GST credit note; you do not create one yourself. The total on the screen is exact: it already includes your share of the invoice discount, charges and TCS.',
+      'If the total cannot be shown (for example a rate limit or a rule the return breaks), the screen says so and you can still press Complete. The server checks everything again.',
+    ],
+  ),
+  faq(
+    'sales-return-more-than-owed',
+    'Returns & notes',
+    'The customer already paid, or the credit is more than they owe. What happens?',
+    ['paid invoice return', 'refund', 'customer advance', 'unallocated advance', 'credit exceeds balance'],
+    [
+      'The credit first reduces what the customer still owes on the invoice. Anything above that is kept as an unallocated **customer advance**, and the screen warns you before you complete.',
+      'Paying the money back is a separate step: record it from the customer’s payments. The return itself does not move cash.',
+    ],
+  ),
+  faq(
+    'sales-return-who-can',
+    'Returns & notes',
+    'Who can save, complete or cancel a sales return?',
+    ['return permission', 'staff draft', 'owner complete', 'cancel return', 'delete draft'],
+    [
+      'Staff who can create sales can save a return as a **draft**, edit it and delete it. An Owner (or anyone with cancel permission) completes it.',
+      'Cancelling a completed return puts stock and serials back as they were and cancels its credit note. A completed return cannot be edited.',
+    ],
+  ),
+  faq(
+    'sales-return-blocked',
+    'Returns & notes',
+    'Why is my return blocked or rejected?',
+    ['gst guard return', 'return blocked', 'exceeds returnable', 'credited by credit note', 'return date before invoice', 'override'],
+    [
+      'The common reasons: the quantity is more than what remains returnable on that line; those units were already credited by a standalone credit note (the message names it); the return date is before the invoice date; or **GST Guard** found a problem to fix first.',
+      'GST Guard lists exactly what is wrong. Only an Owner or Manager can override a block, and they must type a reason, which is kept on the record.',
+    ],
+  ),
+  faq(
+    'sales-return-find',
+    'Returns & notes',
+    'How do I find an old sales return?',
+    ['search return', 'return list', 'filter return', 'srn number', 'return date range'],
+    [
+      'Open **t:nav.sales** → **t:nav.salesReturns**. Search by invoice number or customer, and narrow with the From and To dates. Open a row to see its lines, reason and linked credit note.',
+      'Purchase returns work the same way on the purchase side, under **t:nav.purchaseReturns**.',
+    ],
+  ),
+  faq(
     'debit-notes',
     'Returns & notes',
     'When do I use a debit note?',

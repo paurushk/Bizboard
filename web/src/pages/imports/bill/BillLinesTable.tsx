@@ -428,6 +428,28 @@ export function BillLinesTable({
       );
   };
 
+  const head = (
+    <TableHead>
+      <TableRow>
+        <TableCell>{t('billUpload.siNo')}</TableCell>
+        <TableCell>{t('billUpload.include')}</TableCell>
+        <TableCell>{t('common.name')}</TableCell>
+        <TableCell>{t('billUpload.colProduct')}</TableCell>
+        {showAdvanced ? <TableCell>{t('common.sku')}</TableCell> : null}
+        {showAdvanced ? <TableCell>{t('billUpload.hsn')}</TableCell> : null}
+        {showPack ? <TableCell align="right">{t('billUpload.colCs')}</TableCell> : null}
+        {showPack ? <TableCell align="right">{t('billUpload.colPcs')}</TableCell> : null}
+        {showPack ? <TableCell align="right">{t('billUpload.colUpc')}</TableCell> : null}
+        <TableCell align="right">{t('billing.qty')}</TableCell>
+        <TableCell align="right">{t('billing.price')}</TableCell>
+        {showDiscount ? <TableCell align="right">{t('billUpload.colDiscount')}</TableCell> : null}
+        <TableCell align="right">{t('billUpload.gstPercent')}</TableCell>
+        <TableCell align="right">{t('billUpload.mrp')}</TableCell>
+        <TableCell align="right">{t('billUpload.colLineTotal')}</TableCell>
+      </TableRow>
+    </TableHead>
+  );
+
   const emptyRow = visibleKeys.length === 0 ? (
     <TableRow>
       <TableCell colSpan={columnCount}>
@@ -445,25 +467,7 @@ export function BillLinesTable({
       <VirtualizedTable rowCount={visibleKeys.length} rowHeight={ROW_ESTIMATE} maxHeight={680} scrollToIndex={focusIndex >= 0 ? focusIndex : null}>
         {({ rows: virtualRows, totalSize, measureElement }) => (
           <Table size="small">
-            <TableHead>
-          <TableRow>
-            <TableCell>{t('billUpload.siNo')}</TableCell>
-            <TableCell>{t('billUpload.include')}</TableCell>
-            <TableCell>{t('common.name')}</TableCell>
-            <TableCell>{t('billUpload.colProduct')}</TableCell>
-            {showAdvanced ? <TableCell>{t('common.sku')}</TableCell> : null}
-            {showAdvanced ? <TableCell>HSN</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colCs')}</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colPcs')}</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colUpc')}</TableCell> : null}
-            <TableCell align="right">{t('billing.qty')}</TableCell>
-            <TableCell align="right">{t('billing.price')}</TableCell>
-            {showDiscount ? <TableCell align="right">{t('billUpload.colDiscount')}</TableCell> : null}
-            <TableCell align="right">GST %</TableCell>
-            <TableCell align="right">{t('billUpload.mrp')}</TableCell>
-            <TableCell align="right">{t('billUpload.colLineTotal')}</TableCell>
-          </TableRow>
-            </TableHead>
+            {head}
             <TableBody>
               {virtualRows.length > 0 && virtualRows[0].start > 0 ? (
                 <TableRow style={{ height: virtualRows[0].start }} aria-hidden>
@@ -489,25 +493,7 @@ export function BillLinesTable({
   return (
     <TableContainer sx={{ overflowX: 'auto' }}>
       <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>{t('billUpload.siNo')}</TableCell>
-            <TableCell>{t('billUpload.include')}</TableCell>
-            <TableCell>{t('common.name')}</TableCell>
-            <TableCell>{t('billUpload.colProduct')}</TableCell>
-            {showAdvanced ? <TableCell>{t('common.sku')}</TableCell> : null}
-            {showAdvanced ? <TableCell>HSN</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colCs')}</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colPcs')}</TableCell> : null}
-            {showPack ? <TableCell align="right">{t('billUpload.colUpc')}</TableCell> : null}
-            <TableCell align="right">{t('billing.qty')}</TableCell>
-            <TableCell align="right">{t('billing.price')}</TableCell>
-            {showDiscount ? <TableCell align="right">{t('billUpload.colDiscount')}</TableCell> : null}
-            <TableCell align="right">GST %</TableCell>
-            <TableCell align="right">{t('billUpload.mrp')}</TableCell>
-            <TableCell align="right">{t('billUpload.colLineTotal')}</TableCell>
-          </TableRow>
-        </TableHead>
+        {head}
         <TableBody>
           {visibleKeys.map((key, index) => renderRow(key, index))}
           {emptyRow}

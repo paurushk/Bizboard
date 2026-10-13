@@ -9,6 +9,8 @@ import type { BillTotals } from '@/types/domain';
 
 type Props = {
   totals?: BillTotals;
+  /** Edits not yet saved: the figures below are from the last save. */
+  updating?: boolean;
   priceMode: 'EXCLUSIVE' | 'INCLUSIVE';
   additionalCharges: string;
   invoiceDiscount: string;
@@ -39,6 +41,7 @@ function Figure({ label, value }: { label: string; value?: string }) {
  */
 export function BillTotalsPanel({
   totals,
+  updating,
   priceMode,
   additionalCharges,
   invoiceDiscount,
@@ -88,8 +91,15 @@ export function BillTotalsPanel({
             sx={{ width: 200 }}
           />
         </Stack>
-        <Typography variant="subtitle2">{t('billUpload.totalsTitle')}</Typography>
-        <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap>
+        <Typography variant="subtitle2">
+          {t('billUpload.totalsTitle')}
+          {updating ? (
+            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 1 }} role="status">
+              {t('billUpload.totalsUpdating')}
+            </Typography>
+          ) : null}
+        </Typography>
+        <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap sx={{ opacity: updating ? 0.55 : 1 }} aria-busy={updating || undefined}>
           <Figure label={t('billUpload.totTaxable')} value={totals?.taxable} />
           {totals?.taxType === 'INTER' ? (
             <Figure label={t('billUpload.totIgst')} value={totals.igst} />

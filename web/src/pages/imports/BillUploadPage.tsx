@@ -221,6 +221,26 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
   if (!canAccess) return <ForbiddenPage />;
 
+  // A link to a job of the other direction must not be edited with this screen's fields.
+  if (job && job.kind !== kind) {
+    const otherPath = job.kind === 'SALES_BILL' ? '/sales/bill-upload' : '/purchases/bill-upload';
+    return (
+      <Stack spacing={2}>
+        <PageTitle>{t(isSales ? 'billUpload.titleSales' : 'billUpload.title')}</PageTitle>
+        <Alert
+          severity="warning"
+          action={
+            <Button color="inherit" size="small" component={RouterLink} to={`${otherPath}?job=${job.id}`}>
+              {t(job.kind === 'SALES_BILL' ? 'billUpload.openInSales' : 'billUpload.openInPurchases')}
+            </Button>
+          }
+        >
+          {t('billUpload.wrongDirectionJob')}
+        </Alert>
+      </Stack>
+    );
+  }
+
   const elapsedMs = job?.createdAt ? now - new Date(job.createdAt).getTime() : 0;
   const heartbeatAge = job?.extractionHeartbeatAt ? now - new Date(job.extractionHeartbeatAt).getTime() : 0;
   const clarifications = job?.clarifications ?? [];
@@ -360,7 +380,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                   <TextField
                     {...params}
                     label={t(isSales ? 'billUpload.customerHint' : 'billUpload.supplierHint')}
-                    placeholder="— Auto from bill / create —"
+                    placeholder={t('billUpload.partyAuto')}
                     helperText={!partySearch.enabled ? t('common.typeToSearch') : undefined}
                   />
                 )}
@@ -404,7 +424,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                   <Button variant="outlined" onClick={() => fileInputRef.current?.click()}>
                     {t(uploadMode === 'structured' ? 'billUpload.chooseFileStructured' : 'billUpload.chooseFile')}
                   </Button>
-                  {file ? <Typography variant="body2">Selected: {file.name}</Typography> : null}
+                  {file ? <Typography variant="body2">{t('billUpload.selectedFile', { name: file.name })}</Typography> : null}
                 </Stack>
               </Box>
 

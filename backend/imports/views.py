@@ -110,6 +110,9 @@ class ImportJobViewSet(
         """Say what was limited and when to try again (bill reading costs real money)."""
         from rest_framework.exceptions import Throttled
 
+        if getattr(self, "action", None) != "create":
+            # Autosave, validate and the like fall under the general rate limit: keep its own wording.
+            return super().throttled(request, wait)
         minutes = max(1, int((wait or 60) // 60) + 1)
         raise Throttled(
             wait=wait,

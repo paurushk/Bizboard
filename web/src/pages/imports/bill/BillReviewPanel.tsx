@@ -71,6 +71,7 @@ import {
 } from './billLines';
 
 const AUTOSAVE_MS = 1500;
+const RETRY_MS = 8000;
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed';
 type RowFilter = 'all' | 'flagged' | 'problems';
@@ -133,6 +134,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
   const [headerDirty, setHeaderDirtyState] = useState(false);
   const versionRef = useRef<number | undefined>(initial.version);
   const savePromise = useRef<Promise<boolean> | null>(null);
+  const retryableRef = useRef(false);
 
   const setLines = useCallback((updater: (prev: EditorLine[]) => EditorLine[]) => {
     const next = updater(linesRef.current);
@@ -215,11 +217,16 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
     };
   }, [detectedPartyId, isSales]);
 
+  // The lines a save sends: new ones and edited ones. One definition for the
+  // payload and for the bookkeeping that clears them afterwards.
+  const collectDirtyLines = useCallback(
+    () => linesRef.current.filter((l) => l.lineId == null || lineDirtyRef.current.has(l.clientKey)),
+    [],
+  );
+
   const buildPayload = useCallback(() => {
     const h = headerRef.current;
-    const dirtyLines = linesRef.current.filter(
-      (l) => l.lineId == null || lineDirtyRef.current.has(l.clientKey),
-    );
+    const dirtyLines = collectDirtyLines();
     return {
       previewVersion: versionRef.current,
       billNumber: h.billNumber,
@@ -241,7 +248,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
         ...deletesRef.current.map((lineId) => ({ lineId, deleted: true })),
       ],
     };
-  }, [isSales]);
+  }, [isSales, collectDirtyLines]);
 
   const applyValidation = useCallback(
     (lineErrors: NonNullable<ServerDetails['lineErrors']>, head: BillLineError[]) => {
@@ -261,7 +268,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
 
   // ------------------------------------------------------------ autosave
   const runSave = useCallback(async (): Promise<boolean> => {
-    const sentLines = linesRef.current.filter((l) => l.lineId == null || lineDirtyRef.current.has(l.clientKey));
+    const sentLines = collectDirtyLines();
     const sentKeys = new Set(sentLines.map((l) => l.clientKey));
     const sentNewKeys = sentLines.filter((l) => l.lineId == null).map((l) => l.clientKey);
     const sentSignatures = new Map(sentLines.map((l) => [l.clientKey, lineSignature(l)]));
@@ -275,7 +282,10 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
       const sp = saved.preview as PurchaseBillPreview;
       versionRef.current = sp.previewVersion;
       const byId = new Map(sp.lines.map((l) => [l.lineId, l]));
-      const unseen = sp.lines.filter((l) => l.lineId != null && !knownIds.has(l.lineId));
+      // New rows get ascending ids in the order they were sent; sort so a reordered response cannot swap them.
+      const unseen = sp.lines
+        .filter((l) => l.lineId != null && !knownIds.has(l.lineId))
+        .sort((a, b) => (a.lineId as number) - (b.lineId as number));
       let nextNew = 0;
       setLines((prev) =>
         prev.map((l) => {
@@ -313,15 +323,22 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 409) {
         // Edited elsewhere: take the server copy (the container remounts us).
-        const fresh = await getImportJob(jobId);
-        queryClient.setQueryData(['import-job', jobId], fresh);
-        onStale();
+        try {
+          const fresh = await getImportJob(jobId);
+          queryClient.setQueryData(['import-job', jobId], fresh);
+          onStale();
+        } catch {
+          retryableRef.current = true;
+          setSaveState('failed');
+        }
         return false;
       }
+      // A rejected edit (4xx) needs the user to change something; a dropped connection or 5xx is worth retrying.
+      retryableRef.current = !axios.isAxiosError(err) || !err.response || err.response.status >= 500;
       setSaveState('failed');
       return false;
     }
-  }, [jobId, buildPayload, queryClient, setLines, setLineDirty, setDeletes, setHeaderDirty, onStale]);
+  }, [jobId, buildPayload, collectDirtyLines, queryClient, setLines, setLineDirty, setDeletes, setHeaderDirty, onStale]);
 
   const startSave = useCallback(() => {
     if (savePromise.current) return savePromise.current;
@@ -339,10 +356,14 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
 
   const hasUnsaved = headerDirty || lineDirty.size > 0 || pendingDeletes.length > 0 || lines.some((l) => l.lineId == null);
   useEffect(() => {
-    if (!hasUnsaved || saveState === 'failed') return undefined;
-    const timer = window.setTimeout(() => {
-      void startSave();
-    }, AUTOSAVE_MS);
+    if (!hasUnsaved) return undefined;
+    if (saveState === 'failed' && !retryableRef.current) return undefined;
+    const timer = window.setTimeout(
+      () => {
+        void startSave();
+      },
+      saveState === 'failed' ? RETRY_MS : AUTOSAVE_MS,
+    );
     return () => window.clearTimeout(timer);
   }, [hasUnsaved, saveState, startSave, saveTick, headerSig, lines, lineDirty, pendingDeletes]);
 
@@ -413,11 +434,15 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
         return;
       }
       if (axios.isAxiosError(err) && err.response?.status === 409) {
-        const fresh = await getImportJob(jobId);
-        queryClient.setQueryData(['import-job', jobId], fresh);
-        const freshVersion = (fresh.preview as PurchaseBillPreview).previewVersion;
-        if (freshVersion !== versionRef.current) onStale();
-        else onError(getErrorMessage(err));
+        try {
+          const fresh = await getImportJob(jobId);
+          queryClient.setQueryData(['import-job', jobId], fresh);
+          const freshVersion = (fresh.preview as PurchaseBillPreview).previewVersion;
+          if (freshVersion !== versionRef.current) onStale();
+          else onError(getErrorMessage(err));
+        } catch {
+          onError(getErrorMessage(err));
+        }
         return;
       }
       onError(getErrorMessage(err));
@@ -573,6 +598,8 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
     if (line.lineId != null && deletesRef.current.includes(line.lineId)) {
       setDeletes((prev) => prev.filter((id) => id !== line.lineId));
       setLines((prev) => [...prev, line]);
+      // Edits made before the delete were dropped from the dirty set; send them again.
+      setLineDirty((prev) => new Set(prev).add(line.clientKey));
     } else {
       // Already deleted on the server: bring it back as a new row.
       setLines((prev) => [...prev, { ...line, lineId: undefined, clientKey: newClientKey() }]);
@@ -879,6 +906,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
 
             <BillTotalsPanel
               totals={preview.totals}
+              updating={hasUnsaved || saveState === 'saving'}
               priceMode={priceMode}
               additionalCharges={additionalCharges}
               invoiceDiscount={invoiceDiscount}
@@ -1024,7 +1052,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                     {saveLabel}
                     {saveState === 'failed' ? (
                       <Button size="small" onClick={() => void startSave()}>
-                        {t('billUpload.retryExtract')}
+                        {t('billUpload.retrySave')}
                       </Button>
                     ) : null}
                   </Typography>
