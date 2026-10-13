@@ -280,7 +280,7 @@ export function InvoiceReturnLineTable({
               <TableCell>{line.productName}</TableCell>
               <TableCell>
                 {readOnly || !line.included ? (
-                  line.condition === 'DAMAGED' ? 'Damaged' : 'Sellable'
+                  line.condition === 'DAMAGED' ? t('sweep2.damaged') : t('sweep2.sellable')
                 ) : (
                   <TextField
                     select

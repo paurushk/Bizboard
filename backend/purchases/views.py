@@ -3,6 +3,7 @@ import io
 from django.db.models import DecimalField, OuterRef, Q, Subquery, Sum, Value
 from django.db.models.functions import Coalesce
 from django.http import FileResponse
+from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -30,6 +31,7 @@ from .models import BillOfEntry, PurchaseInvoice, PurchaseItem, PurchaseOrder, P
 from .serializers import (
     BillOfEntrySerializer,
     PurchaseInvoiceSerializer,
+    PurchaseReturnableLineSerializer,
     PurchaseReturnSerializer,
 )
 from .services import PurchaseService
@@ -77,13 +79,19 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "complete", "update", "partial_update", "destroy", "preview_totals"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
-        if action in ("list", "retrieve"):
+        if action in ("list", "retrieve", "returnable_lines"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         if action == "number_series":
             if self.request.method == "GET":
                 return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         return super().get_permissions()
+
+    @extend_schema(responses=PurchaseReturnableLineSerializer(many=True))
+    @action(detail=True, methods=["get"], url_path="returnable-lines")
+    def returnable_lines(self, request, pk=None):
+        """Per purchase line: bought / returned / credited by standalone notes / returnable."""
+        return Response(PurchaseService.returnable_lines(self.get_object()))
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -288,7 +296,9 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
 
 
 class PurchaseReturnViewSet(CompanyScopedViewSet):
-    queryset = PurchaseReturn.objects.select_related("supplier").prefetch_related("items__product")
+    queryset = PurchaseReturn.objects.select_related("supplier", "purchase_invoice").prefetch_related(
+        "items__product", "credit_notes"
+    )
     serializer_class = PurchaseReturnSerializer
 
     def get_permissions(self):
@@ -334,6 +344,18 @@ class PurchaseReturnViewSet(CompanyScopedViewSet):
                 qs = qs.filter(supplier_id=int(params["supplier"]))
             except (TypeError, ValueError):
                 raise BusinessRuleError("supplier must be a numeric id.")
+        for key, lookup in (("date_from", "return_date__gte"), ("date_to", "return_date__lte")):
+            if params.get(key):
+                qs = qs.filter(**{lookup: params[key]})
+        text = (params.get("q") or "").strip()
+        if text:
+            qs = qs.filter(
+                Q(number__icontains=text)
+                | Q(purchase_invoice__number__icontains=text)
+                | Q(supplier__name__icontains=text)
+                | Q(reason__icontains=text)
+                | Q(credit_notes__number__icontains=text)
+            ).distinct()
         bill_id = (
             params.get("purchase_invoice")
             or params.get("purchase_bill")

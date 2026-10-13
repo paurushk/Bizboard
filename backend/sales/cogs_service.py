@@ -328,15 +328,6 @@ class CogsService:
         target = next((i for i in inv_items if i.id == sid), None)
         if target is None or not sale_moves:
             return sale_moves, "", []
-        # A product-level return (no source line) in the history makes per-line
-        # attribution unreliable: stay on whole-product order.
-        if SalesReturnItem.objects.filter(
-            sales_return__sales_invoice=invoice,
-            sales_return__status=SalesReturn.Status.COMPLETED,
-            product_id=item.product_id,
-            source_item__isnull=True,
-        ).exists():
-            return sale_moves, "", []
         if all(m.reference_type == "sales_invoice" for m in sale_moves):
             ordered = sorted(inv_items, key=lambda i: (i.batch_id or 0, i.pk))
             pos, mapping, ok = 0, {}, True
@@ -353,11 +344,67 @@ class CogsService:
                 mapping[it.id] = mine
             if ok and pos == len(sale_moves):
                 return mapping[sid], "seq", [sid]
+        challan_moves = CogsService._challan_line_moves(invoice, target, inv_items, sale_moves)
+        if challan_moves:
+            return challan_moves, "seq", [sid]
         if target.batch_id:
             by_batch = [m for m in sale_moves if m.batch_id == target.batch_id]
             if by_batch:
                 return by_batch, "batch", [i.id for i in inv_items if i.batch_id == target.batch_id]
         return sale_moves, "", []
+
+    @staticmethod
+    def _challan_line_moves(invoice, target, inv_items, sale_moves):
+        """Movements of the challan line that became ``target`` (single-challan invoices).
+
+        Needs the invoice to still mirror its challan line for line (same products and
+        quantities in the same order); anything else returns [] and the caller falls back.
+        New challan postings carry ``CHALLAN_LINE:<id>``; older ones are replayed in
+        posting order and accepted only if they add up exactly.
+        """
+        from inventory.item_stock import base_quantity
+        from sales.models import DeliveryChallan
+
+        challans = list(DeliveryChallan.objects.filter(converted_invoice=invoice, stock_posted=True))
+        if len(challans) != 1:
+            return []
+        challan = challans[0]
+        moves = [m for m in sale_moves if m.reference_type == "delivery_challan" and str(m.reference_id) == str(challan.pk)]
+        if not moves:
+            return []
+        c_items = list(challan.items.select_related("product").order_by("id"))
+        all_inv = list(invoice.items.select_related("product").order_by("id"))
+        if len(c_items) != len(all_inv):
+            return []
+        for ci, ii in zip(c_items, all_inv):
+            if ci.product_id != ii.product_id:
+                return []
+            if base_quantity(ci.product, ci.quantity, getattr(ci, "unit_name", None)) != base_quantity(
+                ii.product, ii.quantity, getattr(ii, "unit_name", None)
+            ):
+                return []
+        position = next((i for i, ii in enumerate(all_inv) if ii.id == target.id), None)
+        if position is None:
+            return []
+        line = c_items[position]
+        tagged = [m for m in moves if m.reason == f"CHALLAN_LINE:{line.pk}"]
+        if tagged:
+            return tagged
+        same_product = [ci for ci in c_items if ci.product_id == target.product_id]
+        pos, mapping = 0, {}
+        for ci in same_product:
+            need = base_quantity(ci.product, ci.quantity, getattr(ci, "unit_name", None))
+            got, mine = Decimal("0"), []
+            while pos < len(moves) and got < need:
+                got += abs(Decimal(str(moves[pos].quantity)))
+                mine.append(moves[pos])
+                pos += 1
+            if got != need:
+                return []
+            mapping[ci.pk] = mine
+        if pos != len(moves):
+            return []
+        return mapping.get(line.pk, [])
 
     @staticmethod
     def restore_return_stock_and_cogs(sales_return: SalesReturn, invoice, items, user) -> Decimal:
@@ -419,21 +466,43 @@ class CogsService:
                 if tag:
                     prior_qs = prior_qs.filter(reason=tag)
                 if mode in ("seq", "batch"):
-                    # Earlier returns are attributed through the invoice lines they
-                    # named (their movements carry no line tag on these invoices).
+                    # Earlier returns are attributed through the invoice lines (the same
+                    # per-line accounting Complete uses, which also places returns that
+                    # named no line); their movements carry no line tag on these invoices.
+                    from .return_service import ReturnService
+
                     consumed_prior = Decimal("0")
-                    for row in SalesReturnItem.objects.filter(
-                        sales_return__sales_invoice=invoice,
-                        sales_return__status=SalesReturn.Status.COMPLETED,
-                        source_item_id__in=line_keys,
-                    ).exclude(sales_return=sales_return).select_related("product"):
-                        consumed_prior += base_quantity(
-                            row.product, row.quantity, getattr(row, "unit_name", None) or unit_names.get(row.product_id)
-                        )
+                    try:
+                        st = ReturnService.line_state(invoice, exclude_return=sales_return)
+                        for k in line_keys:
+                            consumed_prior += base_quantity(
+                                item.product,
+                                st["sold"].get(k, Decimal("0")) - st["after_returns"].get(k, Decimal("0")),
+                                unit_names.get(item.product_id),
+                            )
+                    except BusinessRuleError:
+                        for row in SalesReturnItem.objects.filter(
+                            sales_return__sales_invoice=invoice,
+                            sales_return__status=SalesReturn.Status.COMPLETED,
+                            source_item_id__in=line_keys,
+                        ).exclude(sales_return=sales_return).select_related("product"):
+                            consumed_prior += base_quantity(
+                                row.product, row.quantity,
+                                getattr(row, "unit_name", None) or unit_names.get(row.product_id),
+                            )
                     consumed_prior += sum((done_by_line.get(k, Decimal("0")) for k in line_keys), Decimal("0"))
                 else:
                     prior_returned = prior_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
                     consumed_prior = Decimal(str(prior_returned))
+                restoring = list(
+                    StockMovement.objects.filter(
+                        company=sales_return.company,
+                        movement_type=MovementType.SALES_RETURN,
+                        product=item.product,
+                        reference_type="sales_return",
+                        reference_id__in=prior_sr_ids,
+                    )
+                )
                 for move in sale_moves:
                     if remaining <= 0:
                         break
@@ -461,7 +530,12 @@ class CogsService:
                         reason=tag or f"SALE_MOVE:{move.pk}",
                         user=user,
                     )
-                    InventoryService.restore_fifo_peels(move, inbound)
+                    InventoryService.restore_fifo_peels(
+                        move,
+                        inbound,
+                        already_restored=InventoryService.already_restored_by_layer(move, restoring),
+                    )
+                    restoring.append(inbound)
                     cogs_rev += move_unit_cost * take
                     remaining -= take
                     restored_lots.append((move.batch, take, move_unit_cost))

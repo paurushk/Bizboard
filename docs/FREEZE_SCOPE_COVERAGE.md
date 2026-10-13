@@ -395,6 +395,9 @@ Sales Returns (`/sales/returns`), see `SALES_RETURNS_FIX_PLAN.md` (SRF-01 .. SRF
 | A second partial return never pushes a FIFO cost layer above its original quantity; cancel undoes the right layer | ✅ | `backend/tests/test_sales_returns_fix.py` |
 | A part-credited invoice that is fully returned becomes RETURNED; cancelling one of two returns reopens it | ✅ | `backend/tests/test_sales_returns_fix.py` |
 | Two returns completing together cannot return more than was sold; complete racing cancel stays consistent | ⚠️ runs only on Postgres | `backend/tests/test_sales_returns_concurrency_postgres.py` (`-m postgres`) |
+| Purchase returns: server headroom (base units, standalone credit notes), returned serials, filters, links, draft lifecycle, cancel | ✅ | `backend/tests/test_purchase_returns_fix.py`, `web/src/pages/purchases/PurchaseReturnsPage.test.tsx` |
+| Returns screens end to end on desktop and phone | ✅ | `web/e2e/sales/returns.spec.ts` |
+| The live total is rate limited and capped at 200 lines | ✅ | `backend/tests/test_sales_returns_fix.py` |
 | "Return goods" on an invoice opens Sales Returns (not Credit Notes); hidden once fully returned | ✅ | `web/src/pages/sales/InvoiceDetailPage.test.tsx` |
 
 ## Now covered (2026-10-12 — bill upload review v2)

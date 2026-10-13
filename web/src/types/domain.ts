@@ -830,9 +830,14 @@ export interface PurchaseReturn extends DocumentTotals {
   supplier: number;
   supplierName?: string;
   purchaseInvoice: number;
+  purchaseInvoiceNumber?: string;
+  creditNoteId?: number | null;
+  creditNoteNumber?: string;
   returnDate: string;
   reason?: string;
   items: LineItem[];
+  completedAt?: string | null;
+  cancelledAt?: string | null;
 }
 
 export interface PurchaseCreditNote extends DocumentTotals {

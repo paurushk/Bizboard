@@ -24991,6 +24991,61 @@
                 }
             }
         },
+        "/api/v1/purchases/invoices/{id}/returnable-lines/": {
+            "get": {
+                "operationId": "purchases_invoices_returnable_lines_list",
+                "description": "Per purchase line: bought / returned / credited by standalone notes / returnable.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this purchase invoice.",
+                        "required": true
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "purchases"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedPurchaseReturnableLineList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/purchases/invoices/{id}/source-bill/": {
             "get": {
                 "operationId": "purchases_invoices_source_bill_retrieve",
@@ -44711,6 +44766,37 @@
                     }
                 }
             },
+            "PaginatedPurchaseReturnableLineList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PurchaseReturnableLine"
+                        }
+                    }
+                }
+            },
             "PaginatedQuotationList": {
                 "type": "object",
                 "required": [
@@ -49200,6 +49286,18 @@
                     "purchase_invoice": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "purchase_invoice_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_number": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "return_date": {
                         "type": "string",
@@ -53784,6 +53882,18 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "purchase_invoice_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_id": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "credit_note_number": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "return_date": {
                         "type": "string",
                         "format": "date"
@@ -53881,12 +53991,15 @@
                     "cgst_total",
                     "completed_at",
                     "created_at",
+                    "credit_note_id",
+                    "credit_note_number",
                     "discount_total",
                     "grand_total",
                     "id",
                     "igst_total",
                     "items",
                     "number",
+                    "purchase_invoice_number",
                     "round_off",
                     "sgst_total",
                     "status",
@@ -53995,6 +54108,61 @@
                     "quantity",
                     "sgst",
                     "taxable_amount"
+                ]
+            },
+            "PurchaseReturnableLine": {
+                "type": "object",
+                "description": "One purchase line's return headroom (GET /purchases/invoices/:id/returnable-lines/).",
+                "properties": {
+                    "source_item": {
+                        "type": "integer"
+                    },
+                    "product": {
+                        "type": "integer"
+                    },
+                    "product_name": {
+                        "type": "string"
+                    },
+                    "unit_name": {
+                        "type": "string"
+                    },
+                    "purchased": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returned": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "credited_standalone": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returnable": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,11}(?:\\.\\d{0,3})?$"
+                    },
+                    "returned_serials": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "required": [
+                    "credited_standalone",
+                    "product",
+                    "product_name",
+                    "purchased",
+                    "returnable",
+                    "returned",
+                    "returned_serials",
+                    "source_item",
+                    "unit_name"
                 ]
             },
             "PurchaseTypeEnum": {

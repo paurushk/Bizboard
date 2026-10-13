@@ -759,12 +759,63 @@ class InventoryService:
                 movement.layer_peels = peels
 
     @staticmethod
-    def restore_fifo_peels(outbound_movement, inbound_movement=None, *, qty=None) -> None:
+    def already_restored_by_layer(outbound_movement, restoring_movements) -> dict:
+        """layer_id -> quantity already put back on that layer from ``outbound_movement``.
+
+        ``restoring_movements`` are the inbound movements of the returns still in force.
+        Each carries the per-layer detail written by ``restore_fifo_peels``; movements
+        from before that detail existed contribute nothing (the per-layer
+        original-quantity cap still protects those).
+        """
+        done: dict = {}
+        for move in restoring_movements:
+            for entry in move.layer_peels or []:
+                if entry.get("outbound") == outbound_movement.pk and entry.get("layer_id"):
+                    done[entry["layer_id"]] = done.get(entry["layer_id"], Decimal("0")) + Decimal(
+                        str(entry.get("qty") or 0)
+                    )
+        return done
+
+    @staticmethod
+    def unrestore_from_detail(inbound_movement) -> bool:
+        """Undo exactly what ``restore_fifo_peels`` recorded on this inbound movement.
+
+        Returns False when the movement has no detail (restored before it existed), so
+        the caller can fall back to the older approximation.
+        """
+        from .models import InventoryCostLayer
+
+        entries = [e for e in (inbound_movement.layer_peels or []) if e.get("outbound")]
+        if not entries:
+            return False
+        method = getattr(inbound_movement.company, "inventory_valuation_method", "WAVG") or "WAVG"
+        if method != "FIFO":
+            return True
+        for entry in entries:
+            layer = (
+                InventoryCostLayer.objects.select_for_update()
+                .filter(pk=entry.get("layer_id"))
+                .first()
+            )
+            if layer is None:
+                continue
+            take = min(Decimal(str(entry.get("qty") or 0)), layer.qty_remaining)
+            layer.qty_remaining = max(Decimal("0"), layer.qty_remaining - take)
+            layer.save(update_fields=["qty_remaining", "updated_at"])
+        return True
+
+    @staticmethod
+    def restore_fifo_peels(outbound_movement, inbound_movement=None, *, qty=None, already_restored=None) -> None:
         """BB-000601: put peeled qty back on the original layers (no new inbound layer).
 
         When ``inbound_movement`` (or ``qty``) is set, only that quantity is
         restored — a partial sales return must not put the whole SALE peel stack
         back (N-001).
+
+        ``already_restored`` (layer_id -> qty, from ``already_restored_by_layer``) turns on
+        exact mode: only what this sale took from a layer and no earlier return has put
+        back is restored, and the per-layer detail is stamped on ``inbound_movement`` so a
+        later return and a cancel know exactly where the units went.
         """
         from .models import InventoryCostLayer
 
@@ -780,9 +831,12 @@ class InventoryService:
         if remaining is not None and remaining <= 0:
             return
         peels = outbound_movement.layer_peels or []
+        detail: list = []
         if peels:
             for peel in peels:
                 peel_qty = Decimal(str(peel.get("qty") or 0))
+                if already_restored is not None:
+                    peel_qty -= already_restored.get(peel.get("layer_id"), Decimal("0"))
                 if peel_qty <= 0:
                     continue
                 take = peel_qty if remaining is None else min(remaining, peel_qty)
@@ -795,15 +849,14 @@ class InventoryService:
                     .first()
                 )
                 if layer is not None and layer.source_movement is not None:
-                    # SRF: a layer can only get back what was taken from it. Without
-                    # this, a second partial return restored the first layer again
-                    # and pushed it above its original quantity.
+                    # A layer can only get back what was taken from it; this also
+                    # protects returns made before per-layer detail existed.
                     original = abs(Decimal(str(layer.source_movement.quantity or 0)))
                     take = min(take, max(Decimal("0"), original - layer.qty_remaining))
                     if take <= 0:
                         continue
                 if layer is None:
-                    InventoryCostLayer.objects.create(
+                    layer = InventoryCostLayer.objects.create(
                         company=outbound_movement.company,
                         warehouse=outbound_movement.warehouse,
                         product=outbound_movement.product,
@@ -819,6 +872,16 @@ class InventoryService:
                     layer.save(update_fields=["qty_remaining", "updated_at"])
                 if remaining is not None:
                     remaining -= take
+                detail.append({"layer_id": layer.pk, "qty": str(take), "outbound": outbound_movement.pk})
+                if remaining is not None and remaining <= 0:
+                    break
+            if already_restored is not None and inbound_movement is not None and detail:
+                StockMovement.stamp_cost(
+                    inbound_movement.pk,
+                    unit_cost=inbound_movement.unit_cost or Decimal("0"),
+                    layer_peels=detail,
+                )
+                inbound_movement.layer_peels = detail
             return
         if inbound_movement is None:
             return

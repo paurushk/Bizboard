@@ -5,7 +5,14 @@ from core.serializers import CompanyPrimaryKeyRelatedField
 from inventory.models import BatchLot
 from masters.models import Product
 
-from .models import BillOfEntry, PurchaseInvoice, PurchaseItem, PurchaseReturn, PurchaseReturnItem
+from .models import (
+    BillOfEntry,
+    PurchaseCreditNote,
+    PurchaseInvoice,
+    PurchaseItem,
+    PurchaseReturn,
+    PurchaseReturnItem,
+)
 from .services import PurchaseService
 
 LINE_READONLY = ["taxable_amount", "cgst", "sgst", "igst", "cess", "line_total"]
@@ -414,15 +421,45 @@ class PurchaseReturnItemSerializer(serializers.ModelSerializer):
 class PurchaseReturnSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = PurchaseReturnItemSerializer(many=True)
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    purchase_invoice_number = serializers.SerializerMethodField()
+    credit_note_id = serializers.SerializerMethodField()
+    credit_note_number = serializers.SerializerMethodField()
 
     class Meta:
         model = PurchaseReturn
         fields = [
             "id", "number", "status", "supplier", "supplier_name", "purchase_invoice",
+            "purchase_invoice_number", "credit_note_id", "credit_note_number",
             "return_date", "reason", "items", "completed_at", "cancelled_at",
             "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "completed_at", "cancelled_at"] + TOTAL_READONLY
+        read_only_fields = [
+            "number", "status", "purchase_invoice_number", "credit_note_id", "credit_note_number",
+            "completed_at", "cancelled_at",
+        ] + TOTAL_READONLY
+
+    @staticmethod
+    def _linked_credit_note(obj):
+        # Prefer the live note; a cancelled return (or note) has no live link.
+        notes = list(obj.credit_notes.all())
+        for note in notes:
+            if note.status == PurchaseCreditNote.Status.COMPLETED:
+                return note
+        for note in notes:
+            if note.status != PurchaseCreditNote.Status.CANCELLED:
+                return note
+        return None
+
+    def get_purchase_invoice_number(self, obj):
+        return obj.purchase_invoice.number if obj.purchase_invoice_id else ""
+
+    def get_credit_note_id(self, obj):
+        note = self._linked_credit_note(obj)
+        return note.id if note else None
+
+    def get_credit_note_number(self, obj):
+        note = self._linked_credit_note(obj)
+        return note.number if note else ""
 
     def validate_supplier(self, supplier):
         self.check_company_ref(supplier, "supplier")
@@ -519,3 +556,17 @@ class BillOfEntrySerializer(CompanyScopedSerializerMixin, serializers.ModelSeria
     def update(self, instance, validated_data):
         self._guard_editable(instance)
         return super().update(instance, validated_data)
+
+
+class PurchaseReturnableLineSerializer(serializers.Serializer):
+    """One purchase line's return headroom (GET /purchases/invoices/:id/returnable-lines/)."""
+
+    source_item = serializers.IntegerField()
+    product = serializers.IntegerField()
+    product_name = serializers.CharField()
+    unit_name = serializers.CharField(allow_blank=True)
+    purchased = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returned = serializers.DecimalField(max_digits=14, decimal_places=3)
+    credited_standalone = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returnable = serializers.DecimalField(max_digits=14, decimal_places=3)
+    returned_serials = serializers.ListField(child=serializers.CharField())

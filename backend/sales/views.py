@@ -2220,6 +2220,12 @@ class SalesReturnViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
 
+    def get_throttles(self):
+        # The live total fires on every (debounced) edit; give it its own budget.
+        if getattr(self, "action", None) == "preview_totals":
+            self.throttle_scope = "return_preview"
+        return super().get_throttles()
+
     @extend_schema(request=SalesReturnSerializer, responses=SalesReturnPreviewSerializer)
     @action(detail=False, methods=["post"], url_path="preview-totals")
     def preview_totals(self, request):
@@ -2231,6 +2237,8 @@ class SalesReturnViewSet(CompanyScopedViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        if len(data["items"]) > 200:
+            raise BusinessRuleError("Preview is limited to 200 lines.")
         result = ReturnService.preview_totals(
             company=self.company,
             customer=data["customer"],

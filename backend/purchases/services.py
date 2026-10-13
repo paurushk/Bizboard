@@ -97,6 +97,15 @@ def _line_stock_cost(product, unit_price, unit_name=None):
     return base_unit_cost(product, unit_price, unit_name)
 
 
+def _purchased_base_by_product(invoice):
+    from collections import defaultdict
+
+    out = defaultdict(Decimal)
+    for row in invoice.items.select_related("product", "product__alternate_unit"):
+        out[row.product_id] += _line_stock_qty(row.product, row.quantity, getattr(row, "unit_name", None))
+    return dict(out)
+
+
 def _invoice_unit_name_by_product(invoice):
     if invoice is None:
         return {}
@@ -264,6 +273,66 @@ def _update_purchase_items_in_place(invoice: PurchaseInvoice, items_data):
 
 class PurchaseService:
     # ---------------- Purchase invoice ----------------
+
+    @staticmethod
+    def _standalone_credited_quantities(invoice):
+        """Base-unit quantity credited per product by standalone (non return-linked)
+        completed purchase credit notes; those units can no longer be returned."""
+        from collections import defaultdict
+
+        from purchases.models import PurchaseCreditNote, PurchaseCreditNoteItem
+
+        out = defaultdict(Decimal)
+        rows = PurchaseCreditNoteItem.objects.filter(
+            credit_note__purchase_invoice=invoice,
+            credit_note__status=PurchaseCreditNote.Status.COMPLETED,
+            credit_note__purchase_return__isnull=True,
+        ).select_related("product", "product__alternate_unit")
+        for row in rows:
+            out[row.product_id] += _line_stock_qty(row.product, row.quantity, getattr(row, "unit_name", None))
+        return dict(out)
+
+    @staticmethod
+    def returnable_lines(invoice):
+        """Per invoice line: bought / returned / credited by standalone notes / returnable.
+
+        Headroom is per product in base units (BOX vs PCS cannot over-return) and handed
+        out to the lines of a product in line order, then shown in each line's own unit.
+        Serials of completed returns are listed so they are not offered again.
+        """
+        from collections import defaultdict
+
+        returned = PurchaseService._returned_quantities(invoice)
+        standalone = PurchaseService._standalone_credited_quantities(invoice)
+        left = {
+            pid: max(Decimal("0"), qty_total - returned.get(pid, Decimal("0")) - standalone.get(pid, Decimal("0")))
+            for pid, qty_total in _purchased_base_by_product(invoice).items()
+        }
+        returned_serials = defaultdict(list)
+        for ritem in PurchaseReturnItem.objects.filter(
+            purchase_return__purchase_invoice=invoice,
+            purchase_return__status=PurchaseReturn.Status.COMPLETED,
+        ).order_by("id"):
+            if ritem.serial_numbers:
+                returned_serials[ritem.product_id].extend(str(n) for n in ritem.serial_numbers)
+        rows = []
+        for row in invoice.items.select_related("product", "product__alternate_unit").order_by("id"):
+            factor = _line_stock_qty(row.product, Decimal("1"), getattr(row, "unit_name", None)) or Decimal("1")
+            line_base = _line_stock_qty(row.product, row.quantity, getattr(row, "unit_name", None))
+            give = min(line_base, left.get(row.product_id, Decimal("0")))
+            left[row.product_id] = left.get(row.product_id, Decimal("0")) - give
+            rows.append({
+                "source_item": row.id,
+                "product": row.product_id,
+                "product_name": row.product.name,
+                "unit_name": getattr(row, "unit_name", "") or "",
+                "purchased": Decimal(str(row.quantity)),
+                "returned": (returned.get(row.product_id, Decimal("0")) / factor).quantize(Decimal("0.001")),
+                "credited_standalone": (standalone.get(row.product_id, Decimal("0")) / factor).quantize(Decimal("0.001")),
+                "returnable": (give / factor).quantize(Decimal("0.001")),
+                "returned_serials": returned_serials.get(row.product_id, []),
+            })
+        return rows
 
     @staticmethod
     def _returned_quantities(invoice, exclude_return=None):
@@ -1542,7 +1611,10 @@ class PurchaseService:
                 purchased[row.product_id] += _line_stock_qty(
                     row.product, row.quantity, getattr(row, "unit_name", None)
                 )
-            already = PurchaseService._returned_quantities(invoice)
+            already = defaultdict(Decimal, PurchaseService._returned_quantities(invoice))
+            # Units a standalone credit note already settled cannot be returned too.
+            for pid, qty_c in PurchaseService._standalone_credited_quantities(invoice).items():
+                already[pid] += qty_c
             requested = defaultdict(Decimal)
             for item in items:
                 unit_name = getattr(item, "unit_name", None) or unit_names.get(item.product_id)

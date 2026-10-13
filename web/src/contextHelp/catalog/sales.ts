@@ -663,6 +663,22 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     howItWorks: [
       ['You cannot cancel the original invoice after a completed return exists.', 'पूर्ण रिटर्न के बाद मूल बिल रद्द नहीं होता।'],
+      [
+        'Start from **Return goods** on the invoice (it opens this screen with the invoice filled in). For a price or discount change with no goods coming back, use a new credit note instead.',
+        'बिल पर **Return goods** से शुरू करें (यह इसी स्क्रीन को बिल भरकर खोलता है)। माल वापस न आए और केवल दाम/छूट बदलनी हो तो नया क्रेडिट नोट बनाएँ।',
+      ],
+      [
+        'Tick the lines coming back. For serial-tracked items, tap the serials that were sold; the quantity follows your picks and serials already returned are not offered.',
+        'वापस आ रही पंक्तियाँ चुनें। सीरियल वाले सामान में बिके हुए सीरियल चुनें; मात्रा आपके चुनाव के अनुसार बनती है और लौट चुके सीरियल नहीं दिखते।',
+      ],
+      [
+        'The total shown is exact: it is the credit note this return will issue, including your share of the invoice discount, charges and TCS.',
+        'दिखाया गया कुल सटीक है: यह वही क्रेडिट नोट है जो यह रिटर्न जारी करेगा, इनवॉइस छूट, शुल्क और TCS के आपके हिस्से सहित।',
+      ],
+      [
+        'Save keeps a draft you can edit, complete or delete later. Staff can save drafts; an Owner or Admin completes or cancels a return. Cancelling a completed return puts stock and serials back as they were and cancels its credit note.',
+        'Save से ड्राफ्ट बनता है जिसे बाद में एडिट, Complete या हटा सकते हैं। स्टाफ ड्राफ्ट सहेज सकता है; रिटर्न Complete या रद्द मालिक/एडमिन करते हैं। पूर्ण रिटर्न रद्द करने पर स्टॉक और सीरियल पहले जैसे हो जाते हैं और उसका क्रेडिट नोट रद्द होता है।',
+      ],
     ],
     businessImpact: [
       [
@@ -672,6 +688,8 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     keyRules: [
       ['Return against a completed sale only. Quantity cannot exceed what remains returnable on each line.', 'केवल पूर्ण बिक्री पर रिटर्न। मात्रा प्रत्येक लाइन की बची वापसी से ज्यादा नहीं।'],
+      ['Units already credited by a standalone credit note cannot be returned as well; the message names that credit note.', 'जो इकाइयाँ अलग क्रेडिट नोट से पहले ही क्रेडिट हो चुकी हैं, वे दोबारा वापस नहीं हो सकतीं; संदेश में उस क्रेडिट नोट का नाम आता है।'],
+      ['If the credit is more than the customer still owes, the excess is kept as unallocated customer advance (the screen warns you).', 'यदि क्रेडिट ग्राहक के बकाया से अधिक है तो अधिक राशि अनावंटित ग्राहक अग्रिम में रखी जाती है (स्क्रीन चेतावनी देती है)।'],
     ],
     commonMistakes: [
       ['Cancelling instead of returning after the customer already booked the invoice.', 'ग्राहक के बुक कर लेने के बाद रद्द करना — रिटर्न/क्रेडिट नोट लें।'],

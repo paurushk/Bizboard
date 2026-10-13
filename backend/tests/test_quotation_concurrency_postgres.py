@@ -19,7 +19,17 @@ from sales.quotation_conversions import QuotationConversionService
 from sales.services import SalesService
 from tests.conftest import make_customer, make_product
 
-pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.postgres]
+# Skip at collection, before any database fixture runs: a transaction=True test that
+# skips inside its body still flushes the database on teardown, which empties the
+# seeded reference rows (e.g. HSN rates) for every test that runs after it on SQLite.
+pytestmark = [
+    pytest.mark.django_db(transaction=True),
+    pytest.mark.postgres,
+    pytest.mark.skipif(
+        connection.vendor != "postgresql",
+        reason="Requires PostgreSQL row-level locking (select_for_update)",
+    ),
+]
 
 
 def _require_postgres():

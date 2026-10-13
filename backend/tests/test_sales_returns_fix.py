@@ -650,3 +650,179 @@ def test_second_partial_return_never_pushes_a_cost_layer_above_its_original_quan
     # Cancelling the second return empties what it filled, last layer first.
     assert tenant_a.client.post(f"/api/v1/sales/returns/{r2['id']}/cancel/").status_code == 200
     assert qty() == [Decimal("2"), Decimal("0")]
+
+
+def test_cancelling_a_middle_return_then_returning_again_keeps_every_layer_exact(tenant_a):
+    from inventory.models import InventoryCostLayer
+
+    product, customer, inv, layers = _fifo_two_layer_sale(tenant_a)
+
+    def qty():
+        rows = InventoryCostLayer.objects.filter(pk__in=[x.pk for x in layers]).order_by("id")
+        return [Decimal(str(r.qty_remaining)) for r in rows]
+
+    def make_return(units):
+        r = _return(tenant_a, customer, inv["id"], [{"product": product.id, "quantity": units, "unit_price": "400", "gst_rate": "0"}])
+        assert _complete_return(tenant_a, r["id"]).status_code == 200
+        return r["id"]
+
+    a = make_return("2")
+    b = make_return("2")
+    assert qty() == [Decimal("3"), Decimal("1")]
+    # Cancel the FIRST of the two: it put 2 on layer 1; B's 1+1 must stay where it is.
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{a}/cancel/").status_code == 200
+    assert qty() == [Decimal("1"), Decimal("1")]
+    # A new return must not land on top of B's units.
+    c = make_return("2")
+    assert qty() == [Decimal("3"), Decimal("1")]
+    assert sum(qty()) == Decimal("4")  # B (2) + C (2)
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{b}/cancel/").status_code == 200
+    assert qty() == [Decimal("2"), Decimal("0")]
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{c}/cancel/").status_code == 200
+    assert qty() == [Decimal("0"), Decimal("0")]
+
+
+# --- challan-origin invoices without a batch on the line; cancelling older returns --------------------
+
+
+def _challan_invoice_without_batches(tenant, tag_challan_moves=True):
+    # Post stock when the challan is completed (then the invoice reuses those movements).
+    tenant.company.stock_on_delivery_challan = True
+    tenant.company.save(update_fields=["stock_on_delivery_challan"])
+    product = make_product(tenant.company, sku="SRF-CH2", gst_rate="0", purchase_price="100")
+    product.track_batch = True
+    product.save()
+    _opening(tenant, product=product.id, quantity="3", batch_no="NB-A",
+             expiry_date=(date.today() + timedelta(days=60)).isoformat(), unit_cost="100")
+    _opening(tenant, product=product.id, quantity="3", batch_no="NB-B",
+             expiry_date=(date.today() + timedelta(days=120)).isoformat(), unit_cost="200")
+    lot_a = BatchLot.objects.get(product=product, batch_no="NB-A")
+    lot_b = BatchLot.objects.get(product=product, batch_no="NB-B")
+    customer = make_customer(tenant.company)
+    created = tenant.client.post(
+        "/api/v1/sales/delivery-challans/",
+        {
+            "customer": customer.id,
+            "items": [
+                {"product": product.id, "quantity": "3", "unit_price": "300", "gst_rate": "0"},
+                {"product": product.id, "quantity": "3", "unit_price": "400", "gst_rate": "0"},
+            ],
+        },
+        format="json",
+    )
+    assert created.status_code == 201, created.data
+    assert tenant.client.post(f"/api/v1/sales/delivery-challans/{created.data['id']}/complete/").status_code == 200
+    if not tag_challan_moves:
+        StockMovement.objects.filter(product=product, reference_type="delivery_challan").update(reason="")
+    converted = tenant.client.post(f"/api/v1/sales/delivery-challans/{created.data['id']}/convert/")
+    assert converted.status_code == 200, converted.data
+    assert tenant.client.post(f"/api/v1/sales/invoices/{converted.data['id']}/complete/").status_code == 200
+    items = list(SalesItem.objects.filter(invoice_id=converted.data["id"]).order_by("id"))
+    # Without a batch on the line, FEFO gave line 1 the earlier lot and line 2 the later one.
+    moves = list(StockMovement.objects.filter(product=product, reference_type="delivery_challan").order_by("id"))
+    assert [m.batch_id for m in moves] == [lot_a.id, lot_b.id]
+    return product, customer, converted.data["id"], items, lot_a, lot_b
+
+
+@pytest.mark.parametrize("tagged", [True, False])
+def test_challan_origin_invoice_without_batches_restores_the_named_lines_lot(tenant_a, tagged):
+    product, customer, invoice_id, items, lot_a, lot_b = _challan_invoice_without_batches(tenant_a, tagged)
+    warehouse = InventoryService.default_warehouse(tenant_a.company)
+    ret = _return(
+        tenant_a, customer, invoice_id,
+        [{"product": product.id, "quantity": "2", "unit_price": "400", "gst_rate": "0", "source_item": items[1].id}],
+    )
+    assert _complete_return(tenant_a, ret["id"]).status_code == 200
+    assert StockBalance.objects.get(product=product, warehouse=warehouse, batch=lot_b).on_hand == Decimal("2")
+    assert StockBalance.objects.get(product=product, warehouse=warehouse, batch=lot_a).on_hand == Decimal("0")
+
+
+def test_cancelling_an_older_return_without_layer_detail_undoes_the_named_lines_layer(tenant_a):
+    from inventory.models import InventoryCostLayer
+    from tests.conftest import create_draft_purchase, make_supplier
+
+    tenant_a.company.inventory_valuation_method = "FIFO"
+    tenant_a.company.save(update_fields=["inventory_valuation_method"])
+    product = make_product(tenant_a.company, sku="SRF-OLD", gst_rate="0", purchase_price="100")
+    supplier = make_supplier(tenant_a.company)
+    for cost in ("100", "200"):
+        draft = create_draft_purchase(
+            tenant_a, supplier,
+            [{"product": product.id, "quantity": "3", "unit_price": cost, "gst_rate": "0"}],
+            purchase_type="NON_GST",
+        )
+        assert tenant_a.client.post(f"/api/v1/purchases/invoices/{draft['id']}/complete/").status_code == 200
+    customer = make_customer(tenant_a.company)
+    inv = _complete_invoice(
+        tenant_a, customer,
+        [
+            {"product": product.id, "quantity": "3", "unit_price": "400", "gst_rate": "0"},
+            {"product": product.id, "quantity": "3", "unit_price": "400", "gst_rate": "0"},
+        ],
+        invoice_type="NON_GST",
+    )
+    items = list(SalesItem.objects.filter(invoice_id=inv["id"]).order_by("id"))
+    layers = list(InventoryCostLayer.objects.filter(company=tenant_a.company, product=product).order_by("id"))
+    ret = _return(
+        tenant_a, customer, inv["id"],
+        [{"product": product.id, "quantity": "2", "unit_price": "400", "gst_rate": "0", "source_item": items[1].id}],
+    )
+    assert _complete_return(tenant_a, ret["id"]).status_code == 200
+    rows = lambda: [Decimal(str(l.qty_remaining)) for l in InventoryCostLayer.objects.filter(pk__in=[x.pk for x in layers]).order_by("id")]  # noqa: E731
+    assert rows() == [Decimal("0"), Decimal("2")]
+    # Make the return look like one from before per-layer detail was recorded.
+    StockMovement.objects.filter(movement_type=MovementType.SALES_RETURN, reference_id=str(ret["id"])).update(
+        layer_peels=[], reason=""
+    )
+    assert tenant_a.client.post(f"/api/v1/sales/returns/{ret['id']}/cancel/").status_code == 200
+    assert rows() == [Decimal("0"), Decimal("0")]
+
+
+# --- preview limits -------------------------------------------------------------------------------------
+
+
+def _preview_payload(customer, inv, product, src, lines=1):
+    return {
+        "customer": customer.id,
+        "sales_invoice": inv["id"],
+        "items": [
+            {"product": product.id, "quantity": "1", "unit_price": "100", "source_item": src.id}
+            for _ in range(lines)
+        ],
+    }
+
+
+def test_preview_refuses_more_than_200_lines(tenant_a):
+    product = make_product(tenant_a.company, sku="SRF-L200")
+    add_stock(tenant_a, product, "400")
+    customer = make_customer(tenant_a.company)
+    inv = _complete_invoice(tenant_a, customer, [{"product": product.id, "quantity": "300", "unit_price": "100"}])
+    src = SalesItem.objects.get(invoice_id=inv["id"])
+    resp = tenant_a.client.post(
+        "/api/v1/sales/returns/preview-totals/", _preview_payload(customer, inv, product, src, lines=201), format="json"
+    )
+    assert resp.status_code == 400, resp.data
+    assert "200" in str(resp.data)
+    ok = tenant_a.client.post(
+        "/api/v1/sales/returns/preview-totals/", _preview_payload(customer, inv, product, src, lines=3), format="json"
+    )
+    assert ok.status_code == 200, ok.data
+
+
+def test_preview_has_its_own_rate_limit(tenant_a, monkeypatch):
+    from rest_framework.throttling import ScopedRateThrottle
+
+    monkeypatch.setitem(ScopedRateThrottle.THROTTLE_RATES, "return_preview", "2/min")
+    product = make_product(tenant_a.company, sku="SRF-THR")
+    add_stock(tenant_a, product, "10")
+    customer = make_customer(tenant_a.company)
+    inv = _complete_invoice(tenant_a, customer, [{"product": product.id, "quantity": "5", "unit_price": "100"}])
+    src = SalesItem.objects.get(invoice_id=inv["id"])
+    payload = _preview_payload(customer, inv, product, src)
+    codes = [
+        tenant_a.client.post("/api/v1/sales/returns/preview-totals/", payload, format="json").status_code
+        for _ in range(3)
+    ]
+    assert codes == [200, 200, 429]
+    # Other return endpoints are not throttled by that scope.
+    assert tenant_a.client.get("/api/v1/sales/returns/").status_code == 200

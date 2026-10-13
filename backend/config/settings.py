@@ -361,6 +361,8 @@ REST_FRAMEWORK = {
         # limit. Kept above the frontend's own MIN_REFRESH_INTERVAL_MS debounce
         # ceiling (~12/min) so a legitimately fast-navigating user never trips it.
         "token_refresh": "60/min",
+        # Sales Returns live total: one call per (debounced) edit, each a rolled-back transaction.
+        "return_preview": "240/min",
         "otp": "5/min",
         # Separate from "otp" (which limits how many SMS get sent — an SMS
         # cost/abuse concern) — verifying a code should have its own,

@@ -587,11 +587,26 @@ class ReturnService:
                         user=user,
                     )
                     # N-002: reverse the peels that complete restored, don't skip FIFO.
+                    # Returns made since per-layer detail was recorded undo exactly
+                    # what they put back; older ones use the approximation below.
                     remaining = abs(Decimal(str(move.quantity)))
-                    if invoice_for_lots is not None:
+                    if InventoryService.unrestore_from_detail(move):
+                        remaining = Decimal("0")
+                    if remaining > 0 and invoice_for_lots is not None:
                         candidates = CogsService.invoice_sale_moves(
                             invoice_for_lots, product=move.product
                         )
+                        # Returns from before per-layer detail existed: at least restrict
+                        # to the sale movements of the invoice lines the return named.
+                        named: list = []
+                        for ritem in sales_return.items.filter(product=move.product, source_item__isnull=False):
+                            line_moves, _mode, _keys = CogsService.line_sale_moves(
+                                invoice_for_lots, ritem, candidates
+                            )
+                            if _mode:
+                                named.extend(m for m in line_moves if m not in named)
+                        if named:
+                            candidates = named
                         if move.reason and move.reason.startswith("SALE_LINE:"):
                             tagged = [c for c in candidates if c.reason == move.reason]
                             if tagged:

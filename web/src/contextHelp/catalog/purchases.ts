@@ -202,7 +202,9 @@ export const PURCHASE_HELP: ContextHelpPage[] = [
       'पूर्ण खरीद के विरुद्ध सप्लायर को माल लौटाएँ। Complete पर स्टॉक निकलता है और सप्लायर समायोजित होता है।',
     ],
     howItWorks: [
-      ['Quantity cannot exceed what remains returnable on the original bill.', 'मात्रा मूल बिल की बची वापसी से ज्यादा नहीं।'],
+      ['Quantity cannot exceed what remains returnable on the original bill. Units a standalone purchase credit note already settled are not returnable, and box/piece units are converted for you.', 'मात्रा मूल बिल की बची वापसी से ज्यादा नहीं। जो इकाइयाँ अलग खरीद क्रेडिट नोट से निपट चुकी हैं वे वापस नहीं हो सकतीं, और बॉक्स/पीस इकाइयाँ अपने आप बदली जाती हैं।'],
+      ['For serial-tracked items tap the serials you are returning; serials already returned are not offered. Save keeps a draft you can edit, complete or delete.', 'सीरियल वाले सामान में लौटाए जा रहे सीरियल चुनें; पहले लौटाए सीरियल नहीं दिखते। Save से ड्राफ्ट बनता है जिसे एडिट, Complete या हटा सकते हैं।'],
+      ['Completing issues a purchase credit note automatically. Cancelling a completed return (cancel permission needed) puts stock and serials back and cancels that note.', 'Complete करने पर खरीद क्रेडिट नोट अपने आप बनता है। पूर्ण रिटर्न रद्द करने (रद्द करने की अनुमति चाहिए) पर स्टॉक और सीरियल लौटते हैं और वह नोट रद्द होता है।'],
     ],
     businessImpact: [
       ['Stock down, payables down, ITC may need reversal via the linked purchase credit note path.', 'स्टॉक कम, देनदारी कम; ITC उलटने के लिए खरीद क्रेडिट नोट पथ देखें।'],

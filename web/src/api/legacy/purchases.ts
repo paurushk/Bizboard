@@ -1,6 +1,6 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
-import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse } from '@/types/domain';
+import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse, ReturnableLine } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { clientPreviewTotals, mapPreviewTotals, type PreviewTotals } from './sales';
 
@@ -192,6 +192,72 @@ export async function listPurchaseReturnsPage(params?: PageParams): Promise<Page
   });
 }
 
+const EMPTY_TOTALS = {
+  subtotal: 0,
+  discountTotal: 0,
+  taxableTotal: 0,
+  cgstTotal: 0,
+  sgstTotal: 0,
+  igstTotal: 0,
+  roundOff: 0,
+  grandTotal: 0,
+};
+
+export async function getPurchaseReturn(id: number | string): Promise<PurchaseReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/purchases/returns/${id}/`);
+    return unwrapData<PurchaseReturn>(data);
+  }, {
+    id: Number(id),
+    status: 'DRAFT',
+    supplier: 0,
+    purchaseInvoice: 0,
+    returnDate: new Date().toISOString().slice(0, 10),
+    items: [],
+    ...EMPTY_TOTALS,
+  });
+}
+
+export async function deletePurchaseReturn(id: number): Promise<void> {
+  return withMocks(async () => {
+    await apiClient.delete(`/purchases/returns/${id}/`);
+  }, undefined);
+}
+
+export async function cancelPurchaseReturn(id: number): Promise<PurchaseReturn> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/purchases/returns/${id}/cancel/`);
+    return unwrapData<PurchaseReturn>(data);
+  }, {
+    id,
+    status: 'CANCELLED',
+    supplier: 0,
+    purchaseInvoice: 0,
+    returnDate: '',
+    items: [],
+    ...EMPTY_TOTALS,
+  });
+}
+
+/** Headroom per purchase line (the server counts completed returns and standalone credit notes). */
+export async function getPurchaseReturnableLines(invoiceId: number): Promise<ReturnableLine[]> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get(`/purchases/invoices/${invoiceId}/returnable-lines/`);
+    const rows = unwrapData<Array<Record<string, unknown>>>(data) ?? [];
+    return rows.map((r) => ({
+      sourceItem: Number(r.sourceItem),
+      product: Number(r.product),
+      productName: String(r.productName ?? ''),
+      // `sold` is the shared shape's name for "quantity on the source document".
+      sold: Number(r.purchased ?? 0),
+      returned: Number(r.returned ?? 0),
+      creditedStandalone: Number(r.creditedStandalone ?? 0),
+      returnable: Number(r.returnable ?? 0),
+      returnedSerials: Array.isArray(r.returnedSerials) ? (r.returnedSerials as string[]) : [],
+    }));
+  }, []);
+}
+
 export async function createPurchaseReturn(payload: {
   supplier: number;
   purchaseInvoice: number;
@@ -225,6 +291,7 @@ export async function createPurchaseReturn(payload: {
 export async function updatePurchaseReturn(
   id: number,
   payload: {
+    returnDate?: string;
     reason?: string;
     items?: Array<Partial<LineItem>>;
   },

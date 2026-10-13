@@ -8509,6 +8509,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/invoices/{id}/returnable-lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Per purchase line: bought / returned / credited by standalone notes / returnable. */
+        get: operations["purchases_invoices_returnable_lines_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/invoices/{id}/source-bill/": {
         parameters: {
             query?: never;
@@ -15420,6 +15437,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["PurchaseReturn"][];
         };
+        PaginatedPurchaseReturnableLineList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PurchaseReturnableLine"][];
+        };
         PaginatedQuotationList: {
             /** @example 123 */
             count: number;
@@ -16944,6 +16976,9 @@ export interface components {
             supplier?: number;
             readonly supplierName?: string;
             purchaseInvoice?: number | null;
+            readonly purchaseInvoiceNumber?: string;
+            readonly creditNoteId?: string;
+            readonly creditNoteNumber?: string;
             /** Format: date */
             returnDate?: string;
             reason?: string;
@@ -18355,6 +18390,9 @@ export interface components {
             supplier: number;
             readonly supplierName: string;
             purchaseInvoice?: number | null;
+            readonly purchaseInvoiceNumber: string;
+            readonly creditNoteId: string;
+            readonly creditNoteNumber: string;
             /** Format: date */
             returnDate?: string;
             reason?: string;
@@ -18415,6 +18453,22 @@ export interface components {
             readonly cess: string;
             /** Format: decimal */
             readonly lineTotal: string;
+        };
+        /** @description One purchase line's return headroom (GET /purchases/invoices/:id/returnable-lines/). */
+        PurchaseReturnableLine: {
+            sourceItem: number;
+            product: number;
+            productName: string;
+            unitName: string;
+            /** Format: decimal */
+            purchased: string;
+            /** Format: decimal */
+            returned: string;
+            /** Format: decimal */
+            creditedStandalone: string;
+            /** Format: decimal */
+            returnable: string;
+            returnedSerials: string[];
         };
         /**
          * @description * `GST` - Gst
@@ -34793,6 +34847,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PurchaseInvoice"];
+                };
+            };
+        };
+    };
+    purchases_invoices_returnable_lines_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this purchase invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPurchaseReturnableLineList"];
                 };
             };
         };

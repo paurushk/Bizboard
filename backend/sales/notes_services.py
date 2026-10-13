@@ -1264,6 +1264,8 @@ class SalesNotesService:
                         unit_cost=unit_cost,
                         reference_type="delivery_challan",
                         reference_id=challan.pk,
+                        # Ties the movement to its challan line (like SALE_LINE on invoices).
+                        reason=f"CHALLAN_LINE:{item.pk}" if item.pk else "",
                         user=user,
                     )
             stock_posted = True

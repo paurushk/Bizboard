@@ -1343,6 +1343,8 @@ const MORE_FAQ: FaqItem[] = [
     [
       'Open **t:nav.sales** → **t:nav.salesReturns** against a completed sale. Completing the return brings stock back and adjusts the party.',
       'You cannot cancel the original invoice if a completed return already exists.',
+      'The quickest way in is **t:cog.returnGoods** on the invoice; it opens this screen with the invoice filled in. Use a **t:phase1.newCreditNote** instead when only a price or discount changes and no goods come back.',
+      'The credit note total on the screen is exact. For serial-tracked items, tap the serials that were sold; serials already returned are not offered. Save keeps a draft; an Owner or Admin completes it, and can cancel a completed return, which puts stock and serials back and cancels the credit note.',
     ],
   ),
   faq(
