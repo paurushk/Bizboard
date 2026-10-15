@@ -15,7 +15,10 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import Alert from '@mui/material/Alert';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import { getErrorMessage } from '@/api/client';
 import { fetchSupplierNudge } from '@/api/gstr2b';
 import {
@@ -67,6 +70,7 @@ export function PurchaseOrderEditorPage() {
   // a deliberate save/convert/cancel — those aren't "discarding" anything.
   const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
   const [editingStatus, setEditingStatus] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<'convert' | 'cancel' | null>(null);
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [purchaseType, setPurchaseType] = useState<PurchaseType>('NON_GST');
   const [purchaseTypeTouched, setPurchaseTypeTouched] = useState(false);
@@ -300,21 +304,36 @@ export function PurchaseOrderEditorPage() {
 
   const convertMutation = useMutation({
     mutationFn: () => convertPurchaseOrder(editId as number),
-    onSuccess: () => {
+    onSuccess: (invoice) => {
+      setConfirm(null);
       void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
+      invalidatePurchaseSideEffects(qc, { invoiceId: invoice.id });
       flushSync(() => setSkipLeaveGuard(true));
-      void navigate('/purchases/history');
+      // Land on the bill that was just created, not on a list it has to be found in.
+      void navigate(`/purchases/history/${invoice.id}`, {
+        state: {
+          message: t('poActions.converted', { label: invoice.number?.trim() ? invoice.number : `#${invoice.id}` }),
+        },
+      });
     },
-    onError: (err) => flashError(getErrorMessage(err)),
+    onError: (err) => {
+      setConfirm(null);
+      flashError(getErrorMessage(err));
+    },
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelPurchaseOrder(editId as number),
     onSuccess: () => {
+      setConfirm(null);
+      void qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       flushSync(() => setSkipLeaveGuard(true));
       void navigate('/purchases/orders');
     },
-    onError: (err) => flashError(getErrorMessage(err)),
+    onError: (err) => {
+      setConfirm(null);
+      flashError(getErrorMessage(err));
+    },
   });
 
   if (isEdit && existing.isLoading) return <LoadingState />;
@@ -341,12 +360,12 @@ export function PurchaseOrderEditorPage() {
       extraActions={
         <>
           {editingStatus === 'DRAFT' && isEdit ? (
-            <Button size="small" disabled={convertMutation.isPending} onClick={() => convertMutation.mutate()}>
-              {t('common.convert')}
+            <Button size="small" disabled={convertMutation.isPending} onClick={() => setConfirm('convert')}>
+              {t('poActions.convert')}
             </Button>
           ) : null}
           {editingStatus === 'DRAFT' && isEdit ? (
-            <Button size="small" color="warning" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
+            <Button size="small" color="warning" disabled={cancelMutation.isPending} onClick={() => setConfirm('cancel')}>
               {t('common.cancel')}
             </Button>
           ) : null}
@@ -357,6 +376,32 @@ export function PurchaseOrderEditorPage() {
       }
     >
       <UnsavedChangesGuard when={!skipLeaveGuard && (lines.length > 0 || Boolean(supplierId))} />
+      {existing.data?.convertedPurchase ? (
+        <Alert
+          severity="info"
+          action={
+            <Button color="inherit" size="small" component={RouterLink} to={`/purchases/history/${existing.data.convertedPurchase}`}>
+              {t('poActions.viewBill')}
+            </Button>
+          }
+        >
+          {t('poActions.convertedBanner')}
+        </Alert>
+      ) : null}
+      <ConfirmDialog
+        open={confirm !== null}
+        title={t('common.confirm')}
+        body={
+          confirm === 'convert'
+            ? t('poActions.confirmConvert', { label: existing.data?.number?.trim() || `#${editId}` })
+            : t('poActions.confirmCancel', { label: existing.data?.number?.trim() || `#${editId}` })
+        }
+        confirmLabel={confirm === 'convert' ? t('poActions.convert') : t('common.cancel')}
+        confirmColor={confirm === 'cancel' ? 'warning' : 'primary'}
+        confirming={convertMutation.isPending || cancelMutation.isPending}
+        onClose={() => setConfirm(null)}
+        onConfirm={() => (confirm === 'convert' ? convertMutation.mutate() : cancelMutation.mutate())}
+      />
       <Stack spacing={2}>
         <Autocomplete
           options={supplierSearch.options}

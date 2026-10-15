@@ -165,6 +165,22 @@ class PurchaseOrderViewSet(CompanyScopedViewSet):
     queryset = PurchaseOrder.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseOrderSerializer
 
+    def get_queryset(self):
+        # The goods-receipt form lists one supplier's open orders; validate before the ORM sees it.
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get("supplier"):
+            try:
+                qs = qs.filter(supplier_id=int(params["supplier"]))
+            except (TypeError, ValueError):
+                raise BusinessRuleError("supplier must be a numeric id.")
+        status = params.get("status")
+        if status:
+            if status not in PurchaseOrder.Status.values:
+                raise BusinessRuleError(f"Unknown status {status!r}.")
+            qs = qs.filter(status=status)
+        return qs
+
     def get_permissions(self):
         # CR-037: include SubscriptionWritesAllowed on write actions
         action = getattr(self, "action", None)
@@ -278,8 +294,19 @@ class GoodsReceiptViewSet(CompanyScopedViewSet):
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
         from .grn_service import GoodsReceiptService
-        grn = GoodsReceiptService.complete(self.get_object(), request.user)
-        return Response(self.get_serializer(grn).data)
+
+        # Double-click / retry must post stock once: the row lock already stops a second
+        # post, and the key makes the replay return the first response instead of a 400.
+        def _run():
+            grn = GoodsReceiptService.complete(self.get_object(), request.user)
+            return Response(self.get_serializer(grn).data)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="goods_receipt_complete",
+            build=_run,
+        )
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):

@@ -23,3 +23,21 @@ describe('invalidatePurchaseSideEffects', () => {
     );
   });
 });
+
+// F2-001 / F2-026: `['purchases']` is a *prefix* that invalidations match. If a page reads data with the
+// bare key it collides with the paged list (`['purchases', page, ...]`) and crashes on the wrong shape.
+describe('purchases query-key shapes', () => {
+  const sources = import.meta.glob('/src/**/*.tsx', { query: '?raw', import: 'default', eager: true }) as Record<
+    string,
+    string
+  >;
+
+  it('no page reads data with the bare [\'purchases\'] key', () => {
+    expect(Object.keys(sources).length).toBeGreaterThan(50);
+    const offenders = Object.entries(sources)
+      .filter(([path]) => !path.endsWith('.test.tsx'))
+      .filter(([, text]) => /useQuery\(\{\s*queryKey:\s*\['purchases'\]\s*[,}]/.test(text))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+});

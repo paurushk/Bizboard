@@ -26,6 +26,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
+import { confirmAction } from '@/utils/confirmBridge';
 import {
   cancelPurchaseReturn,
   completePurchaseReturn,
@@ -631,7 +632,11 @@ export function PurchaseReturnsPage() {
                         <Button
                           size="small"
                           disabled={completeDraftMutation.isPending}
-                          onClick={() => completeDraftMutation.mutate(r.id)}
+                          onClick={() => {
+                            void confirmAction(t('purchaseReview.returnConfirmComplete')).then((ok) => {
+                              if (ok) completeDraftMutation.mutate(r.id);
+                            });
+                          }}
                         >
                           {t('common.complete')}
                         </Button>

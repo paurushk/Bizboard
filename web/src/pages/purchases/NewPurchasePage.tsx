@@ -770,9 +770,10 @@ export function NewPurchasePage() {
 
   const displayGrandTotal = rcmPreview?.payable ?? totals.grandTotal;
 
-  const balance = roundMoney(Math.max(0, displayGrandTotal - amountPaid));
-
-  if (markFullyPaid && amountPaid !== displayGrandTotal) setAmountPaid(displayGrandTotal);
+  // "Mark fully paid" follows the live total without writing state during render; the manual
+  // amount is kept and comes back when the box is unticked.
+  const effectiveAmountPaid = markFullyPaid ? displayGrandTotal : amountPaid;
+  const balance = roundMoney(Math.max(0, displayGrandTotal - effectiveAmountPaid));
 
   const resetForm = () => {
     // BUG-501 / P0-311: do NOT call clearFeedback here — Save & New sets the
@@ -918,7 +919,7 @@ export function NewPurchasePage() {
       }
       const missingBatch = lines.find((l) => l.trackBatch && !l.batchNo.trim());
       if (shouldComplete && missingBatch) {
-        throw new Error(`A batch is required for tracked product '${missingBatch.productName}'.`);
+        throw new Error(t('purchaseEditor.batchRequired', { name: missingBatch.productName }));
       }
       const missingSerial = lines.find(
         (l) => l.trackSerial && !serialCountMatchesQty(l.serialNumbersText, l.quantity),
@@ -956,9 +957,9 @@ export function NewPurchasePage() {
       const payload = buildPayload();
       // WP-1: payment details travel with Complete; the server pays + allocates in one transaction.
       const payNow: PurchasePayNow | undefined =
-        shouldComplete && amountPaid > 0
+        shouldComplete && effectiveAmountPaid > 0
           ? {
-              amount: amountPaid,
+              amount: effectiveAmountPaid,
               mode: paymentMode,
               paymentDate: invoiceDate || undefined,
               chequeNumber: cheque.chequeNumber || undefined,
@@ -982,7 +983,7 @@ export function NewPurchasePage() {
             ...(editingStatus ? { status: editingStatus } : {}),
             ...(editingStatus === 'COMPLETED' ? { confirmAmend: true } : {}),
             _completeIntent: shouldComplete,
-            _amountPaid: amountPaid,
+            _amountPaid: effectiveAmountPaid,
             _paymentMode: paymentMode,
             _supplierId: Number(supplierId),
           },
@@ -1000,7 +1001,7 @@ export function NewPurchasePage() {
         if (editingStatus === 'COMPLETED') {
           if (!isOwner) {
             throw new Error(
-              'Only an Owner can amend a completed purchase. Use a return for stock corrections, not price fixes.',
+              t('purchaseEditor.amendOwnerOnly'),
             );
           }
           // Declining is a normal choice, not a failure: nothing is saved and no error shows.
@@ -1067,6 +1068,8 @@ export function NewPurchasePage() {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
+      // Completion notices (duplicate bill, ITC, ...) ride along with the saved message instead of vanishing.
+      const completionNotes = (invoice.warnings ?? []).filter(Boolean).join(' ');
 
       if (invoice.status === 'COMPLETED' && paymentError && payNow) {
         // Never bury this in a flash: the bill is posted but unpaid, so land on it with a Retry.
@@ -1078,7 +1081,10 @@ export function NewPurchasePage() {
       }
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
-        flashSaveAndNew(t('billing.purchaseSavedNext', { label }), paymentWarning);
+        flashSaveAndNew(
+          [t('billing.purchaseSavedNext', { label }), completionNotes].filter(Boolean).join(' '),
+          paymentWarning,
+        );
         resetForm();
         navigate('/purchases/new', { replace: true });
         return;
@@ -1087,7 +1093,9 @@ export function NewPurchasePage() {
       const totalQty = lines.reduce((acc, l) => acc + (Number(l.quantity) || 0), 0);
       const flash =
         invoice.status === 'COMPLETED'
-          ? t('billing.purchaseSavedStock', { label, count: String(totalQty) })
+          ? [t('billing.purchaseSavedStock', { label, count: String(totalQty) }), completionNotes]
+              .filter(Boolean)
+              .join(' ')
           : paymentWarning
             ? t('billing.draftSavedCompleteFailed', { label, warning: paymentWarning })
             : t('billing.draftSaved', { label });
@@ -1124,7 +1132,7 @@ export function NewPurchasePage() {
     mutationFn: async () => {
       const gstin = partyForm.gstin.trim().toUpperCase();
       if (gstin) {
-        if (!isValidGstin(gstin)) throw new Error('Enter a valid 15-character GSTIN.');
+        if (!isValidGstin(gstin)) throw new Error(t('purchaseEditor.gstinInvalid'));
         const existing = await listSuppliersPage({ gstin, pageSize: 5 });
         if (
           existing.results.some(
@@ -1133,7 +1141,7 @@ export function NewPurchasePage() {
               (!partyForm.id || s.id !== partyForm.id),
           )
         ) {
-          throw new Error('A supplier with this GSTIN already exists.');
+          throw new Error(t('purchaseEditor.gstinDuplicate'));
         }
       }
       if (partyForm.id) {
@@ -1201,7 +1209,7 @@ export function NewPurchasePage() {
   const addProduct = (product: Product | null) => {
     if (!product || editingStatus === 'COMPLETED') return;
     if (product.status !== 'ACTIVE') {
-      setError('Cannot purchase inactive product');
+      setError(t('purchaseEditor.inactiveProduct'));
       return;
     }
     setLines((prev) => {
@@ -2138,7 +2146,7 @@ export function NewPurchasePage() {
                 setItemDialogOpen(true);
               }}
               sx={{ whiteSpace: 'nowrap' }}
-              title={!isOwner ? 'Only the company owner can create products.' : undefined}
+              title={!isOwner ? t('purchaseEditor.ownerCreatesProducts') : undefined}
             >
               + {t('billing.createItem')}
             </Link>
@@ -2340,10 +2348,13 @@ export function NewPurchasePage() {
           extraAlerts={
             rcmDisplay ? (
               <Alert severity="info">
-                Reverse charge: tax liability {formatMoney(rcmDisplay.rcmTaxTotal)} (CGST{' '}
-                {formatMoney(rcmDisplay.rcmCgst)}, SGST {formatMoney(rcmDisplay.rcmSgst)}, IGST{' '}
-                {formatMoney(rcmDisplay.rcmIgst)}). Payable to supplier (excl. tax):{' '}
-                {formatMoney(rcmDisplay.payable)}.
+                {t('purchaseEditor.rcmNotice', {
+                  tax: formatMoney(rcmDisplay.rcmTaxTotal),
+                  cgst: formatMoney(rcmDisplay.rcmCgst),
+                  sgst: formatMoney(rcmDisplay.rcmSgst),
+                  igst: formatMoney(rcmDisplay.rcmIgst),
+                  payable: formatMoney(rcmDisplay.payable),
+                })}
               </Alert>
             ) : null
           }
@@ -2354,10 +2365,7 @@ export function NewPurchasePage() {
                 control={
                   <Checkbox
                     checked={markFullyPaid}
-                    onChange={(e) => {
-                      setMarkFullyPaid(e.target.checked);
-                      if (e.target.checked) setAmountPaid(displayGrandTotal);
-                    }}
+                    onChange={(e) => setMarkFullyPaid(e.target.checked)}
                     size="small"
                   />
                 }
@@ -2366,7 +2374,7 @@ export function NewPurchasePage() {
             </Stack>
             <Stack direction="row" spacing={1}>
               <NumericField
-                value={amountPaid}
+                value={effectiveAmountPaid}
                 onValueChange={(n) => {
                   setMarkFullyPaid(false);
                   setAmountPaid(n);

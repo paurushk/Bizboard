@@ -291,6 +291,28 @@ class GoodsReceiptSerializer(CompanyScopedSerializerMixin, serializers.ModelSeri
         self.check_company_ref(supplier, "supplier")
         return supplier
 
+    def validate_purchase_order(self, order):
+        if order is not None:
+            self.check_company_ref(order, "purchase_order")
+            if order.status == PurchaseOrder.Status.CANCELLED:
+                raise serializers.ValidationError("This purchase order is cancelled.")
+        return order
+
+    def validate_warehouse(self, warehouse):
+        if warehouse is not None:
+            self.check_company_ref(warehouse, "warehouse")
+        return warehouse
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        order = attrs.get("purchase_order", getattr(self.instance, "purchase_order", None))
+        supplier = attrs.get("supplier", getattr(self.instance, "supplier", None))
+        if order is not None and supplier is not None and order.supplier_id != supplier.pk:
+            raise serializers.ValidationError(
+                {"purchase_order": "This purchase order belongs to a different supplier."}
+            )
+        return attrs
+
     def create(self, validated_data):
         items_data = validated_data.pop("items", [])
         company = validated_data["company"]

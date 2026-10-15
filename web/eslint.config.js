@@ -39,6 +39,30 @@ export default tseslint.config(
     },
   },
   {
+    // Purchase review WP-8: destructive actions ask through the in-app dialog (confirmAction /
+    // ConfirmDialog), never the browser popup. Tests may stub window.confirm.
+    files: ['src/pages/purchases/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name="fetchAllPages"]',
+          message:
+            'fetchAllPages is banned. Use list*Page / fetchMoneyListFirstPage for money docs, or fetchAllPagesMasters in resources.ts for masters.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='window'][callee.property.name='confirm']",
+          message: 'Use confirmAction() from @/utils/confirmBridge or <ConfirmDialog>, not window.confirm.',
+        },
+        {
+          selector: "CallExpression[callee.name='confirm']",
+          message: 'Use confirmAction() from @/utils/confirmBridge or <ConfirmDialog>, not confirm().',
+        },
+      ],
+    },
+  },
+  {
     // ACT-21: invoice Share and POS Share must not grow a wa.me/{phone} or Cloud click-to-chat URL.
     // Reminder screens (collections, ledgers, UPI, GSTR-2B) stay outside this override.
     files: ['src/components/ShareInvoiceDialog.tsx', 'src/pages/pos/PosPage.tsx'],

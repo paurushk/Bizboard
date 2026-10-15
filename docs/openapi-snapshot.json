@@ -49229,6 +49229,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "payments": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "related_documents": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "completed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -53564,6 +53572,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "payments": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "related_documents": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "completed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -53655,11 +53671,13 @@
                     "items",
                     "number",
                     "paid",
+                    "payments",
                     "rcm_cess",
                     "rcm_cgst",
                     "rcm_igst",
                     "rcm_sgst",
                     "rcm_taxable",
+                    "related_documents",
                     "round_off",
                     "sgst_total",
                     "status",

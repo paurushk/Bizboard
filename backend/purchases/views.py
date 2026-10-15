@@ -335,7 +335,10 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
-        invoice = PurchaseService.cancel(self.get_object(), request.user)
+        reverse_allocations = str(request.data.get("reverse_allocations") or "").lower() in ("true", "1", "yes")
+        invoice = PurchaseService.cancel(
+            self.get_object(), request.user, reverse_allocations=reverse_allocations
+        )
         return Response(self.get_serializer(invoice).data)
 
     @action(detail=True, methods=["get"])

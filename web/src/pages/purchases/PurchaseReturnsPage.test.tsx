@@ -6,6 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PurchaseReturnsPage } from '@/pages/purchases/PurchaseReturnsPage';
 import { t } from '@/i18n';
+import { registerGlobalConfirm } from '@/utils/confirmBridge';
 import type { PurchaseReturn, ReturnableLine } from '@/types/domain';
 
 const h = vi.hoisted(() => {
@@ -397,8 +398,14 @@ describe('PurchaseReturnsPage rows, detail and cache sync', () => {
     expect(await screen.findByText('PRN-0052')).toBeTruthy();
     expect(screen.getByText('PCN-0088')).toBeTruthy();
 
+    // WP-12: completing a draft return from the list asks first (it takes the quantity out of stock).
+    const ask = vi.fn().mockResolvedValue(true);
+    registerGlobalConfirm(ask);
     fireEvent.click(screen.getByRole('button', { name: /^complete$/i }));
     await waitFor(() => expect(h.completePurchaseReturn).toHaveBeenCalledWith(51, expect.any(Object)));
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(ask.mock.calls[0][0][0]).toMatch(/leaves stock/i);
+    registerGlobalConfirm(null);
 
     fireEvent.click(screen.getByRole('button', { name: /^delete$/i }));
     const del = await screen.findByRole('dialog', { name: /^delete$/i });
@@ -417,6 +424,18 @@ describe('PurchaseReturnsPage rows, detail and cache sync', () => {
         expect(seen.has(key)).toBe(true);
       }
     });
+  });
+
+  it('does not complete a draft return when the confirmation is declined', async () => {
+    h.listPurchaseReturnsPage.mockResolvedValue(page([row()]));
+    registerGlobalConfirm(vi.fn().mockResolvedValue(false));
+    mount('/purchases/returns');
+    const complete = await screen.findByRole('button', { name: /^complete$/i });
+    h.completePurchaseReturn.mockClear();
+    fireEvent.click(complete);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(h.completePurchaseReturn).not.toHaveBeenCalled();
+    registerGlobalConfirm(null);
   });
 
   it('hides Cancel return from someone without the cancel permission', async () => {

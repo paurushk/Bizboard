@@ -1,7 +1,7 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
 import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchasePayNow, PurchaseReturn, ReportResponse, ReturnableLine, SalesReturnPreview } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, getBlob, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { clientPreviewTotals, mapPreviewTotals, type PreviewTotals } from './sales';
 
 function emptyNoteTotals() {
@@ -161,11 +161,26 @@ export async function recordPurchasePayment(
   }, { ...mockPurchases[0], id, status: 'COMPLETED', number: `PUR-${id}` });
 }
 
-export async function cancelPurchase(id: number): Promise<PurchaseInvoice> {
+/**
+ * Cancel a bill. If payments are allocated the server answers `HAS_ALLOCATIONS`; send
+ * `reverseAllocations` to unlink them (each payment stays as supplier advance) and cancel.
+ */
+export async function cancelPurchase(
+  id: number,
+  options?: { reverseAllocations?: boolean },
+): Promise<PurchaseInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/invoices/${id}/cancel/`);
+    const { data } = await apiClient.post(
+      `/purchases/invoices/${id}/cancel/`,
+      options?.reverseAllocations ? { reverseAllocations: true } : undefined,
+    );
     return unwrapData<PurchaseInvoice>(data);
   }, { ...mockPurchases[0], id, status: 'CANCELLED' });
+}
+
+/** The bill as a GST purchase-bill PDF. */
+export async function downloadPurchasePdf(id: number, copy: 'ORIGINAL' | 'DUPLICATE' | 'TRIPLICATE' = 'ORIGINAL'): Promise<Blob> {
+  return getBlob(`/purchases/invoices/${id}/pdf/`, { copy });
 }
 
 export async function deletePurchase(id: number): Promise<void> {
@@ -761,12 +776,18 @@ export interface GoodsReceiptLine {
   serialNumbers?: string[];
 }
 
+/** Status values a goods receipt can have. */
+export type GoodsReceiptStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED';
+
 export interface GoodsReceipt {
   id: number;
   number?: string;
-  status: string;
+  status: GoodsReceiptStatus | string;
   supplier: number;
   supplierName?: string;
+  purchaseOrder?: number | null;
+  warehouse?: number | null;
+  warehouseName?: string;
   receiptDate: string;
   supplierChallanNumber?: string;
   notes?: string;
@@ -783,16 +804,22 @@ export async function listGoodsReceiptsPage(params?: PageParams): Promise<PageRe
   });
 }
 
-export async function createGoodsReceipt(payload: {
-  supplier: number;
-  receiptDate?: string;
-  supplierChallanNumber?: string;
-  notes?: string;
-  warehouse?: number | null;
-  items: GoodsReceiptLine[];
-}): Promise<GoodsReceipt> {
+export async function createGoodsReceipt(
+  payload: {
+    supplier: number;
+    purchaseOrder?: number | null;
+    receiptDate?: string;
+    supplierChallanNumber?: string;
+    notes?: string;
+    warehouse?: number | null;
+    items: GoodsReceiptLine[];
+  },
+  options?: { idempotencyKey?: string },
+): Promise<GoodsReceipt> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/purchases/grns/', payload);
+    const { data } = await apiClient.post('/purchases/grns/', payload, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<GoodsReceipt>(data);
   }, {
     id: Date.now(),
@@ -803,11 +830,35 @@ export async function createGoodsReceipt(payload: {
   });
 }
 
-export async function completeGoodsReceipt(id: number): Promise<GoodsReceipt> {
+export async function completeGoodsReceipt(id: number, options?: { idempotencyKey?: string }): Promise<GoodsReceipt> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/grns/${id}/complete/`);
+    const { data } = await apiClient.post(`/purchases/grns/${id}/complete/`, undefined, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
+    });
     return unwrapData<GoodsReceipt>(data);
   }, { id, status: 'COMPLETED', supplier: 0, receiptDate: new Date().toISOString().slice(0, 10) });
+}
+
+/** Cancel a draft receipt (a completed one is undone with a purchase return). */
+export async function cancelGoodsReceipt(id: number): Promise<GoodsReceipt> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/purchases/grns/${id}/cancel/`);
+    return unwrapData<GoodsReceipt>(data);
+  }, { id, status: 'CANCELLED', supplier: 0, receiptDate: new Date().toISOString().slice(0, 10) });
+}
+
+export async function deleteGoodsReceipt(id: number): Promise<void> {
+  return withMocks(async () => {
+    await apiClient.delete(`/purchases/grns/${id}/`);
+  }, undefined);
+}
+
+/** Turn a completed receipt into a draft purchase bill. */
+export async function convertGoodsReceipt(id: number): Promise<PurchaseInvoice> {
+  return withMocks(async () => {
+    const { data } = await apiClient.post(`/purchases/grns/${id}/convert/`);
+    return unwrapData<PurchaseInvoice>(data);
+  }, { ...mockPurchases[0], status: 'DRAFT' });
 }
 
 export async function cancelBillOfEntry(id: number): Promise<BillOfEntry> {

@@ -758,6 +758,32 @@ export interface DeliveryChallan extends DocumentTotals {
   ewayError?: string;
 }
 
+export interface PurchaseBillPayment {
+  allocation: number;
+  payment: number;
+  number: string;
+  date?: string | null;
+  mode: PaymentMode | '';
+  chequeStatus?: string;
+  amount: string | number;
+}
+
+export interface PurchaseRelatedDocument {
+  id: number;
+  number: string;
+  status: string;
+  date?: string | null;
+  total?: string | number | null;
+}
+
+export interface PurchaseRelatedDocuments {
+  sourceOrders: PurchaseRelatedDocument[];
+  sourceReceipts: PurchaseRelatedDocument[];
+  returns: PurchaseRelatedDocument[];
+  creditNotes: PurchaseRelatedDocument[];
+  debitNotes: PurchaseRelatedDocument[];
+}
+
 /** Payment typed on the bill editor, sent with Complete or to record-payment. */
 export interface PurchasePayNow {
   amount: number;
@@ -773,6 +799,10 @@ export interface PurchaseInvoice extends DocumentTotals {
   id: number;
   /** Present on the response to `complete`: duplicate-bill / ITC style notices. */
   warnings?: string[];
+  /** Detail only (null on lists): live payments allocated to this bill, newest first. */
+  payments?: PurchaseBillPayment[] | null;
+  /** Detail only (null on lists): where the bill came from and what hangs off it. */
+  relatedDocuments?: PurchaseRelatedDocuments | null;
   /** Present when `complete` was sent a `payNow`: the recorded payment, or why it was not. */
   payment?: { id: number; number?: string; amount: string; mode: PaymentMode; allocation: number } | null;
   paymentError?: { code: string; message: string } | null;

@@ -110,6 +110,9 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     paid = serializers.SerializerMethodField()
     balance = serializers.SerializerMethodField()
+    # WP-4: detail-only context (null on lists so the list stays one query per page).
+    payments = serializers.SerializerMethodField()
+    related_documents = serializers.SerializerMethodField()
     bill_of_entry = CompanyPrimaryKeyRelatedField(
         queryset=BillOfEntry.objects.all(), required=False, allow_null=True
     )
@@ -129,14 +132,61 @@ class PurchaseInvoiceSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "ship_from", "ship_from_address",
             "tds_section", "tds_rate", "tds_amount",
             "bill_of_entry",
-            "paid", "balance",
+            "paid", "balance", "payments", "related_documents",
             "completed_at", "cancelled_at", "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
-            "number", "status", "paid", "balance",
+            "number", "status", "paid", "balance", "payments", "related_documents",
             "rcm_taxable", "rcm_cgst", "rcm_sgst", "rcm_igst", "rcm_cess",
             "completed_at", "cancelled_at",
         ] + TOTAL_READONLY
+
+    def _is_list(self) -> bool:
+        view = self.context.get("view")
+        return getattr(view, "action", None) == "list"
+
+    def get_payments(self, obj):
+        """Live allocations against this bill, newest first (null on lists)."""
+        if self._is_list() or obj.pk is None:
+            return None
+        rows = obj.allocations.select_related("supplier_payment").filter(reversed_at__isnull=True).order_by("-id")
+        return [
+            {
+                "allocation": a.pk,
+                "payment": a.supplier_payment_id,
+                "number": getattr(a.supplier_payment, "number", "") or "",
+                "date": a.supplier_payment.payment_date if a.supplier_payment_id else None,
+                "mode": a.supplier_payment.mode if a.supplier_payment_id else "",
+                "cheque_status": a.supplier_payment.cheque_status if a.supplier_payment_id else "",
+                "amount": a.amount,
+            }
+            for a in rows
+        ]
+
+    def get_related_documents(self, obj):
+        """Where this bill came from and what hangs off it (null on lists)."""
+        if self._is_list() or obj.pk is None:
+            return None
+
+        def brief(rows, date_field):
+            return [
+                {
+                    "id": r.pk,
+                    "number": r.number or "",
+                    "status": r.status,
+                    "date": getattr(r, date_field, None),
+                    "total": getattr(r, "grand_total", None),
+                }
+                for r in rows
+            ]
+
+        return {
+            "source_orders": brief(obj.source_orders.all(), "order_date"),
+            "source_receipts": brief(obj.source_grns.all(), "receipt_date"),
+            "returns": brief(obj.returns.all(), "return_date"),
+            "credit_notes": brief(obj.credit_notes.all(), "note_date"),
+            "debit_notes": brief(obj.debit_notes.all(), "note_date"),
+        }
 
     def _payable(self, obj):
         from decimal import Decimal

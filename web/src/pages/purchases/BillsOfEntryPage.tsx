@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { confirmAction } from '@/utils/confirmBridge';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { useAuth } from '@/auth/AuthContext';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -236,8 +237,12 @@ export function BillsOfEntryPage() {
                 size="small"
                 disabled={pendingId !== null}
                 onClick={() => {
-                  setPendingId(Number(row.id));
-                  complete.mutate(Number(row.id));
+                  const id = Number(row.id);
+                  void confirmAction(t('purchaseReview.boeConfirmComplete')).then((ok) => {
+                    if (!ok) return;
+                    setPendingId(id);
+                    complete.mutate(id);
+                  });
                 }}
               >
                 {pendingId === Number(row.id) && complete.isPending

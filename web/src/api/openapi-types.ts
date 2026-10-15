@@ -16968,6 +16968,8 @@ export interface components {
             billOfEntry?: number | null;
             readonly paid?: string;
             readonly balance?: string;
+            readonly payments?: string;
+            readonly relatedDocuments?: string;
             /** Format: date-time */
             readonly completedAt?: string | null;
             /** Format: date-time */
@@ -18308,6 +18310,8 @@ export interface components {
             billOfEntry?: number | null;
             readonly paid: string;
             readonly balance: string;
+            readonly payments: string;
+            readonly relatedDocuments: string;
             /** Format: date-time */
             readonly completedAt: string | null;
             /** Format: date-time */

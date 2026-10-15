@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import { useMemo, useState } from 'react';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
@@ -53,6 +54,7 @@ export function SuppliersPage() {
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
   // F2-033: this list loads every supplier at once (no server paging), so the
   // filter bar narrows the already-loaded set client-side.
@@ -95,7 +97,7 @@ export function SuppliersPage() {
     mutationFn: async () => {
       const gstin = form.gstin.trim().toUpperCase();
       if (gstin && !isValidGstin(gstin)) {
-        throw new Error('Enter a valid 15-character GSTIN.');
+        throw new Error(t('purchaseEditor.gstinInvalid'));
       }
       const payload = { ...form, gstin: gstin || form.gstin };
       if (editing) return updateSupplier(editing.id, payload);
@@ -127,7 +129,11 @@ export function SuppliersPage() {
 
   const verifyMutation = useMutation({
     mutationFn: (id: number) => verifySupplierGstin(id),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['suppliers'] }),
+    onSuccess: () => {
+      setError(null);
+      setNotice(t('purchaseReview.supplierVerified'));
+      void qc.invalidateQueries({ queryKey: ['suppliers'] });
+    },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
@@ -148,6 +154,11 @@ export function SuppliersPage() {
         </Button>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
+      {notice ? (
+        <Alert severity="success" onClose={() => setNotice(null)}>
+          {notice}
+        </Alert>
+      ) : null}
       {query.data && query.data.length > 0 ? (
         <HistoryFilterBar
           value={filters}

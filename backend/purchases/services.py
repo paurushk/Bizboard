@@ -1295,7 +1295,13 @@ class PurchaseService:
 
     @staticmethod
     @transaction.atomic
-    def cancel(invoice: PurchaseInvoice, user):
+    def cancel(invoice: PurchaseInvoice, user, *, reverse_allocations: bool = False):
+        """Cancel a purchase bill.
+
+        Payments allocated to the bill block a cancel unless ``reverse_allocations`` is set
+        (WP-2). Then each allocation is reversed and the payment stays on the supplier as an
+        unallocated advance, so no cash or bank entry is touched.
+        """
         invoice = PurchaseInvoice.objects.select_for_update().get(
             pk=invoice.pk, company_id=invoice.company_id
         )
@@ -1330,12 +1336,35 @@ class PurchaseService:
             raise BusinessRuleError(
                 "Cancel or delete the draft credit/debit note(s) against this bill first."
             )
-        if invoice.allocations.filter(reversed_at__isnull=True).exists():
-            # BUG-722 (purchase side) — same reasoning as sales invoices.
+        live_allocations = list(
+            invoice.allocations.select_related("supplier_payment").filter(reversed_at__isnull=True)
+        )
+        if live_allocations and not reverse_allocations:
+            # BUG-722 (purchase side) — same reasoning as sales invoices. The structured
+            # payload lets the UI offer "unlink the payments and cancel" instead of a dead end.
+            allocated_total = sum((a.amount for a in live_allocations), Decimal("0"))
             raise BusinessRuleError(
                 "Cannot cancel a purchase with payment allocations against it. "
-                "Remove the allocation(s) first."
+                "Unlink the payment(s) first, or cancel with the payments kept as supplier advance.",
+                code="HAS_ALLOCATIONS",
+                extra={
+                    "allocated_total": str(allocated_total),
+                    "allocations": [
+                        {
+                            "id": a.pk,
+                            "payment": a.supplier_payment_id,
+                            "payment_number": getattr(a.supplier_payment, "number", "") or "",
+                            "amount": str(a.amount),
+                        }
+                        for a in live_allocations
+                    ],
+                },
             )
+        if live_allocations:
+            from payments.services import PaymentService
+
+            for allocation in live_allocations:
+                PaymentService.reverse_allocation(allocation=allocation, user=user)
 
         if invoice.status == PurchaseInvoice.Status.COMPLETED:
             if invoice.company.accounting_enabled:

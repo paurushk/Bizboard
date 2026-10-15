@@ -17,6 +17,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
+import { confirmAction } from '@/utils/confirmBridge';
 import {
   cancelPurchaseCreditNote,
   cancelPurchaseDebitNote,
@@ -417,7 +418,13 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
       onDraft={() => saveMutation.mutate('draft')}
       extraActions={
         readOnly && editingStatus === 'COMPLETED' && canCancel ? (
-          <Button color="warning" size="small" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
+          <Button color="warning" size="small" disabled={cancelMutation.isPending} onClick={() => {
+            void confirmAction(
+              t(isCredit ? 'history.confirmCancelPurchaseCreditNote' : 'history.confirmCancelPurchaseDebitNote'),
+            ).then((ok) => {
+              if (ok) cancelMutation.mutate();
+            });
+          }}>
             {t('phase1.cancelDocument')}
           </Button>
         ) : editingStatus && editingStatus !== 'DRAFT' ? (

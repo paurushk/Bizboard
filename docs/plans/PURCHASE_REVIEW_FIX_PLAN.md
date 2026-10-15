@@ -1,6 +1,6 @@
 # Purchase module — review fixes: implementation plan
 
-Date: 2026-10-15 · Source: Purchase module screen/flow review (this session) · Status: PR-A and PR-B BUILT (uncommitted); PR-C..E open
+Date: 2026-10-15 · Source: Purchase module screen/flow review (this session) · Status: ALL WORK PACKAGES BUILT (2026-10-15) — see the implementation record at the end
 
 Decisions taken 2026-10-15: payment failure after completion keeps the bill COMPLETED with a retry banner (WP-1); cancelling a paid bill keeps the payment as supplier advance (WP-2). WP-1 shipped without a runtime flag: `pay_now` is optional and additive, and the editor is the only caller.
 
@@ -354,3 +354,36 @@ the module verdict.
 
 WP-1 4 · WP-2 3 · WP-3 0.5 · WP-4 3 · WP-5 3 · WP-6 1 · WP-7 1 · WP-8 1 · WP-9 1.5 · WP-10 1 · WP-11 1 (+3 if the
 editor split is done). Total ≈ 20 days without the split, plus review and Postgres/e2e passes.
+
+---
+
+## Implementation record (2026-10-15)
+
+| WP | Done | Where |
+|---|---|---|
+| WP-1 | Pay-at-entry in one transaction; `record-payment`; retry banner; offline flush uses it; orphan report; Postgres concurrency test | `purchases/pay_now.py`, `views.py`, `NewPurchasePage.tsx`, `usePurchaseOffline.ts`, `report_orphan_purchase_payments`, `test_purchase_pay_now*.py` |
+| WP-2 | `cancel` accepts `reverse_allocations`; refusal is `HAS_ALLOCATIONS` with the list; payment stays as supplier advance (decision) | `PurchaseService.cancel`, `PurchaseDetailPage.tsx`, `test_purchase_review_fixes.py` |
+| WP-3 | Warnings shown on detail, history and the editor's saved message | `PurchaseDetailPage.tsx`, `PurchaseHistoryPage.tsx`, `NewPurchasePage.tsx` |
+| WP-4 | Detail page: payments, related documents, header fields, TDS, PDF, Record payment, Owner-only Edit | `PurchaseInvoiceSerializer` (`payments`, `related_documents`, detail only), `PurchaseDetailPage.tsx` |
+| WP-5 | GRN: confirm on Complete, cancel, delete, create bill, PO link and pre-fill, supplier search, status chip, empty state, idempotent create/complete, cross-tenant PO/warehouse checks | `GoodsReceiptsPage.tsx`, `phase1_serializers.py`, `phase1_views.py` |
+| WP-6 | PO list and editor confirm Convert/Cancel and open the new bill; "Create bill" label; converted banner; `supplier`/`status` filters | `PurchaseOrdersPage.tsx`, `PurchaseOrderEditorPage.tsx` |
+| WP-7 | Offline queue and declined amend are not errors | `NewPurchasePage.tsx`, `NewPurchasePage.payNow.test.tsx`, `NewPurchasePage.amend.test.tsx` |
+| WP-8 | `confirmAction` everywhere in purchase pages; lint rule bans `confirm` there | `eslint.config.js` |
+| WP-9 | Remaining English moved to `purchaseDetail.*`, `purchaseEditor.*`, `purchaseReview.*`, `poActions.*`, `grn.*`; Hindi review sheet | `i18n/en.ts`, `hi.ts`, [PURCHASE_HINDI_REVIEW.csv](../PURCHASE_HINDI_REVIEW.csv) |
+| WP-10 | One refresh helper used by editor, detail, history, GRN, supplier payments; key-shape guard test | `purchaseQueries.ts` (+ test) |
+| WP-11 | "Mark as fully paid" derived, no state write during render. The optional editor split is **not** done (see below) | `NewPurchasePage.tsx` |
+| WP-12 | Five screens reviewed; four small fixes; three low-priority findings logged | [PURCHASE_OTHER_SCREENS_REVIEW_2026-10-15.md](../reviews/PURCHASE_OTHER_SCREENS_REVIEW_2026-10-15.md) |
+
+Decisions taken: draft GRN cancel and delete follow the existing permissions (cancel needs the cancel
+permission, delete needs purchase-create); the GRN→PO link needed no migration (the field already existed);
+WP-1 shipped without a runtime flag.
+
+## Not done, and why
+
+- **Editor split (WP-11 optional).** Splitting a 2,600-line editor is a refactor with no user-visible change; it
+  was marked optional in this plan and is left until the editor has been stable for a release.
+- **CA sign-off** (CA checklist P1–P3) is a person's decision; the items are written and waiting.
+- **Postgres concurrency test** is written but only runs on Postgres CI.
+- **Browser check.** Nothing here has been clicked through in a running browser; the behaviour is covered by
+  component tests against mocked APIs and backend tests against SQLite.
+- Logged low-priority findings PB-01..PB-03 (review document above).

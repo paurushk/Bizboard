@@ -52,3 +52,26 @@ Each setting is **off or warn by default** and changes nothing until the owner t
 | 5 | Settlement discount | The discount is cleared against the bill when money is applied and posts to 5150 Settlement Discounts, split to the paisa across partial allocations | |
 
 CA name: ________________  Date: ________  Sign-off: ________
+
+## Money hub (2026-10-14) — items for the CA
+
+Plan: [`../plans/MONEY_HUB_PLAN.md`](../plans/MONEY_HUB_PLAN.md). Nothing below posts to the ledger.
+
+| # | Item | What the CA confirms | Sign-off |
+|---|------|----------------------|----------|
+| M1 | Tax dues wording (Money page, "Tax dues") | "TDS deducted on supplier bills" is the right label for the supplier-bill TDS worksheet total, due the 7th of the next month; "GST for the month (estimate)" is the GSTR-3B net-payable hint, due the 20th, and is clearly an estimate. Bizboard records no tax payment, so the page never says "unpaid". | |
+| M2 | Cash and bank "now" counts cleared money only | A cheque received, or issued, is outside cash until it clears. The dashboard cash and the Cash Book now use the same rule. | |
+| M3 | Advances paid to suppliers are shown beside payables, not netted off them | Netting would change supplier balances on the ledger, statements and credit checks; confirm whether it should, before it is built. | |
+| M4 | TDS certificate received (Form 16A) | Recording it only marks the receipt as no longer awaiting its certificate; the 1270 balance is unchanged until the CA decides how the tax is claimed. Confirm that is the right split. | |
+| M5 | Customers-owe-you basis | With books on and the GL basis ready, the figure follows accounts 1200 and 2300; otherwise it follows the bills. The page says which (badge) and shows the difference against the control accounts. Payables follow the same rule for the total, but each supplier's own balance is always from bills. | |
+
+## Purchase review (2026-10-15) — items for the CA
+
+Plan: [`../plans/PURCHASE_REVIEW_FIX_PLAN.md`](../plans/PURCHASE_REVIEW_FIX_PLAN.md). Review of the other
+screens: [`../reviews/PURCHASE_OTHER_SCREENS_REVIEW_2026-10-15.md`](../reviews/PURCHASE_OTHER_SCREENS_REVIEW_2026-10-15.md).
+
+| # | Item | What the CA confirms | Sign-off |
+|---|------|----------------------|----------|
+| P1 | Cancelling a paid purchase bill keeps the payment as a supplier advance | The bill's allocations are reversed on the cancel date and the payment (cash/bank entry) is left as it was, shown as an unallocated advance to that supplier. Confirm this is the treatment wanted, and that voiding the payment is a separate, deliberate step. | |
+| P2 | Payment taken with the bill, when TDS is also set on the bill | The payment is allocated in full to the bill, and the existing rule still applies: a payment that carries its own TDS cannot be allocated to a bill that already has TDS. Confirm the editor should not offer both. | |
+| P3 | Bill of entry with a zero assessable value | The server refuses a BoE with no BCD/IGST/cess but does not check the assessable value. Confirm whether a zero assessable value can ever be correct. (PB-01) | |

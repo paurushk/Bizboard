@@ -433,6 +433,11 @@ sales/purchase registers and files without recalculation. Automated proxy today 
   resume, numbering continuity (first live invoice = old last + 1), redo path,
   cross-tenant safety. Export → wipe → restore round-trip in
   `test_backup_restore_drill.py`.
+- **Purchase payments (2026-10-15):** a payment taken with a bill is created and allocated in one
+  transaction (`purchases/pay_now.py`); the old create-then-allocate sequence could leave an orphan
+  advance. Covered by `test_purchase_pay_now.py` and the Postgres-only
+  `test_purchase_pay_now_concurrency_postgres.py` (two parallel payments cannot over-pay) — like G-11(a),
+  the concurrency case runs only on Postgres CI, never on a local SQLite box.
 - **Gap G-11:** (a) `test_concurrency_races.py` is `postgres`-marked → **never
   runs on a local SQLite dev box**; a race regression is invisible until CI.
   (b) Schema-migration rehearsal: `scripts/migration_rehearsal.sh` applies

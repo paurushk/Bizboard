@@ -159,10 +159,7 @@ export function SupplierPaymentsPage() {
       setPurchase(null);
       setAllocAmount('');
       setCheque({ chequeNumber: '', chequeBankName: '', chequeDate: todayIso() });
-      void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
-      void qc.invalidateQueries({ queryKey: ['suppliers'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidatePurchaseSideEffects(qc);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
