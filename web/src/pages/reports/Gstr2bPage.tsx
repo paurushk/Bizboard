@@ -6,7 +6,10 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -41,6 +44,7 @@ import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { t } from '@/i18n';
+import { enumLabel } from '@/utils/enumLabels';
 import { formatMoney } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 
@@ -62,11 +66,15 @@ export function Gstr2bPage() {
   const [remark, setRemark] = useState('');
   const [message, setMessage] = useState<{ text: string; phone: string } | null>(null);
   const [confirmBulk, setConfirmBulk] = useState(false);
+  const [menu, setMenu] = useState<{ anchor: HTMLElement; id: number } | null>(null);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ['gstr2b'] });
     void qc.invalidateQueries({ queryKey: ['ims-summary'] });
     void qc.invalidateQueries({ queryKey: ['ims-scorecard'] });
+    // A purchase bill shows the same eligibility; do not leave it stale.
+    void qc.invalidateQueries({ queryKey: ['purchases'] });
+    void qc.invalidateQueries({ queryKey: ['purchase-invoice'] });
   };
 
   const query = useQuery({
@@ -151,12 +159,8 @@ export function Gstr2bPage() {
   const atRisk = money(summary.data, 'itcAtRisk', 'itc_at_risk');
 
   const requestAct = (id: number, action: ImsAction) => {
-    if (action === 'ACCEPT') {
-      actMutation.mutate({ id, action, remark: t('ims.acceptRemark') });
-      return;
-    }
     setActRow({ id, action });
-    setRemark('');
+    setRemark(action === 'ACCEPT' ? t('ims.acceptRemark') : '');
   };
 
   const onPickFile = async (file: File | undefined) => {
@@ -244,10 +248,10 @@ export function Gstr2bPage() {
           sx={{ minWidth: 160 }}
         >
           <MenuItem value="">{t('ims.allActions')}</MenuItem>
-          <MenuItem value="NO_ACTION">NO_ACTION</MenuItem>
-          <MenuItem value="ACCEPT">ACCEPT</MenuItem>
-          <MenuItem value="REJECT">REJECT</MenuItem>
-          <MenuItem value="PENDING">PENDING</MenuItem>
+          <MenuItem value="NO_ACTION">{enumLabel('imsAction', 'NO_ACTION')}</MenuItem>
+          <MenuItem value="ACCEPT">{enumLabel('imsAction', 'ACCEPT')}</MenuItem>
+          <MenuItem value="REJECT">{enumLabel('imsAction', 'REJECT')}</MenuItem>
+          <MenuItem value="PENDING">{enumLabel('imsAction', 'PENDING')}</MenuItem>
         </TextField>
         <Button variant="outlined" onClick={() => matchMutation.mutate()} disabled={matchMutation.isPending}>
           {t('ims.matchPurchases')}
@@ -275,6 +279,9 @@ export function Gstr2bPage() {
       </Stack>
 
       <Alert severity="info">{t('ims.noAutoAccept')}</Alert>
+      <Typography variant="body2" color="text.secondary">
+        {t('ims.nextSteps')}
+      </Typography>
 
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -324,8 +331,12 @@ export function Gstr2bPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">{formatMoney(tax)}</TableCell>
-                        <TableCell>{row.matchClass || row.matchStatus}</TableCell>
-                        <TableCell>{row.imsAction || 'NO_ACTION'}</TableCell>
+                        <TableCell>
+                          {row.matchClass
+                            ? enumLabel('gstr2bMatchClass', row.matchClass)
+                            : enumLabel('gstr2bMatchStatus', row.matchStatus)}
+                        </TableCell>
+                        <TableCell>{enumLabel('imsAction', row.imsAction || 'NO_ACTION')}</TableCell>
                         <TableCell>{rowDeadline(row)}</TableCell>
                         <TableCell>
                           <TextField
@@ -339,10 +350,11 @@ export function Gstr2bPage() {
                               })
                             }
                             sx={{ minWidth: 130 }}
+                            title={row.matchStatus !== 'MATCHED' ? t('ims.claimableNeedsMatch') : undefined}
                           >
                             <MenuItem value="UNREVIEWED">{t('ims.unreviewed')}</MenuItem>
                             <MenuItem value="CLAIMABLE" disabled={row.matchStatus !== 'MATCHED'}>
-                              {t('ims.claimable')}
+                              {row.matchStatus !== 'MATCHED' ? t('ims.claimableNeedsMatch') : t('ims.claimable')}
                             </MenuItem>
                             <MenuItem value="INELIGIBLE">{t('ims.ineligible')}</MenuItem>
                             <MenuItem value="REVERSED">{t('ims.reversed')}</MenuItem>
@@ -357,15 +369,13 @@ export function Gstr2bPage() {
                             >
                               {t('ims.accept')}
                             </Button>
-                            <Button size="small" color="error" onClick={() => requestAct(row.id, 'REJECT')}>
-                              {t('ims.reject')}
-                            </Button>
-                            <Button size="small" onClick={() => requestAct(row.id, 'PENDING')}>
-                              {t('ims.pending')}
-                            </Button>
-                            <Button size="small" onClick={() => messageMutation.mutate(row.id)}>
-                              {t('ims.supplierMsg')}
-                            </Button>
+                            <IconButton
+                              size="small"
+                              aria-label={t('ims.moreActions')}
+                              onClick={(e) => setMenu({ anchor: e.currentTarget, id: row.id })}
+                            >
+                              <MoreVertIcon fontSize="small" />
+                            </IconButton>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -447,9 +457,47 @@ export function Gstr2bPage() {
         </Paper>
       )}
 
+      <Menu anchorEl={menu?.anchor ?? null} open={Boolean(menu)} onClose={() => setMenu(null)}>
+        <MenuItem
+          onClick={() => {
+            if (menu) requestAct(menu.id, 'REJECT');
+            setMenu(null);
+          }}
+        >
+          {t('ims.reject')}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (menu) requestAct(menu.id, 'PENDING');
+            setMenu(null);
+          }}
+        >
+          {t('ims.pending')}
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (menu) messageMutation.mutate(menu.id);
+            setMenu(null);
+          }}
+        >
+          {t('ims.supplierMsg')}
+        </MenuItem>
+      </Menu>
+
       <Dialog open={Boolean(actRow)} onClose={() => setActRow(null)} fullWidth maxWidth="sm">
-        <DialogTitle>{actRow?.action === 'REJECT' ? t('ims.rejectTitle') : t('ims.pendingTitle')}</DialogTitle>
+        <DialogTitle>
+          {actRow?.action === 'REJECT'
+            ? t('ims.rejectTitle')
+            : actRow?.action === 'ACCEPT'
+              ? t('ims.acceptTitle')
+              : t('ims.pendingTitle')}
+        </DialogTitle>
         <DialogContent>
+          {actRow?.action === 'ACCEPT' ? (
+            <Typography variant="body2" sx={{ mt: 1 }}>
+              {t('ims.acceptBody')}
+            </Typography>
+          ) : null}
           <TextField
             autoFocus
             fullWidth
@@ -504,7 +552,7 @@ export function Gstr2bPage() {
       <ConfirmDialog
         open={confirmBulk}
         title={t('ims.bulkAcceptExact')}
-        body={`This accepts every exact-match GSTR-2B row for ${period} and claims its ITC. Review individual rows if unsure.`}
+        body={t('ims.bulkAcceptBody', { period })}
         confirmLabel={t('ims.bulkAcceptExact')}
         confirming={bulkMutation.isPending}
         onClose={() => setConfirmBulk(false)}

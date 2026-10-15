@@ -721,7 +721,7 @@ class PurchaseService:
         return role in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER)
 
     @staticmethod
-    def match_bill_to_po(invoice, *, user=None, confirm_override=False):
+    def match_bill_to_po(invoice, *, user=None, confirm_override=False, override_reason=""):
         """Line-level 3-way match of the bill against its PO and GRN.
 
         Aggregate totals can hide a rate increase on one line offset by a cut
@@ -800,10 +800,23 @@ class PurchaseService:
         if not breaches:
             return []
         if confirm_override and PurchaseService._match_manager(invoice.company, user):
+            from core.services.audit import AuditService
+
+            AuditService.log(
+                company=invoice.company, user=user, action="UPDATE", entity_type="PurchaseInvoice",
+                entity_id=str(invoice.pk),
+                description="3-way match difference approved.",
+                metadata={"reason": (override_reason or "").strip(), "breaches": breaches},
+            )
             return breaches
         raise BusinessRuleError(
             "3-way match failed: " + "; ".join(breaches)
-            + ". An owner or manager may pass confirm_three_way_override=true."
+            + ". An owner or manager can approve the difference with a reason.",
+            code="THREE_WAY_MATCH_FAILED",
+            extra={
+                "breaches": breaches,
+                "can_override": PurchaseService._match_manager(invoice.company, user),
+            },
         )
 
     @staticmethod
@@ -923,7 +936,7 @@ class PurchaseService:
     @transaction.atomic
     def complete(invoice: PurchaseInvoice, user, *, confirm_no_rcm=False, confirm_duplicate_bill=False, confirm_blank_pos=False,
                  confirm_gstin_total_change=False, confirm_three_way_override=False, gstin_cancel_override=False,
-                 gstin_cancel_reason=""):
+                 gstin_cancel_reason="", three_way_reason=""):
         """Atomic Complete: number + PURCHASE movements + event (E3.3)."""
         invoice = PurchaseInvoice.objects.select_for_update().get(pk=invoice.pk)
         cancelled_on = getattr(invoice.supplier, "gstin_cancelled_on", None)
@@ -942,6 +955,8 @@ class PurchaseService:
             )
             raise BusinessRuleError(
                 "Supplier GSTIN is cancelled on or before this bill. ITC is blocked until an authorised override is recorded.",
+                code="SUPPLIER_GSTIN_CANCELLED",
+                extra={"cancelled_on": str(cancelled_on), "supplier_name": invoice.supplier.name},
             )
         if gstin_cancel_override and cancelled_on:
             from planwave.services import assert_gstin_override
@@ -962,6 +977,7 @@ class PurchaseService:
         PurchaseService._assert_import_bill_of_entry(invoice)
         PurchaseService.match_bill_to_po(
             invoice, user=user, confirm_override=confirm_three_way_override,
+            override_reason=three_way_reason,
         )
         from core.services.registration_gates import assert_may_issue_gst_tax_invoice
 

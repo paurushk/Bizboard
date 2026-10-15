@@ -1,6 +1,7 @@
-import { getErrorCode } from '@/api/client';
+import { getErrorCode, getErrorDetails } from '@/api/client';
 import { t } from '@/i18n';
-import { getGlobalConfirm } from '@/utils/confirmBridge';
+import { askReason, getGlobalConfirm } from '@/utils/confirmBridge';
+import { gstinCancelledText } from '@/utils/overrideRetry';
 import type { PurchasePayNow } from '@/types/domain';
 
 export type CompleteExtra = {
@@ -11,6 +12,12 @@ export type CompleteExtra = {
   confirmAdditionalDebit?: boolean;
   confirmPaidInvoice?: boolean;
   confirmPriceOverride?: boolean;
+  /** Owner/Manager approval of a 3-way match difference, with a written reason. */
+  confirmThreeWayOverride?: boolean;
+  threeWayReason?: string;
+  /** Owner/Accountant release of a cancelled-GSTIN ITC block, with a written reason. */
+  gstinCancelOverride?: boolean;
+  gstinCancelReason?: string;
   /** Owner-only DN-07 override of the invoice-value cap, with a written reason. */
   confirmExcessiveDebit?: boolean;
   excessiveDebitReason?: string;
@@ -20,7 +27,10 @@ export type CompleteExtra = {
   idempotencyKey?: string;
 };
 
-type ConfirmFlag = Exclude<keyof CompleteExtra, 'excessiveDebitReason' | 'payNow' | 'idempotencyKey'>;
+type ConfirmFlag = Exclude<
+  keyof CompleteExtra,
+  'excessiveDebitReason' | 'payNow' | 'idempotencyKey' | 'threeWayReason' | 'gstinCancelReason'
+>;
 
 function confirmCodesFromError(err: unknown): string[] {
   if (typeof err !== 'object' || err === null) return [];
@@ -76,13 +86,42 @@ export async function completeWithConfirms<T>(
     confirm_cn_on_paid_invoice: 'confirmPaidInvoice',
     confirm_cn_price_override: 'confirmPriceOverride',
   };
-  for (let attempt = 0; attempt < Object.keys(flagFor).length + 1; attempt += 1) {
+  for (let attempt = 0; attempt < Object.keys(flagFor).length + 3; attempt += 1) {
     try {
       return await complete(confirmed);
     } catch (err) {
       const bundled = confirmCodesFromError(err);
       const codes = bundled.length ? bundled : [getErrorCode(err) ?? ''];
       let progressed = false;
+      // Overrides need a written reason (and the right role), so they get their own dialog.
+      if (codes.includes('THREE_WAY_MATCH_FAILED') && !confirmed.confirmThreeWayOverride) {
+        const details = getErrorDetails(err);
+        if (details?.canOverride === false || details?.can_override === false) {
+          throw new Error(t('billing.threeWayNoRole'), { cause: err });
+        }
+        const breaches = Array.isArray(details?.breaches) ? (details.breaches as unknown[]).map(String) : [];
+        const reason = await askReason({
+          title: t('billing.threeWayTitle'),
+          body: t('billing.threeWayBody', { lines: breaches.join('\n') }),
+          reasonLabel: t('billing.overrideReasonLabel'),
+          confirmLabel: t('billing.threeWayApprove'),
+        });
+        if (!reason) throw err;
+        confirmed.confirmThreeWayOverride = true;
+        confirmed.threeWayReason = reason;
+        continue;
+      }
+      if (codes.includes('SUPPLIER_GSTIN_CANCELLED') && !confirmed.gstinCancelOverride) {
+        const reason = await askReason({
+          ...gstinCancelledText(err, 'bill'),
+          reasonLabel: t('billing.overrideReasonLabel'),
+          confirmLabel: t('billing.gstinCancelledApprove'),
+        });
+        if (!reason) throw err;
+        confirmed.gstinCancelOverride = true;
+        confirmed.gstinCancelReason = reason;
+        continue;
+      }
       const pending = codes.filter((code) => flagFor[code] && !confirmed[flagFor[code]]);
       if (askUser && pending.length > 0) {
         if (!(await askUser(pending.map((code) => t(prompts[code]))))) throw err;

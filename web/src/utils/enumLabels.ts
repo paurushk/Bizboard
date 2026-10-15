@@ -13,7 +13,12 @@ export type EnumGroup =
   | 'rewardType'
   | 'insuranceLine'
   | 'opportunityStage'
-  | 'leadSource';
+  | 'leadSource'
+  | 'ledgerType'
+  | 'gstr2bMatchClass'
+  | 'gstr2bMatchStatus'
+  | 'imsAction'
+  | 'forecastMethod';
 
 function titleCase(value: string): string {
   return value

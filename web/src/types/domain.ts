@@ -793,6 +793,9 @@ export interface PurchasePayNow {
   chequeBankName?: string;
   chequeDate?: string;
   chequeImage?: number | string;
+  /** Owner/Accountant release of a cancelled-GSTIN payment hold, with a written reason. */
+  gstinHoldOverride?: boolean;
+  gstinHoldReason?: string;
 }
 
 export interface PurchaseInvoice extends DocumentTotals {
@@ -1129,6 +1132,8 @@ export interface LedgerEntry {
   /** Internal journal-voucher number (UXW2B-005) — secondary detail, shown only if it differs from `number`. */
   jvNumber?: string;
   referenceId?: number;
+  /** Id of the bill / note / payment the row came from (referenceId is the journal entry on the GL path). */
+  sourceId?: number;
   debit: string | number;
   credit: string | number;
   balance: string | number;
@@ -1140,6 +1145,8 @@ export interface LedgerStatement {
   supplierId?: number;
   supplierName?: string;
   outstanding: string | number;
+  /** Supplier ledger with a start date: the balance carried in from before it. */
+  openingBalance?: string | number;
   entries: LedgerEntry[];
 }
 

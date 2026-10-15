@@ -88,14 +88,17 @@ class SupplierLedgerDetailView(APIView):
     def get(self, request, supplier_id):
         company = get_company_user(request).company
         supplier = get_object_or_404(Supplier, pk=supplier_id, company=company)
+        date_from = _parse_date(request.query_params.get("date_from"))
         entries = LedgerService.supplier_statement(
             company, supplier,
-            date_from=_parse_date(request.query_params.get("date_from")),
+            date_from=date_from,
             date_to=_parse_date(request.query_params.get("date_to")),
         )
         return Response({
             "supplier_id": supplier.id,
             "supplier_name": supplier.name,
             "outstanding": LedgerService.supplier_outstanding(company, supplier),
+            # Purchase review 2 (H-03): the balance carried in when a start date is chosen.
+            "opening_balance": LedgerService.supplier_opening_balance(company, supplier, date_from),
             "entries": entries,
         })

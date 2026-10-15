@@ -18,6 +18,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { confirmAction } from '@/utils/confirmBridge';
 import {
   cancelImport,
   commitImport,
@@ -513,6 +514,26 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
     (reviewV2 && newProductCount > 0 && !confirmNewProducts) ||
     (lowConfidence && !lowConfidenceAccepted) ||
     commitMutation.isPending;
+  // C-01: say which condition turned the button off, the first one a person should fix.
+  const blockerReason = commitMutation.isPending
+    ? t('billUpload.blockSaving')
+    : partyMissing
+      ? t('billUpload.blockNoParty')
+      : !billDate.trim()
+        ? t('billUpload.blockNoDate')
+        : gstinUnresolved
+          ? t('billUpload.blockGstin')
+          : includedCount === 0
+            ? t('billUpload.blockNoRows')
+            : invalidIncludedCount > 0
+              ? t('billUpload.blockInvalid', { count: invalidIncludedCount })
+              : reviewV2 && newProductCount > 0 && !confirmNewProducts
+                ? t('billUpload.blockNewProducts')
+                : lowConfidence && !lowConfidenceAccepted
+                  ? t('billUpload.blockLowConfidence')
+                  : '';
+  const confirmsNeeded =
+    (newProductCount > 0 && reviewV2) || allZeroRate || needsDuplicateConfirm || lowConfidence;
   const canSwitch = isSales ? canImportPurchaseBill(user) : canImportSalesBill(user);
   const sourceVisible = showSource;
   const activeBox = activeKey ? lines.find((l) => l.clientKey === activeKey)?.bbox ?? null : null;
@@ -694,7 +715,11 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                   <Button
                     color="inherit"
                     size="small"
-                    onClick={() => void retryImportExtract(jobId).then(() => onStale())}
+                    onClick={() => {
+                      retryImportExtract(jobId)
+                        .then(() => onStale())
+                        .catch((err) => onError(t('billUpload.retryFailed', { reason: getErrorMessage(err) })));
+                    }}
                   >
                     {t('billUpload.retryExtract')}
                   </Button>
@@ -703,10 +728,10 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                 {t('billUpload.maybeTruncated', { got: lines.length })}
               </Alert>
             ) : null}
-            {job.billTemplate && (job.clarifications ?? []).length === 0 ? (
-              <Alert severity="success">{t('billUpload.templateApplied')}</Alert>
-            ) : null}
-            <Alert severity="warning">{t('billUpload.aiAccuracyDisclaimer')}</Alert>
+            <Alert severity="info" variant="outlined">
+              {job.billTemplate && (job.clarifications ?? []).length === 0 ? `${t('billUpload.templateApplied')} ` : ''}
+              {t('billUpload.aiAccuracyDisclaimer')}
+            </Alert>
 
             <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
               <TextField
@@ -918,6 +943,11 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
             />
 
             <Box>
+              {confirmsNeeded ? (
+                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                  {t('billUpload.confirmBeforeTitle')}
+                </Typography>
+              ) : null}
               {newProductCount > 0 ? (
                 <Alert severity="info" sx={{ mb: 2 }}>
                   <Typography variant="body2">{t('billUpload.newProductsSummary', { count: newProductCount })}</Typography>
@@ -1057,10 +1087,25 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                     ) : null}
                   </Typography>
                 ) : null}
-                <Button size="small" color="inherit" onClick={() => cancelMutation.mutate()} disabled={cancelMutation.isPending}>
-                  {t('billUpload.cancelExtract')}
+                <Button
+                  size="small"
+                  color="inherit"
+                  disabled={cancelMutation.isPending}
+                  onClick={async () => {
+                    // Discarding throws away every correction made here, so ask first.
+                    if (await confirmAction(`${t('billUpload.discardTitle')}\n\n${t('billUpload.discardBody')}`)) {
+                      cancelMutation.mutate();
+                    }
+                  }}
+                >
+                  {t('billUpload.discardUpload')}
                 </Button>
               </Stack>
+              {commitBlocked && blockerReason ? (
+                <Typography variant="body2" color="warning.main" sx={{ mt: 1 }} role="status">
+                  {t('billUpload.blockedBecause', { reason: blockerReason })}
+                </Typography>
+              ) : null}
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                 {t(isSales ? 'billUpload.commitDraftHintSales' : 'billUpload.commitDraftHint')}
               </Typography>

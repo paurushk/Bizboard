@@ -35,14 +35,14 @@ vi.mock('@/hooks/useProductSearch', () => ({
 const getSupplierPriceHistory = vi.fn();
 
 vi.mock('@/api/resources', () => ({
-  listSuppliers: async () => [{
+  listSuppliersPage: async () => ({ count: 1, next: null, previous: null, results: [{
     id: 3,
     name: 'Mega Suppliers',
     phone: '9999999999',
     gstin: '',
     state: 'Karnataka',
     isActive: true,
-  }],
+  }] }),
   getCompany: async () => ({ id: 1, name: 'Shop', isGstRegistered: false }),
   createSupplier: vi.fn(),
   updateSupplier: vi.fn(),

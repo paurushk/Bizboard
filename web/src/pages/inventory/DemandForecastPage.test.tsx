@@ -48,7 +48,7 @@ describe('DemandForecastPage', () => {
 
     expect(screen.getByText('120.000')).toBeInTheDocument();
     expect(screen.getByText('4.000')).toBeInTheDocument();
-    expect(screen.getByText(/moving_average · 30/)).toBeInTheDocument();
+    expect(screen.getByText(/Moving average · 30/)).toBeInTheDocument();
   });
 
   it('renders empty forecast message when no rows are available', async () => {

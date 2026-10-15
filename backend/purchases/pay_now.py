@@ -92,11 +92,16 @@ def payment_error_payload(exc: Exception) -> dict:
             message = " ".join(str(v) for v in detail)
         else:
             message = str(detail)
-        code = str(getattr(exc, "default_code", "") or "payment_failed")
+        codes = exc.get_codes()
+        code = codes if isinstance(codes, str) else str(getattr(exc, "default_code", "") or "payment_failed")
     else:
         message = "The payment could not be recorded."
         code = "payment_failed"
-    return {"code": code, "message": message}
+    payload = {"code": code, "message": message}
+    extra = getattr(exc, "extra", None)
+    if extra:
+        payload["details"] = extra
+    return payload
 
 
 def payment_summary(payment: SupplierPayment, allocation) -> dict:

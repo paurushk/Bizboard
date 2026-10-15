@@ -17,10 +17,11 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
-import { createSupplier, getCompany, getSupplierPriceHistory, listSuppliers, updateSupplier, verifySupplierGstin } from '@/api/resources';
+import { createSupplier, getCompany, getSupplierPriceHistory, listSuppliersPage, updateSupplier, verifySupplierGstin } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import type { Product } from '@/types/domain';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -42,13 +43,13 @@ import { formatMoney } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { gstinStatusColor, gstinStatusLabelKey } from '@/utils/gstinStatus';
 
+const SUPPLIERS_PAGE_SIZE = 50;
 const emptyForm = { name: '', phone: '', email: '', gstin: '', state: '', address: '' };
 
 export function SuppliersPage() {
   useFeatureFlagEpoch();
   const showPrices = isRuntimeFlagEnabled('ENABLE_SUPPLIER_PRICE_HISTORY');
   const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
@@ -56,9 +57,21 @@ export function SuppliersPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [nameTouched, setNameTouched] = useState(false);
-  // F2-033: this list loads every supplier at once (no server paging), so the
-  // filter bar narrows the already-loaded set client-side.
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  const [page, setPage] = useState(1);
+  const debouncedQ = useDebouncedValue(filters.q, 300).trim();
+  // PB-03: the server searches and pages, so a company with thousands of suppliers loads one page at a time.
+  const query = useQuery({
+    queryKey: ['suppliers', 'page', page, debouncedQ, filters.status],
+    queryFn: () =>
+      listSuppliersPage({
+        page,
+        pageSize: SUPPLIERS_PAGE_SIZE,
+        q: debouncedQ || undefined,
+        status: filters.status || undefined,
+      }),
+    placeholderData: keepPreviousData,
+  });
   const [priceSupplier, setPriceSupplier] = useState<Supplier | null>(null);
   const [priceProduct, setPriceProduct] = useState<Product | null>(null);
   const productSearch = useProductSearch({ activeOnly: true, selected: priceProduct });
@@ -67,20 +80,7 @@ export function SuppliersPage() {
     queryFn: () => getSupplierPriceHistory(priceSupplier!.id, priceProduct!.id),
     enabled: Boolean(showPrices && priceSupplier && priceProduct),
   });
-  const visibleSuppliers = useMemo(() => {
-    const all = query.data ?? [];
-    const needle = filters.q.trim().toLowerCase();
-    return all.filter((s) => {
-      if (filters.status === 'ACTIVE' && !s.isActive) return false;
-      if (filters.status === 'INACTIVE' && s.isActive) return false;
-      if (!needle) return true;
-      return (
-        s.name.toLowerCase().includes(needle) ||
-        (s.phone ?? '').toLowerCase().includes(needle) ||
-        (s.gstin ?? '').toLowerCase().includes(needle)
-      );
-    });
-  }, [query.data, filters.q, filters.status]);
+  const visibleSuppliers = useMemo(() => query.data?.results ?? [], [query.data]);
   const filtersActive = Boolean(filters.q.trim() || filters.status);
 
   // F2-054: mirror CustomersPage — when GST is on and assume-local is off,
@@ -159,10 +159,13 @@ export function SuppliersPage() {
           {notice}
         </Alert>
       ) : null}
-      {query.data && query.data.length > 0 ? (
+      {(query.data && query.data.count > 0) || filtersActive ? (
         <HistoryFilterBar
           value={filters}
-          onChange={setFilters}
+          onChange={(next) => {
+            setFilters(next);
+            setPage(1);
+          }}
           showDateRange={false}
           statusOptions={[
             { value: 'ACTIVE', label: t('status.active') },
@@ -174,10 +177,10 @@ export function SuppliersPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data && query.data.length > 0 && visibleSuppliers.length === 0 && filtersActive ? (
+      {query.data && visibleSuppliers.length === 0 && filtersActive ? (
         <EmptyState title={t('common.noResults')} />
       ) : null}
-      {query.data?.length === 0 ? (
+      {query.data && query.data.count === 0 && !filtersActive ? (
         <EmptyState
           description="Add suppliers to record purchase bills and track payables."
           action={
@@ -296,6 +299,19 @@ export function SuppliersPage() {
             </TableBody>
           </Table>
         </Paper>
+      ) : null}
+      {query.data && (query.data.next || page > 1) ? (
+        <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
+          <Button size="small" disabled={page <= 1 || query.isFetching} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            {t('common.previous')}
+          </Button>
+          <Typography variant="body2" color="text.secondary">
+            {t('common.page')} {page}
+          </Typography>
+          <Button size="small" disabled={!query.data.next || query.isFetching} onClick={() => setPage((p) => p + 1)}>
+            {t('common.next')}
+          </Button>
+        </Stack>
       ) : null}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">

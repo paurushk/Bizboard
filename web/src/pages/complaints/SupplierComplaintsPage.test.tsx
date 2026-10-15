@@ -92,6 +92,12 @@ describe('SupplierComplaintsPage', () => {
     expect(screen.getByRole('button', { name: 'Move to Approved' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Move to Resolved' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Create debit note' })).toBeDisabled();
+    expect(screen.getByText(/You cannot create the debit note yet/)).toBeInTheDocument();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await user.click(screen.getByRole('button', { name: 'Move to Rejected' }));
+    expect(confirm).toHaveBeenCalled();
+    expect(transitionSupplierComplaint).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
     await user.click(screen.getByRole('button', { name: 'Move to Rejected' }));
     expect(transitionSupplierComplaint).toHaveBeenCalledWith(2, {
       status: 'REJECTED', inspection_notes: '',

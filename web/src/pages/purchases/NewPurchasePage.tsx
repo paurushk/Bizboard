@@ -63,6 +63,7 @@ import {
   savePurchaseDraft,
 } from '@/offline/invoiceDraftCache';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import { loadSupplierDefaults, saveSupplierDefaults } from '@/pages/purchases/supplierDefaults';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { confirmAction } from '@/utils/confirmBridge';
@@ -211,6 +212,7 @@ export function NewPurchasePage() {
   const [supplierId, setSupplierId] = useState<number | ''>('');
   const [posPick, setPosPick] = useState<'gstin' | 'address' | ''>('');
   const [supplierQuery, setSupplierQuery] = useState('');
+  const [defaultsApplied, setDefaultsApplied] = useState(false);
   const debouncedSupplierQuery = useDebouncedValue(supplierQuery, 300);
   const [warehouseId, setWarehouseId] = useState<number | ''>('');
   const [costCenterId, setCostCenterId] = useState<number | ''>('');
@@ -1067,6 +1069,9 @@ export function NewPurchasePage() {
       if (companyId && userId) {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
+      if (companyId && supplierId) {
+        saveSupplierDefaults(companyId, Number(supplierId), { itcEligibility, isReverseCharge, paymentTermsDays });
+      }
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
       // Completion notices (duplicate bill, ITC, ...) ride along with the saved message instead of vanishing.
       const completionNotes = (invoice.warnings ?? []).filter(Boolean).join(' ');
@@ -1587,6 +1592,11 @@ export function NewPurchasePage() {
       ) : null}
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          {defaultsApplied ? (
+            <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+              {t('billing.supplierDefaultsApplied')}
+            </Typography>
+          ) : null}
           <PartySelectPanel
             label={t('billing.billFrom')}
             selectedParty={selectedSupplier}
@@ -1595,7 +1605,18 @@ export function NewPurchasePage() {
             options={activeSuppliers}
             query={supplierQuery}
             onQueryChange={setSupplierQuery}
-            onSelect={(v) => setSupplierId(v?.id ?? '')}
+            onSelect={(v) => {
+              setSupplierId(v?.id ?? '');
+              setDefaultsApplied(false);
+              // A new bill starts the way the last one from this supplier ended; an edit keeps its own values.
+              const remembered = v && !isEdit && companyId ? loadSupplierDefaults(companyId, v.id) : null;
+              if (remembered) {
+                setItcEligibility(remembered.itcEligibility);
+                setIsReverseCharge(remembered.isReverseCharge);
+                setPaymentTermsDays(remembered.paymentTermsDays);
+                setDefaultsApplied(true);
+              }
+            }}
             loading={suppliers.isFetching}
             onCreatePartyClick={() => {
               setPartyForm({ id: undefined, name: '', phone: '', gstin: '', state: '' });

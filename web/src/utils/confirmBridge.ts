@@ -24,3 +24,26 @@ export async function confirmAction(message: string): Promise<boolean> {
   if (ask) return ask([message]);
   return window.confirm(message);
 }
+
+/** What the override dialog shows; `reasonLabel` is the text-field label. */
+export type ReasonRequest = { title: string; body: string; reasonLabel: string; confirmLabel?: string };
+export type ReasonAsk = (request: ReasonRequest) => Promise<string | null>;
+
+let globalReason: ReasonAsk | null = null;
+
+export function registerGlobalReason(ask: ReasonAsk | null): void {
+  globalReason = ask;
+}
+
+/**
+ * Ask for a written reason before an Owner/Accountant override (cancelled GSTIN, 3-way mismatch).
+ * Resolves the trimmed reason, or null when cancelled. Falls back to window.prompt without a host.
+ */
+export async function askReason(request: ReasonRequest): Promise<string | null> {
+  if (globalReason) return globalReason(request);
+  const typed = window.prompt(`${request.body}
+
+${request.reasonLabel}`);
+  const reason = (typed ?? '').trim();
+  return reason || null;
+}

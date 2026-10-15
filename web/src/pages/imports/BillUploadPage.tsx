@@ -35,6 +35,7 @@ import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { Customer, ImportKind, Supplier } from '@/types/domain';
+import { toCsv } from '@/utils/csv';
 import { statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { BillReviewPanel } from './bill/BillReviewPanel';
@@ -48,6 +49,40 @@ const STALE_HEARTBEAT_MS = 120_000;
 
 const PHOTO_EXT = /\.(pdf|png|jpe?g|webp|gif)$/i;
 const STRUCTURED_EXT = /\.(csv|xlsx|xlsm)$/i;
+
+const CONSENT_KEY = 'bizboard:billUpload:aiConsent';
+
+function readStoredConsent(): boolean {
+  try {
+    return localStorage.getItem(CONSENT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function storeConsent(on: boolean): void {
+  try {
+    if (on) localStorage.setItem(CONSENT_KEY, '1');
+    else localStorage.removeItem(CONSENT_KEY);
+  } catch {
+    // Private mode: the tick is simply asked again next time.
+  }
+}
+
+/** Header names the structured importer understands (see imports/services.py BILL_COLUMN_ALIASES). */
+const SAMPLE_CSV_ROWS: string[][] = [
+  ['name', 'sku', 'hsn_code', 'quantity', 'unit_price', 'gst_rate'],
+  ['Sample item', 'ITEM-001', '1006', '10', '125.50', '5'],
+];
+
+function downloadSampleCsv(): void {
+  const url = URL.createObjectURL(new Blob([toCsv(SAMPLE_CSV_ROWS)], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'bill-lines-sample.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 function fileAllowed(file: File, mode: 'photo' | 'structured'): boolean {
   if (mode === 'structured') return STRUCTURED_EXT.test(file.name);
@@ -86,7 +121,8 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const customerSearch = useCustomerSearch({ selected: isSales ? (party as Customer | null) : undefined });
   const supplierSearch = useSupplierSearch({ selected: !isSales ? (party as Supplier | null) : undefined });
   const partySearch = isSales ? customerSearch : supplierSearch;
-  const [piiConsent, setPiiConsent] = useState(false);
+  const [piiConsent, setPiiConsent] = useState(() => readStoredConsent());
+  const [consentWasSaved, setConsentWasSaved] = useState(() => readStoredConsent());
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -123,7 +159,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
 
   const uploadMutation = useMutation({
     mutationFn: () => {
-      if (!file) throw new Error('Choose a file');
+      if (!file) throw new Error(t('billUpload.chooseFileFirst'));
       return uploadImport(file, kind, {
         supplierId: !isSales && partyId !== '' ? partyId : undefined,
         customerId: isSales && partyId !== '' ? partyId : undefined,
@@ -138,16 +174,20 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       setNotice(null);
     },
     onSuccess: (data) => {
+      if (uploadMode === 'photo' && piiConsent) {
+        storeConsent(true);
+        setConsentWasSaved(true);
+      }
       queryClient.setQueryData(['import-job', data.id], data);
       setJobId(data.id);
-      if (data.status === 'FAILED') setError(data.failureReason || 'Extraction failed');
+      if (data.status === 'FAILED') setError(data.failureReason || t('billUpload.extractionFailed'));
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
   const clarifyMutation = useMutation({
     mutationFn: async () => {
-      if (!jobId) throw new Error('No job');
+      if (!jobId) throw new Error(t('billUpload.noJob'));
       return answerImportClarifications(jobId, clarificationAnswers);
     },
     onSuccess: () => {
@@ -165,6 +205,15 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
+
+  // A failed retry must say so; otherwise the page looks frozen on the old banner.
+  const retryExtract = () => {
+    if (jobId == null) return;
+    setError(null);
+    retryImportExtract(jobId)
+      .then(() => void jobQuery.refetch())
+      .catch((err) => setError(t('billUpload.retryFailed', { reason: getErrorMessage(err) })));
+  };
 
   const undoImportMutation = useMutation({
     mutationFn: () => voidImport(jobId!),
@@ -254,9 +303,26 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
       <PageTitle>{t(isSales ? 'billUpload.titleSales' : 'billUpload.title')}</PageTitle>
       <Typography color="text.secondary">{t(isSales ? 'billUpload.subtitleSales' : 'billUpload.subtitle')}</Typography>
       {!job && !jobMissing ? (
-        <Alert severity="info">
-          {t(isSales ? 'billUpload.piiDisclaimerSales' : 'billUpload.piiDisclaimer')} {t('billUpload.aiDisclosure')}
-        </Alert>
+        consentWasSaved && uploadMode === 'photo' ? (
+          <Typography variant="caption" color="text.secondary">
+            {t('billUpload.aiConsentSaved')}{' '}
+            <Button
+              size="small"
+              sx={{ p: 0, minWidth: 0, verticalAlign: 'baseline' }}
+              onClick={() => {
+                storeConsent(false);
+                setConsentWasSaved(false);
+                setPiiConsent(false);
+              }}
+            >
+              {t('billUpload.aiConsentAskAgain')}
+            </Button>
+          </Typography>
+        ) : (
+          <Alert severity="info">
+            {t(isSales ? 'billUpload.piiDisclaimerSales' : 'billUpload.piiDisclaimer')} {t('billUpload.aiDisclosure')}
+          </Alert>
+        )
       ) : null}
       {error ? <HelpErrorAlert message={error} /> : null}
       {notice ? (
@@ -285,6 +351,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               {draftPath ? (
                 <Button
                   color="inherit"
+                  variant="outlined"
                   size="small"
                   component={RouterLink}
                   to={draftPath}
@@ -293,11 +360,11 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                   {t('billUpload.openDraft')}
                 </Button>
               ) : null}
-              <Button color="inherit" size="small" onClick={() => setUndoDialog(true)}>
-                {t('billUpload.undoImport')}
-              </Button>
               <Button color="inherit" size="small" onClick={resetAll}>
-                {t('billUpload.reset')}
+                {t('billUpload.uploadAnother')}
+              </Button>
+              <Button color="inherit" size="small" sx={{ opacity: 0.8 }} onClick={() => setUndoDialog(true)}>
+                {t('billUpload.undoImport')}
               </Button>
             </Stack>
           }
@@ -325,9 +392,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               <Button
                 color="inherit"
                 size="small"
-                onClick={() => {
-                  if (jobId != null) void retryImportExtract(jobId).then(() => void jobQuery.refetch());
-                }}
+                onClick={retryExtract}
               >
                 {t('billUpload.retryExtract')}
               </Button>
@@ -428,7 +493,13 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                 </Stack>
               </Box>
 
-              {needsPiiConsent ? (
+              {uploadMode === 'structured' ? (
+                <Button size="small" onClick={downloadSampleCsv} sx={{ alignSelf: 'flex-start' }}>
+                  {t('billUpload.sampleCsv')}
+                </Button>
+              ) : null}
+
+              {needsPiiConsent && !consentWasSaved ? (
                 <FormControlLabel
                   control={<Checkbox checked={piiConsent} onChange={(e) => setPiiConsent(e.target.checked)} />}
                   label={t('billUpload.piiConfirmAi')}
@@ -457,6 +528,16 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
             <Typography>{t('billUpload.extracting')}</Typography>
             {job ? <StatusChip tone="info" labelKey={statusLabelKey(job.status)} /> : null}
           </Stack>
+          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Typography variant="body2" color="text.secondary">
+              {t('billUpload.extractHint')}
+            </Typography>
+            {elapsedMs <= STILL_WORKING_MS ? (
+              <Button size="small" color="inherit" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
+                {t('billUpload.cancelExtract')}
+              </Button>
+            ) : null}
+          </Stack>
           {elapsedMs > STILL_WORKING_MS ? (
             <Alert
               severity="info"
@@ -466,7 +547,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                     <Button
                       color="inherit"
                       size="small"
-                      onClick={() => void retryImportExtract(jobId).then(() => void jobQuery.refetch())}
+                      onClick={retryExtract}
                     >
                       {t('billUpload.retryExtract')}
                     </Button>

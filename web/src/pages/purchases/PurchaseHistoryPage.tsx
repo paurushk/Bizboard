@@ -58,7 +58,7 @@ const PAGE_SIZE = 50;
 
 function purchaseNumberLabel(p: PurchaseInvoice): string {
   if (p.number && p.number.trim()) return p.number;
-  return `Draft #${p.id}`;
+  return t('history.draftLabel', { id: p.id });
 }
 
 export function PurchaseHistoryPage() {
@@ -105,6 +105,15 @@ export function PurchaseHistoryPage() {
 
   const invalidate = (id?: number, stock = false) =>
     invalidatePurchaseSideEffects(qc, { invoiceId: id, stock });
+
+  // Completing posts stock and the supplier balance, so a one-click Complete from the list asks first.
+  const askComplete = (p: PurchaseInvoice) => {
+    void confirmAction(
+      `${t('history.confirmCompleteTitle', { label: purchaseNumberLabel(p) })}\n\n${t('history.confirmCompletePurchaseBody')}`,
+    ).then((ok) => {
+      if (ok) completeMutation.mutate(p.id);
+    });
+  };
 
   const completeMutation = useMutation({
     // F2-017: same confirm-retry helper the editor uses.
@@ -199,6 +208,11 @@ export function PurchaseHistoryPage() {
           ]}
         />
       ) : null}
+      {rows.length > 0 ? (
+        <Typography variant="caption" color="text.secondary">
+          {t('history.rowActionsHint')}
+        </Typography>
+      ) : null}
       {showLoading ? <LoadingState /> : null}
       {showNoMatches ? <Alert severity="info">{t('common.noResults')}</Alert> : null}
       {query.isError ? (
@@ -285,6 +299,11 @@ export function PurchaseHistoryPage() {
                   </TableCell>
                   <TableCell align="right">{formatMoney(p.grandTotal)}</TableCell>
                   <TableCell align="right">
+                    {allowCreate && p.status === 'DRAFT' ? (
+                      <Button size="small" disabled={busy} onClick={() => askComplete(p)}>
+                        {t('common.complete')}
+                      </Button>
+                    ) : null}
                     <IconButton
                       size="small"
                       aria-label={t('common.actions')}
@@ -374,7 +393,7 @@ export function PurchaseHistoryPage() {
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {
-            if (active) completeMutation.mutate(active.id);
+            if (active) askComplete(active);
             closeMenu();
           }}
         >

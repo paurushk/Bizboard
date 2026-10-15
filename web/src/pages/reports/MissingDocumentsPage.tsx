@@ -3,6 +3,8 @@ import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
+import ToggleButton from '@mui/material/ToggleButton';
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -21,7 +23,7 @@ function currentPeriod() {
 }
 
 export function MissingDocumentsPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const clientView = params.get('view') === 'client';
   const [period, setPeriod] = useState(currentPeriod());
   const [confirmSend, setConfirmSend] = useState(false);
@@ -88,7 +90,7 @@ export function MissingDocumentsPage() {
       <ConfirmDialog
         open={confirmSend}
         title={t('chase.sendWhatsApp')}
-        body={`This sends a WhatsApp chase message to ${items.length} supplier(s) with a missing document for ${period}.`}
+        body={t('chase.sendBody', { count: String(items.length), period })}
         confirmLabel={t('chase.sendWhatsApp')}
         confirming={wa.isPending}
         onClose={() => setConfirmSend(false)}
@@ -97,6 +99,22 @@ export function MissingDocumentsPage() {
           wa.mutate();
         }}
       />
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        value={clientView ? 'client' : 'ca'}
+        onChange={(_e, next) => {
+          if (!next) return;
+          const nextParams = new URLSearchParams(params);
+          if (next === 'client') nextParams.set('view', 'client');
+          else nextParams.delete('view');
+          setParams(nextParams, { replace: true });
+        }}
+        aria-label={t('chase.title')}
+      >
+        <ToggleButton value="ca">{t('chase.viewCa')}</ToggleButton>
+        <ToggleButton value="client">{t('chase.viewClient')}</ToggleButton>
+      </ToggleButtonGroup>
       <Alert severity="info">{clientView ? t('chase.clientHint') : t('chase.caHint')}</Alert>
       <TextField
         type="month"

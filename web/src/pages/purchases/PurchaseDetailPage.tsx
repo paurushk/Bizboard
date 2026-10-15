@@ -1,3 +1,4 @@
+import { withGstinHoldOverride } from '@/utils/overrideRetry';
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -104,9 +105,20 @@ export function PurchaseDetailPage() {
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  // A cancelled supplier GSTIN holds payments: an Owner/Accountant can release it with a reason.
+  const payWithHoldOverride = (payNow: PurchasePayNow) => {
+    const key = userGestureIdempotencyKey();
+    return withGstinHoldOverride((override) =>
+      recordPurchasePayment(
+        purchaseId,
+        { ...payNow, ...override },
+        { idempotencyKey: override.gstinHoldOverride ? `${key}:override` : key },
+      ),
+    );
+  };
+
   const retryPaymentMutation = useMutation({
-    mutationFn: (payNow: PurchasePayNow) =>
-      recordPurchasePayment(purchaseId, payNow, { idempotencyKey: userGestureIdempotencyKey() }),
+    mutationFn: (payNow: PurchasePayNow) => payWithHoldOverride(payNow),
     onSuccess: (data) => {
       setPaymentRetry(null);
       setError(null);
@@ -119,8 +131,7 @@ export function PurchaseDetailPage() {
   });
 
   const recordPaymentMutation = useMutation({
-    mutationFn: (payNow: PurchasePayNow) =>
-      recordPurchasePayment(purchaseId, payNow, { idempotencyKey: userGestureIdempotencyKey() }),
+    mutationFn: (payNow: PurchasePayNow) => payWithHoldOverride(payNow),
     onSuccess: (data) => {
       setPayOpen(false);
       setPayError(null);
@@ -240,7 +251,7 @@ export function PurchaseDetailPage() {
       >
         <Box>
           <PageTitle sx={{ fontFamily: '"IBM Plex Sans", sans-serif' }}>
-            {inv.number?.trim() ? inv.number : `Draft #${inv.id}`}
+            {inv.number?.trim() ? inv.number : t('history.draftLabel', { id: inv.id })}
           </PageTitle>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }} useFlexGap>
             <StatusChip tone={documentStatusTone(inv.status)} labelKey={statusLabelKey(inv.status)} />

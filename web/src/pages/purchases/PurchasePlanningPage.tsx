@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import MenuItem from '@mui/material/MenuItem';
@@ -15,11 +16,13 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { createPlanningDrafts, getDemandForecast, getPurchasePlan, type PlanningLine } from '@/api/osPlan';
-import { listSuppliersPage, listWarehouses } from '@/api/resources';
+import { listWarehouses } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
+import { useSupplierSearch } from '@/hooks/usePartySearch';
 import { t } from '@/i18n';
+import type { Supplier } from '@/types/domain';
 import { canCreatePurchases } from '@/utils/permissions';
 
 function rowKey(row: PlanningLine) {
@@ -36,10 +39,9 @@ export function PurchasePlanningPage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<Array<{ label: string; href: string }>>([]);
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
-  const suppliers = useQuery({
-    queryKey: ['suppliers', 'planning'],
-    queryFn: () => listSuppliersPage({ page: 1, pageSize: 200 }),
-  });
+  // PB-02: searched on the server, so a supplier beyond the first page can still be picked.
+  const [supplierPick, setSupplierPick] = useState<Supplier | null>(null);
+  const supplierSearch = useSupplierSearch({ selected: supplierPick });
   const plan = useQuery({
     queryKey: ['purchase-plan', warehouse, supplier, urgency],
     queryFn: () => getPurchasePlan({
@@ -137,12 +139,23 @@ export function PurchasePlanningPage() {
             <MenuItem key={row.id} value={String(row.id)}>{row.name}</MenuItem>
           ))}
         </TextField>
-        <TextField select label={t('nav.suppliers')} value={supplier} onChange={(e) => setSupplier(e.target.value)} sx={{ minWidth: 180 }}>
-          <MenuItem value="">{t('common.all')}</MenuItem>
-          {(suppliers.data?.results ?? []).map((row) => (
-            <MenuItem key={row.id} value={String(row.id)}>{row.name}</MenuItem>
-          ))}
-        </TextField>
+        <Autocomplete
+          options={supplierSearch.options}
+          getOptionLabel={(option) => option.name}
+          isOptionEqualToValue={(option, value) => option.id === value.id}
+          filterOptions={(options) => options}
+          value={supplierPick}
+          onChange={(_e, value) => {
+            setSupplierPick(value);
+            setSupplier(value ? String(value.id) : '');
+          }}
+          onInputChange={(_e, value) => supplierSearch.setQuery(value)}
+          loading={supplierSearch.isFetching}
+          sx={{ minWidth: 220 }}
+          renderInput={(params) => (
+            <TextField {...params} label={t('nav.suppliers')} placeholder={t('common.all')} />
+          )}
+        />
         <TextField
           label={t('osPlan.urgencyDays')}
           value={urgency}

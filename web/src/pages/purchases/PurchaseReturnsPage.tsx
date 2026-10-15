@@ -801,6 +801,12 @@ export function PurchaseReturnsPage() {
                         <Typography variant="caption" color="text.secondary">
                           {t('phase1.returnPreviewNote')}
                         </Typography>
+                        <Typography variant="body2">
+                          {t('phase1.returnWhatHappens', {
+                            supplier: purchase?.supplierName ?? '',
+                            amount: formatMoney(previewData.grandTotal),
+                          })}
+                        </Typography>
                       </Stack>
                     ) : (
                       <Typography variant="body2" color="text.secondary">

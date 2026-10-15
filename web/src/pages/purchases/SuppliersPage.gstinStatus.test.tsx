@@ -9,11 +9,11 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  listSuppliers: async () => [
+  listSuppliersPage: async () => ({ count: 3, next: null, previous: null, results: [
     { id: 1, name: 'Valid Vendor', gstin: '29ABCDE1234F1ZW', gstinVerificationStatus: 'VALID', state: 'Karnataka', isActive: true },
     { id: 2, name: 'Cancelled Vendor', gstin: '27AABCU9603R1ZN', gstinVerificationStatus: 'CANCELLED', state: 'Maharashtra', isActive: true },
     { id: 3, name: 'Fresh Vendor', gstin: '07AAAAA0000A1Z5', gstinVerificationStatus: 'UNVERIFIED', state: 'Delhi', isActive: true },
-  ],
+  ] }),
   getCompany: async () => ({ id: 1, name: 'Shop', isGstRegistered: false }),
   createSupplier: vi.fn(),
   updateSupplier: vi.fn(),

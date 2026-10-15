@@ -1,3 +1,4 @@
+import { withGstinHoldOverride } from '@/utils/overrideRetry';
 import { useState } from 'react';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { dialogAmountDirty } from '@/pages/moneyFormDirty';
@@ -111,7 +112,7 @@ export function SupplierPaymentsPage() {
         throw new Error(`${t('billing.chequeNumber')} / ${t('billing.chequeBank')}`);
       }
       const key = userGestureIdempotencyKey();
-      const payment = await createSupplierPayment(
+      const payment = await withGstinHoldOverride((override) => createSupplierPayment(
         {
           supplier: supplier.id,
           amount: paymentAmount,
@@ -122,9 +123,10 @@ export function SupplierPaymentsPage() {
           chequeDate: mode === 'CHEQUE' ? cheque.chequeDate || undefined : undefined,
           chequeImage: mode === 'CHEQUE' ? cheque.chequeImage || undefined : undefined,
           paidFromTill: mode === 'CASH' ? paidFromTill : undefined,
+          ...override,
         },
-        { idempotencyKey: key },
-      );
+        { idempotencyKey: override.gstinHoldOverride ? `${key}:override` : key },
+      ));
       if (purchase && Number(allocAmount) > 0) {
         // F2-023: mirror ReceiptsPage — an over-typed allocation must not exceed
         // the payment amount or the invoice balance.
@@ -202,6 +204,9 @@ export function SupplierPaymentsPage() {
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}
+      <Typography variant="caption" color="text.secondary">
+        {t('billing.paymentActionsHelp')}
+      </Typography>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
@@ -247,6 +252,7 @@ export function SupplierPaymentsPage() {
                         {p.mode === 'CHEQUE' && p.chequeStatus === 'PENDING_CLEARANCE' ? (
                           <Button
                             size="small"
+                            title={t('billing.clearChequeHint')}
                             disabled={chequeStatusMutation.isPending}
                             onClick={() =>
                               chequeStatusMutation.mutate({ id: p.id, chequeStatus: 'CLEARED' })
@@ -260,6 +266,7 @@ export function SupplierPaymentsPage() {
                           <Button
                             size="small"
                             color="warning"
+                            title={t('billing.bounceChequeHint')}
                             disabled={chequeStatusMutation.isPending}
                             onClick={() => {
                               void confirmAction(t('billing.confirmBounceCheque')).then((ok) => {
@@ -273,6 +280,7 @@ export function SupplierPaymentsPage() {
                         <Button
                           size="small"
                           color="warning"
+                          title={t('billing.voidHint')}
                           disabled={voidMutation.isPending}
                           onClick={() => {
                             void confirmAction(t('billing.confirmVoidPayment')).then((ok) => {

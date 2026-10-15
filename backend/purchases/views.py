@@ -264,6 +264,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                     "true", "1", "yes",
                 ),
                 gstin_cancel_reason=str(request.data.get("gstin_cancel_reason") or ""),
+                three_way_reason=str(request.data.get("three_way_reason") or ""),
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings

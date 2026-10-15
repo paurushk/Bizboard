@@ -677,3 +677,51 @@ describe('BillUploadPage (deep review fixes)', () => {
     expect(lines.some((l) => l.deleted)).toBe(false);
   }, 15_000);
 });
+
+describe('BillUploadPage (purchase review 2)', () => {
+  it('shows an error when "Retry extraction" itself fails (B-03)', async () => {
+    api.getImportJob.mockResolvedValue(
+      previewedJob({ status: 'FAILED', failureReason: 'Reader crashed' }, {}),
+    );
+    api.retryImportExtract.mockRejectedValue(new Error('Network Error'));
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Retry extraction' }));
+    expect(await screen.findByText(/Could not restart reading the bill/i)).toBeInTheDocument();
+  });
+
+  it('names the reason Create draft is off (C-01)', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob({}, { billDate: '' }));
+    renderPage();
+    expect(await screen.findByText(/You cannot create the draft yet: enter the bill date/i)).toBeInTheDocument();
+  });
+
+  it('asks before discarding the review and keeps the job when declined (G-01)', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob());
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Discard this upload' }));
+    expect(confirm).toHaveBeenCalled();
+    expect(api.cancelImport).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    await user.click(screen.getByRole('button', { name: 'Discard this upload' }));
+    await waitFor(() => expect(api.cancelImport).toHaveBeenCalledWith(5));
+    confirm.mockRestore();
+  });
+
+  it('remembers the AI agreement instead of asking on every upload (C-03)', async () => {
+    window.localStorage.setItem('bizboard:billUpload:aiConsent', '1');
+    renderPage('/purchases/bill-upload', 'PURCHASE_BILL');
+    expect(await screen.findByText(/You agreed earlier/i)).toBeInTheDocument();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    window.localStorage.removeItem('bizboard:billUpload:aiConsent');
+  });
+
+  it('offers a sample file for the CSV / Excel route (H-06)', async () => {
+    renderPage('/purchases/bill-upload', 'PURCHASE_BILL');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: /export from my supplier/i }));
+    expect(await screen.findByRole('button', { name: 'Download a sample CSV' })).toBeInTheDocument();
+  });
+});

@@ -41,7 +41,18 @@ export default tseslint.config(
   {
     // Purchase review WP-8: destructive actions ask through the in-app dialog (confirmAction /
     // ConfirmDialog), never the browser popup. Tests may stub window.confirm.
-    files: ['src/pages/purchases/**/*.{ts,tsx}'],
+    files: [
+      'src/pages/purchases/**/*.{ts,tsx}',
+      // Purchase-adjacent screens reviewed with the module (purchase review 2).
+      'src/pages/imports/BillUploadPage.tsx',
+      'src/pages/imports/bill/**/*.{ts,tsx}',
+      'src/pages/reports/SupplierLedgerPage.tsx',
+      'src/pages/reports/PurchaseReportPage.tsx',
+      'src/pages/reports/Gstr2bPage.tsx',
+      'src/pages/reports/MissingDocumentsPage.tsx',
+      'src/pages/complaints/SupplierComplaintsPage.tsx',
+      'src/pages/inventory/DemandForecastPage.tsx',
+    ],
     ignores: ['**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-syntax': [

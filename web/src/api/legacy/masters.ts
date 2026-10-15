@@ -405,6 +405,8 @@ export async function createSupplierPayment(
     chequeDate?: string;
     chequeImage?: number;
     paidFromTill?: boolean;
+    gstinHoldOverride?: boolean;
+    gstinHoldReason?: string;
   },
   options?: { idempotencyKey?: string },
 ): Promise<SupplierPayment> {

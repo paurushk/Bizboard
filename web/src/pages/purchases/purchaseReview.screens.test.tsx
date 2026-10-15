@@ -77,9 +77,9 @@ describe('BillsOfEntryPage completing', () => {
 
 describe('SuppliersPage GSTIN check', () => {
   it('says the check ran instead of changing silently', async () => {
-    api.listSuppliers.mockResolvedValue([
+    api.listSuppliersPage.mockResolvedValue({ count: 1, next: null, previous: null, results: [
       { id: 1, name: 'Fresh Vendor', gstin: '07AAAAA0000A1Z5', gstinVerificationStatus: 'UNVERIFIED', state: 'Delhi', isActive: true },
-    ]);
+    ] });
     api.getCompany.mockResolvedValue({ id: 1, name: 'Shop', isGstRegistered: false });
     api.verifySupplierGstin.mockResolvedValue({});
     mount(<SuppliersPage />);

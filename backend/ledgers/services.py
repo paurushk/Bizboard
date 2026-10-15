@@ -10,6 +10,7 @@ allocations remain the source of truth.
 """
 
 import logging
+from datetime import timedelta
 from decimal import Decimal
 
 from django.db.models import Case, DecimalField, F, Prefetch, Sum, Value, When
@@ -811,6 +812,7 @@ class LedgerService:
                 "number": doc_number or line.entry.number or "",
                 "jv_number": line.entry.number or "",
                 "reference_id": line.entry_id,
+                "source_id": line.entry.source_id,
                 "debit": d,
                 "credit": c,
                 "source": "gl",
@@ -1123,6 +1125,15 @@ class LedgerService:
         return out
 
     @staticmethod
+    def supplier_opening_balance(company, supplier, date_from):
+        """What the supplier was owed just before `date_from` (credit minus debit), for the
+        opening row of a dated statement. Zero when no start date is given."""
+        if not date_from:
+            return Decimal("0")
+        before = LedgerService.supplier_statement(company, supplier, date_to=date_from - timedelta(days=1))
+        return before[-1]["balance"] if before else Decimal("0")
+
+    @staticmethod
     def supplier_statement(company, supplier, date_from=None, date_to=None):
         if LedgerService._use_gl_outstanding(company):
             return LedgerService._gl_party_statement(
@@ -1146,6 +1157,7 @@ class LedgerService:
                 "type": "PURCHASE_INVOICE",
                 "number": inv.number,
                 "reference_id": inv.pk,
+                "source_id": inv.pk,
                 "credit": net_credit,
                 "debit": Decimal("0"),
             })
@@ -1160,6 +1172,7 @@ class LedgerService:
                 "type": "PURCHASE_RETURN",
                 "number": ret.number,
                 "reference_id": ret.pk,
+                "source_id": ret.pk,
                 "credit": Decimal("0"),
                 "debit": ret.grand_total,
             })
@@ -1171,6 +1184,7 @@ class LedgerService:
                 "type": "PURCHASE_CREDIT_NOTE",
                 "number": cn.number,
                 "reference_id": cn.pk,
+                "source_id": cn.pk,
                 "credit": Decimal("0"),
                 "debit": cn.grand_total,
             })
@@ -1182,6 +1196,7 @@ class LedgerService:
                 "type": "PURCHASE_DEBIT_NOTE",
                 "number": dn.number,
                 "reference_id": dn.pk,
+                "source_id": dn.pk,
                 "credit": dn.grand_total,
                 "debit": Decimal("0"),
             })
@@ -1195,6 +1210,7 @@ class LedgerService:
                 "type": "PAYMENT",
                 "number": payment.number,
                 "reference_id": payment.pk,
+                "source_id": payment.pk,
                 "credit": Decimal("0"),
                 # B1-009 (AP side): debit only the allocated portion so the
                 # running balance foots supplier_outstanding() the same way

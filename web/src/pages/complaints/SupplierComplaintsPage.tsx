@@ -25,6 +25,7 @@ import { isComplaintsEnabled } from '@/config/features';
 import { formatDuration } from '@/utils/duration';
 import { CreateDialog } from '@/components/CreateDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
+import { confirmAction } from '@/utils/confirmBridge';
 import { enumLabel } from '@/utils/enumLabels';
 import { t } from '@/i18n';
 import { AttachmentEditor, SupplierField } from '@/pages/growth/widgets';
@@ -174,6 +175,16 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
     : [];
   const quantityValid = Number(quantity) > 0;
   const noteValue = notes ?? row.inspectionNotes ?? '';
+  // C-08: name the first thing missing instead of leaving the button silently off.
+  const debitBlocker = !canDoc
+    ? t('growth.debitBlockedStatus')
+    : !row.sourceInvoice
+      ? t('growth.debitBlockedInvoice')
+      : !line
+        ? t('growth.debitBlockedLine')
+        : !quantityValid
+          ? t('growth.debitBlockedQuantity')
+          : '';
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
       <Typography variant="subtitle2">{row.number} · {enumLabel('complaintStatus', row.status)}</Typography>
@@ -181,7 +192,17 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
       <TextField size="small" fullWidth multiline minRows={2} sx={{ mt: 1 }} label={t('growth.inspectionNotes')} value={noteValue} onChange={(e) => setNotes(e.target.value)} />
       <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
         {(NEXT[row.status] ?? []).map((status) => (
-          <Button key={status} size="small" variant="outlined" onClick={() => run.mutate(() => transitionSupplierComplaint(id, { status, inspection_notes: noteValue }))}>
+          <Button
+            key={status}
+            size="small"
+            variant="outlined"
+            onClick={async () => {
+              // Statuses with nowhere further to go close the complaint: ask first.
+              const terminal = (NEXT[status] ?? []).length === 0;
+              if (terminal && !(await confirmAction(t('growth.confirmTerminal', { status: enumLabel('complaintStatus', status) })))) return;
+              run.mutate(() => transitionSupplierComplaint(id, { status, inspection_notes: noteValue }));
+            }}
+          >
             {t('growth.moveTo')} {enumLabel('complaintStatus', status)}
           </Button>
         ))}
@@ -207,13 +228,25 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
           ))}
         </TextField>
       ) : null}
+      <Typography variant="subtitle2" sx={{ mt: 2 }}>{t('growth.debitNoteTitle')}</Typography>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
         <TextField size="small" label={t('growth.quantity')} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
-        <TextField size="small" label={t('growth.unitPrice')} value={price} onChange={(e) => setPrice(e.target.value)} />
+        <TextField
+          size="small"
+          label={t('growth.unitPrice')}
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          helperText={line ? t('growth.debitPriceFromBill', { price: String(line.unitPrice ?? '') }) : undefined}
+        />
       </Stack>
-      <Button size="small" sx={{ mt: 1 }} disabled={!canDoc || !row.sourceInvoice || !line || !quantityValid} onClick={() => run.mutate(() => createSupplierDebitNote(id, debitItems))}>
+      <Button size="small" sx={{ mt: 1 }} disabled={Boolean(debitBlocker)} onClick={() => run.mutate(() => createSupplierDebitNote(id, debitItems))}>
         {t('growth.createDebitNote')}
       </Button>
+      {debitBlocker ? (
+        <Typography variant="caption" color="text.secondary" display="block" role="status">
+          {t('growth.debitBlockedBecause', { reason: debitBlocker })}
+        </Typography>
+      ) : null}
       <Typography variant="caption" display="block" sx={{ mt: 1 }}>
         {t('growth.createDebitNote')}: {row.purchaseDebitNote ?? '—'}
       </Typography>

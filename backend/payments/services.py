@@ -563,6 +563,8 @@ class PaymentService:
                 )
                 raise BusinessRuleError(
                     "Supplier GSTIN is cancelled. Payment is held until an Owner or Accountant records an override reason.",
+                    code="SUPPLIER_GSTIN_CANCELLED",
+                    extra={"cancelled_on": str(cancelled_on), "supplier_name": supplier.name},
                 )
             if pay_on >= cancelled_on:
                 assert_gstin_override(company, user, gstin_hold_reason)

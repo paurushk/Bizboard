@@ -121,6 +121,10 @@ export async function completePurchase(
     confirmBlankPos?: boolean;
     confirmDuplicateBill?: boolean;
     confirmGstinTotalChange?: boolean;
+    confirmThreeWayOverride?: boolean;
+    threeWayReason?: string;
+    gstinCancelOverride?: boolean;
+    gstinCancelReason?: string;
     /** Pay-at-entry: the server records payment + allocation in one transaction after completing. */
     payNow?: PurchasePayNow;
     /** Per-gesture key; required with `payNow` so a network retry cannot pay twice. */
@@ -133,14 +137,25 @@ export async function completePurchase(
     confirmDuplicateBill: Boolean(options?.confirmDuplicateBill),
     confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
   };
+  const overrides = {
+    confirmThreeWayOverride: Boolean(options?.confirmThreeWayOverride),
+    gstinCancelOverride: Boolean(options?.gstinCancelOverride),
+  };
+  const reasons = {
+    ...(options?.confirmThreeWayOverride ? { threeWayReason: options.threeWayReason ?? '' } : {}),
+    ...(options?.gstinCancelOverride ? { gstinCancelReason: options.gstinCancelReason ?? '' } : {}),
+  };
   // A confirm-code retry sends a different body, so it must not reuse the first attempt's key.
+  const overrideSuffix = Object.values(overrides).some(Boolean)
+    ? `:${Object.values(overrides).map((f) => (f ? 1 : 0)).join('')}`
+    : '';
   const key = options?.idempotencyKey
-    ? `${options.idempotencyKey}:${Object.values(flags).map((f) => (f ? 1 : 0)).join('')}`
+    ? `${options.idempotencyKey}:${Object.values(flags).map((f) => (f ? 1 : 0)).join('')}${overrideSuffix}`
     : undefined;
   return withMocks(async () => {
     const { data } = await apiClient.post(
       `/purchases/invoices/${id}/complete/`,
-      { ...flags, ...(options?.payNow ? { payNow: options.payNow } : {}) },
+      { ...flags, ...overrides, ...reasons, ...(options?.payNow ? { payNow: options.payNow } : {}) },
       key ? { headers: idempotencyHeaders(key) } : undefined,
     );
     return unwrapData<PurchaseInvoice>(data);
