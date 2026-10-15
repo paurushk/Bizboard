@@ -19,7 +19,7 @@ from core.help_codes import HelpCode
 from core.services.audit import AuditService
 from core.services.files import CSV_UTF8_HINT
 from core.services.uqc import normalize_uqc
-from core.validators import ALLOWED_GST_RATES, GSTIN_RE, HSN_RE, validate_gst_rate
+from core.validators import ALLOWED_GST_RATES, GSTIN_RE, HSN_RE, _gstin_checksum_ok, validate_gst_rate
 from inventory.models import MovementType, StockMovement
 from inventory.services import InventoryService
 from masters import gstin_rules
@@ -382,6 +382,17 @@ def _validate_row(
         gstin = (row.get("gstin") or "").strip()
         if gstin and not GSTIN_RE.match(gstin):
             errors.append("invalid GSTIN format")
+        elif gstin and kind == ImportJob.Kind.SUPPLIERS and not _gstin_checksum_ok(gstin.upper()):
+            errors.append("invalid GSTIN (check digit does not match)")
+        if (
+            kind == ImportJob.Kind.SUPPLIERS
+            and not gstin
+            and not (row.get("state") or "").strip()
+            and company.is_gst_registered
+            and not company.assume_local_state_for_blank_party
+        ):
+            # Same rule as the Suppliers page: without a state or GSTIN every bill stops at completion.
+            errors.append("state or GSTIN is required (place of supply)")
     if kind == ImportJob.Kind.PRODUCTS:
         hsn = (row.get("hsn_code") or "").strip()
         if hsn and not HSN_RE.match(hsn):
@@ -1666,7 +1677,7 @@ class ImportService:
                     phone=row.get("phone", "") or "",
                     email=row.get("email", "") or "",
                     gstin=row.get("gstin", "") or "",
-                    state=row.get("state", "") or "",
+                    state=(row.get("state", "") or "").strip() or (gstin_rules.derive_state(gstin) if gstin else None) or "",
                     address=row.get("address", "") or "",
                     created_by=user,
                     updated_by=user,

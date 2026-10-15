@@ -8,7 +8,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.db import transaction
-from django.utils import timezone
 
 from core.csv_utils import csv_safe
 from core.exceptions import BusinessRuleError
@@ -291,6 +290,14 @@ def _opening_balance_product(company, user, unit: Unit) -> Product:
     return product
 
 
+def _opening_document_date(company):
+    """Opening outstanding is dated at the books-start date (or the FY start), not the import day,
+    so it ages as overdue and stays out of this month's registers (T-01)."""
+    from accounting.services import PostingService
+
+    return PostingService._opening_entry_date(company)
+
+
 def _create_opening_sales(company, user, customer: Customer, amount: Decimal, product: Product):
     from sales.models import SalesInvoice, SalesItem
     from sales.services import SalesService
@@ -306,7 +313,7 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
         customer=customer,
         invoice_type=SalesInvoice.InvoiceType.NON_GST,
         status=SalesInvoice.Status.DRAFT,
-        invoice_date=timezone.localdate(),
+        invoice_date=_opening_document_date(company),
         notes=OPENING_NOTE,
         is_opening_balance=True,
         created_by=user,
@@ -354,7 +361,7 @@ def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal,
         supplier=supplier,
         purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
         status=PurchaseInvoice.Status.DRAFT,
-        invoice_date=timezone.localdate(),
+        invoice_date=_opening_document_date(company),
         notes=OPENING_NOTE,
         is_opening_balance=True,
         created_by=user,

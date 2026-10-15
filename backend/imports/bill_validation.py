@@ -182,13 +182,28 @@ def header_errors(job, preview: dict, included: list[dict]) -> list[dict]:
                         "Tick 'This is not a duplicate' to continue.",
                     )
                 )
-    if not is_sales and included and bill_date is not None and job.supplier_id:
+    dup_supplier_id = None
+    if not is_sales and included and bill_date is not None:
+        dup_supplier_id = job.supplier_id
+        if dup_supplier_id is None:
+            # Supplier not picked on the upload screen: commit will use the supplier the bill's
+            # GSTIN/name matches, so check against that one (S-01).
+            from imports import party_match
+
+            match = party_match.match_supplier(
+                job.company,
+                gstin=str(preview.get("supplier_gstin") or "").strip(),
+                name=party_match.sanitize_party_name(preview.get("supplier_name") or ""),
+            )
+            if match.get("status") == "matched":
+                dup_supplier_id = match["id"]
+    if dup_supplier_id is not None:
         ref = str(preview.get("bill_number") or "").strip()[:64]
         if ref and not preview.get("confirm_duplicate"):
             from purchases.models import PurchaseInvoice
 
             if PurchaseInvoice.objects.filter(
-                company=job.company, supplier_id=job.supplier_id,
+                company=job.company, supplier_id=dup_supplier_id,
                 supplier_bill_number=ref, invoice_date=bill_date,
             ).exclude(status=PurchaseInvoice.Status.CANCELLED).exists():
                 errors.append(
