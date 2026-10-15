@@ -290,3 +290,23 @@ def test_purchase_pdf_survives_markup_in_free_text_fields(tenant_a):
         unit_price=Decimal("10"), gst_rate=Decimal("0"), batch_no="B<1>",
     )
     assert render_gst_purchase_bill(inv).startswith(b"%PDF")
+
+
+def test_supplier_ledger_pdf_downloads_and_register_shows_claimable_tax(tenant_a):
+    from purchases.models import PurchaseInvoice
+    from reporting.services import ReportService
+
+    supplier = make_supplier(tenant_a.company, name="Ledger Co")
+    resp = tenant_a.client.get(f"/api/v1/ledgers/suppliers/{supplier.id}/pdf/")
+    assert resp.status_code == 200 and resp.content.startswith(b"%PDF")
+    assert resp["Content-Type"] == "application/pdf"
+
+    for i, eligibility in enumerate(("CLAIMABLE", "INELIGIBLE")):
+        PurchaseInvoice.objects.create(
+            company=tenant_a.company, supplier=supplier, status=PurchaseInvoice.Status.COMPLETED,
+            number=f"R-{i}", itc_eligibility=eligibility, cgst_total=Decimal("9"), sgst_total=Decimal("9"),
+            taxable_total=Decimal("100"), grand_total=Decimal("118"),
+        )
+    rows = ReportService.purchase_register(tenant_a.company)["rows"]
+    itc = {r["number"]: Decimal(str(r["itc"])) for r in rows}
+    assert itc == {"R-0": Decimal("18"), "R-1": Decimal("0")}

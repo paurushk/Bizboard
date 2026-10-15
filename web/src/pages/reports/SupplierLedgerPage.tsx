@@ -16,7 +16,8 @@ import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import PrintIcon from '@mui/icons-material/Print';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
-import { getSupplierLedger } from '@/api/resources';
+import { getSupplierLedger, getSupplierLedgerPdf } from '@/api/resources';
+import { triggerBlobDownload } from '@/utils/blob';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { useSupplierSearch } from '@/hooks/usePartySearch';
@@ -135,6 +136,17 @@ export function SupplierLedgerPage() {
               onClick={() => downloadLedgerCsv(supplier.name, opening, entries)}
             >
               {t('reports.ledgerExportCsv')}
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<DownloadIcon />}
+              onClick={() => {
+                void getSupplierLedgerPdf(supplier.id, { date_from: dateFrom || undefined, date_to: dateTo || undefined }).then(
+                  (blob) => triggerBlobDownload(blob, `supplier-ledger-${supplier.id}.pdf`),
+                );
+              }}
+            >
+              {t('reports.ledgerExportPdf')}
             </Button>
             <Button
               variant="outlined"

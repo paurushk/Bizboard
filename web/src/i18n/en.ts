@@ -2956,6 +2956,8 @@ export const en = {
     regBills: 'Bills',
     regTaxable: 'Taxable value',
     regTax: 'GST',
+    regItc: 'Tax you can claim back (ITC)',
+    ledgerExportPdf: 'Download PDF',
     regGrand: 'Bill total',
     regAllColumns: 'Show all columns',
     regExported: 'Export started. Your download should begin shortly.',

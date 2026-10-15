@@ -626,6 +626,12 @@ class ReportService:
                 "sgst": _money(i.sgst_total),
                 "igst": _money(i.igst_total),
                 "grand_total": _money(i.grand_total),
+                # Tax you can claim back on this bill (only bills marked Claimable).
+                "itc": _money(
+                    (i.cgst_total or 0) + (i.sgst_total or 0) + (i.igst_total or 0)
+                    if i.itc_eligibility == PurchaseInvoice.ItcEligibility.CLAIMABLE
+                    else 0
+                ),
             }
             for i in qs.select_related("supplier")
         ]

@@ -82,12 +82,14 @@ export function PurchaseReportPage() {
     let taxable = 0;
     let tax = 0;
     let grand = 0;
+    let itc = 0;
     for (const r of rows) {
+      if (!('doc_type' in r) || !r.doc_type) itc += toNumber(r.itc as string | number);
       taxable += toNumber(r.taxable as string | number);
       tax += toNumber(r.cgst as string | number) + toNumber(r.sgst as string | number) + toNumber(r.igst as string | number);
       grand += toNumber(r.grand_total as string | number);
     }
-    return { count: rows.length, taxable, tax, grand };
+    return { count: rows.length, taxable, tax, grand, itc };
   }, [rows]);
 
   const applyRange = (range: { dateFrom: string; dateTo: string }) => {
@@ -159,6 +161,9 @@ export function PurchaseReportPage() {
             </Typography>
             <Typography variant="body2">
               {t('reports.regTax')}: <strong>{formatMoney(totals.tax)}</strong>
+            </Typography>
+            <Typography variant="body2">
+              {t('reports.regItc')}: <strong>{formatMoney(totals.itc)}</strong>
             </Typography>
             <Typography variant="body2">
               {t('reports.regGrand')}: <strong>{formatMoney(totals.grand)}</strong>

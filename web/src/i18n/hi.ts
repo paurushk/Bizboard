@@ -2946,6 +2946,8 @@ export const hi = {
     regBills: 'बिल',
     regTaxable: 'करयोग्य मूल्य',
     regTax: 'GST',
+    regItc: 'वापस लेने योग्य टैक्स (ITC)',
+    ledgerExportPdf: 'PDF डाउनलोड',
     regGrand: 'बिल कुल',
     regAllColumns: 'सभी कॉलम दिखाएँ',
     regExported: 'निर्यात शुरू हुआ। डाउनलोड कुछ ही देर में शुरू होना चाहिए।',

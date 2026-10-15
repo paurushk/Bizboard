@@ -102,3 +102,30 @@ class SupplierLedgerDetailView(APIView):
             "opening_balance": LedgerService.supplier_opening_balance(company, supplier, date_from),
             "entries": entries,
         })
+
+
+class SupplierLedgerPdfView(APIView):
+    """The supplier statement as a PDF, same rows as the screen."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanViewFinancialReports]
+
+    def get(self, request, supplier_id):
+        from django.http import HttpResponse
+
+        from .pdf import render_supplier_ledger
+
+        company = get_company_user(request).company
+        supplier = get_object_or_404(Supplier, pk=supplier_id, company=company)
+        date_from = _parse_date(request.query_params.get("date_from"))
+        date_to = _parse_date(request.query_params.get("date_to"))
+        entries = LedgerService.supplier_statement(company, supplier, date_from=date_from, date_to=date_to)
+        pdf = render_supplier_ledger(
+            company, supplier, entries,
+            opening=LedgerService.supplier_opening_balance(company, supplier, date_from) if date_from else None,
+            outstanding=LedgerService.supplier_outstanding(company, supplier),
+            date_from=date_from, date_to=date_to,
+        )
+        response = HttpResponse(pdf, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="supplier-ledger-{supplier.pk}.pdf"'
+        return response
+

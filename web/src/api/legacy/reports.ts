@@ -1,7 +1,7 @@
 import { apiClient, shouldUseMocks, unwrapData } from '../client';
 import { mockCompany, mockPaymentHealth } from '@/mocks/data';
 import type { Company, LedgerStatement, ReportResponse, ReportRow, BusinessHealth, BusinessHealthSnapshot, DiscountReportResponse } from '@/types/domain';
-import { withMocks } from './common';
+import { getBlob, withMocks } from './common';
 
 export async function getCustomerLedger(
   customerId: number | string,
@@ -33,6 +33,13 @@ export async function getCustomerLedger(
       },
     ],
   });
+}
+
+export async function getSupplierLedgerPdf(
+  supplierId: number,
+  params: { date_from?: string; date_to?: string } = {},
+): Promise<Blob> {
+  return getBlob(`/ledgers/suppliers/${supplierId}/pdf/`, params);
 }
 
 export async function getSupplierLedger(
