@@ -758,8 +758,24 @@ export interface DeliveryChallan extends DocumentTotals {
   ewayError?: string;
 }
 
+/** Payment typed on the bill editor, sent with Complete or to record-payment. */
+export interface PurchasePayNow {
+  amount: number;
+  mode: PaymentMode;
+  paymentDate?: string;
+  chequeNumber?: string;
+  chequeBankName?: string;
+  chequeDate?: string;
+  chequeImage?: number | string;
+}
+
 export interface PurchaseInvoice extends DocumentTotals {
   id: number;
+  /** Present on the response to `complete`: duplicate-bill / ITC style notices. */
+  warnings?: string[];
+  /** Present when `complete` was sent a `payNow`: the recorded payment, or why it was not. */
+  payment?: { id: number; number?: string; amount: string; mode: PaymentMode; allocation: number } | null;
+  paymentError?: { code: string; message: string } | null;
   number?: string | null;
   status: DocumentStatus;
   purchaseType: PurchaseType;

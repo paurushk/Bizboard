@@ -14,12 +14,15 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useLocation, useParams } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
+import { confirmAction } from '@/utils/confirmBridge';
+import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import {
   cancelPurchase,
   completePurchase,
   getPurchase,
+  recordPurchasePayment,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -30,6 +33,7 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { canCancelDocuments } from '@/utils/permissions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import type { PurchasePayNow } from '@/types/domain';
 
 export function PurchaseDetailPage() {
   const { user } = useAuth();
@@ -37,7 +41,12 @@ export function PurchaseDetailPage() {
   const location = useLocation();
   const purchaseId = Number(id);
   const qc = useQueryClient();
+  // The editor hands over a payment the server refused after completing the bill (WP-1).
+  const [paymentRetry, setPaymentRetry] = useState<{ payNow: PurchasePayNow; message: string } | null>(
+    () => (location.state as { paymentRetry?: { payNow: PurchasePayNow; message: string } } | null)?.paymentRetry ?? null,
+  );
   const [message, setMessage] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(
     () => (location.state as { paymentWarning?: string } | null)?.paymentWarning ?? null,
   );
@@ -50,20 +59,37 @@ export function PurchaseDetailPage() {
 
   const completeMutation = useMutation({
     mutationFn: () => completeWithConfirms((extra) => completePurchase(purchaseId, extra)),
-    onSuccess: () => {
-      setMessage('Purchase completed');
-      void qc.invalidateQueries({ queryKey: ['purchase-invoice', purchaseId] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
+    onSuccess: (data) => {
+      setError(null);
+      setMessage(t('history.completed', { label: data.number?.trim() ? data.number : `#${data.id}` }));
+      // Completion notices (duplicate bill, ITC, etc.) must stay visible, not vanish with a toast.
+      setWarnings((data.warnings ?? []).filter(Boolean));
+      invalidatePurchaseSideEffects(qc, { invoiceId: purchaseId, stock: true });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
 
+  const retryPaymentMutation = useMutation({
+    mutationFn: (payNow: PurchasePayNow) =>
+      recordPurchasePayment(purchaseId, payNow, { idempotencyKey: userGestureIdempotencyKey() }),
+    onSuccess: (data) => {
+      setPaymentRetry(null);
+      setError(null);
+      setMessage(t('history.paymentRecorded', { label: data.number?.trim() ? data.number : `#${data.id}` }));
+      invalidatePurchaseSideEffects(qc, { invoiceId: purchaseId });
+    },
+    // Keep the banner (and its Retry) with the newest reason.
+    onError: (err) =>
+      setPaymentRetry((cur) => (cur ? { ...cur, message: getErrorMessage(err) } : cur)),
+  });
+
   const cancelMutation = useMutation({
     mutationFn: () => cancelPurchase(purchaseId),
-    onSuccess: () => {
-      setMessage('Purchase cancelled');
-      void qc.invalidateQueries({ queryKey: ['purchase-invoice', purchaseId] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
+    onSuccess: (data) => {
+      setError(null);
+      setWarnings([]);
+      setMessage(t('history.cancelled', { label: data.number?.trim() ? data.number : `#${data.id}` }));
+      invalidatePurchaseSideEffects(qc, { invoiceId: purchaseId, stock: true });
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -113,6 +139,40 @@ export function PurchaseDetailPage() {
       </Stack>
 
       {message ? <Alert severity="success">{message}</Alert> : null}
+      {paymentRetry ? (
+        <Alert
+          severity="warning"
+          action={
+            <Stack direction="row" spacing={1}>
+              <Button
+                color="inherit"
+                size="small"
+                disabled={retryPaymentMutation.isPending}
+                onClick={() => retryPaymentMutation.mutate(paymentRetry.payNow)}
+              >
+                {t('billing.retryPayment')}
+              </Button>
+              <Button color="inherit" size="small" onClick={() => setPaymentRetry(null)}>
+                {t('billing.dismissPaymentNotice')}
+              </Button>
+            </Stack>
+          }
+        >
+          {t('billing.paymentNotRecorded', {
+            amount: formatMoney(paymentRetry.payNow.amount),
+            reason: paymentRetry.message,
+          })}
+        </Alert>
+      ) : null}
+      {warnings.length > 0 ? (
+        <Alert severity="warning">
+          <Stack component="ul" spacing={0.25} sx={{ m: 0, pl: 2 }}>
+            {warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </Stack>
+        </Alert>
+      ) : null}
       {error ? <HelpErrorAlert message={error} /> : null}
 
       <Paper
@@ -152,9 +212,9 @@ export function PurchaseDetailPage() {
               variant="outlined"
               disabled={cancelMutation.isPending}
               onClick={() => {
-                if (window.confirm(t('history.confirmCancel', { label: inv.number ?? inv.id }))) {
-                  cancelMutation.mutate();
-                }
+                void confirmAction(t('history.confirmCancel', { label: inv.number ?? inv.id })).then((ok) => {
+                  if (ok) cancelMutation.mutate();
+                });
               }}
             >
               {t('common.cancel')}

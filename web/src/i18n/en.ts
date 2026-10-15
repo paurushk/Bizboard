@@ -788,6 +788,10 @@ export const en = {
     bounceCheque: 'Mark bounced',
     confirmBounceCheque: 'Mark this cheque as bounced? The receipt will be voided.',
     chequeStatusUpdated: 'Cheque status updated',
+    paymentNotRecorded:
+      'The bill is completed, but the payment of {amount} was not recorded: {reason} Nothing was paid or allocated.',
+    retryPayment: 'Retry payment',
+    dismissPaymentNotice: 'Dismiss',
     chequeImage: 'Cheque image',
     chequeImageAttached: 'Cheque image attached',
     reference: 'Reference / UTR',

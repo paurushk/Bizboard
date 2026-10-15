@@ -8509,6 +8509,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/invoices/{id}/record-payment/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Pay a completed bill from the bill itself: payment + allocation in one transaction. */
+        post: operations["purchases_invoices_record_payment_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/invoices/{id}/returnable-lines/": {
         parameters: {
             query?: never;
@@ -18461,6 +18478,33 @@ export interface components {
          * @enum {string}
          */
         PurchaseOrderStatusEnum: "DRAFT" | "CONVERTED" | "CANCELLED";
+        /** @description The payment details typed on the bill editor, validated like the payments screen. */
+        PurchasePayNow: {
+            /** Format: decimal */
+            amount: string;
+            /** @default CASH */
+            mode: components["schemas"]["ModeEnum"];
+            /** Format: date */
+            paymentDate?: string | null;
+            /** @default  */
+            reference: string;
+            /** @default  */
+            utr: string;
+            /** @default  */
+            notes: string;
+            bankAccount?: number | null;
+            /** @default  */
+            chequeNumber: string;
+            /** @default  */
+            chequeBankName: string;
+            /** Format: date */
+            chequeDate?: string | null;
+            chequeImage?: number | null;
+            /** @default false */
+            gstinHoldOverride: boolean;
+            /** @default  */
+            gstinHoldReason: string;
+        };
         PurchaseReturn: {
             readonly id: number;
             readonly number: string;
@@ -34979,6 +35023,34 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseInvoice"];
+                };
+            };
+        };
+    };
+    purchases_invoices_record_payment_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this purchase invoice. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PurchasePayNow"];
+                "multipart/form-data": components["schemas"]["PurchasePayNow"];
+                "application/x-www-form-urlencoded": components["schemas"]["PurchasePayNow"];
+            };
+        };
         responses: {
             200: {
                 headers: {

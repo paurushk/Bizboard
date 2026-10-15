@@ -27,11 +27,9 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { Link as RouterLink, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   completePurchase,
-  createAllocation,
   createProduct,
   createPurchase,
   createSupplier,
-  createSupplierPayment,
   getCompany,
   getPurchase,
   getPurchaseNumberSeries,
@@ -67,6 +65,8 @@ import {
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
+import { confirmAction } from '@/utils/confirmBridge';
+import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
@@ -86,7 +86,7 @@ import {
   previewAllowsComplete,
   serialCountMatchesQty,
 } from '@/completeGates/completeBlockers';
-import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchaseType } from '@/types/domain';
+import type { PaymentMode, PriceMode, Product, PurchaseInvoice, PurchasePayNow, PurchaseType } from '@/types/domain';
 import { formatMoney, roundMoney, toNumber } from '@/utils/money';
 import { formatProductOptionLabel } from '@/utils/formatProductOptionLabel';
 import { exactBarcodeOrSku, filterProductsForPicker } from '@/utils/productPick';
@@ -954,13 +954,27 @@ export function NewPurchasePage() {
         }
       }
       const payload = buildPayload();
+      // WP-1: payment details travel with Complete; the server pays + allocates in one transaction.
+      const payNow: PurchasePayNow | undefined =
+        shouldComplete && amountPaid > 0
+          ? {
+              amount: amountPaid,
+              mode: paymentMode,
+              paymentDate: invoiceDate || undefined,
+              chequeNumber: cheque.chequeNumber || undefined,
+              chequeBankName: cheque.chequeBankName || undefined,
+              chequeDate: cheque.chequeDate || undefined,
+              chequeImage: cheque.chequeImage || undefined,
+            }
+          : undefined;
       // PD-01: one fresh Idempotency-Key per user gesture. Network auto-retry
       // reuses the request header; an offline queue+flush reuses draft.idempotencyKey.
       const key = userGestureIdempotencyKey();
+      const completeBase = payNow ? { payNow, idempotencyKey: `${key}-complete` } : {};
       let invoice: PurchaseInvoice;
       let completeWarning: string | null = null;
-      const queueOffline = async () => {
-        if (!companyId || !userId) return;
+      const queueOffline = async (): Promise<boolean> => {
+        if (!companyId || !userId) return false;
         await enqueueDraft(companyId, userId, {
           kind: 'purchase',
           payload: {
@@ -978,6 +992,7 @@ export function NewPurchasePage() {
           paymentMode,
         });
         setOutboxBanner(t('billing.savedOffline'));
+        return true;
       };
       try {
       if (isEdit && editId) {
@@ -988,8 +1003,9 @@ export function NewPurchasePage() {
               'Only an Owner can amend a completed purchase. Use a return for stock corrections, not price fixes.',
             );
           }
-          if (!window.confirm(t('billing.confirmAmendCompleted'))) {
-            throw new Error('Amend cancelled');
+          // Declining is a normal choice, not a failure: nothing is saved and no error shows.
+          if (!(await confirmAction(t('billing.confirmAmendCompleted')))) {
+            return { kind: 'cancelled' as const };
           }
           invoice = await updatePurchase(editId, { ...payload, confirmAmend: true });
         } else {
@@ -1002,7 +1018,7 @@ export function NewPurchasePage() {
         // dead-end on a raw error / swallowed warning instead of prompting).
         if (shouldComplete && invoice.status === 'DRAFT') {
           try {
-            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra), completeBase);
           } catch (err) {
             completeWarning = getErrorMessage(err);
           }
@@ -1011,68 +1027,55 @@ export function NewPurchasePage() {
         invoice = await createPurchase(payload, { idempotencyKey: key });
         if (shouldComplete) {
           try {
-            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra));
+            invoice = await completeWithConfirms((extra) => completePurchase(invoice.id, extra), completeBase);
           } catch (err) {
             completeWarning = getErrorMessage(err);
           }
         }
       }
       } catch (err) {
-        if (isNetworkError(err) || !navigator.onLine) {
-          await queueOffline();
-          throw new Error(t('billing.savedOffline'));
+        if ((isNetworkError(err) || !navigator.onLine) && (await queueOffline())) {
+          // Queued on this device is a success state; the outbox flushes it on reconnect.
+          return { kind: 'queued' as const };
         }
         throw err;
       }
 
-      let paymentWarning: string | null = completeWarning;
-      if (shouldComplete && amountPaid > 0 && invoice.status === 'COMPLETED') {
-        const already = toNumber(invoice.paid);
-        const toAllocate = Math.max(0, amountPaid - already);
-        if (toAllocate > 0) {
-          try {
-            const payment = await createSupplierPayment(
-              {
-                supplier: Number(supplierId),
-                amount: toAllocate,
-                mode: paymentMode,
-                paymentDate: invoiceDate,
-                notes: `Against ${invoice.number ?? invoice.id}`,
-                chequeNumber: cheque.chequeNumber,
-                chequeBankName: cheque.chequeBankName,
-                chequeDate: cheque.chequeDate || undefined,
-                chequeImage: cheque.chequeImage || undefined,
-              },
-              { idempotencyKey: `${key}-payment` },
-            );
-            await createAllocation(
-              {
-                supplierPayment: payment.id,
-                purchaseInvoice: invoice.id,
-                amount: toAllocate,
-              },
-              { idempotencyKey: `${key}-alloc` },
-            );
-          } catch (err) {
-            paymentWarning = [paymentWarning, getErrorMessage(err)].filter(Boolean).join(' ');
-          }
-        }
-      }
-      return { invoice, mode, paymentWarning };
+      // WP-1: the server recorded (or refused) the payment inside Complete. A refusal leaves the
+      // bill completed; it is handed to the bill page as a persistent, retryable banner.
+      const paymentError = invoice.paymentError?.message ?? null;
+      const paymentWarning: string | null = completeWarning;
+      return { kind: 'saved' as const, invoice, mode, paymentWarning, paymentError, payNow };
     },
-    onSuccess: async ({ invoice, mode, paymentWarning }) => {
+    onSuccess: async (result) => {
+      if (result.kind === 'cancelled') return;
+      if (result.kind === 'queued') {
+        flushSync(() => setSkipLeaveGuard(true));
+        if (isEdit) {
+          navigate('/purchases/history', { replace: true, state: { message: t('billing.savedOffline') } });
+        } else {
+          // Reset so a second click cannot enqueue the same bill again under a new key.
+          flashSaveAndNew(t('billing.savedOffline'), null);
+          resetForm();
+        }
+        return;
+      }
+      const { invoice, mode, paymentWarning, paymentError, payNow } = result;
       flushSync(() => setSkipLeaveGuard(true));
-      void qc.invalidateQueries({ queryKey: ['purchase-invoice-number-series'] });
-      void qc.invalidateQueries({ queryKey: ['purchase-invoice', invoice.id] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
-      void qc.invalidateQueries({ queryKey: ['suppliers'] });
-      void qc.invalidateQueries({ queryKey: ['products'] });
-      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidatePurchaseSideEffects(qc, { invoiceId: invoice.id, stock: invoice.status === 'COMPLETED' });
       if (companyId && userId) {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
+
+      if (invoice.status === 'COMPLETED' && paymentError && payNow) {
+        // Never bury this in a flash: the bill is posted but unpaid, so land on it with a Retry.
+        navigate(`/purchases/history/${invoice.id}`, {
+          replace: true,
+          state: { paymentRetry: { payNow, message: paymentError } },
+        });
+        return;
+      }
 
       if (mode === 'complete_new' && invoice.status === 'COMPLETED') {
         flashSaveAndNew(t('billing.purchaseSavedNext', { label }), paymentWarning);

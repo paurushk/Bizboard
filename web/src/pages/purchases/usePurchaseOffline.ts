@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
 import {
   completePurchase,
-  createAllocation,
   createPurchase,
-  createSupplierPayment,
+  recordPurchasePayment,
   updatePurchase,
 } from '@/api/resources';
 import { t } from '@/i18n';
@@ -73,23 +72,12 @@ async function allocatePurchasePayment(
   const toAllocate = Math.max(0, opts.amountPaid - already);
   if (toAllocate <= 0) return;
   const keyBase = opts.idempotencyKey || invoice.number || String(invoice.id);
-  const payment = await createSupplierPayment(
-    {
-      supplier: opts.supplierId,
-      amount: toAllocate,
-      mode: opts.paymentMode,
-      paymentDate: opts.invoiceDate || undefined,
-      notes: `Against ${invoice.number ?? invoice.id}`,
-    },
+  // One atomic call: payment and allocation both exist or neither does, so a failed
+  // flush can be retried without leaving an orphan supplier advance behind.
+  await recordPurchasePayment(
+    invoice.id,
+    { amount: toAllocate, mode: opts.paymentMode, paymentDate: opts.invoiceDate || undefined },
     { idempotencyKey: `purchase-pay-${keyBase}` },
-  );
-  await createAllocation(
-    {
-      supplierPayment: payment.id,
-      purchaseInvoice: invoice.id,
-      amount: toAllocate,
-    },
-    { idempotencyKey: `purchase-alloc-${keyBase}` },
   );
 }
 

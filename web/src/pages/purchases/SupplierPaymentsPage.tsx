@@ -36,6 +36,8 @@ import { ChequePaymentFields, type ChequePaymentValues } from '@/components/Cheq
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { todayIso } from '@/components/billing';
 import { PageTitle } from '@/contextHelp';
+import { confirmAction } from '@/utils/confirmBridge';
+import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import { t, useLocale } from '@/i18n';
 import { trackShopFloor } from '@/lib/telemetry';
 import type { PaymentMode, PurchaseInvoice, Supplier } from '@/types/domain';
@@ -170,10 +172,7 @@ export function SupplierPaymentsPage() {
     onSuccess: () => {
       trackShopFloor('document_voided', { feature: 'form' });
       setMessage(t('billing.paymentVoided'));
-      void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
-      void qc.invalidateQueries({ queryKey: ['suppliers'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidatePurchaseSideEffects(qc);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -183,10 +182,7 @@ export function SupplierPaymentsPage() {
       setSupplierPaymentChequeStatus(id, chequeStatus),
     onSuccess: () => {
       setMessage(t('billing.chequeStatusUpdated'));
-      void qc.invalidateQueries({ queryKey: ['supplier-payments'] });
-      void qc.invalidateQueries({ queryKey: ['purchases'] });
-      void qc.invalidateQueries({ queryKey: ['suppliers'] });
-      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      invalidatePurchaseSideEffects(qc);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -269,9 +265,9 @@ export function SupplierPaymentsPage() {
                             color="warning"
                             disabled={chequeStatusMutation.isPending}
                             onClick={() => {
-                              if (window.confirm(t('billing.confirmBounceCheque'))) {
-                                chequeStatusMutation.mutate({ id: p.id, chequeStatus: 'BOUNCED' });
-                              }
+                              void confirmAction(t('billing.confirmBounceCheque')).then((ok) => {
+                                if (ok) chequeStatusMutation.mutate({ id: p.id, chequeStatus: 'BOUNCED' });
+                              });
                             }}
                           >
                             {t('billing.bounceCheque')}
@@ -282,9 +278,9 @@ export function SupplierPaymentsPage() {
                           color="warning"
                           disabled={voidMutation.isPending}
                           onClick={() => {
-                            if (window.confirm(t('billing.confirmVoidPayment'))) {
-                              voidMutation.mutate(p.id);
-                            }
+                            void confirmAction(t('billing.confirmVoidPayment')).then((ok) => {
+                              if (ok) voidMutation.mutate(p.id);
+                            });
                           }}
                         >
                           {t('billing.void')}

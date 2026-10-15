@@ -784,6 +784,10 @@ export const hi = {
     bounceCheque: 'बाउंस चिह्नित करें',
     confirmBounceCheque: 'इस चेक को बाउंस चिह्नित करें? रसीद रद्द हो जाएगी।',
     chequeStatusUpdated: 'चेक स्थिति अपडेट हुई',
+    paymentNotRecorded:
+      'बिल पूर्ण हो गया है, लेकिन {amount} का भुगतान दर्ज नहीं हुआ: {reason} कुछ भी भुगतान या आवंटित नहीं हुआ।',
+    retryPayment: 'भुगतान फिर कोशिश करें',
+    dismissPaymentNotice: 'बंद करें',
     chequeImage: 'चेक छवि',
     chequeImageAttached: 'चेक छवि जुड़ी',
     reference: 'संदर्भ / UTR',

@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 from django.http import FileResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,6 +36,7 @@ from .serializers import (
     PurchaseReturnPreviewSerializer,
     PurchaseReturnSerializer,
 )
+from .pay_now import PurchasePayNowSerializer, payment_error_payload, payment_summary, record_payment_at_entry
 from .services import PurchaseService
 
 
@@ -78,7 +80,7 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
         action = getattr(self, "action", None)
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "complete", "update", "partial_update", "destroy", "preview_totals"):
+        if action in ("create", "complete", "record_payment", "update", "partial_update", "destroy", "preview_totals"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
         if action in ("list", "retrieve", "returnable_lines"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
@@ -265,12 +267,69 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
             )
             data = self.get_serializer(invoice).data
             data["warnings"] = warnings
+            # WP-1: optional pay-at-entry. Completion is already committed; a payment
+            # problem is reported next to it (never raised) so the user gets a Retry
+            # instead of a flash that vanishes on navigation.
+            raw_pay = request.data.get("pay_now")
+            if raw_pay:
+                data["payment"], data["payment_error"] = self._pay_now(invoice, raw_pay)
+                if data["payment"]:
+                    invoice.refresh_from_db()
+                    data.update(
+                        {k: v for k, v in self.get_serializer(invoice).data.items() if k in ("paid", "balance")}
+                    )
             return Response(data)
 
         return wrap_idempotent(
             request=request,
             company=self.company,
             scope="purchase_invoice_complete",
+            build=_run,
+        )
+
+    def _audit_payment(self, payment):
+        from core.services.audit import AuditService
+
+        AuditService.log(
+            company=self.company,
+            user=self.request.user,
+            action="CREATE",
+            entity_type="SupplierPayment",
+            entity_id=str(payment.pk),
+            metadata={"source": "purchase_pay_now"},
+        )
+
+    def _pay_now(self, invoice, raw_pay):
+        """Returns (payment_summary | None, error | None). Payment + allocation are one transaction."""
+        serializer = PurchasePayNowSerializer(data=raw_pay, context=self.get_serializer_context())
+        try:
+            serializer.is_valid(raise_exception=True)
+            payment, allocation = record_payment_at_entry(invoice, self.request.user, serializer.validated_data)
+        except APIException as exc:
+            return None, payment_error_payload(exc)
+        self._audit_payment(payment)
+        return payment_summary(payment, allocation), None
+
+    @extend_schema(request=PurchasePayNowSerializer)
+    @action(detail=True, methods=["post"], url_path="record-payment")
+    def record_payment(self, request, pk=None):
+        """Pay a completed bill from the bill itself: payment + allocation in one transaction."""
+
+        def _run():
+            serializer = PurchasePayNowSerializer(data=request.data, context=self.get_serializer_context())
+            serializer.is_valid(raise_exception=True)
+            invoice = self.get_object()
+            payment, allocation = record_payment_at_entry(invoice, request.user, serializer.validated_data)
+            self._audit_payment(payment)
+            invoice.refresh_from_db()
+            data = self.get_serializer(invoice).data
+            data["payment"] = payment_summary(payment, allocation)
+            return Response(data, status=201)
+
+        return wrap_idempotent(
+            request=request,
+            company=self.company,
+            scope="purchase_invoice_record_payment",
             build=_run,
         )
 

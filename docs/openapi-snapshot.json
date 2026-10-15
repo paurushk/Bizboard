@@ -24991,6 +24991,63 @@
                 }
             }
         },
+        "/api/v1/purchases/invoices/{id}/record-payment/": {
+            "post": {
+                "operationId": "purchases_invoices_record_payment_create",
+                "description": "Pay a completed bill from the bill itself: payment + allocation in one transaction.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this purchase invoice.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "purchases"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchasePayNow"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchasePayNow"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PurchasePayNow"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PurchaseInvoice"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/purchases/invoices/{id}/returnable-lines/": {
             "get": {
                 "operationId": "purchases_invoices_returnable_lines_list",
@@ -54052,6 +54109,79 @@
                 ],
                 "type": "string",
                 "description": "* `DRAFT` - Draft\n* `CONVERTED` - Converted\n* `CANCELLED` - Cancelled"
+            },
+            "PurchasePayNow": {
+                "type": "object",
+                "description": "The payment details typed on the bill editor, validated like the payments screen.",
+                "properties": {
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ModeEnum"
+                            }
+                        ],
+                        "default": "CASH"
+                    },
+                    "payment_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "reference": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 100
+                    },
+                    "utr": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 64
+                    },
+                    "notes": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 500
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "cheque_number": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 32
+                    },
+                    "cheque_bank_name": {
+                        "type": "string",
+                        "default": "",
+                        "maxLength": 100
+                    },
+                    "cheque_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "cheque_image": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "gstin_hold_override": {
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "gstin_hold_reason": {
+                        "type": "string",
+                        "default": ""
+                    }
+                },
+                "required": [
+                    "amount"
+                ]
             },
             "PurchaseReturn": {
                 "type": "object",

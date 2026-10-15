@@ -34,6 +34,7 @@ import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { useFeatureFlagEpoch } from '@/config/featureFlags';
 import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
+import { GlobalConfirmHost } from '@/components/GlobalConfirmHost';
 import { listDrafts } from '@/offline/invoiceDraftCache';
 import { drainPodPhotos } from '@/offline/photoOutbox';
 
@@ -410,6 +411,7 @@ export function AppShell() {
           <Outlet />
         </ErrorBoundary>
         <CommandPalette />
+        <GlobalConfirmHost />
         <CompanyRequiredDialog />
         <Snackbar
           open={Boolean(pwaReloadFn)}

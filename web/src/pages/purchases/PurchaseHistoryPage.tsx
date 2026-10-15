@@ -28,6 +28,8 @@ import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { formatDocumentDate } from '@/utils/documentDate';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
+import { confirmAction } from '@/utils/confirmBridge';
+import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import {
   cancelPurchase,
   completePurchase,
@@ -101,15 +103,20 @@ export function PurchaseHistoryPage() {
     setActive(null);
   };
 
-  const invalidate = () => void qc.invalidateQueries({ queryKey: ['purchases'] });
+  const invalidate = (id?: number, stock = false) =>
+    invalidatePurchaseSideEffects(qc, { invoiceId: id, stock });
 
   const completeMutation = useMutation({
     // F2-017: same confirm-retry helper the editor uses.
     mutationFn: (id: number) =>
       completeWithConfirms((extra) => completePurchase(id, extra)),
     onSuccess: (inv) => {
-      setMessage(`Purchase ${purchaseNumberLabel(inv)} completed`);
-      invalidate();
+      setMessage(
+        [t('history.completed', { label: purchaseNumberLabel(inv) }), ...(inv.warnings ?? [])]
+          .filter(Boolean)
+          .join(' '),
+      );
+      invalidate(inv.id, true);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -117,8 +124,8 @@ export function PurchaseHistoryPage() {
   const cancelMutation = useMutation({
     mutationFn: (id: number) => cancelPurchase(id),
     onSuccess: (inv) => {
-      setMessage(`Purchase ${purchaseNumberLabel(inv)} cancelled`);
-      invalidate();
+      setMessage(t('history.cancelled', { label: purchaseNumberLabel(inv) }));
+      invalidate(inv.id, true);
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -126,7 +133,7 @@ export function PurchaseHistoryPage() {
   const deleteMutation = useMutation({
     mutationFn: (id: number) => deletePurchase(id),
     onSuccess: () => {
-      setMessage('Draft deleted');
+      setMessage(t('history.draftDeleted'));
       invalidate();
     },
     onError: (err) => setError(getErrorMessage(err)),
@@ -383,8 +390,11 @@ export function PurchaseHistoryPage() {
           onClick={() => {
             // BUG-520: same one-click-cancels-a-completed-document risk as
             // the sales history page.
-            if (active && window.confirm(t('history.confirmCancel', { label: purchaseNumberLabel(active) }))) {
-              cancelMutation.mutate(active.id);
+            if (active) {
+              const target = active;
+              void confirmAction(t('history.confirmCancel', { label: purchaseNumberLabel(target) })).then((ok) => {
+                if (ok) cancelMutation.mutate(target.id);
+              });
             }
             closeMenu();
           }}
@@ -398,8 +408,11 @@ export function PurchaseHistoryPage() {
         <MenuItem
           disabled={!active || active.status !== 'DRAFT'}
           onClick={() => {
-            if (active && window.confirm(t('history.confirmDeleteDraft', { label: purchaseNumberLabel(active) }))) {
-              deleteMutation.mutate(active.id);
+            if (active) {
+              const target = active;
+              void confirmAction(t('history.confirmDeleteDraft', { label: purchaseNumberLabel(target) })).then((ok) => {
+                if (ok) deleteMutation.mutate(target.id);
+              });
             }
             closeMenu();
           }}

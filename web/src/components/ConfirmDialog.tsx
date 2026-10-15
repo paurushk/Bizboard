@@ -40,7 +40,9 @@ export function ConfirmDialog({
     <Dialog open={open} onClose={onClose} aria-labelledby="confirm-dialog-title">
       <DialogTitle id="confirm-dialog-title">{title}</DialogTitle>
       <DialogContent>
-        <Typography variant="body2">{body}</Typography>
+        <Typography variant="body2" sx={{ whiteSpace: 'pre-line' }}>
+          {body}
+        </Typography>
         {expected ? (
           <TextField
             autoFocus

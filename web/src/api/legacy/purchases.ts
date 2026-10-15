@@ -1,6 +1,6 @@
 import { apiClient, idempotencyHeaders, unwrapData } from '../client';
 import { mockPurchases } from '@/mocks/data';
-import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchaseReturn, ReportResponse, ReturnableLine, SalesReturnPreview } from '@/types/domain';
+import type { BillOfEntry, LineItem, PurchaseCreditNote, PurchaseDebitNote, PurchaseInvoice, PurchaseOrder, PurchasePayNow, PurchaseReturn, ReportResponse, ReturnableLine, SalesReturnPreview } from '@/types/domain';
 import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 import { clientPreviewTotals, mapPreviewTotals, type PreviewTotals } from './sales';
 
@@ -116,14 +116,46 @@ export async function updatePurchase(
 
 export async function completePurchase(
   id: number,
-  options?: { confirmNoRcm?: boolean; confirmBlankPos?: boolean; confirmDuplicateBill?: boolean; confirmGstinTotalChange?: boolean },
+  options?: {
+    confirmNoRcm?: boolean;
+    confirmBlankPos?: boolean;
+    confirmDuplicateBill?: boolean;
+    confirmGstinTotalChange?: boolean;
+    /** Pay-at-entry: the server records payment + allocation in one transaction after completing. */
+    payNow?: PurchasePayNow;
+    /** Per-gesture key; required with `payNow` so a network retry cannot pay twice. */
+    idempotencyKey?: string;
+  },
+): Promise<PurchaseInvoice> {
+  const flags = {
+    confirmNoRcm: Boolean(options?.confirmNoRcm),
+    confirmBlankPos: Boolean(options?.confirmBlankPos),
+    confirmDuplicateBill: Boolean(options?.confirmDuplicateBill),
+    confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+  };
+  // A confirm-code retry sends a different body, so it must not reuse the first attempt's key.
+  const key = options?.idempotencyKey
+    ? `${options.idempotencyKey}:${Object.values(flags).map((f) => (f ? 1 : 0)).join('')}`
+    : undefined;
+  return withMocks(async () => {
+    const { data } = await apiClient.post(
+      `/purchases/invoices/${id}/complete/`,
+      { ...flags, ...(options?.payNow ? { payNow: options.payNow } : {}) },
+      key ? { headers: idempotencyHeaders(key) } : undefined,
+    );
+    return unwrapData<PurchaseInvoice>(data);
+  }, { ...mockPurchases[0], id, status: 'COMPLETED', number: `PUR-${id}` });
+}
+
+/** Pay a completed bill from the bill itself: payment + allocation succeed or fail together. */
+export async function recordPurchasePayment(
+  id: number,
+  payNow: PurchasePayNow,
+  options?: { idempotencyKey?: string },
 ): Promise<PurchaseInvoice> {
   return withMocks(async () => {
-    const { data } = await apiClient.post(`/purchases/invoices/${id}/complete/`, {
-      confirmNoRcm: Boolean(options?.confirmNoRcm),
-      confirmBlankPos: Boolean(options?.confirmBlankPos),
-      confirmDuplicateBill: Boolean(options?.confirmDuplicateBill),
-      confirmGstinTotalChange: Boolean(options?.confirmGstinTotalChange),
+    const { data } = await apiClient.post(`/purchases/invoices/${id}/record-payment/`, payNow, {
+      headers: idempotencyHeaders(options?.idempotencyKey),
     });
     return unwrapData<PurchaseInvoice>(data);
   }, { ...mockPurchases[0], id, status: 'COMPLETED', number: `PUR-${id}` });
