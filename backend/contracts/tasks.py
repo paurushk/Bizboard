@@ -10,6 +10,7 @@ from core.services.audit import AuditService
 from core.services.feature_flags import flag_enabled
 
 from .models import Contract
+from .services import pause_ended_contract_schedules
 from .status import compute_contract_status
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ def refresh_contract_statuses():
 
     today = timezone.localdate()
     changed = 0
+    paused = 0
     skipped: list[int] = []
     try:
         for cid in iter_company_ids():
@@ -33,6 +35,8 @@ def refresh_contract_statuses():
                 continue
             if not flag_enabled(company, "ENABLE_CONTRACTS"):
                 skipped.append(cid)
+                # Statuses are left alone, but a schedule must still stop when its contract is over.
+                paused += pause_ended_contract_schedules(company_id=cid)
                 continue
             qs = (
                 Contract.objects.filter(company_id=cid)
@@ -57,6 +61,8 @@ def refresh_contract_statuses():
                     metadata={"status": new_status},
                 )
                 changed += 1
+            # An ended contract must stop billing: pause the schedule it created.
+            paused += pause_ended_contract_schedules(company_id=cid)
     finally:
         set_rls_company(None)
     logger.info(
@@ -64,4 +70,4 @@ def refresh_contract_statuses():
         len(skipped),
         skipped,
     )
-    return {"changed": changed, "skipped_flag_off": len(skipped)}
+    return {"changed": changed, "skipped_flag_off": len(skipped), "schedules_paused": paused}

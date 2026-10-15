@@ -1731,23 +1731,92 @@ export async function submitChallanEway(id: number): Promise<DeliveryChallan> {
   });
 }
 
+export type RecurringTemplateLine = {
+  product: number;
+  quantity: number | string;
+  unitPrice?: number | string | null;
+};
+
+export type RecurringSchedule = {
+  id: number;
+  customer: number;
+  customerName: string;
+  customerStatus: string;
+  companyGstin: number | null;
+  cadence: string;
+  nextRunAt: string;
+  isActive: boolean;
+  lineTemplate: { items: RecurringTemplateLine[] };
+  notes: string;
+  stopStage: string;
+  autoComplete: boolean;
+  additionalCharges: string | number;
+  invoiceDiscount: string | number;
+  invoiceDiscountMode: string;
+  priceMode: string;
+  endDate: string | null;
+  maxOccurrences: number | null;
+  totalRunsCount: number;
+  lastError: string;
+  anchorDay: number | null;
+  pausedReason: string;
+  managedByContract: { id: number; number: string } | null;
+  hasRuns: boolean;
+  nextFutureRunAt: string;
+};
+
+export type RecurringRun = {
+  id: number;
+  periodKey: string;
+  createdAt: string;
+  isManual: boolean;
+  completionError: string;
+  documentType: 'invoice' | 'sales_order' | 'delivery_challan' | null;
+  documentId: number | null;
+  documentNumber: string | null;
+  status: string;
+  einvoiceStatus: string | null;
+};
+
+export type RecurringRunNowResult = {
+  ok: boolean;
+  runId: number;
+  invoiceId: number | null;
+  salesOrderId: number | null;
+  deliveryChallanId: number | null;
+  stopStage: string;
+  periodKey: string;
+  status: string | null;
+  documentNumber: string | null;
+  alreadyExisted: boolean;
+  completionError: string;
+};
+
 export async function listRecurringSchedulesPage(params?: PageParams) {
-  return fetchPage<Record<string, unknown>>('/sales/recurring-schedules/', params);
+  return fetchPage<RecurringSchedule>('/sales/recurring-schedules/', params);
 }
 
 export async function createRecurringSchedule(payload: Record<string, unknown>) {
   const { data } = await apiClient.post('/sales/recurring-schedules/', payload);
-  return unwrapData(data);
+  return unwrapData<RecurringSchedule>(data);
 }
 
 export async function updateRecurringSchedule(id: number, payload: Record<string, unknown>) {
   const { data } = await apiClient.patch(`/sales/recurring-schedules/${id}/`, payload);
-  return unwrapData(data);
+  return unwrapData<RecurringSchedule>(data);
+}
+
+export async function deleteRecurringSchedule(id: number) {
+  await apiClient.delete(`/sales/recurring-schedules/${id}/`);
 }
 
 export async function runRecurringScheduleNow(id: number) {
   const { data } = await apiClient.post(`/sales/recurring-schedules/${id}/run-now/`);
-  return unwrapData<Record<string, unknown>>(data);
+  return unwrapData<RecurringRunNowResult>(data);
+}
+
+export async function listRecurringRunsPage(id: number, params?: PageParams) {
+  return fetchPage<RecurringRun>(`/sales/recurring-schedules/${id}/runs/`, params);
 }
 
 export async function getInvoicePaymentStats(params?: PageParams) {

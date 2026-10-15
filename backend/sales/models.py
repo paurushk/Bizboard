@@ -878,6 +878,12 @@ class RecurringInvoiceSchedule(models.Model):
     class Cadence(models.TextChoices):
         MONTHLY = "MONTHLY"
         WEEKLY = "WEEKLY"
+        QUARTERLY = "QUARTERLY"
+        HALF_YEARLY = "HALF_YEARLY"
+        ANNUALLY = "ANNUALLY"
+
+    class PausedReason(models.TextChoices):
+        CONTRACT_ENDED = "CONTRACT_ENDED"
 
     class StopStage(models.TextChoices):
         INVOICE = "INVOICE"
@@ -926,6 +932,14 @@ class RecurringInvoiceSchedule(models.Model):
     price_mode = models.CharField(
         max_length=12, choices=SalesInvoice.PriceMode.choices, default=SalesInvoice.PriceMode.EXCLUSIVE,
     )
+    # Optional contract term: the schedule switches itself off after end_date or
+    # after max_occurrences runs (manual "Run now" counts as a run).
+    end_date = models.DateField(null=True, blank=True)
+    max_occurrences = models.PositiveIntegerField(null=True, blank=True)
+    total_runs_count = models.PositiveIntegerField(default=0)
+    # Set when the system (not a person) paused the schedule, so it can be resumed by the same cause
+    # ending: "CONTRACT_ENDED" is cleared when the contract is renewed and the schedule restarts.
+    paused_reason = models.CharField(max_length=24, blank=True, default="", choices=PausedReason.choices)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -961,6 +975,11 @@ class RecurringInvoiceRun(models.Model):
     delivery_challan = models.ForeignKey(
         "sales.DeliveryChallan", null=True, blank=True, on_delete=models.SET_NULL, related_name="recurring_runs",
     )
+    # Why an auto-complete attempt left the invoice in DRAFT ("" when it did not
+    # fail or auto-complete was off). Lives on the run, not the schedule, because
+    # schedule.last_error is cleared by the next successful run.
+    completion_error = models.TextField(blank=True, default="")
+    is_manual = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

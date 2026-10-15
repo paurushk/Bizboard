@@ -18,7 +18,13 @@ from support.models import Ticket
 
 from .models import Contract, ContractDocument
 from .serializers import ContractSerializer, ContractServiceEventSerializer
-from .services import create_contract_schedule, log_contract_created, log_service_event
+from .services import (
+    create_contract_schedule,
+    log_contract_created,
+    log_service_event,
+    pause_ended_contract_schedules,
+    resume_renewed_contract_schedules,
+)
 from .status import effective_contract_status, filter_by_effective_status
 
 
@@ -61,8 +67,15 @@ class ContractViewSet(CompanyScopedViewSet):
         # ContractSerializer.validate_status() already restricts what can land
         # here to CANCELLED, CANCELLED->ACTIVE (un-cancel), or a same-value
         # no-op; Contract.save() re-derives the real status from dates for
-        # anything other than CANCELLED. Nothing extra to do here.
+        # anything other than CANCELLED.
+        was_ended = serializer.instance.status in (Contract.Status.EXPIRED, Contract.Status.CANCELLED)
         instance = serializer.save(updated_by=self.request.user, company=self.company)
+        if instance.recurring_schedule_id:
+            schedule_ids = [instance.recurring_schedule_id]
+            # An ended or cancelled contract stops its schedule; renewing or un-cancelling restarts it.
+            pause_ended_contract_schedules(company_id=self.company.pk, schedule_ids=schedule_ids)
+            if was_ended and instance.status in (Contract.Status.ACTIVE, Contract.Status.EXPIRING):
+                resume_renewed_contract_schedules(self.company.pk, schedule_ids)
         self._audit("UPDATE", instance)
 
     @action(detail=True, methods=["post"], url_path="create-schedule")

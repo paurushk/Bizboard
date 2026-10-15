@@ -5,7 +5,10 @@ from core.services.flag_observability import log_flag_event
 from .models import ContractServiceEvent
 from .status import compute_contract_status
 
-__all__ = ["compute_contract_status", "log_service_event", "log_contract_created"]
+__all__ = [
+    "compute_contract_status", "log_service_event", "log_contract_created", "pause_ended_contract_schedules",
+    "resume_renewed_contract_schedules",
+]
 
 
 def log_service_event(contract, user, *, ticket=None, notes="", occurred_at=None):
@@ -89,3 +92,62 @@ def create_contract_schedule(contract, user):
             raise BusinessRuleError("The schedule did not create a draft invoice.")
         schedule.draft_invoice_id = invoice.id
     return schedule
+
+
+def pause_ended_contract_schedules(company_id=None, schedule_ids=None) -> int:
+    """Switch off schedules whose every contract has expired or been cancelled.
+
+    A contract's schedule bills monthly; once the contract is over nothing else
+    would stop it. A schedule shared with a still-live contract keeps running.
+    Returns how many schedules were paused.
+    """
+    from django.db.models import Count, Q
+
+    from sales.models import RecurringInvoiceSchedule
+
+    from .models import Contract
+
+    ended = [Contract.Status.EXPIRED, Contract.Status.CANCELLED]
+    qs = RecurringInvoiceSchedule.objects.filter(is_active=True, contracts__isnull=False)
+    if company_id is not None:
+        qs = qs.filter(company_id=company_id)
+    if schedule_ids is not None:
+        qs = qs.filter(pk__in=list(schedule_ids))
+    ids = list(
+        qs.annotate(live=Count("contracts", filter=~Q(contracts__status__in=ended)))
+        .filter(live=0)
+        .values_list("pk", flat=True)
+    )
+    if not ids:
+        return 0
+    return RecurringInvoiceSchedule.objects.filter(pk__in=ids).update(
+        is_active=False, paused_reason=RecurringInvoiceSchedule.PausedReason.CONTRACT_ENDED,
+        updated_at=timezone.now(),
+    )
+
+
+def resume_renewed_contract_schedules(company_id, schedule_ids) -> int:
+    """Restart a schedule the system paused when its contract ended, once a contract is live again.
+
+    Only a pause made by the contract ending is undone (never one a person chose), and only if the
+    customer is active. The next run is the first date after now, so no back-dated invoices appear.
+    """
+    from sales.models import RecurringInvoiceSchedule
+    from sales.recurring import next_future_run
+
+    from .models import Contract
+
+    resumed = 0
+    live = [Contract.Status.ACTIVE, Contract.Status.EXPIRING]
+    candidates = RecurringInvoiceSchedule.objects.filter(
+        company_id=company_id, pk__in=list(schedule_ids), is_active=False,
+        paused_reason=RecurringInvoiceSchedule.PausedReason.CONTRACT_ENDED,
+        customer__status="ACTIVE", contracts__status__in=live,
+    ).distinct()
+    for schedule in candidates:
+        schedule.next_run_at = next_future_run(schedule)
+        schedule.is_active = True
+        schedule.paused_reason = ""
+        schedule.save(update_fields=["next_run_at", "is_active", "paused_reason", "updated_at"])
+        resumed += 1
+    return resumed

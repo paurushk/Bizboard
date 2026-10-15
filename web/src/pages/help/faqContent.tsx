@@ -501,6 +501,16 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'recurring-left-as-draft',
+    'Sales invoices',
+    'Why did a recurring invoice stay a draft?',
+    ['recurring', 'auto complete', 'left as draft', 'credit limit', 'plan limit'],
+    [
+      'The schedule has Complete the invoice ticked but a check stopped it: credit limit, stock, GST, a closed period or the plan limit. The draft is kept so nothing is lost.',
+      'Open **t:nav.sales** → **t:nav.recurringInvoices** → History to see the reason for each run. Fix it, then complete the draft by hand.',
+    ],
+  ),
+  faq(
     'sez-export-types',
     'Sales invoices',
     'How do I bill SEZ or export?',

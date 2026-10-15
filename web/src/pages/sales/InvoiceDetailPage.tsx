@@ -512,6 +512,16 @@ export function InvoiceDetailPage() {
             ) : null}
             {inv.cancelApprovalPending ? <Chip size="small" label={t('history.cancelPendingChip')} /> : null}
             <Chip size="small" label={inv.invoiceType} variant="outlined" />
+            {inv.recurringOrigin ? (
+              <Chip
+                size="small"
+                variant="outlined"
+                component={RouterLink}
+                to="/sales/recurring"
+                clickable
+                label={`${t('recurring.originChip')} · ${inv.recurringOrigin.periodKey}`}
+              />
+            ) : null}
             <Typography variant="body2" color="text.secondary">
               {inv.invoiceDate}
             </Typography>

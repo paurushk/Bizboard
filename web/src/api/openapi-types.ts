@@ -12142,6 +12142,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/recurring-schedules/{id}/runs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["sales_recurring_schedules_runs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/returns/": {
         parameters: {
             query?: never;
@@ -13207,9 +13227,12 @@ export interface components {
         /**
          * @description * `MONTHLY` - Monthly
          *     * `WEEKLY` - Weekly
+         *     * `QUARTERLY` - Quarterly
+         *     * `HALF_YEARLY` - Half Yearly
+         *     * `ANNUALLY` - Annually
          * @enum {string}
          */
-        CadenceEnum: "MONTHLY" | "WEEKLY";
+        CadenceEnum: "MONTHLY" | "WEEKLY" | "QUARTERLY" | "HALF_YEARLY" | "ANNUALLY";
         Campaign: {
             readonly id: number;
             name: string;
@@ -15484,6 +15507,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Quotation"][];
         };
+        PaginatedRecurringInvoiceRunList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["RecurringInvoiceRun"][];
+        };
         PaginatedRecurringInvoiceScheduleList: {
             /** @example 123 */
             count: number;
@@ -17104,6 +17142,7 @@ export interface components {
             readonly id?: number;
             customer?: number;
             readonly customerName?: string;
+            readonly customerStatus?: string;
             companyGstin?: number | null;
             cadence?: components["schemas"]["CadenceEnum"];
             /** Format: date-time */
@@ -17127,6 +17166,20 @@ export interface components {
             invoiceDiscount?: string;
             invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
             priceMode?: components["schemas"]["PriceModeEnum"];
+            /** Format: date */
+            endDate?: string | null;
+            /** Format: int64 */
+            maxOccurrences?: number | null;
+            readonly totalRunsCount?: number;
+            readonly lastError?: string;
+            readonly anchorDay?: number | null;
+            readonly pausedReason?: components["schemas"]["PausedReasonEnum"];
+            readonly managedByContract?: {
+                [key: string]: unknown;
+            } | null;
+            readonly hasRuns?: boolean;
+            /** Format: date-time */
+            readonly nextFutureRunAt?: string;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -17376,6 +17429,9 @@ export interface components {
             readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer?: boolean;
             readonly pendingChequeAmount?: string;
+            readonly recurringOrigin?: {
+                [key: string]: unknown;
+            } | null;
             /** Format: decimal */
             readonly subtotal?: string;
             /** Format: decimal */
@@ -17679,6 +17735,11 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        /**
+         * @description * `CONTRACT_ENDED` - Contract Ended
+         * @enum {string}
+         */
+        PausedReasonEnum: "CONTRACT_ENDED";
         PayRun: {
             readonly id: number;
             /** @description YYYY-MM */
@@ -18717,10 +18778,27 @@ export interface components {
              */
             refunded: string;
         };
+        RecurringInvoiceRun: {
+            readonly id: number;
+            periodKey: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            isManual?: boolean;
+            completionError?: string;
+            invoice?: number | null;
+            salesOrder?: number | null;
+            deliveryChallan?: number | null;
+            readonly documentType: string | null;
+            readonly documentId: number | null;
+            readonly documentNumber: string | null;
+            readonly status: string;
+            readonly einvoiceStatus: string | null;
+        };
         RecurringInvoiceSchedule: {
             readonly id: number;
             customer: number;
             readonly customerName: string;
+            readonly customerStatus: string;
             companyGstin?: number | null;
             cadence?: components["schemas"]["CadenceEnum"];
             /** Format: date-time */
@@ -18744,6 +18822,20 @@ export interface components {
             invoiceDiscount?: string;
             invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
             priceMode?: components["schemas"]["PriceModeEnum"];
+            /** Format: date */
+            endDate?: string | null;
+            /** Format: int64 */
+            maxOccurrences?: number | null;
+            readonly totalRunsCount: number;
+            readonly lastError: string;
+            readonly anchorDay: number | null;
+            readonly pausedReason: components["schemas"]["PausedReasonEnum"];
+            readonly managedByContract: {
+                [key: string]: unknown;
+            } | null;
+            readonly hasRuns: boolean;
+            /** Format: date-time */
+            readonly nextFutureRunAt: string;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -19148,6 +19240,9 @@ export interface components {
             readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer: boolean;
             readonly pendingChequeAmount: string;
+            readonly recurringOrigin: {
+                [key: string]: unknown;
+            } | null;
             /** Format: decimal */
             readonly subtotal: string;
             /** Format: decimal */
@@ -40924,7 +41019,36 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RecurringInvoiceSchedule"];
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    sales_recurring_schedules_runs_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring invoice schedule. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedRecurringInvoiceRunList"];
                 };
             };
         };

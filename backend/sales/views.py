@@ -48,9 +48,17 @@ from payments.models import PaymentAllocation
 
 from .status_semantics import NO_BALANCE_STATUSES, OPEN_RECEIVABLE_STATUSES
 from .einvoice_eway_actions import InvoiceEinvoiceEwayActionsMixin
-from .models import Quotation, QuotationConversion, RecurringInvoiceSchedule, SalesInvoice, SalesReturn
+from .models import (
+    Quotation,
+    QuotationConversion,
+    RecurringInvoiceRun,
+    RecurringInvoiceSchedule,
+    SalesInvoice,
+    SalesReturn,
+)
 from .serializers import (
     QuotationSerializer,
+    RecurringInvoiceRunSerializer,
     RecurringInvoiceScheduleSerializer,
     ReturnableLineSerializer,
     SalesInvoiceSerializer,
@@ -2331,35 +2339,74 @@ class SalesReturnViewSet(CompanyScopedViewSet):
 
 
 class RecurringInvoiceScheduleViewSet(CompanyScopedViewSet):
-    queryset = RecurringInvoiceSchedule.objects.select_related("customer", "company_gstin")
+    queryset = (
+        RecurringInvoiceSchedule.objects.select_related("customer", "company_gstin")
+        .prefetch_related("contracts")
+        .annotate(
+            has_runs_annotation=Exists(RecurringInvoiceRun.objects.filter(schedule=OuterRef("pk"))),
+        )
+    )
     serializer_class = RecurringInvoiceScheduleSerializer
     audit_entity = "RecurringInvoiceSchedule"
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if getattr(self, "action", None) == "list":
+            flag = (self.request.query_params.get("is_active") or "").lower()
+            if flag in ("true", "false"):
+                qs = qs.filter(is_active=(flag == "true"))
+        return qs
+
     def get_permissions(self):
         action = getattr(self, "action", None)
-        if action == "run_now":
-            return [IsAuthenticated(), HasCompany(), IsOwner()]
-        if action in ("create", "update", "partial_update", "destroy"):
+        if action in ("create", "update", "partial_update", "destroy", "run_now"):
             return [IsAuthenticated(), HasCompany(), CanCreateSales()]
         return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
 
+    def perform_destroy(self, instance):
+        # Runs hold the history and the one-per-period guard; deleting the schedule
+        # would cascade them away. A contract-owned schedule would be orphaned.
+        if instance.contracts.exists():
+            raise BusinessRuleError(
+                "This schedule is managed by a contract. Cancel or edit the contract instead.",
+                code="recurring_managed_by_contract",
+            )
+        if instance.runs.exists():
+            raise BusinessRuleError(
+                "This schedule has generated documents. Pause it instead of deleting it.",
+                code="recurring_has_runs",
+            )
+        super().perform_destroy(instance)
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     @action(detail=True, methods=["post"], url_path="run-now")
     def run_now(self, request, pk=None):
-        from django.utils import timezone
-
-        from .recurring import generate_draft_for_schedule
+        from .recurring import REASON_MESSAGES, generate_for_schedule
 
         schedule = self.get_object()
-        run = generate_draft_for_schedule(schedule, run_date=timezone.localdate(), user=request.user)
+        if schedule.customer.status != "ACTIVE":
+            raise BusinessRuleError("The customer is not active, so no document can be generated for them.")
+        result = generate_for_schedule(
+            schedule, run_date=timezone.localdate(), user=request.user, manual=True,
+        )
+        run = result.run
         if run is None:
-            raise BusinessRuleError("Schedule did not generate an invoice (inactive, locked period, or duplicate).")
+            raise BusinessRuleError(
+                REASON_MESSAGES.get(result.reason, "Schedule did not generate a document."),
+                code=f"recurring_{result.reason or 'not_generated'}",
+            )
+        self._audit("RUN_NOW", schedule)
         status = None
+        document_number = None
         if run.invoice_id:
             status = run.invoice.status
+            document_number = run.invoice.number or None
         elif run.delivery_challan_id:
             status = run.delivery_challan.status
+            document_number = run.delivery_challan.number or None
         elif run.sales_order_id:
             status = run.sales_order.status
+            document_number = run.sales_order.number or None
         return Response({
             "ok": True,
             "run_id": run.id,
@@ -2369,7 +2416,24 @@ class RecurringInvoiceScheduleViewSet(CompanyScopedViewSet):
             "stop_stage": run.schedule.stop_stage,
             "period_key": run.period_key,
             "status": status,
+            "document_number": document_number,
+            "already_existed": not result.created,
+            "completion_error": run.completion_error,
         })
+
+    @extend_schema(responses=RecurringInvoiceRunSerializer(many=True))
+    @action(detail=True, methods=["get"], url_path="runs")
+    def runs(self, request, pk=None):
+        schedule = self.get_object()
+        qs = (
+            schedule.runs.select_related("invoice", "sales_order", "delivery_challan")
+            .order_by("-created_at", "-id")
+        )
+        page = self.paginate_queryset(qs)
+        serializer = RecurringInvoiceRunSerializer(page if page is not None else qs, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
 
 class SalespersonSearchView(APIView):

@@ -842,15 +842,20 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     howItWorks: [
       ['When a draft appears, open it and press **t:common.complete** after checking stock, GSTIN and the customer.', 'ड्राफ्ट दिखे तो खोलें, स्टॉक/GSTIN/ग्राहक जाँचकर **t:common.complete** दबाएँ।'],
+      ['Choose weekly, monthly, quarterly, half-yearly or annual runs. You can set an end date or a maximum number of runs; the schedule then pauses itself.', 'साप्ताहिक, मासिक, तिमाही, छमाही या वार्षिक रन चुनें। समाप्ति तिथि या अधिकतम रन तय कर सकते हैं; फिर अनुसूची खुद रुक जाती है।'],
+      ['Pause a schedule and resume it later. On resume you pick the next run date, and missed periods are not created back-dated. **History** lists every document a schedule made.', 'अनुसूची रोकें और बाद में फिर शुरू करें। फिर शुरू करते समय अगली तारीख़ चुनते हैं, और छूटी अवधियों के दस्तावेज़ पिछली तारीख़ में नहीं बनते। **इतिहास** में अनुसूची के बनाए सभी दस्तावेज़ दिखते हैं।'],
     ],
     businessImpact: [
       ['Until you Complete, there is no stock movement, no receivable and no GST row.', 'Complete से पहले न स्टॉक, न बकाया, न GST पंक्ति।'],
+      ['With Complete the invoice ticked, each invoice is finalized when it is made: stock is taken and the customer balance changes. If a check fails (credit limit, stock, GST, plan limit) it stays a draft, and the History and the owner notice say why. After a long gap only the first missed period is completed; the rest stay drafts to check.', 'चालान पूर्ण करें चुना हो तो हर इनवॉइस बनते ही अंतिम हो जाता है: स्टॉक कटता है और ग्राहक का बकाया बदलता है। कोई जाँच (क्रेडिट सीमा, स्टॉक, GST, प्लान सीमा) विफल हो तो वह ड्राफ्ट रहता है, और इतिहास तथा मालिक की सूचना में कारण दिखता है। लंबे अंतराल के बाद केवल पहली छूटी अवधि पूर्ण होती है; बाकी जाँचने के लिए ड्राफ्ट रहती हैं।'],
     ],
     keyRules: [
       ['This is a convenience for retainers-style billing, not a filing or auto-debit engine.', 'यह सुविधा है, फाइलिंग या ऑटो-डेबिट इंजन नहीं।'],
+      ['Run now uses up the current period, so the scheduled run for that period is skipped. A schedule made from a contract is changed from the contract, and pauses when the contract ends.', 'अभी चलाएँ से चालू अवधि इस्तेमाल हो जाती है, इसलिए उसी अवधि का निर्धारित रन छोड़ दिया जाता है। अनुबंध से बनी अनुसूची अनुबंध से बदली जाती है, और अनुबंध खत्म होने पर रुक जाती है।'],
     ],
     commonMistakes: [
       ['Assuming the schedule already billed the customer.', 'शेड्यूल को ग्राहक पर बिल समझना।'],
+      ['Deleting a schedule that has run. Pause it instead; its history is kept.', 'जो अनुसूची चल चुकी है उसे हटाना। इसके बजाय रोकें; उसका इतिहास बना रहता है।'],
     ],
     relatedPages: [
       { path: '/sales/history', labelKey: 'nav.salesHistory' },

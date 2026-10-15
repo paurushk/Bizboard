@@ -435,6 +435,8 @@ export type EwayStatus = 'NONE' | 'READY' | 'GENERATED' | 'FAILED' | 'CANCELLED'
 
 export interface SalesInvoice extends DocumentTotals {
   id: number;
+  /** Set on a detail read when a recurring schedule generated this invoice. */
+  recurringOrigin?: { scheduleId: number; periodKey: string; isManual: boolean } | null;
   sourceQuotations?: SourceQuotation[];
   sourceQuotationsDiffer?: boolean;
   number?: string | null;

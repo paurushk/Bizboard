@@ -901,6 +901,8 @@ def _import_wipe_target_rows(
     gstin_map,
     account_map,
     batch_map,
+    order_map=None,
+    challan_map=None,
 ) -> None:
     """Restore wipe-target tables that sit outside the original core payload."""
     bank_map: dict[Any, int] = {}
@@ -998,7 +1000,12 @@ def _import_wipe_target_rows(
             _create_mapped(
                 RecurringInvoiceRun, row, company=target_company, owner=owner,
                 skip=set(),
-                remap={"schedule_id": schedule_map, "invoice_id": sales_map},
+                remap={
+                    "schedule_id": schedule_map,
+                    "invoice_id": sales_map,
+                    "sales_order_id": order_map or {},
+                    "delivery_challan_id": challan_map or {},
+                },
                 require=("schedule_id",),
             )
         cn_map: dict[Any, int] = {}
@@ -1506,6 +1513,7 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         product_map=product_map,
     )
 
+    challan_map: dict[Any, int] = {}
     for row in payload.get("delivery_challans") or []:
         kwargs = _copy_model_fields(
             DeliveryChallan,
@@ -1523,6 +1531,7 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         )
         challan = DeliveryChallan.objects.create(company=target_company, created_by=owner, updated_by=owner, **kwargs)
         old_id = row.get("id")
+        challan_map[old_id] = challan.pk
         for item_row in payload.get("delivery_challan_items") or []:
             if item_row.get("challan_id") != old_id:
                 continue
@@ -1765,6 +1774,8 @@ def import_payload(*, target_company, payload: dict[str, Any], owner) -> None:
         gstin_map=gstin_map,
         account_map=account_map,
         batch_map=batch_map,
+        order_map=order_map,
+        challan_map=challan_map,
     )
 
     for row in payload.get("file_assets") or []:

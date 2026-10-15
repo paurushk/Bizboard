@@ -702,3 +702,25 @@ Quick Entry pricing and recents, feature flags), `backend/tests/test_tax_engine_
 `web/src/pages/sales/invalidateInvoiceSideEffects.test.ts`, `web/src/pages/sales/SalesOrdersPage.test.tsx` and
 `Customer360Page.test.tsx`. Backlog item: `qos/backlog/QOS-0048.yaml`. Rollout and rollback:
 [QUICK_ORDER_ENTRY_ROLLOUT.md](QUICK_ORDER_ENTRY_ROLLOUT.md).
+
+## Recurring invoices hardening (2026-10-15)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Auto-complete no longer reports a false failure; gate failure keeps a Draft and stores the reason on the run; catch-up completes only the first period | ✅ | `backend/tests/test_recurring_lifecycle.py::test_auto_complete_*`, `::test_catch_up_only_*` |
+| "Run now" for sales users, audited, refuses inactive customers, reports an already-generated period | ✅ | `backend/tests/test_recurring_lifecycle.py::test_run_now_*`, `backend/tests/test_sprint_c_recurring.py` |
+| Locked period shows a reason on the schedule and clears when it runs; one notice per change | ✅ | `backend/tests/test_recurring_lifecycle.py::test_locked_period_*` |
+| Edit keeps the anchor day; resume needs a future date and an active customer; delete blocked once runs exist | ✅ | `backend/tests/test_recurring_lifecycle.py::test_editing_*`, `::test_resume_*`, `::test_delete_*` |
+| Quarterly, half-yearly, annual cadences with period keys; end date and maximum runs enforced on the beat and on Run now | ✅ | `backend/tests/test_recurring_lifecycle.py` (cadence, period-key, term tests) |
+| Run history endpoint paginated and tenant scoped; list makes no per-row queries | ✅ | `backend/tests/test_recurring_lifecycle.py::test_runs_endpoint_*`, `::test_schedule_list_does_not_query_per_row` |
+| Contract-owned schedules locked on the Recurring page and paused when the contract ends | ✅ | `backend/tests/test_recurring_lifecycle.py::test_contract_managed_*`, `::test_ended_contract_*` |
+| Backup rows carry the new fields; restore keeps each run's invoice, order and challan link | ✅ | `backend/tests/test_recurring_lifecycle.py::test_backup_rows_*`, `backend/tests/test_recurring_followups.py::test_restore_keeps_*`, `backend/tests/errors/test_backup_restore_drill.py` |
+| Recurring page: server search pickers, edit drawer with server totals, pause/resume, history, run-now result, delete | ✅ | web `pages/sales/RecurringInvoicesPage.test.tsx`, `pages/sales/recurring/recurringHelpers.test.ts` |
+| Run now racing the beat or itself makes one document (Postgres row locks) | ✅ | `backend/tests/test_recurring_concurrency_postgres.py` (Postgres-only) |
+| Golden path: create quarterly schedule, edit, pause, resume, run now, open draft | ✅ | `web/e2e-golden/recurring-invoices-golden.spec.ts` |
+| Hindi wording of the new recurring strings | 🟡 | native-speaker review open, same as other new Hindi strings |
+| Contract renewed or un-cancelled restarts only a schedule the contract ending paused; flag-off companies still pause | ✅ | `backend/tests/test_recurring_followups.py::test_cancelling_*`, `::test_a_schedule_a_person_paused_*`, `::test_a_company_with_contracts_switched_off_*` |
+| Auto-completed B2B invoice is handed to the e-invoice portal only when the company uses e-invoicing and the customer has a GSTIN; state shown in history | ✅ | `backend/tests/test_recurring_followups.py::test_completed_b2b_invoice_*`, `::test_run_history_shows_the_einvoice_state_*` |
+| The beat keeps a tenth of the plan's monthly completions free for manual billing | ✅ | `backend/tests/test_recurring_followups.py::test_the_beat_keeps_a_tenth_*` |
+| Invoice detail links back to the schedule that made it | ✅ | `backend/tests/test_recurring_followups.py::test_a_generated_invoice_shows_*`, web `pages/sales/InvoiceDetailPage.test.tsx` |
+| Server-side active/paused filter and paging; phone layout (cards and action menu); no accessibility violations in the page and edit panel | ✅ | `backend/tests/test_recurring_followups.py::test_list_filters_*`, web `RecurringInvoicesPage.test.tsx`, checked in Chrome with axe at desktop and 390px width |

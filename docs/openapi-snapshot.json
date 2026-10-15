@@ -35578,7 +35578,63 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/RecurringInvoiceSchedule"
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/recurring-schedules/{id}/runs/": {
+            "get": {
+                "operationId": "sales_recurring_schedules_runs_list",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this recurring invoice schedule.",
+                        "required": true
+                    },
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedRecurringInvoiceRunList"
                                 }
                             }
                         },
@@ -38732,10 +38788,13 @@
             "CadenceEnum": {
                 "enum": [
                     "MONTHLY",
-                    "WEEKLY"
+                    "WEEKLY",
+                    "QUARTERLY",
+                    "HALF_YEARLY",
+                    "ANNUALLY"
                 ],
                 "type": "string",
-                "description": "* `MONTHLY` - Monthly\n* `WEEKLY` - Weekly"
+                "description": "* `MONTHLY` - Monthly\n* `WEEKLY` - Weekly\n* `QUARTERLY` - Quarterly\n* `HALF_YEARLY` - Half Yearly\n* `ANNUALLY` - Annually"
             },
             "Campaign": {
                 "type": "object",
@@ -44874,6 +44933,37 @@
                     }
                 }
             },
+            "PaginatedRecurringInvoiceRunList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RecurringInvoiceRun"
+                        }
+                    }
+                }
+            },
             "PaginatedRecurringInvoiceScheduleList": {
                 "type": "object",
                 "required": [
@@ -49700,6 +49790,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "customer_status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "company_gstin": {
                         "type": "integer",
                         "nullable": true
@@ -49745,6 +49839,54 @@
                     },
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "max_occurrences": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "total_runs_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "last_error": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "anchor_day": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "paused_reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PausedReasonEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "managed_by_contract": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "has_runs": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "next_future_run_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
                     },
                     "created_at": {
                         "type": "string",
@@ -50583,6 +50725,12 @@
                     },
                     "pending_cheque_amount": {
                         "type": "string",
+                        "readOnly": true
+                    },
+                    "recurring_origin": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
                         "readOnly": true
                     },
                     "subtotal": {
@@ -51568,6 +51716,13 @@
                         "readOnly": true
                     }
                 }
+            },
+            "PausedReasonEnum": {
+                "enum": [
+                    "CONTRACT_ENDED"
+                ],
+                "type": "string",
+                "description": "* `CONTRACT_ENDED` - Contract Ended"
             },
             "PayRun": {
                 "type": "object",
@@ -54914,6 +55069,76 @@
                     "refunded"
                 ]
             },
+            "RecurringInvoiceRun": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "period_key": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "is_manual": {
+                        "type": "boolean"
+                    },
+                    "completion_error": {
+                        "type": "string"
+                    },
+                    "invoice": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "sales_order": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "delivery_challan": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "document_type": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "document_id": {
+                        "type": "integer",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "document_number": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "status": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "einvoice_status": {
+                        "type": "string",
+                        "nullable": true,
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "created_at",
+                    "document_id",
+                    "document_number",
+                    "document_type",
+                    "einvoice_status",
+                    "id",
+                    "period_key",
+                    "status"
+                ]
+            },
             "RecurringInvoiceSchedule": {
                 "type": "object",
                 "properties": {
@@ -54925,6 +55150,10 @@
                         "type": "integer"
                     },
                     "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer_status": {
                         "type": "string",
                         "readOnly": true
                     },
@@ -54974,6 +55203,54 @@
                     "price_mode": {
                         "$ref": "#/components/schemas/PriceModeEnum"
                     },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "max_occurrences": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64",
+                        "nullable": true
+                    },
+                    "total_runs_count": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "last_error": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "anchor_day": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "paused_reason": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/PausedReasonEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "managed_by_contract": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
+                    "has_runs": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "next_future_run_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -54986,11 +55263,19 @@
                     }
                 },
                 "required": [
+                    "anchor_day",
                     "created_at",
                     "customer",
                     "customer_name",
+                    "customer_status",
+                    "has_runs",
                     "id",
+                    "last_error",
+                    "managed_by_contract",
+                    "next_future_run_at",
                     "next_run_at",
+                    "paused_reason",
+                    "total_runs_count",
                     "updated_at"
                 ]
             },
@@ -56336,6 +56621,12 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "recurring_origin": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "nullable": true,
+                        "readOnly": true
+                    },
                     "subtotal": {
                         "type": "string",
                         "format": "decimal",
@@ -56433,6 +56724,7 @@
                     "rcm_sgst",
                     "rcm_taxable",
                     "received",
+                    "recurring_origin",
                     "return_state",
                     "round_off",
                     "settlement_state",

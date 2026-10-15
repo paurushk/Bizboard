@@ -112,10 +112,17 @@ const DRAFT_INVOICE = baseInvoice({
   received: '0',
 });
 
+const RECURRING_INVOICE = baseInvoice({
+  id: 5,
+  number: 'INV-0005',
+  recurringOrigin: { scheduleId: 12, periodKey: '2026-Q4', isManual: false },
+});
+
 const getSalesInvoice = vi.fn(async (id: number | string) => {
   if (String(id) === '2') return PARTIAL_INVOICE;
   if (String(id) === '3') return LIVE_IRN_INVOICE;
   if (String(id) === '4') return DRAFT_INVOICE;
+  if (String(id) === '5') return RECURRING_INVOICE;
   return RETURNED_INVOICE;
 });
 
@@ -188,6 +195,12 @@ describe('InvoiceDetailPage status — G-17', () => {
     wrap(<InvoiceDetailPage />, '/sales/history/1');
     expect(await screen.findByText(/^returned$/i)).toBeTruthy();
     expect(screen.queryByText(/^paid$/i)).toBeNull();
+  });
+
+  it('links an invoice made by a recurring schedule back to the schedules page', async () => {
+    wrap(<InvoiceDetailPage />, '/sales/history/5');
+    const chip = await screen.findByRole('link', { name: /From a recurring schedule · 2026-Q4/ });
+    expect(chip.getAttribute('href')).toBe('/sales/recurring');
   });
 
   it('flags a partial return and lists the linked SalesReturn for auditability', async () => {

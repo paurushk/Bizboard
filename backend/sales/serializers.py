@@ -19,6 +19,7 @@ from .models import (
     Quotation,
     QuotationConversion,
     QuotationItem,
+    RecurringInvoiceRun,
     RecurringInvoiceSchedule,
     SalesCreditNote,
     SalesInvoice,
@@ -200,6 +201,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
     settlement_state = serializers.SerializerMethodField()
     cancel_approval_pending = serializers.SerializerMethodField()
     pending_cheque_amount = serializers.SerializerMethodField()
+    recurring_origin = serializers.SerializerMethodField()
 
     class Meta:
         model = SalesInvoice
@@ -231,7 +233,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
             "whatsapp_sent_at", "whatsapp_offer",
             "payment_state", "return_state",
             "settlement_state", "cancel_approval_pending", "source_quotations", "source_quotations_differ",
-            "pending_cheque_amount",
+            "pending_cheque_amount", "recurring_origin",
         ] + TOTAL_READONLY
         read_only_fields = [
             "number", "status", "pdf_status", "pdf_file", "received", "balance",
@@ -350,6 +352,22 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
         else:
             alloc, notes, discount = live_settlement_parts(obj)
         return settlement_bucket(obj.status, obj.grand_total, self.get_balance(obj), alloc, notes, discount)
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_recurring_origin(self, obj):
+        """The recurring schedule this invoice was generated from (detail reads only)."""
+        if getattr(self.context.get("view"), "action", None) != "retrieve":
+            return None
+        from .models import RecurringInvoiceRun
+
+        run = (
+            RecurringInvoiceRun.objects.filter(invoice_id=obj.pk, company_id=obj.company_id)
+            .order_by("-id")
+            .first()
+        )
+        if run is None:
+            return None
+        return {"schedule_id": run.schedule_id, "period_key": run.period_key, "is_manual": run.is_manual}
 
     def get_pending_cheque_amount(self, obj):
         """What a cheque that has not cleared is waiting to settle on this bill.
@@ -1086,18 +1104,50 @@ class SalesReturnPreviewSerializer(serializers.Serializer):
 
 class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    customer_status = serializers.CharField(source="customer.status", read_only=True)
+    managed_by_contract = serializers.SerializerMethodField()
+    has_runs = serializers.SerializerMethodField()
+    next_future_run_at = serializers.SerializerMethodField()
+
+    # A schedule created from a contract mirrors that contract's value and term. Only
+    # these fields may change on it from the Recurring page.
+    CONTRACT_EDITABLE = {"is_active", "notes", "auto_complete"}
 
     class Meta:
         model = RecurringInvoiceSchedule
         fields = [
-            "id", "customer", "customer_name", "company_gstin", "cadence",
+            "id", "customer", "customer_name", "customer_status", "company_gstin", "cadence",
             "next_run_at", "is_active", "line_template", "notes",
             "stop_stage",
             "auto_complete",
             # B2-026: header-level charges/discount/price-mode.
             "additional_charges", "invoice_discount", "invoice_discount_mode", "price_mode",
+            "end_date", "max_occurrences", "total_runs_count",
+            "last_error", "anchor_day", "paused_reason", "managed_by_contract", "has_runs", "next_future_run_at",
             "created_at", "updated_at",
         ]
+        read_only_fields = ["total_runs_count", "last_error", "anchor_day", "paused_reason"]
+
+    @extend_schema_field(serializers.DictField(allow_null=True))
+    def get_managed_by_contract(self, obj):
+        # The list view prefetches contracts; sort here so no extra query is made per row.
+        contracts = sorted(obj.contracts.all(), key=lambda c: c.pk)
+        if not contracts:
+            return None
+        contract = contracts[0]
+        return {"id": contract.pk, "number": contract.number or str(contract.pk)}
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_runs(self, obj):
+        annotated = getattr(obj, "has_runs_annotation", None)
+        return annotated if annotated is not None else obj.runs.exists()
+
+    @extend_schema_field(serializers.DateTimeField())
+    def get_next_future_run_at(self, obj):
+        """First date after now on this schedule's cadence: the default when resuming a paused one."""
+        from .recurring import next_future_run
+
+        return next_future_run(obj)
 
     def validate_customer(self, customer):
         self.check_company_ref(customer, "customer")
@@ -1114,12 +1164,129 @@ class RecurringInvoiceScheduleSerializer(CompanyScopedSerializerMixin, serialize
             raise serializers.ValidationError("line_template.items is required.")
         return value if isinstance(value, dict) else {"items": value}
 
-    def validate(self, attrs):
-        # B2-009 / CR-015: capture intended day-of-month in local time (IST) so monthly advance
-        # clamps from the local day, not UTC day which shifts near midnight.
-        nra = attrs.get("next_run_at")
-        if nra is not None and not self.partial:
-            from django.utils import timezone
+    def validate_max_occurrences(self, value):
+        if value is not None and value < 1:
+            raise serializers.ValidationError("Maximum runs must be at least 1.")
+        return value
 
+    def validate(self, attrs):
+        from django.utils import timezone
+
+        instance = self.instance
+        if instance is not None and instance.contracts.exists():
+            blocked = sorted(
+                name for name, value in attrs.items()
+                if name not in self.CONTRACT_EDITABLE and getattr(instance, name, None) != value
+            )
+            if blocked:
+                raise serializers.ValidationError(
+                    "This schedule is managed by a contract. Change the contract instead "
+                    f"(cannot edit: {', '.join(blocked)})."
+                )
+
+        if instance is not None and "is_active" in attrs and attrs["is_active"] != instance.is_active:
+            # A person pausing or resuming takes over from the system's own pause.
+            attrs["paused_reason"] = ""
+
+        nra = attrs.get("next_run_at")
+        # B2-009 / CR-015: capture intended day-of-month in local time (IST) so monthly advance
+        # clamps from the local day, not UTC day which shifts near midnight. On edit, only when
+        # the date really changed: re-saving an unchanged (possibly month-end clamped) date must
+        # not reset the anchor.
+        if nra is not None and (instance is None or nra != instance.next_run_at):
             attrs["anchor_day"] = timezone.localtime(nra).day
+
+        def effective(name):
+            if name in attrs:
+                return attrs[name]
+            return getattr(instance, name, None) if instance is not None else None
+
+        next_run = effective("next_run_at")
+        end_date = effective("end_date")
+        if (
+            end_date is not None and next_run is not None
+            and ("end_date" in attrs or "next_run_at" in attrs)
+            and end_date < timezone.localtime(next_run).date()
+        ):
+            raise serializers.ValidationError({"end_date": "End date cannot be before the next run."})
+
+        # Resuming: a stale next_run_at would replay every missed period back-dated, a
+        # customer who is not active would never be billed, and a finished term would
+        # stop the schedule again at once.
+        resuming = (
+            instance is not None and instance.is_active is False and attrs.get("is_active") is True
+        )
+        if resuming:
+            customer = effective("customer")
+            if customer is not None and customer.status != "ACTIVE":
+                raise serializers.ValidationError(
+                    {"is_active": "The customer is not active, so this schedule cannot be resumed."}
+                )
+            if next_run is not None and next_run <= timezone.now():
+                raise serializers.ValidationError(
+                    {"next_run_at": "Choose the next run date: the saved date has already passed."}
+                )
+            max_runs = effective("max_occurrences")
+            if max_runs and instance.total_runs_count >= max_runs:
+                raise serializers.ValidationError(
+                    {"max_occurrences": "This schedule has used all its runs. Raise the maximum to resume."}
+                )
+            if end_date is not None and next_run is not None and end_date < timezone.localtime(next_run).date():
+                raise serializers.ValidationError(
+                    {"end_date": "The end date has passed. Extend it to resume."}
+                )
         return attrs
+
+
+
+class RecurringInvoiceRunSerializer(serializers.ModelSerializer):
+    document_type = serializers.SerializerMethodField()
+    document_id = serializers.SerializerMethodField()
+    document_number = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    einvoice_status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RecurringInvoiceRun
+        fields = [
+            "id", "period_key", "created_at", "is_manual", "completion_error",
+            "invoice", "sales_order", "delivery_challan",
+            "document_type", "document_id", "document_number", "status", "einvoice_status",
+        ]
+
+    def _doc(self, obj):
+        if obj.invoice_id:
+            return "invoice", obj.invoice
+        if obj.delivery_challan_id:
+            return "delivery_challan", obj.delivery_challan
+        if obj.sales_order_id:
+            return "sales_order", obj.sales_order
+        return None, None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_document_type(self, obj):
+        return self._doc(obj)[0]
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_document_id(self, obj):
+        doc = self._doc(obj)[1]
+        return doc.pk if doc is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_document_number(self, obj):
+        doc = self._doc(obj)[1]
+        return (doc.number or None) if doc is not None else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_einvoice_status(self, obj):
+        """e-invoice state of a completed invoice (it is submitted automatically when the company uses e-invoicing)."""
+        if not obj.invoice_id or obj.invoice.status != "COMPLETED":
+            return None
+        status = obj.invoice.einvoice_status
+        return status if status and status != "NONE" else None
+
+    @extend_schema_field(serializers.CharField())
+    def get_status(self, obj):
+        doc = self._doc(obj)[1]
+        # The linked document is SET_NULL when deleted; the run row stays as the record.
+        return doc.status if doc is not None else "DELETED"
