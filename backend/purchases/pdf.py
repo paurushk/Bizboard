@@ -1,6 +1,6 @@
 """GST Purchase Bill & Purchase Order PDF renderer (A4).
 
-Compliant with statutory GST invoicing rules (Rule 46 / Rule 54 of CGST Rules 2017).
+Buyer-side record of a purchase. It is not the supplier's tax invoice; keep the supplier's own invoice for ITC.
 """
 
 from __future__ import annotations
@@ -48,16 +48,16 @@ def _party_block(styles, title: str, name: str, address: str, gstin: str, phone:
     if address:
         for part in address.split("\n"):
             if part.strip():
-                lines.append(Paragraph(part.strip(), styles["body_small"]))
+                lines.append(Paragraph(pdf_esc(part.strip()), styles["body_small"]))
     if gstin:
-        lines.append(Paragraph(f"<b>GSTIN:</b> {gstin}", styles["body_small"]))
+        lines.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(gstin)}", styles["body_small"]))
     if state or state_code:
-        st_text = f"<b>State:</b> {state}"
+        st_text = f"<b>State:</b> {pdf_esc(state)}"
         if state_code:
-            st_text += f" (Code: {state_code})"
+            st_text += f" (Code: {pdf_esc(state_code)})"
         lines.append(Paragraph(st_text, styles["body_small"]))
     if phone:
-        lines.append(Paragraph(f"<b>Ph:</b> {phone}", styles["body_small"]))
+        lines.append(Paragraph(f"<b>Ph:</b> {pdf_esc(phone)}", styles["body_small"]))
     inner = Table([[lines]], colWidths=[88 * mm])
     inner.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), GREY_HEADER),
@@ -149,7 +149,7 @@ def _build_hsn_summary_table(items, styles, intra_state: bool) -> Table:
         ])
         for hsn, d in sorted(hsn_map.items()):
             rows.append([
-                Paragraph(hsn, styles["td_center"]),
+                Paragraph(pdf_esc(hsn), styles["td_center"]),
                 Paragraph(format_money(d["taxable"]), styles["td_right"]),
                 Paragraph(f"{d['cgst_rate']}%", styles["td_center"]),
                 Paragraph(format_money(d["cgst_amt"]), styles["td_right"]),
@@ -170,7 +170,7 @@ def _build_hsn_summary_table(items, styles, intra_state: bool) -> Table:
         ])
         for hsn, d in sorted(hsn_map.items()):
             rows.append([
-                Paragraph(hsn, styles["td_center"]),
+                Paragraph(pdf_esc(hsn), styles["td_center"]),
                 Paragraph(format_money(d["taxable"]), styles["td_right"]),
                 Paragraph(f"{d['igst_rate']}%", styles["td_center"]),
                 Paragraph(format_money(d["igst_amt"]), styles["td_right"]),
@@ -191,7 +191,7 @@ def _build_hsn_summary_table(items, styles, intra_state: bool) -> Table:
 
 
 def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
-    """Render a statutory GST-compliant Purchase Bill / Inward Tax Invoice PDF."""
+    """Render the buyer-side Purchase Bill record (not the supplier's tax invoice)."""
     copy = (copy or "ORIGINAL").upper()
     if copy not in ("ORIGINAL", "DUPLICATE"):
         copy = "ORIGINAL"
@@ -250,13 +250,13 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         buyer_gstin = stamp_gstin or company.gstin
         buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(buyer_gstin)}", styles["meta"]))
     if company.phone:
-        buyer_bits.append(Paragraph(f"<b>Phone:</b> {company.phone}", styles["meta"]))
+        buyer_bits.append(Paragraph(f"<b>Phone:</b> {pdf_esc(company.phone)}", styles["meta"]))
     addr = _company_address(company)
     if addr:
         for line in addr.split("\n"):
-            buyer_bits.append(Paragraph(line, styles["meta"]))
+            buyer_bits.append(Paragraph(pdf_esc(line), styles["meta"]))
 
-    stamp = Table([[Paragraph(f"<b>{copy}</b>", styles["copy_stamp"])]], colWidths=[32 * mm])
+    stamp = Table([[Paragraph(f"<b>{pdf_esc(copy)}</b>", styles["copy_stamp"])]], colWidths=[32 * mm])
     stamp.setStyle(TableStyle([
         ("BOX", (0, 0), (-1, -1), 0.8, colors.black),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
@@ -269,7 +269,7 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         Spacer(1, 1 * mm),
         stamp,
         Spacer(1, 2 * mm),
-        Paragraph(f"<b>Bill No:</b> {invoice.number or '—'}", styles["meta"]),
+        Paragraph(f"<b>Bill No:</b> {pdf_esc(invoice.number) or '—'}", styles["meta"]),
         Paragraph(f"<b>Bill Date:</b> {invoice.invoice_date.strftime('%d/%m/%Y')}", styles["meta"]),
     ]
     supplier_bill = (
@@ -278,14 +278,14 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         or getattr(invoice, "reference", None)
     )
     if supplier_bill:
-        doc_details.append(Paragraph(f"<b>Supplier Bill No:</b> {supplier_bill}", styles["meta"]))
+        doc_details.append(Paragraph(f"<b>Supplier Bill No:</b> {pdf_esc(supplier_bill)}", styles["meta"]))
     if getattr(invoice, "supplier_invoice_date", None):
         doc_details.append(Paragraph(f"<b>Supplier Bill Date:</b> {invoice.supplier_invoice_date.strftime('%d/%m/%Y')}", styles["meta"]))
     if getattr(invoice, "due_date", None):
         doc_details.append(Paragraph(f"<b>Due Date:</b> {invoice.due_date.strftime('%d/%m/%Y')}", styles["meta"]))
 
     pos = getattr(invoice, "place_of_supply", None) or supplier.state or company.state or "—"
-    doc_details.append(Paragraph(f"<b>Place of Supply:</b> {pos}", styles["meta"]))
+    doc_details.append(Paragraph(f"<b>Place of Supply:</b> {pdf_esc(pos)}", styles["meta"]))
     rcm_text = "YES" if getattr(invoice, "is_reverse_charge", False) else "NO"
     doc_details.append(Paragraph(f"<b>Reverse Charge (RCM):</b> {rcm_text}", styles["meta"]))
     if hasattr(invoice, "itc_eligibility"):
@@ -389,12 +389,12 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
         if item.description and item.description != item.product.name:
             item_cell.append(Paragraph(pdf_esc(item.product.name), styles["body_small"]))
         if getattr(item, "batch_no", ""):
-            item_cell.append(Paragraph(f"Batch: {item.batch_no}", styles["body_small"]))
+            item_cell.append(Paragraph(f"Batch: {pdf_esc(item.batch_no)}", styles["body_small"]))
 
         data.append([
             Paragraph(str(idx), styles["td_center"]),
             item_cell,
-            Paragraph(item.hsn_code or item.product.hsn_code or "—", styles["td_center"]),
+            Paragraph(pdf_esc(item.hsn_code or item.product.hsn_code) or "—", styles["td_center"]),
             Paragraph(f"{format_qty(qty)} {unit}", styles["td_center"]),
             Paragraph(format_money(rate), styles["td_right"]),
             Paragraph(f"{disc}%" if disc else "—", styles["td_center"]),
@@ -498,7 +498,7 @@ def render_gst_purchase_bill(invoice, *, copy: str = "ORIGINAL") -> bytes:
     sig_data = [
         [
             Paragraph("<b>Goods Receipt & Quality Verification:</b><br/>Certified that the goods/services mentioned above have been received in good condition, inspected, and entered in the stock register.", styles["body_small"]),
-            Paragraph(f"<b>For {company.name}</b><br/><br/><br/><b>Authorised Signatory</b>", styles["td_center"]),
+            Paragraph(f"<b>For {pdf_esc(company.name)}</b><br/><br/><br/><b>Authorised Signatory</b>", styles["td_center"]),
         ]
     ]
     sig_table = Table(sig_data, colWidths=[114 * mm, 68 * mm])
@@ -543,21 +543,21 @@ def render_gst_purchase_order(order) -> bytes:
 
     # ---- Header ----
     buyer_bits = [
-        Paragraph(f"<b>{company.name}</b>", styles["company_name"]),
+        Paragraph(f"<b>{pdf_esc(company.name)}</b>", styles["company_name"]),
     ]
     if company.gstin:
-        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {company.gstin}", styles["meta"]))
+        buyer_bits.append(Paragraph(f"<b>GSTIN:</b> {pdf_esc(company.gstin)}", styles["meta"]))
     if company.phone:
-        buyer_bits.append(Paragraph(f"<b>Phone:</b> {company.phone}", styles["meta"]))
+        buyer_bits.append(Paragraph(f"<b>Phone:</b> {pdf_esc(company.phone)}", styles["meta"]))
     addr = _company_address(company)
     if addr:
         for line in addr.split("\n"):
-            buyer_bits.append(Paragraph(line, styles["meta"]))
+            buyer_bits.append(Paragraph(pdf_esc(line), styles["meta"]))
 
     doc_details = [
         Paragraph("<b>PURCHASE ORDER</b>", styles["title"]),
         Spacer(1, 2 * mm),
-        Paragraph(f"<b>PO Number:</b> {order.number or '—'}", styles["meta"]),
+        Paragraph(f"<b>PO Number:</b> {pdf_esc(order.number) or '—'}", styles["meta"]),
         Paragraph(f"<b>PO Date:</b> {order.order_date.strftime('%d/%m/%Y')}", styles["meta"]),
         Paragraph(f"<b>Status:</b> {order.get_status_display()}", styles["meta"]),
     ]
@@ -681,7 +681,7 @@ def render_gst_purchase_order(order) -> bytes:
     sig = Table(
         [[
             Paragraph("<b>Terms & Instructions:</b><br/>1. Please send invoice and delivery challan with shipment.<br/>2. Goods subject to acceptance after store inspection.", styles["body_small"]),
-            Paragraph(f"<b>For {company.name}</b><br/><br/><br/><b>Authorised Signatory</b>", styles["td_center"]),
+            Paragraph(f"<b>For {pdf_esc(company.name)}</b><br/><br/><br/><b>Authorised Signatory</b>", styles["td_center"]),
         ]],
         colWidths=[114 * mm, 68 * mm],
     )

@@ -111,6 +111,17 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
         if not et or not name:
             errors.append({"row": i, "error": "entity_type and name required"})
             continue
+        gstin_text = (row.get("gstin") or "").strip().upper()
+        if et in ("customer", "supplier") and gstin_text:
+            from core.validators import GSTIN_RE, _gstin_checksum_ok
+
+            if not GSTIN_RE.match(gstin_text) or not _gstin_checksum_ok(gstin_text):
+                errors.append({
+                    "row": i,
+                    "error": f"GSTIN {gstin_text} for '{name}' is not valid (check the number, "
+                             "the last character is a check digit)",
+                })
+                continue
         if et == "customer":
             customers.append({
                 "name": name,
@@ -274,6 +285,17 @@ def _match_or_create_party(model, *, company, row, user, warnings: list[str]):
     return obj, True
 
 
+def _with_party_context(party, fn):
+    """T-06: the commit is one transaction, so say which party stopped it."""
+    try:
+        return fn()
+    except BusinessRuleError as exc:
+        raise BusinessRuleError(
+            f"Nothing was imported. '{party.name}' could not be booked: {exc.detail}",
+            code=exc.get_codes() if isinstance(exc.get_codes(), str) else "TALLY_PARTY_FAILED",
+        ) from exc
+
+
 def _opening_balance_product(company, user, unit: Unit) -> Product:
     product, _ = Product.objects.get_or_create(
         company=company,
@@ -298,7 +320,7 @@ def _opening_document_date(company):
     return PostingService._opening_entry_date(company)
 
 
-def _create_opening_sales(company, user, customer: Customer, amount: Decimal, product: Product):
+def _create_opening_sales(company, user, customer: Customer, amount: Decimal, product: Product, warnings=None):
     from sales.models import SalesInvoice, SalesItem
     from sales.services import SalesService
 
@@ -307,6 +329,11 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
     if SalesInvoice.objects.filter(
         company=company, customer=customer, notes=OPENING_NOTE, status=SalesInvoice.Status.COMPLETED,
     ).exists():
+        if warnings is not None:
+            warnings.append(
+                f"'{customer.name}' already has an opening receivable, so the {amount} in this file was not added. "
+                "Cancel the old opening bill first if it needs correcting."
+            )
         return None
     inv = SalesInvoice.objects.create(
         company=company,
@@ -346,7 +373,7 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
     return inv
 
 
-def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal, product: Product):
+def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal, product: Product, warnings=None):
     from purchases.models import PurchaseInvoice, PurchaseItem
     from purchases.services import PurchaseService
 
@@ -355,6 +382,11 @@ def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal,
     if PurchaseInvoice.objects.filter(
         company=company, supplier=supplier, notes=OPENING_NOTE, status=PurchaseInvoice.Status.COMPLETED,
     ).exists():
+        if warnings is not None:
+            warnings.append(
+                f"'{supplier.name}' already has an opening payable, so the {amount} in this file was not added. "
+                "Cancel the old opening bill first if it needs correcting."
+            )
         return None
     inv = PurchaseInvoice.objects.create(
         company=company,
@@ -523,7 +555,9 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
                 cust.updated_by = user
                 cust.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
-        if amt > 0 and _create_opening_sales(company, user, cust, amt, opening_product):
+        if amt > 0 and _with_party_context(
+            cust, lambda: _create_opening_sales(company, user, cust, amt, opening_product, warnings)
+        ):
             created["opening_ar"] += 1
 
     for row in preview.get("suppliers") or []:
@@ -548,7 +582,9 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
                 sup.updated_by = user
                 sup.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
-        if amt > 0 and _create_opening_purchase(company, user, sup, amt, opening_product):
+        if amt > 0 and _with_party_context(
+            sup, lambda: _create_opening_purchase(company, user, sup, amt, opening_product, warnings)
+        ):
             created["opening_ap"] += 1
 
     for row in preview.get("products") or []:

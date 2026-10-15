@@ -95,15 +95,15 @@ def _resolve_purchase_source_item(line, company_id, invoice_id=None):
         try:
             item = PurchaseItem.objects.get(pk=int(source_item), invoice__company_id=company_id)
         except (PurchaseItem.DoesNotExist, TypeError, ValueError) as exc:
-            raise BusinessRuleError("source_item does not belong to this company.") from exc
+            raise BusinessRuleError("That bill line does not belong to this company.") from exc
         if invoice_id is not None and item.invoice_id != invoice_id:
-            raise BusinessRuleError("source_item does not belong to this invoice.")
+            raise BusinessRuleError("That bill line does not belong to this bill.")
         return item
     if getattr(source_item, "invoice_id", None) is not None:
         if not PurchaseItem.objects.filter(pk=source_item.pk, invoice__company_id=company_id).exists():
-            raise BusinessRuleError("source_item does not belong to this company.")
+            raise BusinessRuleError("That bill line does not belong to this company.")
         if invoice_id is not None and source_item.invoice_id != invoice_id:
-            raise BusinessRuleError("source_item does not belong to this invoice.")
+            raise BusinessRuleError("That bill line does not belong to this bill.")
     return source_item
 
 
@@ -276,8 +276,7 @@ class PurchaseNotesService:
                     raise_confirm_required(
                         [HelpCode.CONFIRM_CN_ON_PAID_INVOICE],
                         "This invoice has payment allocations. Completing the credit note leaves "
-                        "over-allocation until you unallocate or refund. Pass confirm_paid_invoice=true "
-                        "to proceed.",
+                        "over-allocation until you unallocate or refund. Confirm to go ahead.",
                     )
             # CR-129 / Sales CR-026: unit_price override vs source line needs confirm.
             if not confirm_price_override:
@@ -288,8 +287,8 @@ class PurchaseNotesService:
                     if Decimal(str(item.unit_price or 0)) != Decimal(str(src.unit_price or 0)):
                         raise_confirm_required(
                             [HelpCode.CONFIRM_CN_PRICE_OVERRIDE],
-                            "Credit note unit_price differs from the source invoice line. "
-                            "Pass confirm_price_override=true to recalculate tax at the overridden price.",
+                            "The credit note price differs from the price on the bill. "
+                            "Confirm to recalculate the tax at the new price.",
                         )
             # CR-129: per-line qty cap vs source invoice lines.
             invoice_has_items = inv.items.exists()
@@ -304,7 +303,7 @@ class PurchaseNotesService:
                 if src is None:
                     if invoice_has_items:
                         raise BusinessRuleError(
-                            "Credit note lines must reference a source invoice item (source_item)."
+                            "Pick the bill line each credit note line refers to."
                         )
                     continue
                 prior = (
@@ -502,7 +501,7 @@ class PurchaseNotesService:
                     [HelpCode.CONFIRM_ADDITIONAL_DEBIT],
                     f"Debit note {note.grand_total} exceeds credit-note headroom "
                     f"{max(cn_headroom, Decimal('0'))}. "
-                    "Pass confirm_additional_debit=true to bill an additional amount on the original invoice.",
+                    "Confirm to bill the extra amount on the original bill.",
                 )
             invoice_has_items = inv.items.exists()
             for item in note.items.select_related("source_item"):
@@ -516,7 +515,7 @@ class PurchaseNotesService:
                 if src is None:
                     if invoice_has_items:
                         raise BusinessRuleError(
-                            "Debit note lines must reference a source invoice item (source_item)."
+                            "Pick the bill line each debit note line refers to."
                         )
                     continue
                 prior = (

@@ -1,6 +1,6 @@
 import { getErrorCode, getErrorDetails } from '@/api/client';
 import { t } from '@/i18n';
-import { askReason, getGlobalConfirm } from '@/utils/confirmBridge';
+import { askReason, confirmAction, getGlobalConfirm } from '@/utils/confirmBridge';
 import { gstinCancelledText } from '@/utils/overrideRetry';
 import type { PurchasePayNow } from '@/types/domain';
 
@@ -131,7 +131,7 @@ export async function completeWithConfirms<T>(
         for (const code of codes) {
           const flag = flagFor[code];
           if (!flag || confirmed[flag]) continue;
-          if (!window.confirm(t(prompts[code]))) throw err;
+          if (!(await confirmAction(t(prompts[code])))) throw err;
           confirmed[flag] = true;
           progressed = true;
         }

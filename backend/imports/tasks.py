@@ -34,7 +34,7 @@ def _file_to_images(raw: bytes, content_type: str, filename: str) -> list[bytes]
             )
         if page_count > soft_cap:
             raise BusinessRuleError(
-                f"PDF has {page_count} pages (limit {soft_cap}). Split the bill or raise LLM_BILL_MAX_PAGES."
+                f"PDF has {page_count} pages (limit {soft_cap}). Split the bill into smaller files."
             )
         pages_to_read = page_count
         images = []
@@ -160,7 +160,7 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
             raise BusinessRuleError(
                 "Bill reading is paused: this month's AI allowance is used up (it is shared "
                 "with the AI assistant). Ask the owner to raise it in Settings, enter the bill "
-                f"by hand, or upload a CSV/Excel export, which needs no AI. ({exc.detail})"
+                "by hand, or upload a CSV/Excel export, which needs no AI."
             ) from exc
         asset = job.file
         with asset.file.open("rb") as handle:

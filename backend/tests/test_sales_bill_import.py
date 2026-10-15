@@ -65,6 +65,7 @@ def _upload(client, kind="SALES_BILL", **fields):
     data = {
         "kind": kind,
         "file": SimpleUploadedFile("bill.png", _png_bytes(), content_type="image/png"),
+        "ai_consent": "true",
         **fields,
     }
     return client.post("/api/v1/imports/", data, format="multipart")
@@ -1364,11 +1365,8 @@ def test_two_simultaneous_commits_make_exactly_one_draft(mock_llm, tenant_a):
 def test_v2_refuses_a_photo_scan_without_the_consent_flag(mock_llm, tenant_a):
     mock_llm.return_value = _payload(1)
     customer = make_customer(tenant_a.company, name="Retail Buyer LLP")
-    # Off by default: an older client that does not send the flag keeps working.
-    assert _upload(tenant_a.client, customer_id=customer.id).status_code == 201
-    tenant_a.company.feature_flags = {"BILL_IMPORT_REVIEW_V2": True}
-    tenant_a.company.save(update_fields=["feature_flags"])
-    refused = _upload(tenant_a.client, customer_id=customer.id)
+    # S-03: consent is required whatever the flag says.
+    refused = _upload(tenant_a.client, customer_id=customer.id, ai_consent="")
     assert refused.status_code == 400
     assert refused.data["error"]["code"] == "AI_CONSENT_REQUIRED"
     ok = _upload(tenant_a.client, customer_id=customer.id, ai_consent="true")
@@ -1487,6 +1485,7 @@ def test_row_positions_are_dropped_for_a_pdf_upload(mock_llm, tenant_a):
             {
                 "kind": "SALES_BILL",
                 "customer_id": customer.id,
+                "ai_consent": "true",
                 "file": SimpleUploadedFile("bill.pdf", b"%PDF-1.4 fake", content_type="application/pdf"),
             },
             format="multipart",

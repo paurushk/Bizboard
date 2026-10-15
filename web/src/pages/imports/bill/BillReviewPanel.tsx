@@ -776,6 +776,7 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
             <PartyBlock
               isSales={isSales}
               hasSelectedParty={party != null}
+              selected={party ? { name: party.name, gstin: party.gstin } : null}
               match={preview.partyMatch}
               name={partyName}
               gstin={partyGstin}

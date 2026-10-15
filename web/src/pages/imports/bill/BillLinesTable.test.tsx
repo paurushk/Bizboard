@@ -123,8 +123,8 @@ describe('BillLinesTable', () => {
 
   it('forces a row with a problem open and shows what is wrong, in red', () => {
     show([row(1, { gstRate: '', hsnCode: '123' })]);
-    expect(screen.getByText('GST rate is required')).toBeInTheDocument();
-    expect(screen.getByText('invalid HSN code')).toBeInTheDocument();
+    expect(screen.getByText('Choose the GST rate.')).toBeInTheDocument();
+    expect(screen.getByText('HSN code must be 2, 4, 6 or 8 digits.')).toBeInTheDocument();
     // no collapse button: it cannot be hidden while it is wrong
     expect(screen.queryByRole('button', { name: 'Collapse row 1' })).not.toBeInTheDocument();
     expect(screen.getByRole('spinbutton', { name: /^gst %, row 1$/i })).toHaveAttribute('aria-invalid', 'true');
@@ -132,7 +132,7 @@ describe('BillLinesTable', () => {
 
   it('does not nag about a row that is left out', () => {
     show([row(1, { include: false, gstRate: '' })]);
-    expect(screen.queryByText('GST rate is required')).not.toBeInTheDocument();
+    expect(screen.queryByText('Choose the GST rate.')).not.toBeInTheDocument();
   });
 
   it('prefers the server message and shows why a row was left out at extraction', () => {

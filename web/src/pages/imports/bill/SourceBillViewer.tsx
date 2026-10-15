@@ -6,6 +6,8 @@ import IconButton from '@mui/material/IconButton';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import Link from '@mui/material/Link';
+import RotateRightIcon from '@mui/icons-material/RotateRight';
 import ZoomInIcon from '@mui/icons-material/ZoomIn';
 import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import { fetchImportSourceFile } from '@/api/resources';
@@ -29,6 +31,7 @@ export function SourceBillViewer({
   const [source, setSource] = useState<{ url: string; contentType: string } | null>(null);
   const [failed, setFailed] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [turns, setTurns] = useState(0);
   const drag = useRef<{ x: number; y: number; left: number; top: number } | null>(null);
 
   useEffect(() => {
@@ -62,6 +65,13 @@ export function SourceBillViewer({
           <Stack direction="row">
             <IconButton
               size="small"
+              aria-label={t('billUpload.sourceRotate')}
+              onClick={() => setTurns((n) => (n + 1) % 4)}
+            >
+              <RotateRightIcon fontSize="small" />
+            </IconButton>
+            <IconButton
+              size="small"
               aria-label={t('billUpload.zoomOut')}
               onClick={() => setZoom((z) => Math.max(0.5, Math.round((z - 0.25) * 100) / 100))}
             >
@@ -84,13 +94,26 @@ export function SourceBillViewer({
         </Box>
       ) : null}
       {source && isPdf ? (
-        <Box
-          component="object"
-          data={source.url}
-          type="application/pdf"
-          aria-label={t('billUpload.sourceTitle')}
-          sx={{ width: '100%', height: { xs: 360, lg: '70vh' }, border: 0 }}
-        />
+        <>
+          <Box
+            component="object"
+            data={source.url}
+            type="application/pdf"
+            aria-label={t('billUpload.sourceTitle')}
+            sx={{ width: '100%', height: { xs: 360, lg: '70vh' }, border: 0 }}
+          >
+            {/* Shown by browsers and phones that cannot display a PDF inline. */}
+            <Link href={source.url} target="_blank" rel="noopener noreferrer">
+              {t('billUpload.sourceOpenPdf')}
+            </Link>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            {t('billUpload.sourcePdfNoZoom')}{' '}
+            <Link href={source.url} target="_blank" rel="noopener noreferrer">
+              {t('billUpload.sourceOpenPdf')}
+            </Link>
+          </Typography>
+        </>
       ) : null}
       {source && !isPdf ? (
         <Box
@@ -119,7 +142,7 @@ export function SourceBillViewer({
               src={source.url}
               alt={t('billUpload.sourceTitle')}
               draggable={false}
-              sx={{ width: '100%', display: 'block' }}
+              sx={{ width: '100%', display: 'block', transform: `rotate(${turns * 90}deg)`, transformOrigin: 'center' }}
             />
             {highlight && highlight.length === 4 ? (
               <Box

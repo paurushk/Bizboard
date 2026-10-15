@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Button from '@mui/material/Button';
+import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import Alert from '@mui/material/Alert';
@@ -117,6 +118,13 @@ export function PurchaseOrdersPage() {
               <Button size="small" color="warning" onClick={() => setConfirmCancelId(row.id)}>
                 {t('common.cancel')}
               </Button>
+            );
+          }
+          if (row.status === 'CONVERTED') {
+            return (
+              <Typography variant="caption" color="text.secondary">
+                {t('poActions.convertedHint')}
+              </Typography>
             );
           }
           return null;

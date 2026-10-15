@@ -205,7 +205,8 @@ export function BillsOfEntryPage() {
               label={t('boe.icegateVerified')}
               value={icegateVerified ? 'yes' : 'no'}
               onChange={(e) => setIcegateVerified(e.target.value === 'yes')}
-              sx={{ minWidth: 160 }}
+              helperText={t('boe.icegateHint')}
+              sx={{ minWidth: 160, maxWidth: 280 }}
             >
               <MenuItem value="no">{t('common.no')}</MenuItem>
               <MenuItem value="yes">{t('common.yes')}</MenuItem>

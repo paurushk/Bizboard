@@ -224,6 +224,8 @@ export function BillLinesTable({
         value={(line[name] as string | undefined) ?? ''}
         placeholder="—"
         error={Boolean(problem)}
+        helperText={problem?.message}
+        FormHelperTextProps={{ sx: { maxWidth: width + 40, whiteSpace: 'normal', mx: 0 } }}
         onChange={(e) => onChange(line.clientKey, { [name]: e.target.value } as Partial<EditorLine>)}
         inputProps={{
           'aria-label': t('billUpload.fieldForRow', { field: label, row }),
@@ -235,6 +237,14 @@ export function BillLinesTable({
       />
     );
   };
+
+  // Errors for these fields appear under their own input (U-02); the rest stay under the name.
+  const shownFields = new Set<string>([
+    'name', 'quantity', 'unit_price', 'gst_rate', 'mrp',
+    ...(showAdvanced ? ['sku', 'hsn_code'] : []),
+    ...(showPack ? ['cs', 'pcs', 'upc'] : []),
+    ...(showDiscount ? ['discount_percent'] : []),
+  ]);
 
   type Measure = ((el: Element | null) => void) | undefined;
   const renderRow = (key: string, position: number, measure?: Measure) => {
@@ -297,6 +307,8 @@ export function BillLinesTable({
             <TableCell>
               {line.productMatch?.status === 'matched' || line.productId != null ? (
                 <Chip size="small" color="success" variant="outlined" label={t('billUpload.productMatched', { name: line.productMatch?.name ?? '' })} />
+              ) : line.productMatch?.status === 'candidates' && !line.createNew ? (
+                <Chip size="small" color="warning" variant="outlined" label={t('billUpload.productSimilarChip')} />
               ) : (
                 <Chip size="small" variant="outlined" label={t('billUpload.productNew')} />
               )}
@@ -360,7 +372,7 @@ export function BillLinesTable({
                 </Typography>
               ) : null}
               {errors
-                .filter((e) => e.severity !== 'warning' && e.field !== 'product')
+                .filter((e) => e.severity !== 'warning' && e.field !== 'product' && !shownFields.has(e.field))
                 .map((e, ei) => (
                   <Typography key={ei} variant="caption" color="error">
                     {e.message}
@@ -407,14 +419,15 @@ export function BillLinesTable({
           <TableCell align="right">
             {field(line, row, 'quantity', 'billing.qty', 90, errors, 'quantity')}
             {line.packQtyHint ? (
-              <Typography
-                variant="caption"
-                color="warning.main"
-                sx={{ display: 'block', cursor: 'pointer', mt: 0.25 }}
+              <Button
+                size="small"
+                color="warning"
+                sx={{ display: 'block', mt: 0.25, p: 0, minWidth: 0, textTransform: 'none' }}
+                aria-label={t('billUpload.packApplyButton', { qty: line.packQtyHint })}
                 onClick={() => onChange(key, { quantity: line.packQtyHint, packQtyHint: undefined })}
               >
                 {t('billUpload.packApply', { qty: line.packQtyHint })}
-              </Typography>
+              </Button>
             ) : null}
           </TableCell>
           <TableCell align="right">{field(line, row, 'unitPrice', 'billing.price', 110, errors, 'unit_price')}</TableCell>

@@ -151,3 +151,59 @@ the PDF code.
 | T-01 | Fixed | Tally opening payables and receivables are dated at the books-start date (or the financial-year start), not the import day. If that date falls in a closed period the commit still stops, which is correct. |
 
 Tests: `backend/tests/test_purchase_never_reviewed_fixes.py` (6). All other findings are still open.
+
+## Status after the second fix pass
+
+Everything below was built and tested except where a line says otherwise.
+
+| ID | Status | Note |
+|---|---|---|
+| U-01 | Fixed | Row errors are plain words and translated (English and Hindi). |
+| U-02 | Fixed | The error shows under the field that is wrong. Errors for columns that are hidden stay under the name. |
+| U-03 | Fixed | A collapsed row with only similar matches shows "Similar product found: choose", not "New product". |
+| U-04 | Fixed | The pack-quantity hint is a real button. |
+| U-05 | Fixed | When a party was picked, a different name or GSTIN printed on the bill is pointed out. |
+| U-06 | Fixed | A 15-character GSTIN with a wrong check digit is flagged while typing. |
+| U-07 | Fixed | Images can be rotated; a PDF shows an "Open in a new tab" link and a note that zoom is not available. |
+| U-08 | Fixed | The line total includes cess. |
+| S-01 | Fixed | See the first pass. |
+| S-02 | Fixed | Only scans (image or PDF) are rate-limited; CSV/Excel uploads are not. |
+| S-03 | Fixed | A photo without recorded consent is refused whatever the flag says. |
+| S-04 | Fixed | Row messages from the server are plain words. |
+| S-05 | Fixed | A bill's supplier or buyer GSTIN with a wrong check digit, and a chosen supplier whose GSTIN is cancelled, show as warnings before the draft exists. |
+| S-06 | Fixed | No operator wording (setting names, raw exception text) reaches the person. |
+| S-07 | Fixed in part | A file over 15 MB or over the line limit is refused before preview lines are built. The sheet is still read into memory once; the upload size limit itself lives in the file service. |
+| S-08 | Fixed | The refusal says in words when scanning can be restarted. |
+| S-09 | Fixed in part | Supplier GSTIN is upper-cased. `preview_version` stays optional on purpose so scripts that edit one field keep working; the web app always sends it. |
+| S-10 | Fixed | The draft note tells the person which box to tick. |
+| M-01 | Open (other session) | The Money hub, its server code and these filters are another session's uncommitted work. Nothing for me to commit; the links work in the working tree. |
+| M-02 | Fixed | A busy day can be expanded to every item. (Money hub files are uncommitted, see M-01.) |
+| M-03 | Fixed | The column is "How long" and each row says overdue, past the promise, or since entered. |
+| M-04 | Fixed | The payable tile says it is before advances already paid. |
+| M-05 | Fixed | The outgoing column says debit notes not yet applied and goods received but not billed are not counted. Counting them would be a product change. |
+| I-02 | Fixed | In-app confirm dialogs and translated messages. |
+| I-03 | Fixed | The Undo block is keyed on a server code (`IMPORT_STOCK_USED`), not English words. |
+| I-04 | Fixed | A shared phone number no longer skips a supplier. |
+| T-01 | Fixed | See the first pass. |
+| T-02 | Fixed | A second opening balance for the same party is reported in the commit warnings. |
+| T-03 | Fixed | A Tally row with a bad GSTIN is an error row. |
+| T-04 | Fixed | Translated text. |
+| T-05 | Not changed | Opening payables stay one lump per supplier. Bill-wise opening needs the old bill list, which a Tally masters file does not carry. |
+| T-06 | Fixed in part | The error names the party that stopped the commit. It is still one transaction by design, so nothing is half imported. |
+| B-01 | Fixed | Plain wording. |
+| B-02 | Fixed | IGST above 40% of assessable value plus basic duty is refused; so is IGST with no assessable value (this also settles PB-01 on the safe side, CA to confirm). |
+| B-03 | Fixed | A draft purchase that loses its Bill of Entry link gets a note saying so. |
+| B-04 | Fixed | A hint under the ICEGATE field. |
+| G-01 | Fixed | Cancelling a receipt cancels its draft rejection debit note, and refuses if that note is already completed. |
+| G-02 | Fixed | A receipt line without a price takes stock in at the product's purchase price. |
+| G-03 | Fixed in part | A bill built from a receipt line without a price says the price came from the product. Receipts carry no link to the order, so the order price cannot be used. |
+| G-04 | Fixed | The draft debit note's text says to convert the receipt first (GST-registered companies). |
+| N-01 | Fixed | Plain wording, no flag or field names. |
+| N-02 | Checked, no change | Purchase orders have no warehouse field, so the default warehouse is the only choice; payment days, charges, discount and terms already carry over. |
+| N-03 | Checked, no change | Credit notes have no refund or application link, so there is nothing to check; cancelling one simply restores the payable. |
+| N-04 | Fixed | A converted order says it is managed from the purchase bill. |
+| P-01 | Fixed | Every free-text value in the purchase PDF is escaped. |
+| P-02 | Fixed | The wording no longer calls it a tax invoice. A CA can still comment. |
+| P-03 | Not changed | The PDF is an English statutory-style document by design. |
+
+Tests: `backend/tests/test_purchase_never_reviewed_fixes.py` (18 backend) and new cases in `PartyBlock.test.tsx` and `billLines.test.ts`.

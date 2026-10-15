@@ -120,3 +120,173 @@ def test_tally_opening_payable_and_receivable_are_dated_at_the_books_start(tenan
     assert sal.invoice_date == date(2026, 4, 1)
     sup = Supplier.objects.get(company=company, name="Dated Sup")
     assert LedgerService.supplier_outstanding(company, sup) == Decimal("800.00")
+
+
+# ---------------------------------------------------------------- second pass: B, G, S, T, P
+def _grn(tenant, **item):
+    from inventory.services import InventoryService
+    from tests.conftest import make_product
+
+    supplier = make_supplier(tenant.company)
+    product = make_product(tenant.company, sku=f"G-{supplier.pk}", purchase_price=Decimal("77"))
+    payload = {
+        "supplier": supplier.id,
+        "warehouse": InventoryService.default_warehouse(tenant.company).id,
+        "items": [{
+            "product": product.id, "quantity_received": "5", "quantity_accepted": "3",
+            "quantity_rejected": "2", "rejection_reason": "Damaged", "unit_price": "0", **item,
+        }],
+    }
+    resp = tenant.client.post("/api/v1/purchases/grns/", payload, format="json")
+    assert resp.status_code == 201, resp.data
+    return resp.data["id"], product
+
+
+def test_boe_with_igst_but_no_assessable_value_is_refused(tenant_a):
+    from core.exceptions import BusinessRuleError
+    from purchases.boe_services import BillOfEntryService
+    from purchases.models import BillOfEntry
+
+    boe = BillOfEntry.objects.create(
+        company=tenant_a.company, boe_number="B1", igst_amount=Decimal("100"), assessable_value=Decimal("0"),
+    )
+    with pytest.raises(BusinessRuleError) as exc:
+        BillOfEntryService.complete(boe, tenant_a.owner)
+    assert "assessable value" in str(exc.value.detail)
+
+
+def test_boe_igst_far_above_the_value_is_refused(tenant_a):
+    from core.exceptions import BusinessRuleError
+    from purchases.boe_services import BillOfEntryService
+    from purchases.models import BillOfEntry
+
+    boe = BillOfEntry.objects.create(
+        company=tenant_a.company, boe_number="B2", assessable_value=Decimal("1000"), igst_amount=Decimal("900"),
+    )
+    with pytest.raises(BusinessRuleError) as exc:
+        BillOfEntryService.complete(boe, tenant_a.owner)
+    assert exc.value.get_codes() == "BOE_IGST_TOO_HIGH"
+
+
+def test_cancelling_a_boe_tells_the_draft_purchase_it_was_unlinked(tenant_a):
+    from purchases.boe_services import BillOfEntryService
+    from purchases.models import BillOfEntry, PurchaseInvoice
+
+    boe = BillOfEntry.objects.create(company=tenant_a.company, boe_number="B3", assessable_value=Decimal("1000"))
+    supplier = make_supplier(tenant_a.company)
+    draft = PurchaseInvoice.objects.create(
+        company=tenant_a.company, supplier=supplier, bill_of_entry=boe, status=PurchaseInvoice.Status.DRAFT,
+    )
+    BillOfEntryService.cancel(boe, tenant_a.owner)
+    draft.refresh_from_db()
+    assert draft.bill_of_entry_id is None and "B3" in draft.notes and "cancelled" in draft.notes
+
+
+def test_cancelling_a_receipt_cancels_its_draft_rejection_debit_note(tenant_a):
+    from purchases.models import PurchaseDebitNote
+
+    grn_id, _ = _grn(tenant_a)
+    assert tenant_a.client.post(f"/api/v1/purchases/grns/{grn_id}/complete/").status_code == 200
+    note = PurchaseDebitNote.objects.get(goods_receipt_id=grn_id)
+    assert note.status == PurchaseDebitNote.Status.DRAFT
+    assert tenant_a.client.post(f"/api/v1/purchases/grns/{grn_id}/cancel/").status_code == 200
+    note.refresh_from_db()
+    assert note.status == PurchaseDebitNote.Status.CANCELLED
+
+
+def test_receipt_with_no_price_takes_stock_in_at_the_product_price(tenant_a):
+    from inventory.models import StockMovement
+
+    grn_id, _product = _grn(tenant_a)
+    assert tenant_a.client.post(f"/api/v1/purchases/grns/{grn_id}/complete/").status_code == 200
+    mv = StockMovement.objects.filter(reference_type="goods_receipt", reference_id=str(grn_id)).first()
+    assert mv is not None and mv.unit_cost == Decimal("77.00")
+
+
+def test_structured_bill_upload_is_not_throttled_but_a_scan_is(tenant_a):
+    from imports.views import ImportJobViewSet
+
+    view = ImportJobViewSet()
+    for name, ctype, expect in (("b.csv", "text/csv", 0), ("b.png", "image/png", 1)):
+        class Req:
+            data = {"kind": "PURCHASE_BILL"}
+            FILES = {"file": SimpleUploadedFile(name, b"x", content_type=ctype)}
+        view.request, view.action = Req(), "create"
+        assert len(view.get_throttles()) == expect
+
+
+@patch(LLM)
+def test_a_photo_without_consent_is_refused_even_with_the_flag_off(mock_llm, tenant_a):
+    mock_llm.return_value = _payload(1)
+    resp = _upload(tenant_a.client, "PURCHASE_BILL", ai_consent="")
+    assert resp.status_code == 400
+    mock_llm.assert_not_called()
+
+
+@patch(LLM)
+def test_a_bad_gstin_on_the_bill_is_a_warning(mock_llm, tenant_a):
+    mock_llm.return_value = _payload(1, supplier_gstin="29AABCU9603R1ZZ")
+    job = ImportJob.objects.get(pk=_upload(tenant_a.client, "PURCHASE_BILL").data["id"])
+    head = bv.header_errors(job, job.preview, job.preview["lines"])
+    hit = [e for e in head if e["code"] == "GSTIN_INVALID"]
+    assert hit and hit[0]["severity"] == "warning"
+
+
+def test_line_error_messages_are_plain_words():
+    msgs = bv.line_error_messages({"name": "", "quantity": "0", "unit_price": "-1", "gst_rate": "7"})
+    assert "Enter the item name." in msgs
+    assert not any("unit_price" in m or "must be > 0" in m for m in msgs)
+
+
+def test_supplier_import_keeps_a_supplier_whose_phone_already_exists(tenant_a):
+    make_supplier(tenant_a.company, name="Old Co", phone="9800000051")
+    csv = b"name,phone,gstin,state\nNew Co,9800000051,,Karnataka\n"
+    job = _upload_suppliers(tenant_a, csv).data
+    assert tenant_a.client.post(f"/api/v1/imports/{job['id']}/commit/").status_code == 200
+    assert Supplier.objects.filter(company=tenant_a.company, name="New Co").exists()
+
+
+def test_tally_rejects_a_bad_gstin_and_warns_on_a_second_opening(tenant_a):
+    from integrations.tally.adapter import parse_tally_masters_rows
+
+    out = parse_tally_masters_rows([
+        {"entity_type": "supplier", "name": "Bad G", "gstin": "29AABCU9603R1ZZ"},
+        {"entity_type": "supplier", "name": "Good G", "gstin": "29AABCU9603R1ZJ"},
+    ])
+    assert [r["name"] for r in out["suppliers"]] == ["Good G"]
+    assert out["errors"] and "not valid" in out["errors"][0]["error"]
+
+    def run(amount):
+        raw = f"entity_type,name,opening_outstanding\nsupplier,Twice Sup,{amount}\n".encode()
+        r = tenant_a.client.post(
+            "/api/v1/integrations/tally/upload/",
+            {"file": SimpleUploadedFile("m.csv", raw, content_type="text/csv")}, format="multipart",
+        )
+        body = r.data.get("data", r.data)
+        rid = body.get("sync_run_id") or body.get("syncRunId")
+        return tenant_a.client.post("/api/v1/integrations/tally/commit/", {"sync_run_id": rid}, format="json")
+
+    assert run(500).status_code == 200
+    second = run(900)
+    assert second.status_code == 200
+    assert "already has an opening payable" in str(second.data)
+
+
+def test_purchase_pdf_survives_markup_in_free_text_fields(tenant_a):
+    from purchases.models import PurchaseInvoice, PurchaseItem
+    from purchases.pdf import render_gst_purchase_bill
+    from tests.conftest import make_product
+
+    supplier = make_supplier(tenant_a.company, name="A & B <Co>", gstin="")
+    supplier.address = "Shop <b>1, Lane"
+    supplier.phone = "<img src=x>"
+    supplier.save()
+    inv = PurchaseInvoice.objects.create(
+        company=tenant_a.company, supplier=supplier, supplier_bill_number="<INV/1>", status=PurchaseInvoice.Status.DRAFT,
+    )
+    product = make_product(tenant_a.company, sku="PDF-ESC")
+    PurchaseItem.objects.create(
+        company=tenant_a.company, invoice=inv, product=product, quantity=Decimal("1"),
+        unit_price=Decimal("10"), gst_rate=Decimal("0"), batch_no="B<1>",
+    )
+    assert render_gst_purchase_bill(inv).startswith(b"%PDF")

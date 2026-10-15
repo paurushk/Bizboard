@@ -21,7 +21,8 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useMutation } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { getErrorCode, getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { confirmAction } from '@/utils/confirmBridge';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpWhyLink } from '@/pages/help/HelpWhyLink';
@@ -212,7 +213,7 @@ export function ImportPage() {
 
   const uploadMutation = useMutation({
     mutationFn: async () => {
-      if (!file) throw new Error('Choose a file');
+      if (!file) throw new Error(t('import.chooseFileFirst'));
       const key = uploadKey || (await stableUploadKey(file, kind));
       return uploadImport(file, kind, { idempotencyKey: key });
     },
@@ -231,7 +232,7 @@ export function ImportPage() {
 
   const commitMutation = useMutation({
     mutationFn: () => {
-      if (!job) throw new Error('No import job');
+      if (!job) throw new Error(t('import.noJobYet'));
       return commitImport(job.id, undefined, { idempotencyKey: `import-commit-${job.id}-${commitKey}` });
     },
     onSuccess: (data) => {
@@ -264,7 +265,7 @@ export function ImportPage() {
 
   const voidMutation = useMutation({
     mutationFn: () => {
-      if (!job) throw new Error('No import job');
+      if (!job) throw new Error(t('import.noJobYet'));
       return voidImport(job.id);
     },
     onSuccess: (data) => {
@@ -280,7 +281,7 @@ export function ImportPage() {
 
   const voidRowMutation = useMutation({
     mutationFn: (sku: string) => {
-      if (!job) throw new Error('No import job');
+      if (!job) throw new Error(t('import.noJobYet'));
       return voidImportRows(job.id, [sku]);
     },
     onSuccess: (data) => {
@@ -310,32 +311,31 @@ export function ImportPage() {
   );
   const previewTruncated = job?.previewTruncated ?? Math.max(0, previewRows.length - PREVIEW_CAP);
   const errorsTruncated = job?.errorsTruncated ?? Math.max(0, errorRows.length - ERROR_CAP);
-  const voidBlocked = Boolean(
-    error && /already been used|insufficient available stock|Adjust Stock/i.test(error),
-  );
+  const voidBlocked = getErrorCode(errorSource) === 'IMPORT_STOCK_USED';
 
   const onCommitClick = () => {
     if (needsStockConfirm) {
-      const ok = window.confirm(
-        `${t('import.commitConfirmTitle')}\n\n${t('import.commitConfirmBody')}`,
-      );
-      if (!ok) return;
+      void confirmAction(`${t('import.commitConfirmTitle')}\n\n${t('import.commitConfirmBody')}`).then((ok) => {
+        if (ok) commitMutation.mutate();
+      });
+      return;
     }
     commitMutation.mutate();
   };
 
   const onVoidClick = () => {
-    const ok = window.confirm(t('import.voidConfirm'));
-    if (!ok) return;
-    voidMutation.mutate();
+    void confirmAction(t('import.voidConfirm')).then((ok) => {
+      if (ok) voidMutation.mutate();
+    });
   };
 
   const onVoidRowClick = (sku: string) => {
     if (!sku) return;
-    const ok = window.confirm(t('import.voidRowConfirm', { sku }));
-    if (!ok) return;
-    setVoidingSku(sku);
-    voidRowMutation.mutate(sku);
+    void confirmAction(t('import.voidRowConfirm', { sku })).then((ok) => {
+      if (!ok) return;
+      setVoidingSku(sku);
+      voidRowMutation.mutate(sku);
+    });
   };
 
   return (

@@ -166,7 +166,7 @@ export function TallyMigrationPage() {
   });
 
   const savePreview = async (next: PreviewShape) => {
-    if (!syncRunId) throw new Error('No preview');
+    if (!syncRunId) throw new Error(t('import.noPreviewYet'));
     const data = await previewTallyImport(syncRunId, next);
     const body = data as { preview?: PreviewShape };
     const saved = body.preview ?? next;
@@ -176,7 +176,7 @@ export function TallyMigrationPage() {
 
   const saveMap = useMutation({
     mutationFn: async () => {
-      if (!preview) throw new Error('No preview');
+      if (!preview) throw new Error(t('import.noPreviewYet'));
       return savePreview(preview);
     },
     onSuccess: () => setStep(1),
@@ -184,7 +184,7 @@ export function TallyMigrationPage() {
 
   const ignoreErrors = useMutation({
     mutationFn: async () => {
-      if (!preview) throw new Error('No preview');
+      if (!preview) throw new Error(t('import.noPreviewYet'));
       const cleared: PreviewShape = {
         ...preview,
         errors: [],
@@ -202,7 +202,7 @@ export function TallyMigrationPage() {
 
   const commit = useMutation({
     mutationFn: async () => {
-      if (!syncRunId || !preview) throw new Error('No preview');
+      if (!syncRunId || !preview) throw new Error(t('import.noPreviewYet'));
       // Always persist current map before commit
       await savePreview({ ...preview, errors: preview.errors ?? [] });
       return commitTallyImport(syncRunId);
@@ -227,13 +227,13 @@ export function TallyMigrationPage() {
   // instead of an unhandled rejection from `void downloadErrors()`.
   const downloadErrors = useMutation({
     mutationFn: async () => {
-      if (!syncRunId) throw new Error('No sync run');
+      if (!syncRunId) throw new Error(t('import.noSyncRun'));
       const { data, headers } = await apiClient.get(
         `/integrations/tally/runs/${syncRunId}/errors/`,
         { params: { as: 'csv' }, responseType: 'blob' },
       );
       if (String(headers['content-type'] || '').includes('application/json')) {
-        throw new Error('Failed to download error report');
+        throw new Error(t('import.errorReportFailed'));
       }
       triggerBlobDownload(data as Blob, `tally_errors_${syncRunId}.csv`);
     },
@@ -287,9 +287,7 @@ export function TallyMigrationPage() {
           {t('tally.upload')}
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          CSV or Excel (.xlsx). Columns: entity_type (customer|supplier|product), name, phone, gstin,
-          state, sku, hsn_code, gst_rate, purchase_price, selling_price, reorder_level, opening_qty,
-          opening_outstanding
+          {t('import.tallyColumns')}
         </Typography>
         <Button variant="contained" component="label" disabled={committed}>
           {t('sweep2.chooseCsv')}
@@ -464,9 +462,14 @@ export function TallyMigrationPage() {
             <Stack spacing={0.5} sx={{ mt: 2 }}>
               <Typography variant="subtitle2">{t('sweep2.commitSummary')}</Typography>
               <Typography variant="body2">
-                Customers {created.customers ?? 0} · Suppliers {created.suppliers ?? 0} · Products{' '}
-                {created.products ?? 0} · Opening AR {created.opening_ar ?? 0} · Opening AP{' '}
-                {created.opening_ap ?? 0} · Stock {created.stock_movements ?? 0}
+                {t('import.tallyCreatedLine', {
+                  customers: created.customers ?? 0,
+                  suppliers: created.suppliers ?? 0,
+                  products: created.products ?? 0,
+                  ar: created.opening_ar ?? 0,
+                  ap: created.opening_ap ?? 0,
+                  stock: created.stock_movements ?? 0,
+                })}
               </Typography>
               {warnings.map((w) => (
                 <Typography key={w} variant="caption" color="warning.main">

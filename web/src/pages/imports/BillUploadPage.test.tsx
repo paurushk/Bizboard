@@ -230,8 +230,8 @@ describe('BillUploadPage (sales)', () => {
     const commit = await screen.findByRole('button', { name: 'Review on sales invoice' });
     expect(commit).toBeDisabled();
     expect(screen.getByText(/2 row\(s\) need fixing/)).toBeInTheDocument();
-    expect(screen.getByText('GST rate is required')).toBeInTheDocument();
-    expect(screen.getByText('invalid HSN code')).toBeInTheDocument();
+    expect(screen.getByText('Choose the GST rate.')).toBeInTheDocument();
+    expect(screen.getByText('HSN code must be 2, 4, 6 or 8 digits.')).toBeInTheDocument();
   });
 
   it('"Include all non-flagged rows" does not tick a row with a blank quantity or GST', async () => {

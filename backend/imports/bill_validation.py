@@ -28,34 +28,34 @@ def line_errors(line: dict, *, kind: str | None = None) -> list[dict]:
 
     errors: list[dict] = []
     if not str(line.get("name") or "").strip():
-        errors.append(_err("name", "NAME_REQUIRED", "name is required"))
+        errors.append(_err("name", "NAME_REQUIRED", "Enter the item name."))
     try:
         if svc._as_decimal(line.get("quantity"), "0") <= 0:
-            errors.append(_err("quantity", "QTY_POSITIVE", "quantity must be > 0"))
+            errors.append(_err("quantity", "QTY_POSITIVE", "Quantity must be more than zero."))
     except BusinessRuleError:
-        errors.append(_err("quantity", "QTY_NUMBER", "quantity must be a number"))
+        errors.append(_err("quantity", "QTY_NUMBER", "Quantity must be a number."))
     try:
         if svc._as_decimal(line.get("unit_price"), "0") < 0:
-            errors.append(_err("unit_price", "PRICE_NEGATIVE", "unit_price cannot be negative"))
+            errors.append(_err("unit_price", "PRICE_NEGATIVE", "Price cannot be negative."))
     except BusinessRuleError:
-        errors.append(_err("unit_price", "PRICE_NUMBER", "unit_price must be a number"))
+        errors.append(_err("unit_price", "PRICE_NUMBER", "Price must be a number."))
 
     raw_gst = line.get("gst_rate")
     if raw_gst in (None, ""):
-        errors.append(_err("gst_rate", "GST_REQUIRED", "GST rate is required"))
+        errors.append(_err("gst_rate", "GST_REQUIRED", "Choose the GST rate."))
     else:
         try:
             rate = svc._as_decimal(str(raw_gst).strip().rstrip("%").strip())
             if rate not in svc.ALLOWED_GST:
                 errors.append(
-                    _err("gst_rate", "GST_SLAB", f"GST rate {rate} is not an allowed slab")
+                    _err("gst_rate", "GST_SLAB", f"GST rate {rate}% is not a valid slab (0, 0.25, 3, 5, 12, 18, 28 or 40).")
                 )
         except BusinessRuleError:
-            errors.append(_err("gst_rate", "GST_NUMBER", "GST rate must be a number"))
+            errors.append(_err("gst_rate", "GST_NUMBER", "GST rate must be a number."))
 
     hsn = str(line.get("hsn_code") or "").strip()
     if hsn and not svc.HSN_RE.match(hsn):
-        errors.append(_err("hsn_code", "HSN_FORMAT", "invalid HSN code"))
+        errors.append(_err("hsn_code", "HSN_FORMAT", "HSN code must be 2, 4, 6 or 8 digits."))
 
     disc = line.get("discount_percent")
     if disc not in (None, ""):
@@ -63,10 +63,10 @@ def line_errors(line: dict, *, kind: str | None = None) -> list[dict]:
             d = svc._as_decimal(disc)
             if d < 0 or d > 100:
                 errors.append(
-                    _err("discount_percent", "DISCOUNT_RANGE", "discount must be between 0 and 100")
+                    _err("discount_percent", "DISCOUNT_RANGE", "Discount must be between 0 and 100.")
                 )
         except BusinessRuleError:
-            errors.append(_err("discount_percent", "DISCOUNT_NUMBER", "discount must be a number"))
+            errors.append(_err("discount_percent", "DISCOUNT_NUMBER", "Discount must be a number."))
     return errors
 
 
@@ -151,6 +151,38 @@ def header_errors(job, preview: dict, included: list[dict]) -> list[dict]:
                 "Check every value, then tick the confirmation.",
             )
         )
+
+    from core.validators import GSTIN_RE, _gstin_checksum_ok
+
+    for field, label in (("supplier_gstin", "supplier"), ("buyer_gstin", "buyer")):
+        value = str(preview.get(field) or "").strip().upper()
+        if value and (not GSTIN_RE.match(value) or not _gstin_checksum_ok(value)):
+            errors.append(
+                _err(
+                    field,
+                    "GSTIN_INVALID",
+                    f"The {label} GSTIN {value} does not look right (the last character is a check digit). "
+                    "Compare it with the bill.",
+                    "warning",
+                )
+            )
+    if not is_sales:
+        from masters.models import Supplier
+
+        chosen = (
+            Supplier.objects.filter(pk=job.supplier_id, company=job.company).first() if job.supplier_id else None
+        )
+        if chosen is not None and getattr(chosen, "gstin_cancelled_on", None) and (
+            bill_date is None or bill_date >= chosen.gstin_cancelled_on
+        ):
+            errors.append(
+                _err(
+                    "supplier",
+                    "SUPPLIER_GSTIN_CANCELLED",
+                    f"{chosen.name}'s GSTIN is cancelled from {chosen.gstin_cancelled_on}. You can't claim tax credit on purchases from them.",
+                    "warning",
+                )
+            )
 
     status = svc.company_gstin_status(job.company, preview, kind=job.kind)
     if status["status"] == "unresolved":

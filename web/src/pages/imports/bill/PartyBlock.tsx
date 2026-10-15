@@ -6,11 +6,14 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
 import type { BillPartyMatch } from '@/types/domain';
+import { isValidGstin } from '@/utils/gst';
 
 type Props = {
   isSales: boolean;
   /** True when a party is already chosen in the picker above. */
   hasSelectedParty: boolean;
+  /** The party chosen in the picker, so a different name or GSTIN on the bill can be pointed out. */
+  selected?: { name: string; gstin?: string | null } | null;
   match?: BillPartyMatch;
   name: string;
   gstin: string;
@@ -28,6 +31,7 @@ type Props = {
 export function PartyBlock({
   isSales,
   hasSelectedParty,
+  selected,
   match,
   name,
   gstin,
@@ -36,7 +40,25 @@ export function PartyBlock({
   onPickCandidate,
   error,
 }: Props) {
-  if (hasSelectedParty) return null;
+  const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (hasSelectedParty) {
+    // U-05: the person picked a party from the list; say so if the bill printed someone else.
+    const billName = squash(name);
+    const pickedName = squash(selected?.name ?? '');
+    const billGstin = gstin.trim().toUpperCase();
+    const savedGstin = (selected?.gstin ?? '').trim().toUpperCase();
+    const nameDiffers = billName !== '' && pickedName !== '' && !pickedName.includes(billName) && !billName.includes(pickedName);
+    const gstinDiffers = billGstin !== '' && savedGstin !== '' && billGstin !== savedGstin;
+    if (!selected || (!nameDiffers && !gstinDiffers)) return null;
+    return (
+      <Alert severity="warning" sx={{ maxWidth: 560 }}>
+        {gstinDiffers
+          ? t('billUpload.partyGstinDiffers', { bill: billGstin, picked: selected.name, saved: savedGstin })
+          : t('billUpload.partyDiffers', { bill: name.trim(), picked: selected.name })}
+      </Alert>
+    );
+  }
+  const gstinBad = gstin.trim().length === 15 && !isValidGstin(gstin.trim());
   return (
     <Stack spacing={1} sx={{ maxWidth: 560 }}>
       <Typography variant="subtitle2">
@@ -58,6 +80,8 @@ export function PartyBlock({
           value={gstin}
           onChange={(e) => onGstinChange(e.target.value.toUpperCase())}
           inputProps={{ maxLength: 15 }}
+          error={gstinBad}
+          helperText={gstinBad ? t('billUpload.gstinCheckDigit') : undefined}
           sx={{ flex: 1 }}
         />
       </Stack>

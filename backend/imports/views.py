@@ -145,10 +145,19 @@ class ImportJobViewSet(
                 qs = qs.exclude(kind__in=hidden)
         return qs
 
+    def _upload_is_structured(self) -> bool:
+        uploaded = self.request.FILES.get("file")
+        if not uploaded:
+            return False
+        content_type = (getattr(uploaded, "content_type", "") or "").lower()
+        name = (uploaded.name or "").lower()
+        return content_type in BILL_STRUCTURED_TYPES or name.endswith(BILL_STRUCTURED_EXTENSIONS)
+
     def get_throttles(self):
         if self.action == "create":
             kind = (self.request.data.get("kind") or "").upper()
-            if kind in ImportJob.BILL_KINDS:
+            if kind in ImportJob.BILL_KINDS and not self._upload_is_structured():
+                # Only scans (image / PDF) cost money; a CSV/Excel export is not limited (S-02).
                 return [CompanyRateThrottle()]
             return []
         return super().get_throttles()
@@ -232,9 +241,7 @@ class ImportJobViewSet(
                         # The photo/PDF goes to a third-party AI service: record that the
                         # uploader was told so and agreed, and when (23.10).
                         consent_given = str(request.data.get("ai_consent") or "").lower() in ("1", "true", "yes")
-                        from core.services.feature_flags import flag_enabled
-
-                        if not consent_given and flag_enabled(self.company, "BILL_IMPORT_REVIEW_V2"):
+                        if not consent_given:  # S-03: never send an image without a recorded yes
                             raise BusinessRuleError(
                                 "Confirm that this image may be sent to the AI service before scanning, "
                                 "or upload a CSV/Excel export instead.",

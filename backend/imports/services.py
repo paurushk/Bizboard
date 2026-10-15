@@ -1664,9 +1664,6 @@ class ImportService:
             if gstin and gstin in existing_gstin:
                 skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with GSTIN {gstin} already exists"], "skipped": True})
                 continue
-            if phone and phone in existing_phone:
-                skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier with phone {phone} already exists"], "skipped": True})
-                continue
             if name.lower() in existing_name:
                 skipped.append({"row": idx, "data": row, "errors": [f"skipped: a supplier named '{name}' already exists"], "skipped": True})
                 continue
@@ -2239,7 +2236,7 @@ class ImportService:
         for movement in movements:
             blocked = ImportService._movement_is_unused(movement)
             if blocked:
-                raise BusinessRuleError(blocked)
+                raise BusinessRuleError(blocked, code="IMPORT_STOCK_USED")
             ImportService._reverse_import_movement(job, movement, user)
 
         # R4-014: serial-tracked opening stock received SerialNumber rows that
@@ -2386,7 +2383,7 @@ class ImportService:
             metadata={"skus": wanted, "reversed": reversed_count, "blocked": blocked},
         )
         if reversed_count == 0 and blocked:
-            raise BusinessRuleError(blocked[0]["reason"])
+            raise BusinessRuleError(blocked[0]["reason"], code="IMPORT_STOCK_USED")
         return {"voided": [v["sku"] for v in voided], "blocked": blocked, "job": job}
 
 
@@ -2397,6 +2394,7 @@ class StalePreviewError(BusinessRuleError):
     default_code = "preview_stale"
 
 
+BILL_STRUCTURED_MAX_BYTES = 15 * 1024 * 1024
 BILL_PREVIEW_MAX_LINES = int(getattr(settings, "BILL_IMPORT_MAX_LINES", 500) or 500)
 # Server-computed fields on a stored line that a client edit must not drop.
 _CARRY_LINE_KEYS = (
@@ -2647,8 +2645,8 @@ class BillImportService:
         allowed.add(ImportJob.Status.CANCELLED)
         if job.status not in allowed:
             raise BusinessRuleError(
-                "Extraction can only start from UPLOADED or FAILED "
-                "(or a stalled EXTRACTING job)."
+                "This bill can't be scanned again right now. Scanning can be restarted only for a bill that "
+                "was not read yet, failed, was cancelled, or got stuck while reading."
             )
         job.status = ImportJob.Status.EXTRACTING
         job.failure_reason = ""
@@ -2678,9 +2676,13 @@ class BillImportService:
         with job.file.file.open("rb") as handle:
             raw = handle.read()
         filename = job.file.original_name or job.file.file.name or ""
+        if len(raw) > BILL_STRUCTURED_MAX_BYTES:
+            raise BusinessRuleError("This file is too large to read as a bill. Split it and upload it in parts.")
         rows, meta = _read_structured_bill(raw, filename)
         if not rows:
             raise BusinessRuleError("The file has no data rows.")
+        # S-07: refuse an oversized sheet before building a preview line for every row.
+        BillImportService._guard_line_limit(rows)
 
         for key, value in _csv_header_money(rows).items():
             meta.setdefault(key, value)
@@ -3038,7 +3040,7 @@ class BillImportService:
             if field in data:
                 preview[field] = str(data.get(field) or "").strip()
         if "supplier_gstin" in data:
-            preview["supplier_gstin"] = str(data.get("supplier_gstin") or "").strip()
+            preview["supplier_gstin"] = str(data.get("supplier_gstin") or "").strip().upper()
         # B3-024: _resolve_customer (SALES_BILL commit) and the direction-
         # warning / import-company-GSTIN checks all key off buyer_gstin /
         # buyer_name specifically.
@@ -3608,7 +3610,7 @@ class BillImportService:
         elif all_zero:
             notes += (
                 " — all lines 0-rated: kept as GST (nil/exempt). "
-                "Set confirm_non_gst on preview to book as NON_GST."
+                "Tick the non-GST box on the bill review screen to book it as non-GST."
             )
         if infer_rcm:
             notes += " — supplier unregistered / blank GSTIN: reverse charge set, review before Complete"

@@ -207,3 +207,17 @@ describe('newClientKey', () => {
     expect(new Set(Array.from({ length: 50 }, () => newClientKey())).size).toBe(50);
   });
 });
+
+describe('plain-language row errors and cess', () => {
+  it('speaks in words, not field names', () => {
+    const messages = localLineErrors(line({ name: '', quantity: '0', unitPrice: '-1', gstRate: '7' })).map((e) => e.message);
+    expect(messages).toContain('Enter the item name.');
+    expect(messages).toContain('Quantity must be more than zero.');
+    expect(messages).toContain('Enter a price of zero or more.');
+    expect(messages.join(' ')).not.toMatch(/unit_price|> 0|allowed slab/);
+  });
+
+  it('includes cess in the line total', () => {
+    expect(lineAmount(line({ cessRate: '12' }))).toBe(lineAmount(line({ gstRate: '30' })));
+  });
+});

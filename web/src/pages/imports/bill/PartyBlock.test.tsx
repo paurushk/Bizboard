@@ -131,3 +131,29 @@ describe('PartyBlock', () => {
     expect(screen.getByText('Choose a party or type the name from the bill.')).toBeInTheDocument();
   });
 });
+
+describe('PartyBlock with a party already picked', () => {
+  it('stays quiet when the bill agrees with the picked party', () => {
+    const { container } = show({ hasSelectedParty: true, selected: { name: 'Retail Buyer LLP' } });
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it('points out a different name printed on the bill', () => {
+    show({ hasSelectedParty: true, selected: { name: 'Sharma Traders' } });
+    expect(screen.getByText(/The bill says "Retail Buyer LLP", but you picked "Sharma Traders"/)).toBeInTheDocument();
+  });
+
+  it('points out a different GSTIN even when the names agree', () => {
+    show({
+      hasSelectedParty: true,
+      selected: { name: 'Retail Buyer LLP', gstin: '27AABCU9603R1ZN' },
+      gstin: '29AABCU9603R1ZJ',
+    });
+    expect(screen.getByText(/different from the one saved/)).toBeInTheDocument();
+  });
+
+  it('flags a GSTIN whose check digit is wrong', () => {
+    show({ gstin: '27AABCU9603R1ZM' });
+    expect(screen.getByText(/last character is a check digit/)).toBeInTheDocument();
+  });
+});

@@ -176,7 +176,7 @@ class TestLineErrors:
         assert bv.line_errors(self.ok(gst_rate="18%", unit_price="0")) == []
 
     def test_messages_helper_returns_text(self):
-        assert bv.line_error_messages(self.ok(name="")) == ["name is required"]
+        assert bv.line_error_messages(self.ok(name="")) == ["Enter the item name."]
 
     def test_to_decimal_or_none(self):
         assert bv.to_decimal_or_none("1.50") == Decimal("1.50")

@@ -1,5 +1,7 @@
 """GST-08: Bill of Entry (import ITC) lifecycle."""
 
+from decimal import Decimal
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -30,8 +32,28 @@ def _assert_boe_import_itc_reconciled(boe: BillOfEntry) -> None:
     raise BusinessRuleError(
         "Import ITC on this Bill of Entry can't be claimed until it's reconciled "
         f"against ICEGATE / GSTR-2B (table IMPG) for {period}. Verify the BoE in "
-        "ICEGATE and set icegate_verified, or mark the ITC INELIGIBLE."
+        'ICEGATE and tick "Verified in ICEGATE", or mark the ITC as ineligible.'
     )
+
+
+# IGST never exceeds the top slab (40%) of assessable value plus basic duty; a little slack for rounding.
+_MAX_IGST_SHARE = Decimal("0.40")
+
+
+def _assert_boe_amounts_consistent(boe: BillOfEntry) -> None:
+    """B-02 / PB-01: stop an amount typo from posting import ITC unchallenged."""
+    if boe.igst_amount > 0 and boe.assessable_value <= 0:
+        raise BusinessRuleError(
+            "Enter the assessable value from the Bill of Entry. IGST is charged on it, so it can't be zero.",
+            code="BOE_ASSESSABLE_REQUIRED",
+        )
+    base = boe.assessable_value + boe.bcd_amount
+    if boe.igst_amount > 0 and boe.igst_amount > base * _MAX_IGST_SHARE + Decimal("1"):
+        raise BusinessRuleError(
+            f"IGST {boe.igst_amount} is more than 40% of the assessable value plus basic duty ({base}). "
+            "Check both amounts against the Bill of Entry.",
+            code="BOE_IGST_TOO_HIGH",
+        )
 
 
 class BillOfEntryService:
@@ -45,6 +67,7 @@ class BillOfEntryService:
             raise BusinessRuleError("A cancelled Bill of Entry cannot be completed.")
         if locked.total_customs_paid <= 0:
             raise BusinessRuleError("A Bill of Entry needs a non-zero IGST / cess / BCD amount.")
+        _assert_boe_amounts_consistent(locked)
         _assert_boe_import_itc_reconciled(locked)
 
         from reporting.gst_periods import (
@@ -93,8 +116,14 @@ class BillOfEntryService:
         ).exclude(
             status__in=(PurchaseInvoice.Status.COMPLETED, PurchaseInvoice.Status.CANCELLED)
         )
-        if draft_linked.exists():
-            draft_linked.update(bill_of_entry=None)
+        for draft in draft_linked:
+            # B-03: say so on the draft, so the person who opens it later knows the import link is gone.
+            draft.bill_of_entry = None
+            draft.notes = (
+                (draft.notes + " " if draft.notes else "")
+                + f"Bill of Entry {locked.boe_number} was cancelled, so its link to this purchase was removed."
+            )
+            draft.save(update_fields=["bill_of_entry", "notes", "updated_at"])
         was_completed = locked.status == BillOfEntry.Status.COMPLETED
         if was_completed:
             from reporting.gst_periods import assert_period_allows_money_amend

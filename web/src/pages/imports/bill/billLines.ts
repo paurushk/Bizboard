@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { ALLOWED_GST_RATES } from '@/utils/gst';
 import type {
   BillLineError,
@@ -121,25 +122,25 @@ function numeric(value: string | undefined): number | null {
 export function localLineErrors(line: EditorLine): BillLineError[] {
   const errors: BillLineError[] = [];
   if (!String(line.name ?? '').trim()) {
-    errors.push({ field: 'name', code: 'NAME_REQUIRED', message: 'name is required' });
+    errors.push({ field: 'name', code: 'NAME_REQUIRED', message: t('billUpload.lineErrName') });
   }
   const qty = numeric(line.quantity);
   if (qty == null || qty <= 0) {
-    errors.push({ field: 'quantity', code: 'QTY_POSITIVE', message: 'quantity must be > 0' });
+    errors.push({ field: 'quantity', code: 'QTY_POSITIVE', message: t('billUpload.lineErrQty') });
   }
   const price = numeric(line.unitPrice);
   if (price == null || price < 0) {
-    errors.push({ field: 'unit_price', code: 'PRICE_NUMBER', message: 'unit_price must be a number' });
+    errors.push({ field: 'unit_price', code: 'PRICE_NUMBER', message: t('billUpload.lineErrPrice') });
   }
   const gst = numeric(line.gstRate);
   if (gst == null) {
-    errors.push({ field: 'gst_rate', code: 'GST_REQUIRED', message: 'GST rate is required' });
+    errors.push({ field: 'gst_rate', code: 'GST_REQUIRED', message: t('billUpload.lineErrGstRequired') });
   } else if (!ALLOWED_GST_RATES.includes(gst)) {
-    errors.push({ field: 'gst_rate', code: 'GST_SLAB', message: `GST rate ${gst} is not an allowed slab` });
+    errors.push({ field: 'gst_rate', code: 'GST_SLAB', message: t('billUpload.lineErrGstSlab', { rate: gst }) });
   }
   const hsn = String(line.hsnCode ?? '').trim();
   if (hsn && !HSN_PATTERN.test(hsn)) {
-    errors.push({ field: 'hsn_code', code: 'HSN_FORMAT', message: 'invalid HSN code' });
+    errors.push({ field: 'hsn_code', code: 'HSN_FORMAT', message: t('billUpload.lineErrHsn') });
   }
   return errors;
 }
@@ -175,6 +176,7 @@ export function lineAmount(line: EditorLine, priceInclusive = false): number | n
   if (qty == null || price == null) return null;
   const disc = numeric(line.discountPercent) ?? 0;
   const gst = numeric(line.gstRate) ?? 0;
+  const cess = numeric(line.cessRate) ?? 0;
   const net = qty * price * (1 - disc / 100);
-  return Math.round((priceInclusive ? net : net * (1 + gst / 100)) * 100) / 100;
+  return Math.round((priceInclusive ? net : net * (1 + (gst + cess) / 100)) * 100) / 100;
 }

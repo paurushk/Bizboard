@@ -70,6 +70,7 @@ def test_boe_ineligible_itc_is_all_cost(tenant_a):
         boe_number="BOE-NIL",
         boe_date=f"{PERIOD}-11",
         igst_amount=Decimal("5000.00"),
+        assessable_value=Decimal("25000.00"),
         bcd_amount=Decimal("1000.00"),
         itc_eligibility=BillOfEntry.ItcEligibility.INELIGIBLE,
     )
@@ -95,6 +96,7 @@ def test_b3_022_import_itc_blocked_until_icegate_verified_when_2b_ingested(tenan
     boe = BillOfEntry.objects.create(
         company=tenant_a.company, boe_number="BOE-2B", boe_date=f"{PERIOD}-15",
         igst_amount=Decimal("9000.00"),
+        assessable_value=Decimal("45000.00"),
     )
     Gstr2bIngest.objects.create(company=tenant_a.company, period=PERIOD)
 
@@ -124,6 +126,7 @@ def test_b3_022_ineligible_import_itc_is_never_gated(tenant_a):
     boe = BillOfEntry.objects.create(
         company=tenant_a.company, boe_number="BOE-2B-NIL", boe_date=f"{PERIOD}-16",
         igst_amount=Decimal("4000.00"),
+        assessable_value=Decimal("20000.00"),
         itc_eligibility=BillOfEntry.ItcEligibility.INELIGIBLE,
     )
     Gstr2bIngest.objects.create(company=tenant_a.company, period=PERIOD)
@@ -136,6 +139,7 @@ def test_boe_cancel_reverses_gl(tenant_a):
     boe = BillOfEntry.objects.create(
         company=tenant_a.company, boe_number="BOE-CXL", boe_date=f"{PERIOD}-12",
         igst_amount=Decimal("2000.00"),
+        assessable_value=Decimal("10000.00"),
     )
     tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{boe.id}/complete/")
     tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{boe.id}/cancel/")
@@ -170,6 +174,7 @@ def test_r024_import_complete_requires_this_invoice_boe(tenant_a):
         boe_number="BOE-STALE",
         boe_date=f"{PERIOD}-01",
         igst_amount=Decimal("1800.00"),
+        assessable_value=Decimal("9000.00"),
     )
     stale_done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{stale.id}/complete/")
     assert stale_done.status_code == 200, stale_done.data
@@ -185,6 +190,7 @@ def test_r024_import_complete_requires_this_invoice_boe(tenant_a):
         boe_number="BOE-THIS",
         boe_date=f"{PERIOD}-10",
         igst_amount=Decimal("1800.00"),
+        assessable_value=Decimal("9000.00"),
     )
     this_done = tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{this_boe.id}/complete/")
     assert this_done.status_code == 200, this_done.data

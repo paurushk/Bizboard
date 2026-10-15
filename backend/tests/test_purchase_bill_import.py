@@ -56,6 +56,7 @@ def _upload_bill(tenant, content=None, name="bill.png", content_type="image/png"
     data = {
         "kind": "PURCHASE_BILL",
         "file": SimpleUploadedFile(name, content or _png_bytes(), content_type=content_type),
+        "ai_consent": "true",
     }
     if supplier_id is not None:
         data["supplier_id"] = supplier_id
@@ -203,7 +204,7 @@ def test_b7_016_extraction_refuses_over_budget_without_calling_llm(mock_llm, ten
     resp = _upload_bill(tenant_a)
     assert resp.status_code == 201, resp.data
     assert resp.data["status"] == "FAILED"
-    assert "budget" in (resp.data.get("failure_reason") or "").lower()
+    assert "allowance" in (resp.data.get("failure_reason") or "").lower()
     mock_llm.assert_not_called()
 
 
@@ -649,6 +650,7 @@ def test_sales_bill_commit_creates_draft_sales_invoice(mock_llm, tenant_a):
     resp = tenant_a.client.post("/api/v1/imports/", {
         "kind": "SALES_BILL",
         "customer_id": customer.id,
+        "ai_consent": "true",
         "file": SimpleUploadedFile("sale.png", _png_bytes(), content_type="image/png"),
     }, format="multipart")
     assert resp.status_code == 201, resp.data
@@ -908,6 +910,7 @@ def test_bill_reupload_same_idempotency_key_starts_new_job(mock_llm, tenant_a):
         "/api/v1/imports/",
         {
             "kind": "PURCHASE_BILL",
+            "ai_consent": "true",
             "file": SimpleUploadedFile("same.jpeg", _png_bytes(), content_type="image/jpeg"),
         },
         format="multipart",
@@ -918,6 +921,7 @@ def test_bill_reupload_same_idempotency_key_starts_new_job(mock_llm, tenant_a):
         "/api/v1/imports/",
         {
             "kind": "PURCHASE_BILL",
+            "ai_consent": "true",
             "file": SimpleUploadedFile("same.jpeg", _png_bytes(), content_type="image/jpeg"),
         },
         format="multipart",

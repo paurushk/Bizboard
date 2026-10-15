@@ -39,7 +39,14 @@ def _draft_rejection_debit_note(grn, items, user):
         note_date=grn.receipt_date,
         reason=PurchaseNoteReason.OTHERS,
         reason_detail=reason_detail,
-        notes=f"Draft debit note for goods rejected on GRN {grn.number or grn.pk}.",
+        notes=(
+            f"Draft debit note for goods rejected on GRN {grn.number or grn.pk}."
+            + (
+                " Convert the receipt to a purchase bill first; the note can be completed only against that bill."
+                if grn.company.is_gst_registered
+                else ""
+            )
+        ),
         created_by=user,
         updated_by=user,
     )
@@ -156,7 +163,9 @@ class GoodsReceiptService:
                 batch=batch,
                 movement_type=MovementType.PURCHASE,
                 quantity=accepted,
-                unit_cost=item.unit_price or Decimal("0.00"),
+                # G-02: a blank receipt price would put stock in at zero cost; use the product's
+                # purchase price until the bill gives the real one.
+                unit_cost=item.unit_price or getattr(item.product, "purchase_price", None) or Decimal("0.00"),
                 reference_type="goods_receipt",
                 reference_id=grn.pk,
                 user=user,
@@ -197,6 +206,7 @@ class GoodsReceiptService:
             qty = Decimal(str(item.quantity_accepted or 0))
             if qty <= 0:
                 continue
+            from_master = not item.unit_price
             price = Decimal(str(item.unit_price or getattr(item.product, "purchase_price", 0) or 0))
             gst_rate = Decimal(str(getattr(item.product, "gst_rate", 0) or 0))
 
@@ -205,7 +215,8 @@ class GoodsReceiptService:
                 "quantity": qty,
                 "unit_price": price,
                 "gst_rate": gst_rate,
-                "description": f"Received via GRN {grn.number}",
+                "description": f"Received via GRN {grn.number}"
+                + (" (price taken from the product, check it against the supplier's bill)" if from_master else ""),
                 "batch": item.batch,
                 "batch_no": item.batch_no or getattr(item.batch, "batch_no", "") or "",
                 "exp_date": item.exp_date,
@@ -241,6 +252,18 @@ class GoodsReceiptService:
         from reporting.gst_periods import assert_period_allows_money_amend
 
         assert_period_allows_money_amend(grn.company, grn.receipt_date, allow_soft_closed=True)
+
+        # G-01: the debit note drafted for this receipt's rejected goods goes with it.
+        if PurchaseDebitNote.objects.filter(
+            goods_receipt=grn, status=PurchaseDebitNote.Status.COMPLETED
+        ).exists():
+            raise BusinessRuleError(
+                "A debit note for the rejected goods on this receipt is already completed. "
+                "Cancel that debit note before cancelling the receipt."
+            )
+        PurchaseDebitNote.objects.filter(
+            goods_receipt=grn, status=PurchaseDebitNote.Status.DRAFT
+        ).update(status=PurchaseDebitNote.Status.CANCELLED, updated_at=timezone.now())
 
         if grn.status == GoodsReceipt.Status.COMPLETED:
             bill = grn.converted_purchase
