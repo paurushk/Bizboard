@@ -182,7 +182,7 @@ export function SuppliersPage() {
       ) : null}
       {query.data && query.data.count === 0 && !filtersActive ? (
         <EmptyState
-          description="Add suppliers to record purchase bills and track payables."
+          description={t('purchaseReview.addSuppliersHint')}
           action={
             <Button
               variant="contained"
@@ -205,8 +205,8 @@ export function SuppliersPage() {
               <TableRow>
                 <TableCell>{t('common.name')}</TableCell>
                 <TableCell>{t('common.phone')}</TableCell>
-                <TableCell>GSTIN</TableCell>
-                <TableCell>GSTIN status</TableCell>
+                <TableCell>{t('purchaseReview.colGstin')}</TableCell>
+                <TableCell>{t('purchaseReview.colGstinStatus')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('sweep2.outstanding')}</TableCell>
                 <TableCell />
@@ -315,7 +315,7 @@ export function SuppliersPage() {
       ) : null}
 
       <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{editing ? t('common.edit') : t('common.create')} supplier</DialogTitle>
+        <DialogTitle>{editing ? t('purchaseReview.editSupplier') : t('purchaseReview.createSupplier')}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField

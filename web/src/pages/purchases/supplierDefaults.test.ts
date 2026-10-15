@@ -6,8 +6,14 @@ describe('supplier defaults', () => {
 
   it('starts empty and remembers the last choice per supplier and company', () => {
     expect(loadSupplierDefaults(1, 7)).toBeNull();
-    saveSupplierDefaults(1, 7, { itcEligibility: 'CLAIMABLE', isReverseCharge: true, paymentTermsDays: 45 });
-    expect(loadSupplierDefaults(1, 7)).toEqual({ itcEligibility: 'CLAIMABLE', isReverseCharge: true, paymentTermsDays: 45 });
+    saveSupplierDefaults(1, 7, { itcEligibility: 'CLAIMABLE', isReverseCharge: true, paymentTermsDays: 45, tdsSection: '194C', tdsRate: 1 });
+    expect(loadSupplierDefaults(1, 7)).toEqual({
+      itcEligibility: 'CLAIMABLE',
+      isReverseCharge: true,
+      paymentTermsDays: 45,
+      tdsSection: '194C',
+      tdsRate: 1,
+    });
     expect(loadSupplierDefaults(1, 8)).toBeNull();
     expect(loadSupplierDefaults(2, 7)).toBeNull();
   });

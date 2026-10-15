@@ -5,6 +5,9 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import CircularProgress from '@mui/material/CircularProgress';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
+import MoreVertIcon from '@mui/icons-material/MoreVert';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
@@ -38,6 +41,7 @@ import type { Customer, ImportKind, Supplier } from '@/types/domain';
 import { toCsv } from '@/utils/csv';
 import { statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { recordExtractionSeconds, typicalExtractionMinutes } from './extractionTimes';
 import { BillReviewPanel } from './bill/BillReviewPanel';
 import { RecentBillUploads } from './bill/RecentBillUploads';
 import { SourceBillViewer } from './bill/SourceBillViewer';
@@ -128,6 +132,9 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   const [reloadToken, setReloadToken] = useState(0);
   const [undoDialog, setUndoDialog] = useState(false);
+  const [committedMenu, setCommittedMenu] = useState<HTMLElement | null>(null);
+  // When this browser saw each upload start, so finishing can be timed (H-07).
+  const startedAt = useRef<Record<number, number>>({});
   const [showSource, setShowSource] = useSourceVisibility();
   const [now, setNow] = useState(() => Date.now());
 
@@ -179,6 +186,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
         setConsentWasSaved(true);
       }
       queryClient.setQueryData(['import-job', data.id], data);
+      startedAt.current[data.id] = Date.now();
       setJobId(data.id);
       if (data.status === 'FAILED') setError(data.failureReason || t('billUpload.extractionFailed'));
     },
@@ -254,6 +262,17 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
   }, [jobId, uploadMode, acceptFile]);
+
+  useEffect(() => {
+    if (!job) return;
+    const began = startedAt.current[job.id];
+    if (began && job.status !== 'UPLOADED' && job.status !== 'EXTRACTING') {
+      delete startedAt.current[job.id];
+      if (job.status === 'PREVIEWED' || job.status === 'NEEDS_CLARIFICATION') {
+        recordExtractionSeconds((Date.now() - began) / 1000);
+      }
+    }
+  }, [job]);
 
   const extracting =
     uploadMutation.isPending ||
@@ -363,9 +382,24 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
               <Button color="inherit" size="small" onClick={resetAll}>
                 {t('billUpload.uploadAnother')}
               </Button>
-              <Button color="inherit" size="small" sx={{ opacity: 0.8 }} onClick={() => setUndoDialog(true)}>
-                {t('billUpload.undoImport')}
-              </Button>
+              <IconButton
+                color="inherit"
+                size="small"
+                aria-label={t('billUpload.moreActions')}
+                onClick={(e) => setCommittedMenu(e.currentTarget)}
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+              <Menu anchorEl={committedMenu} open={Boolean(committedMenu)} onClose={() => setCommittedMenu(null)}>
+                <MenuItem
+                  onClick={() => {
+                    setCommittedMenu(null);
+                    setUndoDialog(true);
+                  }}
+                >
+                  {t('billUpload.undoImport')}
+                </MenuItem>
+              </Menu>
             </Stack>
           }
         >
@@ -530,7 +564,12 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
           </Stack>
           <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
             <Typography variant="body2" color="text.secondary">
-              {t('billUpload.extractHint')}
+              {(() => {
+                const typical = typicalExtractionMinutes();
+                return typical
+                  ? t('billUpload.extractHintTypical', { minutes: typical.minutes, count: typical.samples })
+                  : t('billUpload.extractHint');
+              })()}
             </Typography>
             {elapsedMs <= STILL_WORKING_MS ? (
               <Button size="small" color="inherit" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>

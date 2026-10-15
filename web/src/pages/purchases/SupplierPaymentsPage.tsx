@@ -103,11 +103,11 @@ export function SupplierPaymentsPage() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!supplier) throw new Error('Supplier required');
+      if (!supplier) throw new Error(t('purchaseReview.supplierRequired'));
       // BUG-528: reject non-positive amounts (a plain type="number" field
       // let "-500" through since it's a non-empty string).
       const paymentAmount = Number(amount);
-      if (!(paymentAmount > 0)) throw new Error('Amount must be greater than zero');
+      if (!(paymentAmount > 0)) throw new Error(t('purchaseReview.amountAboveZero'));
       if (mode === 'CHEQUE' && (!cheque.chequeNumber.trim() || !cheque.chequeBankName.trim())) {
         throw new Error(`${t('billing.chequeNumber')} / ${t('billing.chequeBank')}`);
       }
@@ -137,7 +137,7 @@ export function SupplierPaymentsPage() {
         );
         if (alloc > cap + 0.001) {
           throw new Error(
-            `Allocation ${alloc.toFixed(2)} exceeds the lesser of the payment amount and the invoice balance (${cap.toFixed(2)}).`,
+            t('purchaseReview.allocationTooHigh', { alloc: alloc.toFixed(2), cap: cap.toFixed(2) }),
           );
         }
         await createAllocation(
@@ -213,7 +213,7 @@ export function SupplierPaymentsPage() {
       ) : null}
       {payments.length === 0 && query.isSuccess ? (
         <EmptyState
-          description="Record payments made to suppliers."
+          description={t('purchaseReview.recordPaymentsHint')}
           action={
             <Button variant="contained" onClick={() => setOpen(true)}>
               {t('phase1.newSupplierPayment')}

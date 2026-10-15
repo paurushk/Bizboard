@@ -224,7 +224,7 @@ export function PurchaseHistoryPage() {
       ) : null}
       {showEmpty ? (
         <EmptyState
-          description="No purchases yet."
+          description={t('purchaseReview.noPurchasesYet')}
           action={
             allowCreate ? (
               <Button component={RouterLink} to="/purchases/new" variant="contained">
@@ -302,6 +302,20 @@ export function PurchaseHistoryPage() {
                     {allowCreate && p.status === 'DRAFT' ? (
                       <Button size="small" disabled={busy} onClick={() => askComplete(p)}>
                         {t('common.complete')}
+                      </Button>
+                    ) : null}
+                    {allowCancel && p.status === 'COMPLETED' ? (
+                      <Button
+                        size="small"
+                        color="warning"
+                        disabled={busy}
+                        onClick={() => {
+                          void confirmAction(t('history.confirmCancel', { label: purchaseNumberLabel(p) })).then((ok) => {
+                            if (ok) cancelMutation.mutate(p.id);
+                          });
+                        }}
+                      >
+                        {t('common.cancel')}
                       </Button>
                     ) : null}
                     <IconButton

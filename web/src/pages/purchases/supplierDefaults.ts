@@ -9,6 +9,9 @@ export type SupplierDefaults = {
   itcEligibility: NonNullable<PurchaseInvoice['itcEligibility']>;
   isReverseCharge: boolean;
   paymentTermsDays: number;
+  /** Last TDS section / rate used with this supplier (empty when none). */
+  tdsSection?: string;
+  tdsRate?: number;
 };
 
 const key = (companyId: number) => `bizboard:purchase:supplierDefaults:${companyId}`;
@@ -31,6 +34,8 @@ export function loadSupplierDefaults(companyId: number, supplierId: number): Sup
     itcEligibility: found.itcEligibility,
     isReverseCharge: Boolean(found.isReverseCharge),
     paymentTermsDays: Number.isFinite(days) && days >= 0 ? days : 0,
+    tdsSection: typeof found.tdsSection === 'string' ? found.tdsSection : '',
+    tdsRate: Number.isFinite(Number(found.tdsRate)) ? Number(found.tdsRate) : 0,
   };
 }
 

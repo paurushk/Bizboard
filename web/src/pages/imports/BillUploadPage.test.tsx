@@ -380,7 +380,8 @@ describe('BillUploadPage (sales)', () => {
     renderPage();
     expect(await screen.findByText('This bill is now a draft.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open the draft' })).toHaveAttribute('href', '/sales/history/77/edit');
-    expect(screen.getByRole('button', { name: 'Undo this import' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'More actions' }));
+    expect(await screen.findByRole('menuitem', { name: 'Undo this import' })).toBeInTheDocument();
   });
 
   it('requires choosing which GSTIN issued the bill when the company has several', async () => {
@@ -723,5 +724,22 @@ describe('BillUploadPage (purchase review 2)', () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: /export from my supplier/i }));
     expect(await screen.findByRole('button', { name: 'Download a sample CSV' })).toBeInTheDocument();
+  });
+});
+
+describe('BillUploadPage (partials)', () => {
+  it('states the typical wait from the recent uploads here', async () => {
+    window.localStorage.setItem('bizboard:billUpload:extractionSeconds', JSON.stringify([100, 140, 120]));
+    api.getImportJob.mockResolvedValue(previewedJob({ status: 'EXTRACTING' }));
+    renderPage();
+    expect(await screen.findByText(/usually takes about 2 min here \(your last 3 uploads\)/i)).toBeInTheDocument();
+    window.localStorage.removeItem('bizboard:billUpload:extractionSeconds');
+  });
+
+  it('shows extraction warnings inside the single notes notice', async () => {
+    api.getImportJob.mockResolvedValue(previewedJob({}, { warnings: ['Line 3 looked cut off'] }));
+    renderPage();
+    expect(await screen.findByText('Line 3 looked cut off')).toBeInTheDocument();
+    expect(screen.getAllByRole('alert').some((a) => a.textContent?.includes('Line 3 looked cut off') && a.textContent?.includes('check every row'))).toBe(true);
   });
 });

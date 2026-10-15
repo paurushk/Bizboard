@@ -687,15 +687,6 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
               <Alert severity="error">
                 <strong>{t('billUpload.injectionWarningTitle')}:</strong> {t('billUpload.injectionWarningBody')}
               </Alert>
-            ) : preview.warnings && preview.warnings.length > 0 ? (
-              <Alert severity="warning">
-                <strong>{t('billUpload.extractionWarningsTitle')}:</strong>
-                <ul style={{ margin: '4px 0 0', paddingLeft: '1.2em' }}>
-                  {preview.warnings.map((w, i) => (
-                    <li key={i}>{w}</li>
-                  ))}
-                </ul>
-              </Alert>
             ) : null}
             {typeof preview.printedLineCount === 'number' && preview.printedLineCount > lines.length ? (
               <Alert
@@ -728,9 +719,19 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                 {t('billUpload.maybeTruncated', { got: lines.length })}
               </Alert>
             ) : null}
-            <Alert severity="info" variant="outlined">
+            <Alert severity={!preview.injectionFlagged && (preview.warnings?.length ?? 0) > 0 ? 'warning' : 'info'} variant="outlined">
               {job.billTemplate && (job.clarifications ?? []).length === 0 ? `${t('billUpload.templateApplied')} ` : ''}
               {t('billUpload.aiAccuracyDisclaimer')}
+              {!preview.injectionFlagged && preview.warnings && preview.warnings.length > 0 ? (
+                <>
+                  <strong style={{ display: 'block', marginTop: 4 }}>{t('billUpload.extractionWarningsTitle')}:</strong>
+                  <ul style={{ margin: '4px 0 0', paddingLeft: '1.2em' }}>
+                    {preview.warnings.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
             </Alert>
 
             <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>

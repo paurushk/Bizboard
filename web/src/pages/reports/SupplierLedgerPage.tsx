@@ -207,7 +207,7 @@ export function SupplierLedgerPage() {
                     </TableRow>
                   ) : null}
                   {entries.map((e, idx) => {
-                    const path = ledgerEntryPath(e);
+                    const path = ledgerEntryPath(e, supplier?.id);
                     return (
                       <TableRow key={`${e.date}-${e.number}-${idx}`}>
                         <TableCell>{e.date}</TableCell>

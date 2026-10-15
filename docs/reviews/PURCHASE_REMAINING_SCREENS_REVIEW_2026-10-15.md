@@ -113,37 +113,37 @@ browser** and **not run on Postgres**.
 | G-05 | Fixed | Eligibility change, accept, bulk accept and match now also refresh purchase bills. |
 | G-06 | Fixed | Forecast method uses `enums.forecastMethod`; an unknown method falls back to Title case. |
 | G-07 | Fixed | Register export shows "Export started…". |
-| H-01 | Fixed | Ledger rows link to the bill / credit note / debit note; payments and returns link to their list (they have no page of their own). The API now sends `source_id` because on the GL path `reference_id` is the journal entry. |
+| H-01 | Fixed | Ledger rows link to the bill / credit note / debit note; payments open the Supplier payments list for that supplier (needs the Money hub's supplier filter to narrow it) and returns open the returns list (they have no page of their own). The API now sends `source_id` because on the GL path `reference_id` is the journal entry. |
 | H-02 | Fixed | **Export CSV** on the ledger (formula-safe `toCsv`, includes the opening row). There is still no PDF; Print covers that. |
 | H-03 | Fixed | Columns renamed (see C-10), one help line explains the sign, a negative balance is described as an advance, and a **Balance brought forward** row appears when a start date is chosen (`opening_balance` from the API). |
 | H-04 | Fixed | Totals strip (bills, taxable, GST, total) above the register. ITC is **not** in the register data, so it is not shown. |
 | H-05 | Fixed | **This month** and **Last month** presets; the page opens on the current financial year instead of the whole register. |
 | H-06 | Fixed | **Download a sample CSV** on the CSV/Excel route (headers the importer understands). |
-| H-07 | Partly | Cancel is available from the start and a hint says it can take a few minutes and can be left. **No numeric estimate** is given because none has been measured. |
+| H-07 | Fixed | Cancel is available from the start. The wait is described from this browser's own last uploads ("usually about N min here (your last K uploads)", median, needs at least 2). With no history it keeps the generic hint. Timings are measured in the page, not on the server. |
 | H-08 | Fixed | Each forecast row has **Plan a purchase** (opens a new order with a month of cover as the quantity, editable) and the page links to Purchase planning. |
 | H-09 | Fixed | CA view / Client view toggle on Missing documents; the address parameter still works. |
 | H-10 | Fixed for the ledger | The ledger picker is now server-searched. GSTR-2B has **no supplier picker**, so that part of the finding did not apply. |
 | C-01 | Fixed | A line under the button names the first blocker ("You cannot create the draft yet: enter the bill date."). |
-| C-02 | Partly | The template note and the AI-accuracy warning are one outlined notice instead of two banners, and the confirmations sit under a "Before you create the draft" heading. The banners that only appear in special cases (wrong direction, injection, truncated) are unchanged: they are rare and each needs its own action. |
+| C-02 | Fixed | Template note, AI-accuracy warning **and** the extraction warnings are now one notice. Direction and injection warnings stay separate on purpose (they change what you do). Confirmations sit under one heading. |
 | C-03 | Fixed | The agreement is remembered in this browser; a short line replaces the notice, with **Ask me again**. |
-| C-04 | Partly | The button was already worded "Upload another file" (the review misread it). Order and weight were changed: Open the draft is outlined, Upload another file next, Undo import last and quieter. It is not in a menu. |
+| C-04 | Fixed | Open the draft is the main action, Upload another file next, and **Undo this import** moved into a "More actions" menu. |
 | C-05 | Fixed | One "Order of work" line, Accept as the only visible row action, Reject / Pending / Supplier message under a menu. |
 | C-06 | Fixed | Accept now opens the same dialog as Reject (remark pre-filled, optional). |
 | C-07 | Fixed | The disabled option says "Claimable (match this bill to the supplier first)". |
-| C-08 | Partly | The button now says why it is off, with a section title. The card is still one panel, not a step-by-step flow, and there is no "complained quantity" field to default from. |
+| C-08 | Fixed | The card is a three-step flow: bill, faulty line, then quantity and price (shown only once a line is chosen), with the reason line under the button. There is still no complained-quantity field on the complaint, so quantity starts at 1. |
 | C-09 | Fixed | Moving a complaint to a status with nowhere further to go (Rejected, Resolved) asks first. |
 | C-10 | Fixed | "Reduces what you owe" / "Adds to what you owe" / "You owe after this". |
 | C-11 | Fixed | Fixed, labelled columns with a **Show all columns** option. |
-| C-12 | Partly | Pending GST confirmations were already asked in one dialog; the two that could not be answered (B-01, B-02) now can, with role-aware wording. The GST terms in the other prompts are unchanged and still need a plain-language rewrite by someone who knows the shop owners. |
+| C-12 | Fixed | The four GST prompts (place of supply, filing-GSTIN total change, reverse charge, duplicate bill) are rewritten in plain words with the consequence, in English and Hindi. |
 | C-13 | Fixed | A web test checks that each confirm code the purchase service can ask for has a prompt, and a backend test checks the code list has not grown without one. |
 
 ### Design items carried over (section E)
 
 | Item | Result |
 |---|---|
-| Bill editor decisions per supplier | Fixed in part: ITC treatment, reverse charge and payment terms start from the last bill from that supplier (stored in this browser only, with a note on the screen). Place of supply and TDS still come from the supplier master. |
+| Bill editor decisions per supplier | Fixed: ITC treatment, reverse charge, payment terms and TDS start from the last bill from that supplier (this browser only, with a note on the screen). Place of supply comes from the supplier master. Not shared across devices (would need a server field). |
 | Clear / Bounce / Void | Fixed: a help line and a tooltip on each; the bounce confirmation no longer says "receipt". |
-| Bill list discoverability | Fixed in part: a visible **Complete** on draft rows (now with a confirm; the menu path also asks), and a hint about the three-dot menu. |
+| Bill list discoverability | Fixed: visible **Complete** on draft rows and **Cancel** on completed rows (both ask first), plus a hint about the three-dot menu. Delete stays in the menu on purpose. |
 | Returns dialog summary | Fixed: "what will happen" line under the totals. |
 
 ### Also closed from the earlier review
@@ -165,3 +165,12 @@ purchase-adjacent screens listed in `web/eslint.config.js`.
 - **Not reviewed yet:** bill-upload line table / party block / totals panel / source viewer and the server import
   pipeline, the purchase side of the Money hub, settings import and Tally migration pages, and the backend bill of
   entry, note, goods receipt and PDF code.
+
+### Closed in the follow-up pass (partials)
+
+H-07, C-02, C-04, C-08, C-12, per-supplier TDS default, bill-list Cancel, the remaining hard-coded English in
+Purchase history, Supplier payments and Suppliers.
+
+Left as they are, with reasons: no PDF ledger export (Print covers it), no ITC total in the register (the register
+data does not contain ITC), defaults are not shared across devices (needs a server field and migration), and
+`web/src/utils/noteQueries.ts` remains untracked because it belongs to another session.

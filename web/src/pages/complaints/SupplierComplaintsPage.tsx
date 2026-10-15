@@ -207,6 +207,7 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
           </Button>
         ))}
       </Stack>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 2 }}>{t('growth.debitStepBill')}</Typography>
       <TextField select size="small" sx={{ mt: 1, minWidth: 220 }} label={t('growth.sourceInvoice')} value={invoiceId || (row.sourceInvoice ? String(row.sourceInvoice) : '')} onChange={(e) => {
         const next = e.target.value;
         setInvoiceId(next);
@@ -219,6 +220,8 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
         ))}
       </TextField>
       {invoiceLines.length ? (
+        <>
+        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>{t('growth.debitStepLine')}</Typography>
         <TextField select size="small" sx={{ mt: 1, minWidth: 220, display: 'block' }} label={t('growth.sourceLine')} value={sourceItem} onChange={(e) => setSourceItem(e.target.value)}>
           <MenuItem value="">{t('growth.none')}</MenuItem>
           {invoiceLines.map((item) => (
@@ -227,8 +230,12 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
             </MenuItem>
           ))}
         </TextField>
+        </>
       ) : null}
       <Typography variant="subtitle2" sx={{ mt: 2 }}>{t('growth.debitNoteTitle')}</Typography>
+      {line ? (
+      <>
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>{t('growth.debitStepQuantity')}</Typography>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mt: 1 }}>
         <TextField size="small" label={t('growth.quantity')} value={quantity} onChange={(e) => setQuantity(e.target.value)} />
         <TextField
@@ -239,6 +246,8 @@ function SupplierComplaintDetail({ id, onError }: { id: number; onError: (messag
           helperText={line ? t('growth.debitPriceFromBill', { price: String(line.unitPrice ?? '') }) : undefined}
         />
       </Stack>
+      </>
+      ) : null}
       <Button size="small" sx={{ mt: 1 }} disabled={Boolean(debitBlocker)} onClick={() => run.mutate(() => createSupplierDebitNote(id, debitItems))}>
         {t('growth.createDebitNote')}
       </Button>

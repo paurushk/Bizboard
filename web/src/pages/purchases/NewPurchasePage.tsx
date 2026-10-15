@@ -1070,7 +1070,13 @@ export function NewPurchasePage() {
         void clearPurchaseDraft(companyId, userId).then(() => setHasLocalDraft(false));
       }
       if (companyId && supplierId) {
-        saveSupplierDefaults(companyId, Number(supplierId), { itcEligibility, isReverseCharge, paymentTermsDays });
+        saveSupplierDefaults(companyId, Number(supplierId), {
+          itcEligibility,
+          isReverseCharge,
+          paymentTermsDays,
+          tdsSection,
+          tdsRate,
+        });
       }
       const label = invoice.number?.trim() ? invoice.number : `#${invoice.id}`;
       // Completion notices (duplicate bill, ITC, ...) ride along with the saved message instead of vanishing.
@@ -1614,6 +1620,9 @@ export function NewPurchasePage() {
                 setItcEligibility(remembered.itcEligibility);
                 setIsReverseCharge(remembered.isReverseCharge);
                 setPaymentTermsDays(remembered.paymentTermsDays);
+                setTdsSection(remembered.tdsSection ?? '');
+                setTdsRate(remembered.tdsRate ?? 0);
+                if (remembered.tdsSection) setShowTds(true);
                 setDefaultsApplied(true);
               }
             }}

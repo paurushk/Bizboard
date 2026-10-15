@@ -86,6 +86,7 @@ describe('supplier ledger (H-01/H-02/H-03/G-03)', () => {
     expect(ledgerEntryPath(entry() as never)).toBe('/purchases/history/3');
     expect(ledgerEntryPath(entry({ type: 'PURCHASE_DEBIT_NOTE', sourceId: 4 }) as never)).toBe('/purchases/debit-notes/4');
     expect(ledgerEntryPath(entry({ type: 'JOURNAL', sourceId: 4 }) as never)).toBeNull();
+    expect(ledgerEntryPath(entry({ type: 'SUPPLIER_PAYMENT', sourceId: 5 }) as never, 7)).toBe('/purchases/payments?supplier=7');
   });
 
   it('links rows, names types in words, explains the columns and shows the carried-in balance', async () => {

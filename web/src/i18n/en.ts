@@ -179,6 +179,9 @@ export const en = {
     billsOfEntry: 'Bills of Entry',
   },
   growth: {
+    debitStepBill: 'Step 1: the supplier bill',
+    debitStepLine: 'Step 2: the faulty line',
+    debitStepQuantity: 'Step 3: quantity and price (quantity starts at 1)',
     confirmTerminal: 'Mark this complaint as {status}? It cannot be moved again afterwards.',
     debitNoteTitle: 'Raise a debit note to the supplier',
     debitBlockedStatus: 'Move the complaint to Being inspected or Approved first.',
@@ -814,7 +817,7 @@ export const en = {
     threeWayBody: '{lines}\n\nAn Owner or Manager can approve the difference. Write down why.',
     threeWayApprove: 'Approve difference',
     threeWayNoRole: 'This bill differs from its order or receipt. Ask an Owner or Manager to approve, or edit the bill to match.',
-    supplierDefaultsApplied: 'Started from your last bill from this supplier: ITC, reverse charge and payment terms. Change them below if this bill is different.',
+    supplierDefaultsApplied: 'Started from your last bill from this supplier: ITC, reverse charge, payment terms and TDS. Change them below if this bill is different.',
     retryPayment: 'Retry payment',
     dismissPaymentNotice: 'Dismiss',
     chequeImage: 'Cheque image',
@@ -1067,7 +1070,7 @@ export const en = {
     confirmAmendCompleted:
       'Amend this completed GST invoice? Changes to prices/discounts/charges will be audited. Quantities and GST rates stay locked.',
     confirmBlankPos:
-      'Place of supply is blank. Treat this as an intra-state sale and complete?',
+      'The other party has no state or GSTIN on file, so the tax will be split as CGST + SGST (same state). If they are in another state it should be IGST. Complete anyway?',
     cannotEditCancelled:
       'This cancelled invoice cannot be edited. Open the invoice to view it, or create a new bill.',
     cannotEditReturned:
@@ -1091,11 +1094,11 @@ export const en = {
     useName: 'Use name',
     walkInCashPlaceholder: 'Walk-in / cash sale name',
     confirmGstinTotalChange:
-      'Filing GSTIN tax recompute would change the grand total. Confirm the new CGST/SGST vs IGST split and total, then complete?',
+      'The tax split for your filing GSTIN is different from what was shown, so the bill total changes. Check the new total, then complete?',
     confirmNoRcm:
-      'Supplier has no GSTIN and reverse charge is off. Complete without RCM?',
+      'This supplier has no GSTIN, so you normally pay the GST yourself (reverse charge) and reverse charge is switched off. Complete without it?',
     confirmDuplicateBill:
-      'A purchase with this supplier bill number already exists. Record another anyway?',
+      'You already have a bill from this supplier with this bill number. Recording it again may count the purchase twice. Record it anyway?',
     confirmAdditionalDebit:
       'This debit note bills an extra amount beyond credit-note headroom. Continue?',
     confirmCnOnPaidInvoice:
@@ -1412,6 +1415,9 @@ export const en = {
     validPreviewTitle: 'Valid Rows Ready to Import ({count})',
   },
   billUpload: {
+    extractHintTypical: 'Reading a bill usually takes about {minutes} min here (your last {count} uploads). You can leave this page; it will be under Recent uploads.',
+    moreActions: 'More actions',
+    notesTitle: 'Notes from reading this bill',
     title: 'Upload purchase bill',
     titleSales: 'Upload sales bill',
     expandRow: 'Expand row to edit details',
@@ -2467,6 +2473,16 @@ export const en = {
     ownerCreatesProducts: 'Only the company owner can create products.',
   },
   purchaseReview: {
+    noPurchasesYet: 'No purchases yet.',
+    supplierRequired: 'Choose a supplier.',
+    amountAboveZero: 'The amount must be greater than zero.',
+    recordPaymentsHint: 'Record payments made to suppliers.',
+    addSuppliersHint: 'Add suppliers to record purchase bills and track payables.',
+    allocationTooHigh: 'Allocation {alloc} is more than the payment or the bill balance allows ({cap}).',
+    editSupplier: 'Edit supplier',
+    createSupplier: 'Create supplier',
+    colGstin: 'GSTIN',
+    colGstinStatus: 'GSTIN status',
     boeConfirmComplete:
       'Complete this bill of entry? Its customs duty and IGST are posted and become claimable as input tax credit.',
     returnConfirmComplete:
