@@ -103,6 +103,8 @@ CHART = (
     ("3200", "Opening Balance Equity", "EQUITY", True),
     ("4000", "Income", "INCOME", False),
     ("4100", "Sales", "INCOME", True), ("5000", "Expenses", "EXPENSE", False),
+    # DEP-04: contra-revenue for credit notes (debit-normal; nets against 4100).
+    ("4110", "Sales Returns & Allowances", "INCOME", True),
     ("5100", "Purchases", "EXPENSE", True),
     ("5110", "Purchase Charges", "EXPENSE", True),
     ("5150", "Settlement Discounts", "EXPENSE", True),
@@ -144,6 +146,7 @@ _CHART_PARENTS = {
     "1390": "1300",
     "2270": "2200", "2280": "2200", "1370": "1300",
     "1450": "1000",
+    "4110": "4000",
     "2150": "2000",
     "5800": "5000",
     "5150": "5000",
@@ -222,6 +225,13 @@ class PostingService:
         )
         if len(existing) < len(required):
             seed_chart_of_accounts(company)
+
+    @staticmethod
+    def _credit_note_sales_code(company):
+        """4110 (contra revenue) when the company has opted in, else 4100."""
+        from core.services.feature_flags import flag_enabled
+
+        return "4110" if flag_enabled(company, "ENABLE_CONTRA_SALES_ACCOUNT") else "4100"
 
     @staticmethod
     def _account(company, code):
@@ -601,6 +611,20 @@ class PostingService:
         credit = sum((line["credit"] for line in lines), Decimal("0"))
         if not lines or debit != credit:
             raise BusinessRuleError("Journal posting must contain balanced debit and credit lines.")
+        # ACS-11: a deactivated account takes no new postings. A reversal must still
+        # be able to unwind an entry that used the account before it was switched off.
+        if purpose != "REVERSE":
+            inactive = sorted({
+                f"{line['account'].code} {line['account'].name}"
+                for line in lines
+                if getattr(line.get("account"), "is_active", True) is False
+            })
+            if inactive:
+                raise BusinessRuleError(
+                    "Cannot post to an inactive account: " + ", ".join(inactive) + ". "
+                    "Reactivate it or choose another account.",
+                    code="account_inactive",
+                )
         # CR-081: lock overlapping period rows so soft_close/close serialize with posters.
         list(
             AccountingPeriod.objects.select_for_update().filter(
@@ -1107,6 +1131,70 @@ class PostingService:
                 {"account": cls._account(company, "5450"), "debit": amount, "cost_center": cc},
                 {"account": cls._account(company, "1400"), "credit": amount, "cost_center": cc},
             ],
+        )
+
+    # Stock write paths that change what is on the shelf with no document behind them, and the
+    # journal purpose each one posts under (INV-WP-12). Transfers, import voids and returns are not
+    # here: they move stock, or have their own accounting, and must not be posted twice.
+    STOCK_WRITE_PURPOSES = {
+        "manual_adjustment": ("STOCK_ADJUSTMENT", "Stock adjustment"),
+        "stock_count": ("STOCK_COUNT", "Stock count difference"),
+        "expiry_write_off": ("STOCK_EXPIRY", "Expired stock write-off"),
+        "serial_scrap": ("SERIAL_SCRAP", "Serial number scrapped"),
+    }
+
+    @staticmethod
+    def _stock_movement_cost(movement) -> Decimal:
+        """What one unit of this movement was worth: the cost stamped on an issue, the layer cost of
+        a receipt, else the item's purchase price. Never a silent zero when a price is known."""
+        cost = Decimal(str(movement.unit_cost or 0))
+        if cost <= 0 and Decimal(str(movement.quantity or 0)) > 0:
+            from inventory.models import InventoryCostLayer
+
+            layer = InventoryCostLayer.objects.filter(source_movement=movement).first()
+            if layer is not None:
+                cost = Decimal(str(layer.unit_cost or 0))
+        if cost <= 0:
+            cost = Decimal(str(getattr(movement.product, "purchase_price", 0) or 0))
+        return cost
+
+    @classmethod
+    def post_stock_adjustment(cls, movement, user=None):
+        """Dr 5450 shrinkage / Cr 1400 Inventory for a loss; the reverse for a gain, at the cost the
+        movement carried. Off unless the company opted in (``ACCOUNTING_POST_STOCK_ADJUSTMENTS``);
+        idempotent per movement."""
+        company = movement.company
+        entry = cls.STOCK_WRITE_PURPOSES.get(movement.reference_type or "")
+        if entry is None or not getattr(company, "accounting_enabled", False):
+            return None
+        from core.services.feature_flags import flag_enabled
+
+        if not flag_enabled(company, "ACCOUNTING_POST_STOCK_ADJUSTMENTS"):
+            return None
+        qty = Decimal(str(movement.quantity or 0))
+        if qty == 0:
+            return None
+        amount = (abs(qty) * cls._stock_movement_cost(movement)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amount <= 0:
+            return None
+        purpose, label = entry
+        cls._ensure_chart(company)
+        shrinkage = cls._account(company, "5450")
+        inventory = cls._account(company, "1400")
+        if qty < 0:
+            lines = [{"account": shrinkage, "debit": amount}, {"account": inventory, "credit": amount}]
+        else:
+            lines = [{"account": inventory, "debit": amount}, {"account": shrinkage, "credit": amount}]
+        detail = f": {movement.reason}" if movement.reason else ""
+        return cls.post(
+            company=company,
+            source_type="STOCK_MOVEMENT",
+            source_id=movement.id,
+            purpose=purpose,
+            entry_date=getattr(movement, "movement_date", None) or timezone.localdate(),
+            user=user,
+            narration=f"{label}{detail} (movement #{movement.id})",
+            lines=lines,
         )
 
     @classmethod
@@ -1694,18 +1782,19 @@ class PostingService:
             and getattr(parent, "is_reverse_charge", False)
         )
         if direction == "SALES_CREDIT":
+            sales_code = cls._credit_note_sales_code(note.company)
             tcs_amt = Decimal(str(getattr(note, "tcs_amount", 0) or 0))
             if parent_sales_rcm:
                 ar = Decimal(str(note.grand_total or 0)) - tax
                 sales_amt = ar - round_off - tcs_amt
                 lines = [
-                    {"account": cls._account(note.company, "4100"), "debit": sales_amt},
+                    {"account": cls._account(note.company, sales_code), "debit": sales_amt},
                     {"account": cls._account(note.company, "1200"), "credit": ar, "customer": note.customer},
                 ]
             else:
                 lines = [
                     {
-                        "account": cls._account(note.company, "4100"),
+                        "account": cls._account(note.company, sales_code),
                         "debit": note.grand_total - tax - round_off - tcs_amt,
                     },
                     *cls._tax_component_lines(
@@ -2139,6 +2228,23 @@ class BooksHealthService:
         return alerts
 
     @staticmethod
+    def _expense_posting_alerts(company):
+        """ACS-15: expenses that should be in the books but are not."""
+        from .expense_posting import pending_summary
+
+        summary = pending_summary(company)
+        if not summary["count"]:
+            return []
+        return [{
+            "code": "EXPENSE_MISSING_POSTING",
+            "severity": "warning",
+            "message": (
+                f"{summary['count']} expense(s) dated after the expense ledger start date are not "
+                "in the books yet. Post them from Accounting settings."
+            ),
+        }]
+
+    @staticmethod
     def manufacturing_books_required(company) -> bool:
         """Work orders belong in the books only while manufacturing is on."""
         try:
@@ -2169,6 +2275,25 @@ class BooksHealthService:
                 blockers.append({**alert, "severity": "error"})
         gst = build_gst_health(company, period)
         blockers.extend(a for a in gst["alerts"] if a.get("severity") == "critical")
+        # ACS-15: an expense of the month still outside the books makes the month's P&L wrong.
+        from datetime import date as _date
+        from calendar import monthrange as _monthrange
+
+        from .expense_posting import pending_expenses
+
+        up_to = None
+        if period:
+            try:
+                year, month = int(str(period)[:4]), int(str(period)[5:7])
+                up_to = _date(year, month, _monthrange(year, month)[1])
+            except (TypeError, ValueError):
+                up_to = None
+        if pending_expenses(company, up_to=up_to).exists():
+            blockers.append({
+                "code": "EXPENSE_MISSING_POSTING",
+                "severity": "error",
+                "message": "Expenses are not posted to the books yet. Post them from Accounting settings.",
+            })
         from calendar import monthrange
         from datetime import date as date_cls
 
@@ -2514,6 +2639,7 @@ class BooksHealthService:
         if company.accounting_enabled:
             alerts.extend(BooksHealthService._unposted_pay_run_alerts(company))
         alerts.extend(BooksHealthService._depreciation_alerts(company))
+        alerts.extend(BooksHealthService._expense_posting_alerts(company))
         alerts.extend(BooksHealthService._advance_recon_alerts(company))
         # CR-082: document invoice outstanding vs tagged AR/AP control (1200/2100).
         if company.accounting_enabled:

@@ -37,6 +37,20 @@ export type PlanningLine = {
   supplierId: number | null;
   transferFromWarehouseId: number | null;
   transferFromWarehouseName: string;
+  /** Unit short name (pcs, kg). */
+  unit?: string;
+  /** godown: that godown's own reorder rule; company: low across every godown (bought into the default godown). */
+  scope?: 'godown' | 'company';
+  available?: string;
+  reorderLevel?: string;
+  /** Quantity already on open (draft) purchase orders. */
+  onOrder?: string;
+  supplierName?: string;
+  /** Price on the latest completed purchase bill (the item master's price if never bought). */
+  lastPrice?: string;
+  masterPrice?: string;
+  /** Pieces and boxes are ordered whole; weights and lengths keep decimals. */
+  wholeUnitsOnly?: boolean;
 };
 
 export type PlanningDocument = {
@@ -105,21 +119,71 @@ export async function getPurchasePlan(params?: {
   warehouse?: string;
   supplier?: string;
   urgency?: string;
-}): Promise<{ rows: PlanningLine[]; documents: PlanningDocument[] }> {
+}): Promise<{
+  rows: PlanningLine[];
+  documents: PlanningDocument[];
+  coveredByOrders?: number;
+  /** Old draft orders that are not counted as stock on the way. */
+  staleDrafts?: Array<{ productId: number; quantity: string }>;
+}> {
   const { data } = await apiClient.get('/inventory/purchase-planning/', { params });
   return unwrapData(data);
 }
 
-export async function createPlanningDrafts(rows: PlanningLine[]): Promise<{
+export async function createPlanningDrafts(
+  rows: PlanningLine[],
+  options?: { idempotencyKey?: string; confirmDuplicate?: boolean },
+): Promise<{
   purchaseOrderIds: number[];
   needsSupplier: PlanningLine[];
 }> {
-  const { data } = await apiClient.post('/inventory/purchase-planning/', { rows });
+  const { data } = await apiClient.post(
+    '/inventory/purchase-planning/',
+    { rows, ...(options?.confirmDuplicate ? { confirmDuplicate: true } : {}) },
+    { headers: idempotencyHeaders(options?.idempotencyKey) },
+  );
   return unwrapData(data);
 }
 
+export type ForecastRow = {
+  productId: number;
+  productName: string;
+  dailyRate: string;
+  method: string;
+  windowDays: number;
+  soldQty: string;
+  unit?: string;
+  available?: string;
+  onOrder?: string;
+  /** Days the stock on hand lasts at the current pace; null when nothing sold. */
+  daysOfCover?: number | null;
+  coverDaysTarget?: number;
+  /** Quantity that brings stock plus open orders up to the cover target. */
+  suggestedQty?: string;
+  /** A reorder level that covers `reorderCoverDays` of sales at the current pace. */
+  suggestedReorderLevel?: string;
+  reorderCoverDays?: number;
+  /** Days in the window the item had stock (the pace is worked out over these). */
+  inStockDays?: number;
+  needsAction?: boolean;
+  supplierId?: number | null;
+  supplierName?: string;
+};
+
+export type OverstockRow = {
+  productId: number;
+  productName: string;
+  unit?: string;
+  available: string;
+  dailyRate: string;
+  daysOfCover: number | null;
+  noSales: boolean;
+  lookbackDays: number;
+};
+
 export async function getDemandForecast(): Promise<{
-  rows: Array<{ productId: number; productName: string; dailyRate: string; method: string; windowDays: number; soldQty: string }>;
+  rows: ForecastRow[];
+  overstock?: OverstockRow[];
 }> {
   const { data } = await apiClient.get('/inventory/demand-forecast/');
   return unwrapData(data);

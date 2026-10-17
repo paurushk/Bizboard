@@ -477,6 +477,21 @@ export function isNetworkError(error: unknown): boolean {
   return !error.response || error.code === 'ERR_NETWORK' || error.message === 'Network Error';
 }
 
+/**
+ * True when the server answered and refused the request (a 4xx), so nothing was posted and the
+ * next attempt is a new gesture that needs a new Idempotency-Key. A network error, timeout, 5xx,
+ * 408/429 or an "already in progress" 409 is NOT a refusal: the first request may have landed, so
+ * the retry must keep its key.
+ */
+export function isDefinitiveRejection(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || !error.response) return false;
+  const status = error.response.status;
+  if (status < 400 || status >= 500) return false;
+  if (status === 408 || status === 429) return false;
+  if (status === 409 && getErrorCode(error) === 'idempotency_in_flight') return false;
+  return true;
+}
+
 function formatErrorDetails(details: unknown): string | null {
   if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
   const parts: string[] = [];

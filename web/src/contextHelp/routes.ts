@@ -14,6 +14,7 @@ export const CONTEXT_HELP_ROUTES: Array<{ test: RegExp; id: string; example: str
   { test: /^\/sales\/orders$/, id: 'sales-orders', example: '/sales/orders' },
   { test: /^\/sales\/delivery-challans\/(?:new|[^/]+)$/, id: 'delivery-challan-editor', example: '/sales/delivery-challans/new' },
   { test: /^\/sales\/delivery-challans$/, id: 'delivery-challans', example: '/sales/delivery-challans' },
+  { test: /^\/money$/, id: 'money', example: '/money' },
   { test: /^\/sales\/receipts$/, id: 'receipts', example: '/sales/receipts' },
   { test: /^\/sales\/customers\/[^/]+$/, id: 'customer-360', example: '/sales/customers/12' },
   { test: /^\/sales\/customers$/, id: 'customers', example: '/sales/customers' },

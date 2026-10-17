@@ -25,6 +25,9 @@ export interface DocumentListRow {
   partyName?: string;
   status: string;
   grandTotal: string | number;
+  /** Optional linked source document (e.g. the invoice a credit note is against). */
+  sourceId?: number | null;
+  sourceNumber?: string | null;
 }
 
 interface Props {
@@ -41,6 +44,8 @@ interface Props {
   /** Optional per-row actions (Complete / Cancel / Print). */
   rowActions?: (row: DocumentListRow) => ReactNode;
   extraColumn?: (row: DocumentListRow) => ReactNode;
+  /** Optional extra table column (header + per-row cell) shown after Status. */
+  sourceColumn?: { headerKey: string; render: (row: DocumentListRow) => ReactNode };
   /** Hide the Create button (e.g. VIEWER role). Defaults to true. */
   showCreate?: boolean;
   page?: number;
@@ -71,6 +76,7 @@ export function DocumentListPage({
   onRetry,
   rowActions,
   extraColumn,
+  sourceColumn,
   showCreate = true,
   headerActions,
   page = 1,
@@ -128,6 +134,7 @@ export function DocumentListPage({
                 <TableCell>{t('common.date')}</TableCell>
                 <TableCell>{t(partyLabelKey)}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
+                {sourceColumn ? <TableCell>{t(sourceColumn.headerKey)}</TableCell> : null}
                 <TableCell align="right">{t('common.total')}</TableCell>
                 {showActions ? <TableCell align="right">{t('common.actions')}</TableCell> : null}
               </TableRow>
@@ -154,6 +161,7 @@ export function DocumentListPage({
                   <TableCell>
                     <StatusChip tone={documentStatusTone(r.status)} labelKey={statusLabelKey(r.status)} />
                   </TableCell>
+                  {sourceColumn ? <TableCell>{sourceColumn.render(r)}</TableCell> : null}
                   <TableCell align="right">{formatMoney(r.grandTotal)}</TableCell>
                   {showActions ? (
                     <TableCell align="right">

@@ -95,7 +95,7 @@ Rules:
 - If output space is tight, close valid JSON, set printed_line_count correctly, and emit as many
   lines as you can in order — a follow-up call will fetch the rest.
 - Numeric fields are plain numeric strings (no ₹, no commas). Printed 0 stays "0"; unread stays "".
-- gst_rate must be one of 0, 0.25, 3, 5, 12, 18, 28 when known — never invent 18.
+- gst_rate must be one of 0, 0.25, 3, 5, 12, 18, 28, 40 when known — never invent 18. Take it only from a printed GST/CGST/SGST/IGST rate column or footer; never from the item name, item code, state code or amount. If the bill prints no rate, leave it empty.
 - Skip tax-summary bands, grand totals, margin rows, and header-only rows.
 - bill_number ← Invoice/Bill No; bill_date as YYYY-MM-DD when possible.
 - Photos may be tilted, stamped, or handwritten-over — still extract readable print; lower confidence when unsure.
@@ -182,7 +182,7 @@ def _coerce_gst_rate(raw: Any) -> str:
     text = str(raw).strip().replace(",", "")
     if not text:
         return ""
-    allowed = {"0", "0.25", "3", "5", "12", "18", "28"}
+    allowed = {"0", "0.25", "3", "5", "12", "18", "28", "40"}
     upper = text.upper()
     parts = re.findall(r"(\d+(?:\.\d+)?)", text)
     total: float | None = None

@@ -45,6 +45,13 @@ def _invoice(company, customer, product, *, number, taxable, qty="-2", unit_cost
     return invoice
 
 
+def _settle(route):
+    """A route closes only when every stop has an outcome (RT-01): mark the open ones delivered."""
+    route.stops.filter(status=DeliveryRouteStop.StopStatus.PENDING).update(
+        status=DeliveryRouteStop.StopStatus.DELIVERED
+    )
+
+
 def _stop(route, customer, invoice, *, number):
     order = SalesOrder.objects.create(
         company=route.company,
@@ -73,6 +80,7 @@ def test_profit_uses_taxable_total_and_abs_cogs(tenant_a):
         company=tenant_a.company, customer=customer, number="SO-RT-2", status=SalesOrder.Status.CONFIRMED,
     )
     DeliveryRouteStop.objects.create(company=tenant_a.company, route=route, sales_order=bare)
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("10"))
     # revenue 100, cogs abs(-2)*40 = 80, logistics 10 → profit 10. 1 of 2 stops invoiced.
     assert done.realized_revenue == Decimal("100.00")
@@ -92,6 +100,7 @@ def test_snapshot_is_frozen_after_complete(tenant_a):
     )
     inv = _invoice(tenant_a.company, customer, product, number="SI-RT-2", taxable="50")
     _stop(route, customer, inv, number="SO-RT-3")
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("0"))
     frozen = (done.realized_revenue, done.realized_cogs, done.realized_profit, done.invoiced_stop_count)
     inv.taxable_total = Decimal("1")
@@ -113,6 +122,7 @@ def test_planned_and_flag_off_stay_null(tenant_a):
     )
     inv = _invoice(tenant_a.company, customer, product, number="SI-RT-4", taxable="20")
     _stop(route, customer, inv, number="SO-RT-4")
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("1"))
     assert done.realized_profit is None
     assert done.invoiced_stop_count is None
@@ -153,6 +163,7 @@ def test_cancelled_invoice_still_linked_is_excluded_from_revenue(tenant_a):
     _stop(route, customer, inv, number="SO-RT-6")
     inv.status = SalesInvoice.Status.CANCELLED
     inv.save(update_fields=["status"])
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("0"))
     assert done.realized_revenue == Decimal("0.00")
     assert done.realized_cogs == Decimal("0.00")
@@ -176,6 +187,7 @@ def test_fully_returned_invoice_is_excluded_despite_unreduced_taxable_total(tena
     _stop(route, customer, inv, number="SO-RT-7")
     inv.status = SalesInvoice.Status.RETURNED
     inv.save(update_fields=["status"])
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("0"))
     assert done.realized_revenue == Decimal("0.00")
     assert done.invoiced_stop_count == 0
@@ -201,6 +213,7 @@ def test_failed_stop_is_excluded_even_with_a_completed_invoice(tenant_a):
     failed_stop = _stop(route, customer, failed_inv, number="SO-RT-8B")
     failed_stop.status = DeliveryRouteStop.StopStatus.FAILED
     failed_stop.save(update_fields=["status"])
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("0"))
     assert done.realized_revenue == Decimal("100.00")
     assert done.invoiced_stop_count == 1
@@ -229,6 +242,7 @@ def test_actual_logistics_cost_rounds_half_up(tenant_a):
     route = DeliveryRoute.objects.create(
         company=tenant_a.company, number="RT-ROUND", status=DeliveryRoute.Status.IN_TRANSIT,
     )
+    _settle(route)
     done = RouteService.complete_route(route, tenant_a.owner, actual_logistics_cost=Decimal("10.125"))
     assert done.actual_logistics_cost == Decimal("10.13")
 

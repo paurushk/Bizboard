@@ -1,0 +1,26 @@
+id: "QOS-0126"
+category: "RELIABILITY_TRUST"
+title: "Credit and debit notes: a native-speaker review of the new Hindi strings"
+persona: ["P1"]
+journey: "Issue a credit or debit note and read its warnings in Hindi"
+problem: "About 20 new Hindi strings for the credit and debit note screens (Section 34(2) limit, payments moving to advance, excess-debit override, refund links) were written without a native-speaker review."
+evidence:
+  strength: "heuristic"
+  source: ["CREDIT_NOTES_IMPLEMENTATION_PLAN.md", "web/src/i18n/hi.ts"]
+  detail: "Keys are under phase1 (searchNotes .. notesTabEmpty, noteKindCredit, noteKindDebit, confirmAdditionalDebit) and growth.completeCreditNote. The catalog parity test passes, which proves the keys exist, not that the wording is natural. An LLM wording pass on 2026-10-14 tidied the strings; a native speaker spot-check is still wanted."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Heuristic. Needs a Hindi speaker, not code."
+effort: "S"
+recommendation: "A Hindi speaker reads the phase1 note strings in web/src/i18n/hi.ts and returns corrections."
+test_required: "web/src/i18n/fullParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-14"
+closed: null

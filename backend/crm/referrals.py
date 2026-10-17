@@ -356,29 +356,38 @@ def evaluate_referral_reward(opportunity):
 
 
 def _draft_reward_credit_note(reward, user):
-    """Draft only. Completing the note is a separate posting step."""
+    """Draft the reward credit note; ``mark_reward_paid`` completes it in the same transaction."""
     from decimal import Decimal
 
     from sales.models import NoteReason, SalesCreditNote, SalesInvoice
-    from sales.notes_services import SalesNotesService
+    from sales.notes_services import SalesNotesService, _sales_note_headroom
 
     referrer = reward.referral_code.referrer_customer
     if referrer is None:
         raise BusinessRuleError("A customer referrer is required before drafting the credit note.")
-    invoice = (
-        SalesInvoice.objects.filter(
-            company=reward.company,
-            customer=referrer,
-            status=SalesInvoice.Status.COMPLETED,
-        )
-        .order_by("-id")
-        .first()
-    )
-    if invoice is None:
+    amount = Decimal(str(reward.reward_amount or 0))
+    candidates = SalesInvoice.objects.filter(
+        company=reward.company,
+        customer=referrer,
+        status=SalesInvoice.Status.COMPLETED,
+    ).order_by("-id")[:20]
+    if not candidates:
         raise BusinessRuleError("Complete an invoice for the referrer before marking the reward paid.")
-    source = invoice.items.select_related("product").order_by("id").first()
-    if source is None:
-        raise BusinessRuleError("The referrer's invoice has no lines to credit.")
+    # DEP-07: pick the newest invoice that can actually absorb the reward (value
+    # headroom) and has a whole-unit line to hang the credit on, instead of
+    # blindly crediting the latest invoice's first line.
+    invoice = source = None
+    for cand in candidates:
+        if _sales_note_headroom(cand) < amount:
+            continue
+        line = cand.items.select_related("product").filter(quantity__gte=1).order_by("id").first()
+        if line is not None:
+            invoice, source = cand, line
+            break
+    if invoice is None:
+        raise BusinessRuleError(
+            "No recent invoice of the referrer has enough creditable value for this reward."
+        )
     amount = Decimal(str(reward.reward_amount or 0))
     if amount <= 0:
         raise BusinessRuleError("The reward amount must be positive before a credit note can be drafted.")
@@ -410,9 +419,14 @@ def _draft_reward_credit_note(reward, user):
 
 
 def mark_reward_paid(reward, user):
-    """Draft a credit note, then record the reward as paid. The note is not posted."""
+    """Draft and complete the reward credit note, then record the reward as paid.
+
+    All-or-nothing (Q4): if the credit note cannot be completed (period lock,
+    s.34(2) deadline, missing HSN ...) the reward stays APPROVED.
+    """
     with transaction.atomic():
-        reward = ReferralReward.objects.select_for_update().select_related(
+        # of=("self",): the referrer join is nullable, which PostgreSQL refuses to lock.
+        reward = ReferralReward.objects.select_for_update(of=("self",)).select_related(
             "referral_code__referrer_customer",
         ).get(pk=reward.pk)
         if reward.reward_status == ReferralReward.Status.PAID:
@@ -422,6 +436,15 @@ def mark_reward_paid(reward, user):
         if reward.reward_status != ReferralReward.Status.APPROVED:
             raise BusinessRuleError("Only an approved reward can be marked paid.")
         note = reward.credit_note if reward.credit_note_id else _draft_reward_credit_note(reward, user)
+        from sales.models import SalesCreditNote
+        from sales.notes_services import SalesNotesService
+
+        if note.status == SalesCreditNote.Status.DRAFT:
+            note, _warnings = SalesNotesService.complete_credit_note(
+                note, user, confirm_paid_invoice=True, confirm_price_override=True,
+            )
+        elif note.status != SalesCreditNote.Status.COMPLETED:
+            raise BusinessRuleError("The reward's credit note was cancelled; draft a new reward note first.")
         reward.credit_note = note
         reward.reward_status = ReferralReward.Status.PAID
         reward.paid_at = timezone.now()

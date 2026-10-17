@@ -202,7 +202,7 @@ def sales_side_transactions(
         from payments.models import SupplierPayment, SupplierPaymentStatus
 
         if _keep("EXPENSE"):
-            qs = Expense.objects.filter(company=company).select_related("category")
+            qs = Expense.objects.filter(company=company, status=Expense.Status.ACTIVE).select_related("category")
             if date_from:
                 qs = qs.filter(expense_date__gte=date_from)
             if date_to:

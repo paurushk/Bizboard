@@ -30,6 +30,9 @@ const {
     salesCreditNote: null, replacementOrder: null, assignedTo: null,
   };
   const inspecting: ComplaintRow = { ...open, id: 2, number: 'RMA-000002', status: 'INSPECTING', sourceInvoice: 77 };
+  const approved: ComplaintRow = {
+    ...open, id: 3, number: 'RMA-000003', status: 'APPROVED', sourceInvoice: 77, salesCreditNote: 55,
+  };
   return {
     complaintDocument: vi.fn(async (id: number, kind: string) => ({ id: 99, existing: false, kind })),
     createComplaint: vi.fn(async () => open),
@@ -37,9 +40,9 @@ const {
       byCategory: [{ category: 'DAMAGED', count: 2 }],
       resolved: 1, resolvedWithDocument: 1, resolvedWithoutDocument: 0, averageResolutionSeconds: 3600,
     })),
-    getComplaint: vi.fn(async (id: number) => (id === 2 ? inspecting : open)),
+    getComplaint: vi.fn(async (id: number) => (id === 3 ? approved : id === 2 ? inspecting : open)),
     listComplaintAttachments: vi.fn(async () => []),
-    listComplaintsPage: vi.fn(async () => ({ results: [open, inspecting], count: 2, next: null, previous: null })),
+    listComplaintsPage: vi.fn(async () => ({ results: [open, inspecting, approved], count: 3, next: null, previous: null })),
     transitionComplaint: vi.fn(async (id: number, payload: Record<string, unknown>) => ({ ...open, id, ...payload })),
   };
 });
@@ -57,7 +60,13 @@ vi.mock('@/api/growth', () => ({
   uploadComplaintAttachment: vi.fn(),
 }));
 
+const { completeSalesCreditNote } = vi.hoisted(() => ({
+  completeSalesCreditNote: vi.fn(async () => ({ id: 55, status: 'COMPLETED' })),
+}));
+
 vi.mock('@/api/resources', () => ({
+  getSalesCreditNote: vi.fn(async () => ({ id: 55, status: 'DRAFT' })),
+  completeSalesCreditNote: (...args: unknown[]) => completeSalesCreditNote(...args),
   listSalesInvoicesPage: vi.fn(async () => ({ results: [], count: 0, next: null, previous: null })),
   getSalesInvoice: vi.fn(async () => ({ items: [] })),
 }));
@@ -146,5 +155,25 @@ describe('ComplaintsPage', () => {
     await waitFor(() => expect(complaintDocument).toHaveBeenCalledWith(
       2, 'create-replacement-order', [{ product: 9, quantity: '1', unit_price: '0' }],
     ));
+  });
+
+  it('DEP-08 — links the draft credit note so it can be completed before resolving', async () => {
+    const user = userEvent.setup();
+    wrap();
+    await screen.findByText(/RMA-000003/);
+    await user.click(screen.getAllByRole('button', { name: 'Detail' })[2]); // RMA-000003, credit note 55 linked
+
+    const link = await screen.findByRole('link', { name: /create credit note #55/i });
+    expect(link.getAttribute('href')).toBe('/sales/credit-notes/55');
+    expect(screen.getByText(/complete the linked document before resolving the complaint/i)).toBeInTheDocument();
+  });
+
+  it('DEP-08 — lets the user complete the draft credit note from the complaint', async () => {
+    const user = userEvent.setup();
+    wrap();
+    await screen.findByText(/RMA-000003/);
+    await user.click(screen.getAllByRole('button', { name: 'Detail' })[2]);
+    await user.click(await screen.findByRole('button', { name: 'Complete credit note' }));
+    await waitFor(() => expect(completeSalesCreditNote).toHaveBeenCalledWith(55, expect.anything()));
   });
 });

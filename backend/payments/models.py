@@ -146,6 +146,10 @@ class CustomerReceipt(CompanyScopedModel):
     # ``amount + tds_deducted``; the TDS sits in 1270 until the customer's certificate arrives.
     tds_deducted = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     tds_section = models.CharField(max_length=16, blank=True, default="")
+    # Recorded when the customer's TDS certificate (Form 16A) arrives. Bookkeeping only: it
+    # clears the receipt from the "awaiting certificate" list and posts nothing to the ledger.
+    tds_certificate_received_on = models.DateField(null=True, blank=True)
+    tds_certificate_ref = models.CharField(max_length=64, blank=True, default="")
     # Uncleared-cheque policy: with the company flag on, a pending cheque stays an advance and
     # these record what the user asked for, so clearing can apply it.
     allocate_on_clear = models.BooleanField(default=False)

@@ -341,6 +341,16 @@ def render_quotation(quotation) -> bytes:
 
 
 def render_route_manifest(route) -> bytes:
+    """The sheet the godown loads from and the driver carries (RT-29, OG-04).
+
+    Two tables: the stops in order (customer, phone, address, what to collect, status) and a load
+    list grouped by product across the whole route, with each stop's share, so the godown can pick
+    once and the driver can check the van against the stops.
+    """
+    from collections import OrderedDict
+
+    from sales.route_stop_info import stop_bill_info
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -368,21 +378,46 @@ def render_route_manifest(route) -> bytes:
         ),
         Spacer(1, 4 * mm),
     ]
-    header = ["#", "Order", "Customer", "Address", "Status"]
+    stops = list(
+        route.stops.select_related("sales_order__customer").prefetch_related("sales_order__items__product").all()
+    )
+    header = ["#", "Order", "Customer / phone", "Address", "Collect", "Status"]
     rows = [header]
-    stops = list(route.stops.select_related("sales_order__customer").all())
+    total_collect = Decimal("0")
+    load: "OrderedDict[int, dict]" = OrderedDict()
     for stop in stops:
         order = stop.sales_order
+        customer = getattr(order, "customer", None)
+        info = stop_bill_info(stop)
+        collect = Decimal(info["amount_to_collect"])
+        total_collect += collect
+        label = pdf_esc(getattr(order, "number", None) or order.pk)
+        who = pdf_esc(getattr(customer, "name", "") or "")
+        phone = pdf_esc(getattr(customer, "phone", "") or "")
         rows.append([
             str(stop.sequence),
-            pdf_esc(getattr(order, "number", None) or order.pk),
-            pdf_esc(getattr(getattr(order, "customer", None), "name", "") or ""),
+            label,
+            f"{who}<br/>{phone}" if phone else who,
             pdf_esc(getattr(order, "delivery_address", "") or ""),
+            format_money(collect) if collect > 0 else ("credit" if info["on_credit"] else "—"),
             pdf_esc(stop.status),
         ])
+        for item in order.items.all():
+            product = item.product
+            entry = load.setdefault(
+                product.pk,
+                {"name": product.name, "unit": getattr(product, "unit_name", "") or "", "qty": Decimal("0"), "split": []},
+            )
+            qty = Decimal(str(item.quantity or 0))
+            entry["qty"] += qty
+            entry["split"].append(f"{getattr(order, 'number', None) or order.pk}: {format_qty(qty)}")
     if len(rows) == 1:
-        rows.append(["—", "No stops", "", "", ""])
-    table = Table(rows, colWidths=[12 * mm, 32 * mm, 45 * mm, 65 * mm, 22 * mm])
+        rows.append(["—", "No stops", "", "", "", ""])
+    else:
+        rows.append(["", "", "", "<b>To collect on this route</b>", format_money(total_collect), ""])
+    cell = styles["body"]
+    wrapped = [rows[0]] + [[Paragraph(str(c), cell) if isinstance(c, str) and "<" in c else c for c in row] for row in rows[1:]]
+    table = Table(wrapped, colWidths=[10 * mm, 24 * mm, 42 * mm, 52 * mm, 24 * mm, 22 * mm], repeatRows=1)
     table.setStyle(
         TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), GREY_HEADER),
@@ -390,9 +425,51 @@ def render_route_manifest(route) -> bytes:
             ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("GRID", (0, 0), (-1, -1), 0.4, LINE),
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (4, 1), (4, -1), "RIGHT"),
         ])
     )
     story.append(table)
+    if load:
+        story.append(Spacer(1, 5 * mm))
+        story.append(Paragraph("<b>LOAD LIST</b> (what the godown loads, by product)", styles["meta"]))
+        story.append(Spacer(1, 2 * mm))
+        load_rows = [["Product", "Total", "Unit", "By order"]]
+        for entry in load.values():
+            load_rows.append([
+                pdf_esc(entry["name"]),
+                format_qty(entry["qty"]),
+                pdf_esc(entry["unit"]),
+                Paragraph(pdf_esc(", ".join(entry["split"])), cell),
+            ])
+        load_table = Table(load_rows, colWidths=[60 * mm, 20 * mm, 18 * mm, 76 * mm], repeatRows=1)
+        load_table.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), GREY_HEADER),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.4, LINE),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+            ])
+        )
+        story.append(load_table)
+    accepted = [
+        (stop, ack)
+        for stop in stops
+        for ack in stop.acknowledgements.select_related("created_by").all()
+    ]
+    if accepted:
+        story.append(Spacer(1, 4 * mm))
+        story.append(Paragraph("<b>RISKS ACCEPTED WHEN PLANNING</b>", styles["meta"]))
+        for stop, ack in accepted:
+            who = getattr(ack.created_by, "full_name", "") or getattr(ack.created_by, "email", "") or ""
+            story.append(
+                Paragraph(
+                    f"{pdf_esc(getattr(stop.sales_order, 'number', None) or stop.sales_order_id)}: "
+                    f"{pdf_esc(ack.risk_code.replace('_', ' '))} - {pdf_esc(ack.reason)} ({pdf_esc(who)})",
+                    cell,
+                )
+            )
     if route.notes:
         story.append(Spacer(1, 3 * mm))
         story.append(Paragraph(f"<b>Notes:</b> {pdf_esc(route.notes)}", styles["body"]))

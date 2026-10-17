@@ -600,11 +600,38 @@ class ProductSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def _company_for_checks(self):
+        from core.permissions import get_company_user
+
+        request = self.context.get("request")
+        cu = get_company_user(request) if request else None
+        return cu.company if cu is not None else None
+
+    def _other_with(self, field, value):
+        """Another live item in this company that already has this code, or None."""
+        company = self._company_for_checks()
+        if company is None or not value:
+            return None
+        qs = Product.objects.filter(company=company, **{field: value})
+        if self.instance is not None:
+            qs = qs.exclude(pk=self.instance.pk)
+        return qs.first()
+
     def validate_sku(self, value):
         sku = (value or "").strip()
         if not sku:
             raise serializers.ValidationError("Item code is required.")
+        other = self._other_with("sku", sku)
+        if other is not None:
+            raise serializers.ValidationError(f"Item code already used by {other.name}.")
         return sku
+
+    def validate_barcode(self, value):
+        barcode = (value or "").strip()
+        other = self._other_with("barcode", barcode)
+        if other is not None:
+            raise serializers.ValidationError(f"Barcode already used by {other.name}.")
+        return barcode
 
     def validate_custom_fields(self, value):
         from core.permissions import get_company_user

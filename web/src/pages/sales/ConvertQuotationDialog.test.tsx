@@ -35,7 +35,7 @@ describe('ConvertQuotationDialog — CFT-115', () => {
       />,
     );
     expect(screen.getByLabelText('Convert qty')).toHaveValue(6);
-    await user.click(screen.getByRole('button', { name: 'To Order' }));
+    await user.click(screen.getByRole('button', { name: 'Convert to order' }));
     expect(onConfirm).toHaveBeenCalledWith([{ id: 1, quantity: 6 }]);
   });
 
@@ -72,7 +72,7 @@ describe('ConvertQuotationDialog — CFT-115', () => {
         onConfirm={onConfirm}
       />,
     );
-    const submitBtn = screen.getByRole('button', { name: 'To Order' });
+    const submitBtn = screen.getByRole('button', { name: 'Convert to order' });
     expect(submitBtn).toBeDisabled();
 
     const checkbox = screen.getByRole('checkbox');

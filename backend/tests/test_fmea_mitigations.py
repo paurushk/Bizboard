@@ -148,7 +148,7 @@ def test_tc_fmea_004_mark_paid_does_not_draft_a_product_credit_note(tenant_a):
     assert SalesCreditNote.objects.filter(company=tenant_a.company).count() == before + 1
     assert first.credit_notes.count() == 0
     note = second.credit_notes.get()
-    assert note.status == SalesCreditNote.Status.DRAFT
+    assert note.status == SalesCreditNote.Status.COMPLETED  # Q4: completed inside mark-paid
     reward.refresh_from_db()
     assert reward.credit_note_id == note.id
 

@@ -104,6 +104,7 @@ vi.mock('@/hooks/useSubscriptionGate', () => ({
   useSubscriptionGate: () => ({ writesBlocked: false, isLoading: false }),
 }));
 
+const getCustomerReceipt = vi.fn(async (..._args: unknown[]) => ({ ...RECEIPT, id: 44, mode: 'UPI', unallocated: '100.00' }));
 const listInvoices = vi.fn(async (_params?: unknown) => ({ results: [] as unknown[], count: 0, next: null, previous: null }));
 const createAllocation = vi.fn(async (..._args: unknown[]) => ({}));
 const unallocatePayment = vi.fn(async (..._args: unknown[]) => ({}));
@@ -133,6 +134,7 @@ const listCustomersPage = vi.fn(async (_params?: unknown) => ({
 }));
 
 vi.mock('@/api/resources', () => ({
+  getCustomerReceipt: (...args: unknown[]) => getCustomerReceipt(...args),
   listReceiptsPage: (...args: unknown[]) => listReceiptsPage(...args),
   getReceiptsSummary: (...args: unknown[]) => getReceiptsSummary(...args),
   exportReceiptsCsv: (...args: unknown[]) => exportReceiptsCsv(...args),
@@ -156,11 +158,11 @@ vi.mock('@/api/resources', () => ({
     setReceiptChequeStatus(...(args as [number, string])),
 }));
 
-function wrap(ui: ReactElement) {
+function wrap(ui: ReactElement, path = '/') {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -1171,5 +1173,85 @@ describe('ReceiptsPage offline', () => {
     await waitFor(() => expect(createReceipt).toHaveBeenCalledTimes(1));
     expect(screen.queryByText('Waiting to send')).toBeNull();
     online.mockRestore();
+  });
+});
+
+describe('ReceiptsPage refund deep link — DEP-03', () => {
+  it('opens the advance refund for the receipt a credit note moved money into', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?refund=44');
+    expect(await screen.findByRole('dialog', { name: 'Refund advance' })).toBeTruthy();
+    expect(getCustomerReceipt).toHaveBeenCalledWith('44');
+  });
+
+  it('opens no refund dialog without the parameter', async () => {
+    wrap(<ReceiptsPage />);
+    await screen.findByText('RCT-0001');
+    expect(getCustomerReceipt).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'Refund advance' })).toBeNull();
+  });
+});
+
+describe('ReceiptsPage opened from the Money hub', () => {
+  it('opens on cheques waiting to clear, asks the server for exactly that, and says where it came from', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?cheque_status=PENDING_CLEARANCE&via=money');
+    expect(await screen.findByText('RCT-0001')).toBeTruthy();
+    expect(screen.getByText('Opened from Money: Cheques waiting to clear')).toBeTruthy();
+    expect(listReceiptsPage).toHaveBeenCalledWith(expect.objectContaining({ cheque_status: 'PENDING_CLEARANCE' }));
+    expect(getReceiptsSummary).toHaveBeenCalledWith(expect.objectContaining({ cheque_status: 'PENDING_CLEARANCE' }));
+    expect(screen.getByRole('link', { name: 'Back to Money' }).getAttribute('href')).toBe('/money');
+  });
+
+  it('opens on advances not yet applied', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?advance=1&via=money');
+    expect(await screen.findByText('Opened from Money: Advances not yet applied')).toBeTruthy();
+    expect(listReceiptsPage).toHaveBeenCalledWith(expect.objectContaining({ advance: 'true' }));
+    expect(getReceiptsSummary).toHaveBeenCalledWith(expect.objectContaining({ advance: 'true' }));
+  });
+
+  it('opens on returned cheques', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?status=VOIDED&cheque_status=BOUNCED&via=money');
+    expect(await screen.findByText('Opened from Money: Returned cheques')).toBeTruthy();
+    expect(listReceiptsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'VOIDED', cheque_status: 'BOUNCED' }),
+    );
+  });
+
+  it('ignores a filter value it does not know', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?cheque_status=NONSENSE&status=WHATEVER');
+    await screen.findByText('RCT-0001');
+    expect(listReceiptsPage).toHaveBeenCalledWith(
+      expect.not.objectContaining({ cheque_status: 'NONSENSE' }),
+    );
+    expect(listReceiptsPage).toHaveBeenCalledWith(expect.not.objectContaining({ status: 'WHATEVER' }));
+  });
+
+  it('shows everything again on request, and the bar goes away', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?advance=1&via=money');
+    await screen.findByText('Opened from Money: Advances not yet applied');
+    await userEvent.click(screen.getByRole('button', { name: 'Show everything' }));
+    await waitFor(() => expect(screen.queryByText(/Opened from Money/)).toBeNull());
+    await waitFor(() => expect(listReceiptsPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ advance: 'true' })));
+  });
+
+  it('has no hand-off bar when opened directly, and the totals say they cover every receipt', async () => {
+    wrap(<ReceiptsPage />);
+    await screen.findByText('RCT-0001');
+    expect(screen.queryByText(/Opened from Money/)).toBeNull();
+    expect(await screen.findByText(/These totals cover every receipt/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /see where you stand today/i }).getAttribute('href')).toBe('/money');
+  });
+
+  it('warns that the totals follow the filters once a filter is on', async () => {
+    wrap(<ReceiptsPage />, '/sales/receipts?advance=1');
+    expect(await screen.findByText(/These totals follow the filters above/)).toBeTruthy();
+  });
+
+  it('can filter to cheques and to money not yet applied from the page itself', async () => {
+    wrap(<ReceiptsPage />);
+    await screen.findByText('RCT-0001');
+    await userEvent.click(screen.getByLabelText('Not yet applied to a bill'));
+    await waitFor(() => expect(listReceiptsPage).toHaveBeenLastCalledWith(expect.objectContaining({ advance: 'true' })));
+    await userEvent.click(screen.getByLabelText('Not yet applied to a bill'));
+    await waitFor(() => expect(listReceiptsPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ advance: 'true' })));
   });
 });

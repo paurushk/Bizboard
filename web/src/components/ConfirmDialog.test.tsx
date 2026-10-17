@@ -44,4 +44,27 @@ describe('ConfirmDialog', () => {
     await user.click(confirm);
     expect(onConfirm).toHaveBeenCalledOnce();
   });
+
+  it('ACS-00 holds the confirm until a reason is given and hands the reason back', async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    render(
+      <ConfirmDialog
+        open
+        title="Void expense"
+        body="A reason is required."
+        requireReason={{ label: 'Reason for voiding' }}
+        onConfirm={onConfirm}
+        onClose={() => {}}
+      />,
+    );
+    const confirm = screen.getByRole('button', { name: 'Confirm' });
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText(/Reason for voiding/), '   ');
+    expect(confirm).toBeDisabled();
+    await user.type(screen.getByLabelText(/Reason for voiding/), 'Entered twice');
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(onConfirm).toHaveBeenCalledWith('Entered twice');
+  });
 });

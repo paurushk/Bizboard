@@ -24,11 +24,14 @@ from core.permissions import (
 )
 from core.viewsets import CompanyScopedViewSet
 
-from .models import Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense, FixedAsset, JournalEntry, JournalLine
+from .expense_posting import pending_summary, post_pending_expenses, sync_expense_posting
+from .journal_sources import source_label
+from .models import Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
     AccountSerializer, AccountingPeriodSerializer, AccountingSettingsSerializer,
-    BankReconSessionSerializer, CashShiftRegisterSerializer, CostCenterSerializer, ExpenseSerializer,
+    BankReconSessionSerializer, CashShiftRegisterSerializer, CostCenterSerializer, ExpenseCategoryAccountSerializer,
+    ExpenseSerializer,
     FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
@@ -309,7 +312,19 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     @transaction.atomic
     def reverse(self, request, pk=None):
         # CR-079: reverse JE + status flip share one transaction with PostingService.reverse.
-        return Response(self.get_serializer(PostingService.reverse(self.get_object(), request.user)).data)
+        entry = self.get_object()
+        # ACS-10: only a hand-posted journal is reversed from here. A system
+        # journal belongs to its source document; reversing it alone leaves the
+        # document completed with no ledger entry (and `PostingService.reverse`
+        # lets non-manual entries through a soft-closed month).
+        if entry.source_type != "MANUAL_JOURNAL":
+            raise BusinessRuleError(
+                "This journal was posted by "
+                f"{source_label(entry.source_type)}. Cancel or amend that document to reverse its "
+                "ledger entry; only manual journals can be reversed here.",
+                code="journal_system_not_reversible",
+            )
+        return Response(self.get_serializer(PostingService.reverse(entry, request.user)).data)
 
     @action(detail=False, methods=["get"], url_path="unreconciled-lines")
     def unreconciled_lines(self, request):
@@ -477,6 +492,25 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
                 raise BusinessRuleError("proceeds must be a number.") from exc
             if proceeds < 0:
                 raise BusinessRuleError("proceeds cannot be negative.")
+            proceeds = proceeds.quantize(Decimal("0.01"))
+
+            # ACS-12: the disposal date is the user's, not "today". It cannot
+            # precede the purchase or fall in the future; period locks are
+            # enforced by PostingService on that date.
+            raw_date = request.data.get("disposal_date")
+            if raw_date:
+                from datetime import date as date_cls
+
+                try:
+                    disposal_date = date_cls.fromisoformat(str(raw_date)[:10])
+                except ValueError as exc:
+                    raise BusinessRuleError("disposal_date must be a valid date (YYYY-MM-DD).") from exc
+            else:
+                disposal_date = timezone.localdate()
+            if disposal_date > timezone.localdate():
+                raise BusinessRuleError("disposal_date cannot be in the future.")
+            if asset.acquisition_date and disposal_date < asset.acquisition_date:
+                raise BusinessRuleError("disposal_date cannot be before the acquisition date.")
 
             accounts = seed_chart_of_accounts(self.company, request.user)
             net_book_value = asset.acquisition_cost - asset.depreciated_amount
@@ -484,11 +518,21 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             if asset.depreciated_amount > 0:
                 lines.append({"account": asset.accumulated_depreciation_account, "debit": asset.depreciated_amount})
             if proceeds > 0:
-                # Default cash; callers may pass bank_code=1500 for bank.
-                cash_code = str(request.data.get("cash_account_code") or "1100")
-                if cash_code not in ("1100", "1500"):
-                    raise BusinessRuleError("cash_account_code must be 1100 (Cash) or 1500 (Bank).")
-                lines.append({"account": accounts[cash_code], "debit": proceeds})
+                bank_account_id = request.data.get("bank_account")
+                if bank_account_id not in (None, ""):
+                    from payments.models import BankAccount
+
+                    bank_account = BankAccount.objects.filter(company=self.company, pk=bank_account_id).first()
+                    if bank_account is None:
+                        raise BusinessRuleError("Unknown bank account.")
+                    cash_account = PostingService._bank_gl_account(self.company, bank_account, disposal_date)
+                else:
+                    # Default cash; callers may pass cash_account_code=1500 for the bank aggregate.
+                    cash_code = str(request.data.get("cash_account_code") or "1100")
+                    if cash_code not in ("1100", "1500"):
+                        raise BusinessRuleError("cash_account_code must be 1100 (Cash) or 1500 (Bank).")
+                    cash_account = accounts[cash_code]
+                lines.append({"account": cash_account, "debit": proceeds})
             loss = net_book_value - proceeds
             if loss > 0:
                 lines.append({"account": accounts["5600"], "debit": loss})
@@ -500,12 +544,12 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
                 source_type="FIXED_ASSET",
                 source_id=asset.id,
                 purpose="DISPOSAL",
-                entry_date=timezone.localdate(),
+                entry_date=disposal_date,
                 user=request.user,
                 narration=f"Disposal: {asset.name}",
                 lines=lines,
             )
-            asset.status, asset.disposed_at = FixedAsset.Status.DISPOSED, timezone.localdate()
+            asset.status, asset.disposed_at = FixedAsset.Status.DISPOSED, disposal_date
             asset.save(update_fields=["status", "disposed_at", "updated_at"])
         return Response(self.get_serializer(asset).data)
 
@@ -553,6 +597,17 @@ def accounting_backfill_needed(company) -> bool:
     return not BooksHealthService.gl_basis_ready(company)
 
 
+def _settings_payload(company) -> dict:
+    return AccountingSettingsSerializer(
+        {
+            "accounting_enabled": company.accounting_enabled,
+            "accounting_backfill_needed": accounting_backfill_needed(company),
+            "expense_gl_start_date": company.expense_gl_start_date,
+            "expense_gl_pending": pending_summary(company),
+        }
+    ).data
+
+
 class AccountingSettingsView(APIView):
     serializer_class = AccountingSettingsSerializer
 
@@ -562,42 +617,56 @@ class AccountingSettingsView(APIView):
         return [IsAuthenticated(), HasCompany(), IsOwner()]
 
     def get(self, request):
-        company = get_company_user(request).company
-        ser = AccountingSettingsSerializer(
-            {
-                "accounting_enabled": company.accounting_enabled,
-                "accounting_backfill_needed": accounting_backfill_needed(company),
-            }
-        )
-        return Response(ser.data)
+        return Response(_settings_payload(get_company_user(request).company))
 
     def post(self, request):
         company = get_company_user(request).company
-        if "accounting_enabled" not in request.data:
+        has_toggle = "accounting_enabled" in request.data
+        has_expense_date = "expense_gl_start_date" in request.data
+        if not has_toggle and not has_expense_date:
             raise BusinessRuleError("accounting_enabled is required.")
-        raw = request.data.get("accounting_enabled")
-        if isinstance(raw, str):
-            enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
+        if has_expense_date:
+            self._set_expense_gl_start(company, request.data.get("expense_gl_start_date"))
+        if has_toggle:
+            raw = request.data.get("accounting_enabled")
+            if isinstance(raw, str):
+                enabled = raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                enabled = bool(raw)
+            if enabled and not company.accounting_enabled and not _books_switch_allowed(company):
+                raise BusinessRuleError(
+                    "Books stay off until back-fill produces a trial balance that ties. "
+                    "Preview it on this screen, then post. A company with no invoices "
+                    "or stock can turn books on directly."
+                )
+            company.accounting_enabled = enabled
+            company.save(update_fields=["accounting_enabled", "updated_at"])
+            BooksHealthService.clear_gl_basis_cache(company)
+            if enabled:
+                seed_chart_of_accounts(company, request.user)
+        return Response(_settings_payload(company))
+
+    @staticmethod
+    def _set_expense_gl_start(company, raw):
+        """ACS-15: the day expenses start posting to the ledger; empty switches it off."""
+        from datetime import date as date_cls
+
+        if raw in (None, ""):
+            new_value = None
         else:
-            enabled = bool(raw)
-        if enabled and not company.accounting_enabled and not _books_switch_allowed(company):
-            raise BusinessRuleError(
-                "Books stay off until back-fill produces a trial balance that ties. "
-                "Preview it on this screen, then post. A company with no invoices "
-                "or stock can turn books on directly."
-            )
-        company.accounting_enabled = enabled
-        company.save(update_fields=["accounting_enabled", "updated_at"])
-        BooksHealthService.clear_gl_basis_cache(company)
-        if enabled:
-            seed_chart_of_accounts(company, request.user)
-        ser = AccountingSettingsSerializer(
-            {
-                "accounting_enabled": company.accounting_enabled,
-                "accounting_backfill_needed": accounting_backfill_needed(company),
-            }
-        )
-        return Response(ser.data)
+            try:
+                new_value = date_cls.fromisoformat(str(raw)[:10])
+            except ValueError as exc:
+                raise BusinessRuleError("expense_gl_start_date must be a valid date (YYYY-MM-DD).") from exc
+            if not company.accounting_enabled:
+                raise BusinessRuleError("Turn accounting on before posting expenses to the books.")
+            cutover = company.books_start_date
+            if cutover and new_value < cutover:
+                raise BusinessRuleError(
+                    f"Expenses cannot post before the books start date ({cutover})."
+                )
+        company.expense_gl_start_date = new_value
+        company.save(update_fields=["expense_gl_start_date", "updated_at"])
 
 
 class AccountingBackfillView(APIView):
@@ -1047,12 +1116,19 @@ class ExpenseViewSet(CompanyScopedViewSet):
 
     def get_permissions(self):
         action = getattr(self, "action", None)
-        if action in ("create", "update", "partial_update", "destroy"):
+        if action in ("create", "update", "partial_update", "destroy", "void"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
+        if action == "duplicates":
+            return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
+        if action == "post_pending":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get_queryset(self):
         qs = super().get_queryset()
+        # ACS-14: voided expenses are hidden from the register unless asked for.
+        if self.action == "list" and self.request.query_params.get("include_void") not in ("1", "true", "True"):
+            qs = qs.filter(status=Expense.Status.ACTIVE)
         if self.request.query_params.get("category"):
             qs = qs.filter(category_id=self.request.query_params["category"])
         if self.request.query_params.get("date_from"):
@@ -1061,18 +1137,135 @@ class ExpenseViewSet(CompanyScopedViewSet):
             qs = qs.filter(expense_date__lte=self.request.query_params["date_to"])
         return qs
 
+    def _assert_period_open(self, on_date):
+        # ACS-14: an expense is a money record; closed or GST-locked periods are off limits.
+        from reporting.gst_periods import assert_period_allows_money_amend
+
+        assert_period_allows_money_amend(self.company, on_date)
+
     def perform_create(self, serializer):
         from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
 
-        instance = serializer.save(
-            company=self.company,
-            created_by=self.request.user,
-            updated_by=self.request.user,
-        )
-        if not instance.number:
-            instance.number = DocumentNumberService.next_number(
-                self.company, "EXPENSE", gstin=resolve_series_gstin(self.company),
-                on_date=instance.expense_date,
+        self._assert_period_open(serializer.validated_data.get("expense_date") or timezone.localdate())
+        with transaction.atomic():
+            instance = serializer.save(
+                company=self.company,
+                created_by=self.request.user,
+                updated_by=self.request.user,
             )
-            instance.save(update_fields=["number"])
-        self._audit("CREATE", instance)
+            if not instance.number:
+                instance.number = DocumentNumberService.next_number(
+                    self.company, "EXPENSE", gstin=resolve_series_gstin(self.company),
+                    on_date=instance.expense_date,
+                )
+                instance.save(update_fields=["number"])
+            sync_expense_posting(instance, self.request.user)
+            self._audit("CREATE", instance)
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        if instance.status == Expense.Status.VOID:
+            raise BusinessRuleError("A voided expense cannot be edited.")
+        # Both the old and the new date must be open: moving an expense out of a
+        # closed month changes that month just as much as editing it there.
+        self._assert_period_open(instance.expense_date)
+        new_date = serializer.validated_data.get("expense_date")
+        if new_date and new_date != instance.expense_date:
+            self._assert_period_open(new_date)
+        with transaction.atomic():
+            super().perform_update(serializer)
+            sync_expense_posting(serializer.instance, self.request.user)
+
+    def perform_destroy(self, instance):
+        # DELETE keeps working for old clients but is now a void with a reason.
+        self._void(instance, self.request.data.get("reason") or self.request.query_params.get("reason"))
+
+    def _void(self, instance, reason):
+        from core.services.audit import AuditService
+
+        reason = (reason or "").strip()
+        if not reason:
+            raise BusinessRuleError("A reason is required to void an expense.", code="void_reason_required")
+        if len(reason) > 300:
+            raise BusinessRuleError("The reason must be 300 characters or fewer.")
+        if instance.status == Expense.Status.VOID:
+            raise BusinessRuleError("This expense is already voided.")
+        self._assert_period_open(instance.expense_date)
+        instance.status = Expense.Status.VOID
+        instance.voided_at = timezone.now()
+        instance.voided_by = self.request.user
+        instance.void_reason = reason
+        instance.updated_by = self.request.user
+        instance.save(update_fields=["status", "voided_at", "voided_by", "void_reason", "updated_by", "updated_at"])
+        sync_expense_posting(instance, self.request.user)
+        AuditService.log(
+            company=self.company, user=self.request.user, action="UPDATE", entity_type="Expense",
+            entity_id=str(instance.pk), description=f"Expense {instance.number} voided",
+            metadata={"event": "expense.voided", "reason": reason, "amount": str(instance.amount)},
+        )
+
+    @action(detail=False, methods=["get"])
+    def duplicates(self, request):
+        """ACS-16: other active expenses with the same date, amount and party -- a likely double entry."""
+        raw_date = request.query_params.get("date")
+        amount = request.query_params.get("amount")
+        party = (request.query_params.get("party") or "").strip()
+        if not (raw_date and amount):
+            raise BusinessRuleError("date and amount are required.")
+        qs = Expense.objects.filter(
+            company=self.company, status=Expense.Status.ACTIVE,
+            expense_date=raw_date, amount=amount,
+        )
+        if party:
+            qs = qs.filter(party_name__iexact=party)
+        exclude = request.query_params.get("exclude")
+        if exclude:
+            qs = qs.exclude(pk=exclude)
+        rows = [{"id": e.id, "number": e.number, "party_name": e.party_name} for e in qs[:5]]
+        return Response({"count": len(rows), "results": rows})
+
+    @action(detail=False, methods=["get", "post"], url_path="post-pending")
+    def post_pending(self, request):
+        """ACS-15: GET previews, POST posts, every active expense on/after the start date not yet in the books."""
+        if request.method == "GET":
+            summary = pending_summary(self.company)
+            return Response({"count": summary["count"], "total": summary["total"]})
+        dry_run = str(request.data.get("dry_run", "")).lower() in ("1", "true", "yes")
+        return Response(post_pending_expenses(self.company, request.user, dry_run=dry_run))
+
+    @action(detail=True, methods=["post"])
+    @transaction.atomic
+    def void(self, request, pk=None):
+        instance = self.get_object()
+        self._void(instance, request.data.get("reason"))
+        return Response(self.get_serializer(instance).data)
+
+
+class ExpenseCategoryAccountViewSet(CompanyScopedViewSet):
+    """ACS-15: which expense ledger each category posts to. One mapping per category."""
+
+    queryset = ExpenseCategoryAccount.objects.select_related("account")
+    serializer_class = ExpenseCategoryAccountSerializer
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in ("create", "destroy"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), IsOwner()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        mapping, _created = ExpenseCategoryAccount.objects.update_or_create(
+            company=self.company,
+            category=serializer.validated_data["category"],
+            defaults={
+                "account": serializer.validated_data["account"],
+                "updated_by": request.user,
+            },
+        )
+        if _created:
+            mapping.created_by = request.user
+            mapping.save(update_fields=["created_by"])
+        self._audit("UPDATE", mapping)
+        return Response(self.get_serializer(mapping).data, status=status.HTTP_200_OK)

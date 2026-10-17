@@ -1,0 +1,26 @@
+id: "QOS-0129"
+category: "RELIABILITY_TRUST"
+title: "Money hub: Hindi review of the new strings and CA sign-off on the tax-dues wording"
+persona: ["P1"]
+journey: "See everything owed, owing and stuck on one screen"
+problem: "The Money overview shows tax dues (TDS deducted on supplier bills, a GST estimate) with due dates, counts cash as cleared money only, and shows supplier advances beside payables instead of netting them. About 180 new Hindi strings were written without a native-speaker review, and none of the tax wording has been seen by a CA."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/MONEY_HUB_PLAN.md", "docs/MONEY_HUB_HINDI_REVIEW.csv", "docs/ca/CA_SIGN_OFF_CHECKLIST.md"]
+  detail: "The page never claims a tax is unpaid (the books record no tax payment) and labels the GST figure an estimate. The numbers are gated by tests that tie each tile to the screen it links to. What is missing is a CA reading items M1 to M5 and a Hindi speaker reading the strings."
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P2"
+priority_rationale: "Impact Low. Heuristic. Needs a CA and a Hindi speaker, not code."
+effort: "S"
+recommendation: "The company's CA reads items M1 to M5 in docs/ca/CA_SIGN_OFF_CHECKLIST.md (Money hub) and signs; a Hindi speaker reviews docs/MONEY_HUB_HINDI_REVIEW.csv. The founder decides with the CA whether payables should be netted by advances paid."
+test_required: "backend/tests/test_money_hub.py::test_advances_paid_tile_matches_supplier_payment_filter_and_summary"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-14"
+closed: null

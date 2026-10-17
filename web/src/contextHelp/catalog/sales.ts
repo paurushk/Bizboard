@@ -742,8 +742,8 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     keyRules: [
       [
-        'GST law caps output-tax credit notes at 30 November after the FY (or annual return, whichever is earlier). Bizboard enforces period lock, not that statutory cutoff — your CA must still watch 30 Nov.',
-        'GST में आउटपुट टैक्स क्रेडिट नोट की सीमा वित्तीय वर्ष के बाद 30 नवम्बर (या वार्षिक रिटर्न, जो पहले हो)। बिज़बोर्ड पीरियड लॉक लागू करता है, वह कानूनी कटऑफ नहीं — CA 30 नवम्बर देखें।',
+        'GST law caps output-tax credit notes at 30 November after the FY (or annual return, whichever is earlier). Bizboard refuses a credit note dated after 30 November, and after the annual return filing date once you record it on the GSTR-9 screen.',
+        'GST में आउटपुट टैक्स क्रेडिट नोट की सीमा वित्तीय वर्ष के बाद 30 नवम्बर (या वार्षिक रिटर्न, जो पहले हो)। बिज़बोर्ड 30 नवम्बर के बाद की तारीख वाला क्रेडिट नोट मना करता है, और GSTR-9 स्क्रीन पर रिटर्न दाखिल करने की तारीख दर्ज करने के बाद उस तारीख के बाद का भी।',
       ],
     ],
     commonMistakes: [

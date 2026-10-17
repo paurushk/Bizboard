@@ -336,6 +336,32 @@ class Expense(CompanyScopedModel):
     attachment = models.ForeignKey(
         "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
     )
+    # ACS-14: an expense is voided with a reason, never hard-deleted.
+    class Status(models.TextChoices):
+        ACTIVE = "ACTIVE"
+        VOID = "VOID"
+
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.ACTIVE, db_index=True)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    void_reason = models.CharField(max_length=300, blank=True)
+    # ACS-15/16: how it was paid and which ledger it hits.
+    class PaymentMode(models.TextChoices):
+        CASH = "CASH"
+        BANK = "BANK"
+
+    payment_mode = models.CharField(max_length=8, choices=PaymentMode.choices, default=PaymentMode.CASH)
+    bank_account = models.ForeignKey(
+        "payments.BankAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )
+    expense_account = models.ForeignKey(
+        "accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )
+    journal_entry = models.ForeignKey(
+        "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
     class Meta:
         ordering = ["-expense_date", "-id"]
@@ -350,6 +376,15 @@ class Expense(CompanyScopedModel):
 
     def __str__(self):
         return self.number or f"Expense #{self.pk}"
+
+
+class ExpenseCategoryAccount(CompanyScopedModel):
+    """ACS-15: the expense ledger a category posts to by default."""
+
+    category = models.OneToOneField(
+        "masters.ExpenseCategory", on_delete=models.CASCADE, related_name="ledger_mapping",
+    )
+    account = models.ForeignKey("accounting.Account", on_delete=models.PROTECT, related_name="+")
 
 
 class AccountMonthlyBalance(models.Model):

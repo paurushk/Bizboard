@@ -150,6 +150,22 @@ export function isLineComplete(line: EditorLine): boolean {
   return localLineErrors(line).length === 0;
 }
 
+/** Editor field -> the error `field` the server reports for it. */
+const ERROR_FIELD_OF: Record<string, string> = {
+  name: 'name', sku: 'sku', hsnCode: 'hsn_code', quantity: 'quantity', pcs: 'pcs', cs: 'cs', upc: 'upc',
+  unitPrice: 'unit_price', gstRate: 'gst_rate', mrp: 'mrp', discountPercent: 'discount_percent',
+  productId: 'product', createNew: 'product',
+};
+
+/** Drop stored (server) errors for the fields just edited — they describe the old value. */
+export function clearEditedErrors(
+  errors: BillLineError[] | undefined,
+  patchKeys: string[],
+): BillLineError[] {
+  const stale = new Set(patchKeys.map((k) => ERROR_FIELD_OF[k]).filter(Boolean));
+  return (errors ?? []).filter((e) => !stale.has(e.field));
+}
+
 export function errorFor(errors: BillLineError[] | undefined, field: string): BillLineError | undefined {
   return errors?.find((e) => e.field === field && e.severity !== 'warning');
 }
@@ -179,4 +195,11 @@ export function lineAmount(line: EditorLine, priceInclusive = false): number | n
   const cess = numeric(line.cessRate) ?? 0;
   const net = qty * price * (1 - disc / 100);
   return Math.round((priceInclusive ? net : net * (1 + (gst + cess) / 100)) * 100) / 100;
+}
+
+/** Bills often print "itemcode/description"; search by the description, not the code. */
+export function searchTermFromBillName(name: string | undefined): string {
+  const text = String(name ?? '').trim();
+  const match = /^[A-Za-z0-9-]{4,}\s*\/\s*(.+)$/.exec(text);
+  return (match ? match[1] : text).trim();
 }

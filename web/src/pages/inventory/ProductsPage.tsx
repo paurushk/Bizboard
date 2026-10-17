@@ -18,11 +18,19 @@ import Typography from '@mui/material/Typography';
 import CloudUploadOutlinedIcon from '@mui/icons-material/CloudUploadOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import TableViewOutlinedIcon from '@mui/icons-material/TableViewOutlined';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { csvCell } from '@/utils/csv';
-import { deleteProduct, listProducts, listProductsPage, listStock, markProductsReviewed } from '@/api/resources';
+import {
+  deleteProduct,
+  getProductFilterOptions,
+  listLowStock,
+  listProducts,
+  listProductsPage,
+  listStock,
+  markProductsReviewed,
+} from '@/api/resources';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { ItemFormDialog } from '@/pages/inventory/ItemFormDialog';
 import { useAuth } from '@/auth/AuthContext';
@@ -43,6 +51,7 @@ import { productStatusTone, statusLabelKey } from '@/utils/status';
 import { isItemCustomFieldsV2Enabled, isSetupWizardEnabled } from '@/config/features';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { customFieldCell } from '@/pages/inventory/itemCustomFieldDefaults';
+import { useConfirmPrompt } from '@/hooks/useConfirmPrompt';
 
 const PAGE_SIZE = 50;
 
@@ -63,6 +72,7 @@ export function ProductsPage() {
   const locale = useLocale();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { ask, dialog } = useConfirmPrompt();
   const { user } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -79,13 +89,23 @@ export function ProductsPage() {
       ...standardColumns(),
       ...customDefs.map((def) => ({ id: `cf:${def.key}`, label: def.label, group: 'custom' as const })),
     ],
+    // locale: the labels come from t(), so they must be rebuilt when the language changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [customDefs, locale],
   );
   const prefs = useColumnPrefs('items', columns, user?.companyId, user?.id);
   const [searchParams, setSearchParams] = useSearchParams();
   const needsReview = searchParams.get('needsReview') === '1';
+  // The server filters and pages (INV-IDR-09): "category = Tea" means every item in Tea, and the
+  // menus list what is in use without the whole catalogue being downloaded to find out.
+  const serverFilters = {
+    category: categoryFilter || undefined,
+    brand: brandFilter || undefined,
+    gstRate: taxFilter || undefined,
+    stockStatus: stockFilter || undefined,
+  };
   const query = useQuery({
-    queryKey: ['products', page, debouncedSearch, cfFilters, needsReview],
+    queryKey: ['products', page, debouncedSearch, cfFilters, needsReview, serverFilters],
     queryFn: () =>
       listProductsPage({
         page,
@@ -93,25 +113,23 @@ export function ProductsPage() {
         q: debouncedSearch || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
         needsReview,
+        ...serverFilters,
       }),
+    placeholderData: keepPreviousData,
   });
-  // The filters below work on whole products and stock, but the list is paged. While a filter is
-  // chosen (or its menu was opened, to list every category, brand and slab) the whole catalogue is
-  // loaded and filtered, so a filter means "every item that matches", not "matches on this page".
-  const [filtersTouched, setFiltersTouched] = useState(false);
-  const filtersActive = Boolean(categoryFilter || brandFilter || stockFilter || taxFilter);
-  const allQuery = useQuery({
-    queryKey: ['products-all', debouncedSearch, cfFilters],
-    queryFn: () => listProducts({ q: debouncedSearch || undefined, cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined }),
-    enabled: filtersActive || filtersTouched,
-  });
-  const sourceRows = filtersActive && allQuery.data ? allQuery.data : (query.data?.results ?? []);
+  const filterOptions = useQuery({ queryKey: ['product-filter-options'], queryFn: getProductFilterOptions });
+  const sourceRows = query.data?.results ?? [];
   const pageIds = sourceRows.map((row) => row.id);
   const stockQuery = useQuery({
     queryKey: ['stock', pageIds],
     queryFn: () => listStock({ productIds: pageIds }),
     enabled: pageIds.length > 0,
   });
+
+  // "Low" means what the Low stock page and the dashboard mean (INV-WP-08): a reorder rule, checked on
+  // the company total or on a godown's own rule. Same query key as the dashboard, so it is shared.
+  const lowStockQuery = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock });
+  const lowIds = useMemo(() => new Set((lowStockQuery.data ?? []).map((row) => row.product)), [lowStockQuery.data]);
 
   const stockMap = useMemo(() => {
     const map = new Map<number, number>();
@@ -150,22 +168,10 @@ export function ProductsPage() {
     },
     onError: (err) => setNotice({ severity: 'error', message: getErrorMessage(err) }),
   });
-  const pageRows = sourceRows;
-  const optionRows = allQuery.data ?? pageRows;
-  const rows = pageRows.filter((p) => {
-    if (categoryFilter && (p.categoryName || '') !== categoryFilter) return false;
-    if (brandFilter && (p.brandName || '') !== brandFilter) return false;
-    if (taxFilter && String(toNumber(p.gstRate)) !== taxFilter) return false;
-    const qty = stockMap.get(p.id);
-    if (stockFilter === 'in' && !(qty != null && qty > toNumber(p.reorderLevel))) return false;
-    if (stockFilter === 'low' && !(qty != null && qty > 0 && qty <= toNumber(p.reorderLevel))) return false;
-    // An item with no stock rows has nothing on hand: it is out of stock, not "unknown".
-    if (stockFilter === 'out' && !(qty == null || qty <= 0)) return false;
-    return true;
-  });
-  const categories = [...new Set(optionRows.map((p) => p.categoryName).filter(Boolean))] as string[];
-  const brands = [...new Set(optionRows.map((p) => p.brandName).filter(Boolean))] as string[];
-  const taxSlabs = [...new Set(optionRows.map((p) => String(toNumber(p.gstRate))))];
+  const rows = sourceRows;
+  const categories = filterOptions.data?.categories ?? [];
+  const brands = filterOptions.data?.brands ?? [];
+  const taxSlabs = [...new Set((filterOptions.data?.gstRates ?? []).map((rate) => String(toNumber(rate))))];
   const showCol = (id: string) =>
     prefs.isVisible(id) && (showDense || id === 'name' || id === 'price' || id === 'stock');
   const canMutate = canAdjustInventory(user);
@@ -188,9 +194,11 @@ export function ProductsPage() {
         ...visibleCustom.map((def) => ({ id: `cf:${def.key}`, label: def.label })),
       ];
       const header = cols.map((col) => csvCell(col.label)).join(',');
+      // The file holds what the list shows: the same search and the same filters, every page.
       const exported = await listProducts({
-        q: search || undefined,
+        q: debouncedSearch || undefined,
         cf: isItemCustomFieldsV2Enabled() ? cfFilters : undefined,
+        ...serverFilters,
       });
       // The on-screen stock map only covers the current page; the export covers every product.
       const exportStock = new Map<number, number>();
@@ -248,21 +256,21 @@ export function ProductsPage() {
           }}
           sx={{ minWidth: 220, flex: 1, maxWidth: 360 }}
         />
-        <TextField select size="small" label={t('cog.filterCategory')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} sx={{ minWidth: 140 }}>
+        <TextField select size="small" label={t('cog.filterCategory')} value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }} sx={{ minWidth: 140 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
-          {categories.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+          {categories.map((item) => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
         </TextField>
-        <TextField select size="small" label={t('cog.filterBrand')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={brandFilter} onChange={(e) => setBrandFilter(e.target.value)} sx={{ minWidth: 140 }}>
+        <TextField select size="small" label={t('cog.filterBrand')} value={brandFilter} onChange={(e) => { setBrandFilter(e.target.value); setPage(1); }} sx={{ minWidth: 140 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
-          {brands.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+          {brands.map((item) => <MenuItem key={item.id} value={String(item.id)}>{item.name}</MenuItem>)}
         </TextField>
-        <TextField select size="small" label={t('cog.filterStock')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={stockFilter} onChange={(e) => setStockFilter(e.target.value)} sx={{ minWidth: 140 }}>
+        <TextField select size="small" label={t('cog.filterStock')} value={stockFilter} onChange={(e) => { setStockFilter(e.target.value); setPage(1); }} sx={{ minWidth: 140 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
           <MenuItem value="in">{t('cog.inStock')}</MenuItem>
           <MenuItem value="low">{t('cog.lowStock')}</MenuItem>
           <MenuItem value="out">{t('cog.outOfStock')}</MenuItem>
         </TextField>
-        <TextField select size="small" label={t('cog.filterTax')} SelectProps={{ onOpen: () => setFiltersTouched(true) }} value={taxFilter} onChange={(e) => setTaxFilter(e.target.value)} sx={{ minWidth: 120 }}>
+        <TextField select size="small" label={t('cog.filterTax')} value={taxFilter} onChange={(e) => { setTaxFilter(e.target.value); setPage(1); }} sx={{ minWidth: 120 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
           {taxSlabs.map((rate) => <MenuItem key={rate} value={rate}>{rate}%</MenuItem>)}
         </TextField>
@@ -452,7 +460,7 @@ export function ProductsPage() {
                           <Chip
                             size="small"
                             label={`${stockQty} ${p.unitName || 'PCS'}`}
-                            color={stockQty <= 0 ? 'error' : stockQty <= toNumber(p.reorderLevel) ? 'warning' : 'success'}
+                            color={stockQty <= 0 ? 'error' : lowIds.has(p.id) ? 'warning' : 'success'}
                             variant="outlined"
                             sx={{ fontWeight: 600 }}
                           />
@@ -477,6 +485,9 @@ export function ProductsPage() {
                     <TableCell align="right">
                       {canMutate ? (
                         <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                          <Button size="small" component={RouterLink} to={`/inventory/ledger?product=${p.id}`}>
+                            {t('inventory.viewLedger')}
+                          </Button>
                           <Button
                             size="small"
                             onClick={() => {
@@ -490,9 +501,9 @@ export function ProductsPage() {
                             size="small"
                             color="error"
                             disabled={removeProduct.isPending}
-                            onClick={() => {
+                            onClick={async () => {
                               setNotice(null);
-                              if (!window.confirm(t('products.confirmDelete'))) return;
+                              if (!(await ask([t('products.confirmDelete')]))) return;
                               removeProduct.mutate(p.id);
                             }}
                           >
@@ -519,7 +530,7 @@ export function ProductsPage() {
           </VirtualizedTable>
         </Paper>
       ) : null}
-      {query.data && !filtersActive && (query.data.next || page > 1) ? (
+      {query.data && (query.data.next || page > 1) ? (
         <Stack direction="row" spacing={1} justifyContent="flex-end" alignItems="center">
           <Typography variant="body2" color="text.secondary">
             {t('common.page')} {page}
@@ -555,6 +566,7 @@ export function ProductsPage() {
           }
         }}
       />
+      {dialog}
     </Stack>
   );
 }

@@ -137,7 +137,8 @@ class InventoryService:
     @staticmethod
     def post_movement(*, company, product, movement_type, quantity, unit_cost=None,
                       reference_type="", reference_id="", reason="", user=None,
-                      skip_negative_check=False, warehouse=None, batch=None, movement_date=None):
+                      skip_negative_check=False, warehouse=None, batch=None, movement_date=None,
+                      reason_code=""):
         """
         Append a typed movement and update the balance cache atomically.
         `quantity` is a positive magnitude for typed movements; for ADJUSTMENT
@@ -214,6 +215,17 @@ class InventoryService:
                         f"{balance.available}, required {-delta}."
                     )
 
+            if movement_type == MovementType.ADJUSTMENT and Decimal(str(unit_cost or 0)) <= 0:
+                # INV-WP-12: an adjustment, a count difference or a write-off has no price of its own.
+                # Left blank, a gain added units to a weighted-average pool at zero cost (stock value
+                # understated, average diluted) and a loss carried no cost for the books. Cost it at
+                # what the item is worth now, else its purchase price. A FIFO issue is re-stamped from
+                # the layers it actually peels, so this only fills what would otherwise be empty.
+                unit_cost = InventoryValuationService.unit_cost(
+                    company, product, warehouse=warehouse, batch=batch
+                )
+                if Decimal(str(unit_cost or 0)) <= 0:
+                    unit_cost = getattr(product, "purchase_price", None)
             movement = StockMovement.objects.create(
                 company=company,
                 warehouse=warehouse,
@@ -225,6 +237,7 @@ class InventoryService:
                 reference_type=reference_type,
                 reference_id=str(reference_id),
                 reason=reason,
+                reason_code=reason_code or "",
                 movement_date=movement_date or timezone.localdate(),
                 created_by=user,
             )
@@ -1304,27 +1317,34 @@ class InventoryService:
 
     @staticmethod
     def _confirmed_so_qty(company, product, warehouse):
+        """Stock the open sales orders still hold for ``product`` in ``warehouse``.
+
+        Confirmed and partly processed orders both hold stock: a partly processed order has given
+        back what its completed challans and invoices took and still holds the rest (H-04).
+        ``order_still_held`` is the single definition, shared with invoice completion, the
+        failed-stop release and cancel.
+        """
         # BB-000757: lazy get_model avoids permanent sales.models import coupling.
         from django.apps import apps
 
         SalesOrder = apps.get_model("sales", "SalesOrder")
-        SalesOrderItem = apps.get_model("sales", "SalesOrderItem")
+        from sales.order_quantities import order_still_held
 
-        # BB-000733: only confirmed SOs scoped to this warehouse (null → default WH).
+        # BB-000733: only open SOs scoped to this warehouse (null → default WH).
         default_wh = InventoryService.default_warehouse(company)
-        so_qs = SalesOrderItem.objects.filter(
-            sales_order__company=company,
-            sales_order__status=SalesOrder.Status.CONFIRMED,
-            product=product,
-        )
+        orders = SalesOrder.objects.filter(
+            company=company,
+            stock_held=True,
+            items__product=product,
+        ).exclude(status="CANCELLED")
         if warehouse.id == default_wh.id:
-            so_qs = so_qs.filter(
-                Q(sales_order__warehouse=warehouse)
-                | Q(sales_order__warehouse__isnull=True)
-            )
+            orders = orders.filter(Q(warehouse=warehouse) | Q(warehouse__isnull=True))
         else:
-            so_qs = so_qs.filter(sales_order__warehouse=warehouse)
-        return so_qs.aggregate(total=Sum("quantity"))["total"] or Decimal("0")
+            orders = orders.filter(warehouse=warehouse)
+        total = Decimal("0")
+        for order in orders.distinct().prefetch_related("items"):
+            total += order_still_held(order).get(product.id, Decimal("0"))
+        return total
 
     @staticmethod
     def rebuild_balance(company, product, warehouse=None, batch=None):
@@ -1522,6 +1542,7 @@ class StockTransferService:
             code="IN_TRANSIT",
             is_default=False,
             is_active=True,
+            is_system=True,
         )
 
     @staticmethod
@@ -1676,8 +1697,12 @@ class StockTransferService:
         )
         if receiving:
             transfer.completed_at = timezone.now()
+        else:
+            transfer.dispatched_at = timezone.now()
         transfer.updated_by = user
-        transfer.save(update_fields=["number", "status", "completed_at", "updated_by", "updated_at"])
+        transfer.save(
+            update_fields=["number", "status", "completed_at", "dispatched_at", "updated_by", "updated_at"]
+        )
         from core.services.audit import record_document_event
 
         record_document_event(
@@ -1686,6 +1711,65 @@ class StockTransferService:
             event="stock_transfer.completed" if receiving else "stock_transfer.dispatched",
         )
         return transfer, warnings
+
+    @staticmethod
+    @transaction.atomic
+    def resolve_shortage(transfer: StockTransfer, user, resolutions):
+        """Settle the quantity a receipt found missing (INV-IDR-07).
+
+        The short quantity stays in the in-transit godown as a claim. The owner decides per line:
+        ``WRITE_OFF`` books it as a loss, ``RETURN`` puts it back in the source godown.
+        """
+        from .stock_loss import SOURCE_TRANSFER_SHORTAGE, StockLoss, post_stock_loss
+
+        transfer = StockTransfer.objects.select_for_update().get(pk=transfer.pk)
+        if transfer.status != StockTransfer.Status.COMPLETED:
+            raise BusinessRuleError("Only a received transfer has a shortage to settle.")
+        transit = StockTransferService.in_transit_warehouse(transfer.company)
+        lines = {ln.pk: ln for ln in transfer.lines.select_for_update(of=("self",)).select_related("product", "batch")}
+        pending = False
+        applied = 0
+        for row in resolutions or []:
+            try:
+                line = lines[int(row["line"])]
+            except (KeyError, TypeError, ValueError):
+                raise BusinessRuleError("Each shortage needs a line on this transfer.") from None
+            action = str(row.get("action") or "").upper()
+            if action not in ("WRITE_OFF", "RETURN"):
+                raise BusinessRuleError("Choose write off or return to source for each shortage.")
+            qty = Decimal(str(line.shortage_qty or 0))
+            if qty <= 0 or line.shortage_resolution:
+                raise BusinessRuleError(f"{line.product.name} has no open shortage.")
+            label = f"transfer {transfer.number or transfer.pk}"
+            if action == "WRITE_OFF":
+                result = post_stock_loss(
+                    transfer.company, user,
+                    StockLoss(
+                        product=line.product, quantity=-qty, warehouse=transit, batch=line.batch,
+                        reason=f"Shortage on {label}: {line.shortage_reason or 'not received'}",
+                        source=SOURCE_TRANSFER_SHORTAGE, reference_id=transfer.pk,
+                        skip_negative_check=True, reason_code="transfer_shortage",
+                        audit_text=f"Wrote off {qty} {line.product.name} short on {label}",
+                    ),
+                )
+                if result.pending:
+                    pending = True
+                    continue
+            else:
+                cost = InventoryValuationService.unit_cost(
+                    transfer.company, line.product, warehouse=transit, batch=line.batch,
+                )
+                for warehouse, signed in ((transit, -qty), (transfer.from_warehouse, qty)):
+                    InventoryService.post_movement(
+                        company=transfer.company, warehouse=warehouse, product=line.product, batch=line.batch,
+                        movement_type=MovementType.ADJUSTMENT, quantity=signed, unit_cost=cost,
+                        reference_type="stock_transfer_shortage_return", reference_id=transfer.pk, user=user,
+                        reason=f"Short quantity on {label} returned to source",
+                    )
+            line.shortage_resolution = "WRITE_OFF" if action == "WRITE_OFF" else "RETURN"
+            line.save(update_fields=["shortage_resolution"])
+            applied += 1
+        return transfer, applied, pending
 
     @staticmethod
     @transaction.atomic
@@ -1762,15 +1846,22 @@ class StockTransferService:
                     )
                 used_out_ids.add(out_move.id)
                 used_in_ids.add(in_move.id)
-                inbound = InventoryService.post_movement(
-                    company=transfer.company, warehouse=transfer.from_warehouse,
-                    product=line.product, batch=line.batch, movement_type=MovementType.ADJUSTMENT,
-                    quantity=line.quantity, unit_cost=out_move.unit_cost if out_move else None,
-                    reference_type="stock_transfer_cancel", reference_id=transfer.pk, user=user,
-                    reason=f"Cancellation of transfer {transfer.number or transfer.pk}",
+                # A shortage that was already settled (written off, or sent back to the source) is
+                # not on the road any more, so it must not be restored a second time.
+                settled_short = (
+                    Decimal(str(line.shortage_qty or 0)) if line.shortage_resolution else Decimal("0")
                 )
-                if out_move is not None:
-                    InventoryService.restore_fifo_peels(out_move, inbound)
+                restore_qty = line.quantity - settled_short
+                if restore_qty > 0:
+                    inbound = InventoryService.post_movement(
+                        company=transfer.company, warehouse=transfer.from_warehouse,
+                        product=line.product, batch=line.batch, movement_type=MovementType.ADJUSTMENT,
+                        quantity=restore_qty, unit_cost=out_move.unit_cost if out_move else None,
+                        reference_type="stock_transfer_cancel", reference_id=transfer.pk, user=user,
+                        reason=f"Cancellation of transfer {transfer.number or transfer.pk}",
+                    )
+                    if out_move is not None:
+                        InventoryService.restore_fifo_peels(out_move, inbound)
                 # Take back what the destination actually received. After a short receipt that is
                 # less than the dispatched quantity; reversing the full line would overdraw it.
                 received_qty = abs(Decimal(str(in_move.quantity)))
@@ -1782,7 +1873,7 @@ class StockTransferService:
                     reason=f"Cancellation of transfer {transfer.number or transfer.pk}",
                 )
                 shortage = Decimal(str(line.shortage_qty or 0))
-                if transfer.status == StockTransfer.Status.COMPLETED and shortage > 0:
+                if transfer.status == StockTransfer.Status.COMPLETED and shortage > 0 and not line.shortage_resolution:
                     # The short quantity never left transit; clear it so it is not stranded there.
                     InventoryService.post_movement(
                         company=transfer.company, warehouse=StockTransferService.in_transit_warehouse(transfer.company),
@@ -2415,13 +2506,21 @@ class InventoryValuationService:
 @dataclass
 class ReplenishmentSuggestion:
     available: Decimal
-    velocity_14d: Decimal
+    velocity_per_day: Decimal
     lead_time_days: int
     safety_stock_qty: Decimal
     suggested_qty: Decimal
     reorder_level: Decimal
     transfer_from_warehouse_id: int | None
     transfer_from_warehouse_name: str | None
+    # INV-IDR-08: a donor godown can only give its surplus. The part it cannot cover is bought.
+    transfer_qty: Decimal = Decimal("0")
+    purchase_qty: Decimal = Decimal("0")
+
+    @property
+    def velocity_14d(self) -> Decimal:
+        """Units over 14 days at the current pace; kept so older readers of the alert still work."""
+        return self.velocity_per_day * Decimal(14)
 
 
 _UNSET = object()
@@ -2433,10 +2532,14 @@ def suggest_replenishment(
     reorder_level_row=_UNSET,
     warehouse_levels=_UNSET,
     product_balances=_UNSET,
+    velocity_per_day=None,
 ):
     """Suggested buy or transfer qty for one low-stock row.
 
-    ``since`` is the same window ``_low_stock()`` already uses (trailing 14 days).
+    The pace of sales is the one the demand forecast uses (INV-IDR-08): net of returns, over the
+    company's forecast window, counting only days the item was in stock. A caller that already holds
+    it passes ``velocity_per_day``; otherwise it is worked out for this godown. ``since`` is kept for
+    older callers and no longer used.
     Lead time and safety stock live on ``WarehouseReorderLevel``. When lead time
     is unset, the quantity falls back to ``reorder_level - available``.
 
@@ -2454,7 +2557,7 @@ def suggest_replenishment(
     unset, each is queried individually so this function still works as a
     standalone call (e.g. from tests) without precomputed maps.
     """
-    from .models import StockBalance, StockMovement, WarehouseReorderLevel
+    from .models import StockBalance, WarehouseReorderLevel
 
     available = Decimal(str(on_hand or 0)) - Decimal(str(reserved or 0))
     if reorder_level_row is not _UNSET:
@@ -2468,18 +2571,16 @@ def suggest_replenishment(
     lead = int(level.lead_time_days) if level is not None else 0
     safety = Decimal(str(level.safety_stock_qty if level is not None else 0))
     reorder = Decimal(str(reorder_level or 0))
-    velocity = Decimal("0")
-    if warehouse is not None and product is not None and since is not None:
-        sold = StockMovement.objects.filter(
-            company=company,
-            warehouse=warehouse,
-            product=product,
-            movement_type=MovementType.SALE,
-            movement_date__gte=since,
-        ).aggregate(q=Sum("quantity"))["q"]
-        velocity = abs(Decimal(str(sold or 0)))
+    if velocity_per_day is not None:
+        velocity = Decimal(str(velocity_per_day))
+    elif warehouse is not None and product is not None:
+        from .forecast import godown_velocity
+
+        velocity = godown_velocity(company, [warehouse.id], [product.id]).get((product.id, warehouse.id), Decimal("0"))
+    else:
+        velocity = Decimal("0")
     if lead > 0:
-        suggested = safety + (velocity / Decimal(14)) * Decimal(lead) - available
+        suggested = safety + velocity * Decimal(lead) - available
     else:
         suggested = reorder - available
     if suggested < 0:
@@ -2488,6 +2589,8 @@ def suggest_replenishment(
 
     transfer_id = None
     transfer_name = None
+    transfer_qty = Decimal("0")
+    purchase_qty = suggested
     if warehouse_specific and warehouse is not None and product is not None:
         if warehouse_levels is not _UNSET:
             levels = warehouse_levels
@@ -2508,6 +2611,9 @@ def suggest_replenishment(
                 .select_related("warehouse")
             )
         for bal in balances:
+            # The in-transit godown and godowns that are switched off are not places to take stock from.
+            if getattr(bal.warehouse, "is_system", False) or getattr(bal.warehouse, "is_active", True) is False:
+                continue
             other_available = Decimal(str(bal.on_hand or 0)) - Decimal(str(bal.reserved or 0))
             other_level = levels.get(bal.warehouse_id)
             other_reorder = Decimal(str(other_level.reorder_level)) if other_level is not None else product_reorder
@@ -2522,14 +2628,21 @@ def suggest_replenishment(
         if best_warehouse is not None:
             transfer_id = best_warehouse.id
             transfer_name = best_warehouse.name
+            transfer_qty = min(suggested, best_surplus).quantize(Decimal("0.001"))
+            purchase_qty = (suggested - transfer_qty).quantize(Decimal("0.001"))
+
+    if transfer_id is None:
+        transfer_qty, purchase_qty = Decimal("0"), suggested
 
     return ReplenishmentSuggestion(
         available=available,
-        velocity_14d=velocity,
+        velocity_per_day=velocity,
         lead_time_days=lead,
         safety_stock_qty=safety,
         suggested_qty=suggested,
         reorder_level=reorder,
         transfer_from_warehouse_id=transfer_id,
         transfer_from_warehouse_name=transfer_name,
+        transfer_qty=transfer_qty,
+        purchase_qty=purchase_qty,
     )

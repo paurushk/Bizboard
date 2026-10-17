@@ -1568,6 +1568,30 @@ class PaymentService:
 
     @staticmethod
     @transaction.atomic
+    def set_tds_certificate(*, receipt, received=True, received_on=None, reference="", user=None):
+        """Mark a receipt's TDS certificate as received (or undo it). No ledger posting."""
+        rec = CustomerReceipt.objects.select_for_update().get(pk=receipt.pk)
+        if rec.status != ReceiptStatus.POSTED:
+            raise BusinessRuleError("Only a live receipt can have a TDS certificate recorded.")
+        if not rec.tds_deducted or rec.tds_deducted <= 0:
+            raise BusinessRuleError("This receipt has no TDS deducted.")
+        if received:
+            when = received_on or timezone.localdate()
+            if when > timezone.localdate():
+                raise BusinessRuleError("The certificate cannot be received in the future.")
+            rec.tds_certificate_received_on = when
+            rec.tds_certificate_ref = (reference or "").strip()[:64]
+        else:
+            rec.tds_certificate_received_on = None
+            rec.tds_certificate_ref = ""
+        rec.updated_by = user
+        rec.save(update_fields=[
+            "tds_certificate_received_on", "tds_certificate_ref", "updated_by", "updated_at",
+        ])
+        return rec
+
+    @staticmethod
+    @transaction.atomic
     def set_supplier_cheque_status(*, payment, cheque_status, user=None):
         pay = SupplierPayment.objects.select_for_update().get(pk=payment.pk)
         if pay.mode != PaymentMode.CHEQUE:

@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { PeriodsPage } from '@/pages/phase/PeriodsPage';
+import * as resources from '@/api/resources';
 
 const auth = vi.hoisted(() => ({ role: 'OWNER' }));
 
@@ -70,5 +72,29 @@ describe('PeriodsPage close control', () => {
     expect(screen.queryByRole('button', { name: 'Close period' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Soft-close' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Close FY' })).toBeNull();
+  });
+
+  it('ACS-00 closes through the in-app dialog, never window.confirm', async () => {
+    auth.role = 'OWNER';
+    const nativeConfirm = vi.spyOn(window, 'confirm');
+    wrap(<PeriodsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Close period' }, { timeout: 5000 }));
+    // Nothing happens until the dialog is confirmed.
+    expect(resources.closeAccountingAndGstPeriod).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/Close books and GST\?/);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Close period' }).at(-1)!);
+    expect(resources.closeAccountingAndGstPeriod).toHaveBeenCalledWith(1);
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    nativeConfirm.mockRestore();
+  });
+
+  it('cancelling the dialog closes nothing', async () => {
+    auth.role = 'OWNER';
+    vi.mocked(resources.closeAccountingAndGstPeriod).mockClear();
+    wrap(<PeriodsPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Close period' }, { timeout: 5000 }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(resources.closeAccountingAndGstPeriod).not.toHaveBeenCalled();
   });
 });

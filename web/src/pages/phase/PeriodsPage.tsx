@@ -17,6 +17,7 @@ import { nextIndianFyEnd } from '@/utils/fy';
 import { BooksCloseSection } from '@/pages/phase/BooksCloseSection';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 function warningCodes(payload: unknown): string[] {
   if (!payload || typeof payload !== 'object') return [];
@@ -41,6 +42,11 @@ export function PeriodsPage() {
   const [fyEnd, setFyEnd] = useState(nextIndianFyEnd());
   const [error, setError] = useState('');
   const [warning, setWarning] = useState('');
+  // ACS-00: irreversible closes go through the app's own dialog, not window.confirm.
+  type PendingClose =
+    | { kind: 'SOFT_CLOSED' | 'CLOSED' | 'TOGETHER'; id: number }
+    | { kind: 'FY' };
+  const [pending, setPending] = useState<PendingClose | null>(null);
   const create = useMutation({
     mutationFn: () => api.createAccountingPeriod({ name, startDate: start, endDate: end }),
     onSuccess: () => {
@@ -53,59 +59,49 @@ export function PeriodsPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   const setStatus = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => {
-      // F3-005: closing/soft-closing a period blocks further postings into
-      // it -- same "financial action needs confirmation" treatment as Close FY.
-      const message = status === 'CLOSED' ? t('phase.confirmClosePeriod') : t('phase.confirmSoftClosePeriod');
-      if (!window.confirm(message)) {
-        throw new Error('Cancelled');
-      }
-      return status === 'CLOSED' ? api.closeAccountingPeriod(id) : api.softCloseAccountingPeriod(id);
-    },
+    mutationFn: ({ id, status }: { id: number; status: string }) =>
+      status === 'CLOSED' ? api.closeAccountingPeriod(id) : api.softCloseAccountingPeriod(id),
     onSuccess: (data) => {
       setError('');
       const codes = warningCodes(data);
       setWarning(codes.includes('gst_period_open') ? t('phase.gstPeriodOpen') : '');
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => {
-      if (getErrorMessage(e) === 'Cancelled') return;
-      setError(getErrorMessage(e));
-    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const closeTogether = useMutation({
-    mutationFn: (id: number) => {
-      if (!window.confirm(t('phase.confirmClosePeriodTogether'))) {
-        throw new Error('Cancelled');
-      }
-      return api.closeAccountingAndGstPeriod(id);
-    },
+    mutationFn: (id: number) => api.closeAccountingAndGstPeriod(id),
     onSuccess: () => {
       setError('');
       setWarning('');
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => {
-      if (getErrorMessage(e) === 'Cancelled') return;
-      setError(getErrorMessage(e));
-    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
   const fyClose = useMutation({
-    mutationFn: () => {
-      if (!window.confirm(t('phase.confirmCloseFy'))) {
-        throw new Error('Cancelled');
-      }
-      return api.closeFinancialYear({ fyEnd, confirm: true });
-    },
+    mutationFn: () => api.closeFinancialYear({ fyEnd, confirm: true }),
     onSuccess: () => {
       setError('');
       void qc.invalidateQueries({ queryKey: ['accounting-periods'] });
     },
-    onError: (e) => {
-      if (getErrorMessage(e) === 'Cancelled') return;
-      setError(getErrorMessage(e));
-    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
+  const confirmPending = () => {
+    if (!pending) return;
+    if (pending.kind === 'FY') fyClose.mutate();
+    else if (pending.kind === 'TOGETHER') closeTogether.mutate(pending.id);
+    else setStatus.mutate({ id: pending.id, status: pending.kind });
+    setPending(null);
+  };
+  const pendingCopy = !pending
+    ? { title: '', body: '' }
+    : pending.kind === 'SOFT_CLOSED'
+      ? { title: t('phase.periodConfirmSoftTitle'), body: t('phase.confirmSoftClosePeriod') }
+      : pending.kind === 'CLOSED'
+        ? { title: t('phase.periodConfirmCloseTitle'), body: t('phase.confirmClosePeriod') }
+        : pending.kind === 'TOGETHER'
+          ? { title: t('phase.periodConfirmCloseTogetherTitle'), body: t('phase.confirmClosePeriodTogether') }
+          : { title: t('phase.periodConfirmFyTitle'), body: t('phase.confirmCloseFy') };
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   const rows = asRows(query.data);
@@ -135,15 +131,28 @@ export function PeriodsPage() {
       <TextField type="date" label={t('phase.periodEnd')} size="small" InputLabelProps={{ shrink: true }} value={end} onChange={(e) => setEnd(e.target.value)} />
       <Button variant="contained" disabled={writesBlocked || !name || !start || !end || create.isPending} onClick={() => create.mutate()}>{t('phase.createPeriod')}</Button>
       <TextField type="date" label={t('phase.fyEnd')} size="small" InputLabelProps={{ shrink: true }} value={fyEnd} onChange={(e) => setFyEnd(e.target.value)} />
-      {owner ? <Button color="warning" variant="outlined" disabled={writesBlocked || !fyEnd || fyClose.isPending} onClick={() => fyClose.mutate()}>{t('phase.closeFy')}</Button> : null}
+      {owner ? <Button color="warning" variant="outlined" disabled={writesBlocked || !fyEnd || fyClose.isPending} onClick={() => setPending({ kind: 'FY' })}>{t('phase.closeFy')}</Button> : null}
     </Stack>
     <DataTable rows={rows} empty={t('phase.noPeriods')} columns={[
       { key: 'name', label: t('phase.periodName') }, { key: 'startDate', label: t('phase.periodStart') }, { key: 'endDate', label: t('phase.periodEnd') }, { key: 'status', label: t('phase.periodStatus'), status: true },
     ]} actions={(row) => owner && (row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN')) ? <Stack direction="row" spacing={1} justifyContent="flex-end">
-      {row.status === 'OPEN' ? <Button size="small" disabled={writesBlocked} onClick={() => setStatus.mutate({ id: Number(row.id), status: 'SOFT_CLOSED' })}>{t('phase.softClose')}</Button> : null}
+      {row.status === 'OPEN' ? <Button size="small" disabled={writesBlocked} onClick={() => setPending({ kind: 'SOFT_CLOSED', id: Number(row.id) })}>{t('phase.softClose')}</Button> : null}
       {row.status !== 'CLOSED' || (gstrOn && String(row.gstPeriodStatus ?? row.gst_period_status ?? 'OPEN') === 'OPEN') ? (
-        <Button size="small" color="error" disabled={writesBlocked || closeTogether.isPending} onClick={() => closeTogether.mutate(Number(row.id))}>{t('phase.closePeriodTogether')}</Button>
+        <Button size="small" color="error" disabled={writesBlocked || closeTogether.isPending} onClick={() => setPending({ kind: 'TOGETHER', id: Number(row.id) })}>{t('phase.closePeriodTogether')}</Button>
       ) : null}
     </Stack> : null} />
+  <ConfirmDialog
+      open={pending !== null}
+      title={pendingCopy.title}
+      body={pendingCopy.body}
+      confirmLabel={
+        pending?.kind === 'SOFT_CLOSED' ? t('phase.softClose') : pending?.kind === 'CLOSED' ? t('phase.closePeriod') : pending?.kind === 'TOGETHER' ? t('phase.closePeriodTogether') : t('phase.closeFy')
+      }
+      confirmColor={pending?.kind === 'SOFT_CLOSED' ? 'warning' : 'error'}
+      requireTyped={pending?.kind === 'FY' ? fyEnd : undefined}
+      confirming={setStatus.isPending || closeTogether.isPending || fyClose.isPending}
+      onClose={() => setPending(null)}
+      onConfirm={confirmPending}
+    />
   </PageShell>;
 }

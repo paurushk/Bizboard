@@ -2,7 +2,7 @@ import axios from 'axios';
 import { apiClient, idempotencyHeaders, shouldUseMocks, unwrapData } from '../client';
 import { mockInvoices, mockQuotations } from '@/mocks/data';
 import type { LineItem, Quotation, ReportResponse, SalesCreditNote, SalesDebitNote, SalesInvoice, SalesOrder, SalesReturn, ReturnableLine, SalesReturnPreview, DeliveryChallan, AdjustableInvoiceSummary, PdfStatus } from '@/types/domain';
-import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, getBlob, type PageResult, type PageParams, type InvoiceNumberSeries } from './common';
 
 export async function listSalesInvoices(params?: Record<string, string>): Promise<SalesInvoice[]> {
   return withMocks(async () => fetchAllPagesMasters<SalesInvoice>('/sales/invoices/', params), mockInvoices);
@@ -1343,6 +1343,23 @@ export async function listSalesCreditNotesPage(params?: PageParams): Promise<Pag
   });
 }
 
+export type NoteRegisterFilters = {
+  search?: string;
+  status?: string;
+  customer?: number | string;
+  invoice?: number | string;
+  date_from?: string;
+  date_to?: string;
+};
+
+export async function exportSalesCreditNotesCsv(params?: NoteRegisterFilters): Promise<Blob> {
+  return getBlob('/sales/credit-notes/export/', params);
+}
+
+export async function exportSalesDebitNotesCsv(params?: NoteRegisterFilters): Promise<Blob> {
+  return getBlob('/sales/debit-notes/export/', params);
+}
+
 export async function getSalesCreditNote(id: number | string): Promise<SalesCreditNote> {
   return withMocks(async () => {
     const { data } = await apiClient.get(`/sales/credit-notes/${id}/`);
@@ -1506,11 +1523,23 @@ export async function updateSalesDebitNote(
 
 export async function completeSalesDebitNote(
   id: number,
-  options?: { confirmAdditionalDebit?: boolean; gstGuardOverrideReason?: string },
+  options?: {
+    confirmAdditionalDebit?: boolean;
+    gstGuardOverrideReason?: string;
+    /** Owner only (DN-07): bill past the invoice value, with a written reason. */
+    confirmExcessiveDebit?: boolean;
+    excessiveDebitReason?: string;
+  },
 ): Promise<SalesDebitNote> {
   return withMocks(async () => {
     const { data } = await apiClient.post(`/sales/debit-notes/${id}/complete/`, {
       confirmAdditionalDebit: Boolean(options?.confirmAdditionalDebit),
+      ...(options?.confirmExcessiveDebit
+        ? {
+            confirmExcessiveDebit: true,
+            excessiveDebitReason: options.excessiveDebitReason ?? '',
+          }
+        : {}),
       ...(options?.gstGuardOverrideReason
         ? { gstGuardOverrideReason: options.gstGuardOverrideReason }
         : {}),
@@ -1690,6 +1719,12 @@ export async function convertDeliveryChallan(id: number): Promise<SalesInvoice> 
     const { data } = await apiClient.post(`/sales/delivery-challans/${id}/convert/`);
     return unwrapData<SalesInvoice>(data);
   }, { ...mockInvoices[0], id: Date.now(), status: 'DRAFT' });
+}
+
+export async function deleteDeliveryChallan(id: number): Promise<void> {
+  return withMocks(async () => {
+    await apiClient.delete(`/sales/delivery-challans/${id}/`);
+  }, undefined);
 }
 
 export async function cancelDeliveryChallan(id: number): Promise<DeliveryChallan> {
@@ -1881,8 +1916,14 @@ export async function createDeliveryRoute(payload: Record<string, unknown>) {
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function addOrdersToDeliveryRoute(id: number, orderIds: number[]) {
-  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/add-orders/`, { orderIds });
+/** A risk someone accepted, with the reason that is kept on the route. */
+export type RouteAcknowledgement = { order?: number; stop?: number; code: string; reason: string };
+
+export async function addOrdersToDeliveryRoute(id: number, orderIds: number[], acknowledgements?: RouteAcknowledgement[]) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/add-orders/`, {
+    orderIds,
+    ...(acknowledgements && acknowledgements.length ? { acknowledgements } : {}),
+  });
   return unwrapData<Record<string, unknown>>(data);
 }
 
@@ -1895,7 +1936,21 @@ export async function setDeliveryRouteStopStatus(
   id: number,
   stopId: number,
   status: string,
-  extra?: { completionSource?: string; otp?: string; podNote?: string; receivedByName?: string; podPhoto?: number; customerReceipt?: number },
+  extra?: {
+    completionSource?: string;
+    otp?: string;
+    podNote?: string;
+    receivedByName?: string;
+    podPhoto?: number;
+    customerReceipt?: number;
+    collectedCash?: number | string;
+    collectedUpi?: number | string;
+    upiReference?: string;
+    /** Required to change an outcome that was already recorded. */
+    reason?: string;
+    /** Quantities that came back, by product. Omitted means all of it for a failed stop. */
+    returnedLines?: Array<{ product: number; quantity: number | string }>;
+  },
 ) {
   const { data } = await apiClient.post(`/sales/delivery-routes/${id}/set-stop-status/`, {
     stopId,
@@ -1905,13 +1960,62 @@ export async function setDeliveryRouteStopStatus(
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function startDeliveryRoute(id: number) {
-  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/start/`);
+export async function startDeliveryRoute(id: number, acknowledgements?: RouteAcknowledgement[]) {
+  const { data } = await apiClient.post(
+    `/sales/delivery-routes/${id}/start/`,
+    acknowledgements && acknowledgements.length ? { acknowledgements } : {},
+  );
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** Every stop's facts and risks as they stand now, and whether the route may start. */
+export async function getDeliveryRoutePreflight(id: number) {
+  const { data } = await apiClient.get(`/sales/delivery-routes/${id}/preflight/`);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** One page of orders for the planning table, each with its summary and risks. */
+export async function listRouteCandidates(params?: Record<string, string | number | boolean | undefined>) {
+  const clean: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value !== undefined && value !== '' && value !== false) clean[key] = value;
+  }
+  const { data } = await apiClient.get('/sales/delivery-routes/candidates/', { params: clean });
   return unwrapData<Record<string, unknown>>(data);
 }
 
 export async function completeDeliveryRoute(id: number, payload?: { actualLogisticsCost?: number | string }) {
   const { data } = await apiClient.post(`/sales/delivery-routes/${id}/complete/`, payload ?? {});
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** Change a planned route's vehicle, driver, date or notes. A started route is locked (server rule). */
+export async function updateDeliveryRoute(id: number, payload: Record<string, unknown>) {
+  const { data } = await apiClient.patch(`/sales/delivery-routes/${id}/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** Cancel a route. A route already on the road needs a reason. */
+export async function cancelDeliveryRoute(id: number, reason?: string) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/cancel/`, reason ? { reason } : {});
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** The cashier's count of what the driver handed over. A reason is kept when it differs. */
+export async function verifyDeliveryRouteHandover(
+  id: number,
+  payload: { cashCounted: number | string; upiCounted: number | string; varianceNote?: string },
+) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/verify-handover/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
+/** Point a stop at the receipt the cashier posted for its collection. The system never creates it. */
+export async function linkDeliveryRouteReceipt(
+  id: number,
+  payload: { stopId: number; receiptId: number; reason?: string },
+) {
+  const { data } = await apiClient.post(`/sales/delivery-routes/${id}/link-receipt/`, payload);
   return unwrapData<Record<string, unknown>>(data);
 }
 

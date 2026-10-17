@@ -139,6 +139,24 @@ class PurchaseInvoiceViewSet(CompanyScopedViewSet):
                 | Q(supplier__name__icontains=term)
                 | Q(supplier__phone__icontains=term)
             )
+        truthy = ("1", "true", "yes")
+        has_balance = (params.get("has_balance") or "").lower() in truthy
+        overdue = (params.get("overdue") or "").lower() in truthy
+        due_soon = (params.get("due_soon") or "").lower() in truthy
+        if self.action == "list" and (has_balance or overdue or due_soon):
+            # The same bills, with the same due-date rule, that the Money hub adds up.
+            from django.utils import timezone
+
+            from reporting.money_position import DUE_SOON_DAYS, open_purchase_rows
+
+            today = timezone.localdate()
+            ids = [
+                row["id"] for row in open_purchase_rows(self.company, today)
+                if has_balance
+                or (overdue and row["days_overdue"] > 0)
+                or (due_soon and row["due"] is not None and 0 <= (row["due"] - today).days <= DUE_SOON_DAYS)
+            ]
+            qs = qs.filter(pk__in=ids)
         return qs
 
     def get_serializer(self, *args, **kwargs):

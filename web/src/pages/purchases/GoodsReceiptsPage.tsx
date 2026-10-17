@@ -67,6 +67,52 @@ function acceptedUnits(row: GoodsReceipt): number {
   return (row.items ?? []).reduce((sum, line) => sum + (Number(line.quantityAccepted) || 0), 0);
 }
 
+interface ProductOption {
+  id: string;
+  name: string;
+}
+
+function LineProductPicker({
+  value,
+  knownName,
+  onPick,
+}: {
+  value: string;
+  knownName?: string;
+  onPick: (option: ProductOption | null) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const products = useQuery({
+    queryKey: ['products-grn', query],
+    queryFn: () => searchProducts(query.trim()),
+  });
+  const options = useMemo<ProductOption[]>(() => {
+    const found = (products.data ?? []).map((p) => ({ id: String(p.id), name: p.name }));
+    // A product already on the line stays selectable while a new search replaces the results.
+    if (value && !found.some((o) => o.id === value)) found.unshift({ id: value, name: knownName ?? value });
+    return found;
+  }, [products.data, value, knownName]);
+  const selected = value ? (options.find((o) => o.id === value) ?? null) : null;
+  return (
+    <Autocomplete
+      size="small"
+      sx={{ minWidth: 220 }}
+      options={options}
+      value={selected}
+      loading={products.isFetching}
+      getOptionLabel={(option) => option.name}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
+      filterOptions={(all) => all}
+      onInputChange={(_, text, reason) => {
+        if (reason === 'input') setQuery(text);
+        else if (reason === 'clear') setQuery('');
+      }}
+      onChange={(_, option) => onPick(option)}
+      renderInput={(params) => <TextField {...params} label={t('common.product')} />}
+    />
+  );
+}
+
 export function GoodsReceiptsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
@@ -84,7 +130,6 @@ export function GoodsReceiptsPage() {
   const [receiptDate, setReceiptDate] = useState(() => todayIso());
   const [challan, setChallan] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([emptyLine()]);
-  const [productQuery, setProductQuery] = useState('');
   const [pending, setPending] = useState<Pending | null>(null);
 
   const receipts = useQuery({
@@ -107,12 +152,6 @@ export function GoodsReceiptsPage() {
     () => (orders.data ?? []).filter((o) => o.status !== 'CANCELLED' && o.status !== 'CONVERTED'),
     [orders.data],
   );
-  const products = useQuery({
-    queryKey: ['products-grn', productQuery],
-    queryFn: () => searchProducts(productQuery.trim()),
-    enabled: canWrite && productQuery.trim().length > 0,
-  });
-
   const create = useMutation({
     mutationFn: () => {
       // Check what the form can check before posting stock: whole numbers, accepted plus rejected
@@ -361,38 +400,16 @@ export function GoodsReceiptsPage() {
                 onChange={(e) => setChallan(e.target.value)}
               />
             </Stack>
-            <TextField
-              size="small"
-              label={t('common.product')}
-              value={productQuery}
-              onChange={(e) => setProductQuery(e.target.value)}
-              helperText={t('billing.grnGuidance')}
-            />
             {lines.map((line, index) => (
               <Stack key={index} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-                <TextField
-                  select
-                  size="small"
-                  label={t('common.product')}
+                <LineProductPicker
                   value={line.product}
-                  onChange={(e) => {
-                    const picked = (products.data ?? []).find((product) => String(product.id) === e.target.value);
-                    if (picked) setChosenNames((names) => ({ ...names, [String(picked.id)]: picked.name }));
-                    patchLine(index, { product: e.target.value });
+                  knownName={chosenNames[line.product]}
+                  onPick={(option) => {
+                    if (option) setChosenNames((names) => ({ ...names, [option.id]: option.name }));
+                    patchLine(index, { product: option?.id ?? '' });
                   }}
-                  sx={{ minWidth: 180 }}
-                >
-                  <MenuItem value="">{t('common.none')}</MenuItem>
-                  {/* Products already chosen on any line stay in the list when a new search replaces the results. */}
-                  {[
-                    ...(products.data ?? []).map((product) => ({ id: String(product.id), name: product.name })),
-                    ...Object.entries(chosenNames)
-                      .filter(([id]) => !(products.data ?? []).some((product) => String(product.id) === id))
-                      .map(([id, name]) => ({ id, name })),
-                  ].map((option) => (
-                    <MenuItem key={option.id} value={option.id}>{option.name}</MenuItem>
-                  ))}
-                </TextField>
+                />
                 <TextField size="small" label={t('common.qty')} value={line.quantityReceived} onChange={(e) => patchLine(index, { quantityReceived: e.target.value })} />
                 <TextField size="small" label={t('billing.qtyAccepted')} value={line.quantityAccepted} onChange={(e) => patchLine(index, { quantityAccepted: e.target.value })} />
                 <TextField size="small" label={t('billing.qtyRejected')} value={line.quantityRejected} onChange={(e) => patchLine(index, { quantityRejected: e.target.value })} />
@@ -407,6 +424,9 @@ export function GoodsReceiptsPage() {
                 </IconButton>
               </Stack>
             ))}
+            <Typography variant="caption" color="text.secondary">
+              {t('billing.grnGuidance')}
+            </Typography>
             <Stack direction="row" spacing={1}>
               <Button onClick={() => setLines((current) => [...current, emptyLine()])}>{t('common.add')}</Button>
               <Button

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -8,15 +8,19 @@ import { ProductsPage } from '@/pages/inventory/ProductsPage';
 const listProductsPage = vi.hoisted(() => vi.fn());
 const listProducts = vi.hoisted(() => vi.fn());
 const listStock = vi.hoisted(() => vi.fn());
+const listLowStock = vi.hoisted(() => vi.fn());
 
 const markProductsReviewed = vi.hoisted(() => vi.fn());
+const getProductFilterOptions = vi.hoisted(() => vi.fn());
 
 vi.mock('@/api/resources', () => ({
   deleteProduct: vi.fn(),
+  getProductFilterOptions: () => getProductFilterOptions(),
   markProductsReviewed: (...args: unknown[]) => markProductsReviewed(...args),
   listProducts: (...args: unknown[]) => listProducts(...args),
   listProductsPage: (...args: unknown[]) => listProductsPage(...args),
   listStock: (...args: unknown[]) => listStock(...args),
+  listLowStock: (...args: unknown[]) => listLowStock(...args),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -54,46 +58,103 @@ function wrap(entry = '/') {
 describe('ProductsPage filters', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Page one holds only "Soap"; "Tea" lives on a later page of the catalogue.
+    getProductFilterOptions.mockResolvedValue({
+      categories: [{ id: 3, name: 'Grocery' }, { id: 4, name: 'Home' }],
+      brands: [{ id: 8, name: 'Acme' }],
+      gstRates: ['5.00', '18.00'],
+    });
     listProductsPage.mockResolvedValue({ count: 2, next: 'page2', previous: null, results: [product(1, 'Soap', 'Home')] });
     listProducts.mockResolvedValue([product(1, 'Soap', 'Home'), product(2, 'Tea', 'Grocery')]);
     listStock.mockResolvedValue([]);
+    listLowStock.mockResolvedValue([]);
   });
 
-  it('a category filter matches items on every page, not only the page on screen', async () => {
+  it('offers the categories in use without loading the whole catalogue, and asks the server to filter', async () => {
     const user = userEvent.setup();
     wrap();
     expect(await screen.findByText('Soap')).toBeTruthy();
-    expect(screen.queryByText('Tea')).toBeNull();
+    listProductsPage.mockResolvedValue({ count: 1, next: null, previous: null, results: [product(2, 'Tea', 'Grocery')] });
 
-    // Opening the menu loads the whole catalogue so every category can be offered.
     await user.click(screen.getByLabelText(/category/i));
-    const option = await screen.findByRole('option', { name: 'Grocery' });
-    await user.click(option);
+    await user.click(await screen.findByRole('option', { name: 'Grocery' }));
 
     await waitFor(() => expect(screen.getByText('Tea')).toBeTruthy());
     expect(screen.queryByText('Soap')).toBeNull();
-    expect(listProducts).toHaveBeenCalled();
+    expect(listProductsPage).toHaveBeenLastCalledWith(expect.objectContaining({ category: '3', page: 1 }));
+    // Nothing downloaded the whole catalogue just to fill a menu or filter it.
+    expect(listProducts).not.toHaveBeenCalled();
   });
 
-  it('an item with no stock rows counts as out of stock', async () => {
+  it('sends the stock status and the tax slab to the server', async () => {
     const user = userEvent.setup();
     wrap();
     await screen.findByText('Soap');
     await user.click(screen.getByLabelText(/stock/i));
     await user.click(await screen.findByRole('option', { name: /out of stock/i }));
-    // Neither product has a stock row, so both are out of stock and both are listed.
-    await waitFor(() => expect(screen.getByText('Tea')).toBeTruthy());
-    expect(within(document.body).getByText('Soap')).toBeTruthy();
+    await waitFor(() => expect(listProductsPage).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out' })));
+    await user.click(screen.getByLabelText(/tax slab/i));
+    await user.click(await screen.findByRole('option', { name: '18%' }));
+    await waitFor(() =>
+      expect(listProductsPage).toHaveBeenLastCalledWith(expect.objectContaining({ stockStatus: 'out', gstRate: '18' })),
+    );
+  });
+
+  it('calls the "in stock" filter what it is: low items included', async () => {
+    const user = userEvent.setup();
+    wrap();
+    await screen.findByText('Soap');
+    await user.click(screen.getByLabelText(/stock/i));
+    expect(await screen.findByRole('option', { name: 'In stock (incl. low)' })).toBeTruthy();
+  });
+
+  it('exports the same search and filters the list shows, every page', async () => {
+    const user = userEvent.setup();
+    URL.createObjectURL = vi.fn(() => 'blob:x');
+    URL.revokeObjectURL = vi.fn();
+    wrap();
+    await screen.findByText('Soap');
+    await user.click(screen.getByLabelText(/category/i));
+    await user.click(await screen.findByRole('option', { name: 'Grocery' }));
+    await waitFor(() => expect(listProductsPage).toHaveBeenLastCalledWith(expect.objectContaining({ category: '3' })));
+    await user.click(await screen.findByRole('button', { name: /export/i }));
+    await waitFor(() => expect(listProducts).toHaveBeenCalledWith(expect.objectContaining({ category: '3' })));
+  });
+});
+
+describe('ProductsPage low-stock rows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getProductFilterOptions.mockResolvedValue({ categories: [], brands: [], gstRates: [] });
+    listProductsPage.mockResolvedValue({
+      count: 2, next: null, previous: null, results: [product(1, 'Soap', 'Home'), product(2, 'Tea', 'Grocery')],
+    });
+    listProducts.mockResolvedValue([]);
+    listStock.mockResolvedValue([
+      { product: 1, available: '12', onHand: '12', reserved: '0' },
+      { product: 2, available: '12', onHand: '12', reserved: '0' },
+    ]);
+    listLowStock.mockResolvedValue([{ product: 1, productName: 'Soap', sku: 'SKU-1', hasReorderRule: true }]);
+  });
+
+  it('marks as low only the items the alerts call low', async () => {
+    wrap();
+    await screen.findByText('Soap');
+    await waitFor(() => expect(screen.getAllByText('12 PCS')).toHaveLength(2));
+    const chipOf = (name: string) =>
+      (screen.getByText(name).closest('tr') as HTMLElement).querySelector('.MuiChip-colorWarning, .MuiChip-colorSuccess') as HTMLElement;
+    expect(chipOf('Soap').className).toContain('MuiChip-colorWarning');
+    expect(chipOf('Tea').className).toContain('MuiChip-colorSuccess');
   });
 });
 
 describe('ProductsPage needs-review filter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getProductFilterOptions.mockResolvedValue({ categories: [], brands: [], gstRates: [] });
     listProductsPage.mockResolvedValue({ count: 1, next: null, previous: null, results: [product(7, 'From a bill', 'Home')] });
     listProducts.mockResolvedValue([]);
     listStock.mockResolvedValue([]);
+    listLowStock.mockResolvedValue([]);
     markProductsReviewed.mockResolvedValue({ updated: 1 });
   });
 

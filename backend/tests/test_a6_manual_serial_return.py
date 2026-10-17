@@ -52,7 +52,7 @@ def test_serial_transition_sold_to_returned_succeeds(fifo_company):
 
     ret = tenant.client.post(
         f"/api/v1/inventory/serials/{serial.id}/transition/",
-        {"status": SerialNumber.Status.RETURNED},
+        {"status": SerialNumber.Status.RETURNED, "reason": "Credit note raised on paper", "confirm_no_document": True},
         format="json",
     )
     assert ret.status_code == 200, ret.data

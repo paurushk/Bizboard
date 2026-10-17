@@ -6,6 +6,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useCustomerSearch, useSupplierSearch } from '@/hooks/usePartySearch';
+import { useLeadSearch } from '@/hooks/useLeadSearch';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { Customer, Product, Supplier } from '@/types/domain';
@@ -20,9 +21,11 @@ export function localDateInput(date = new Date()) {
 export function CustomerField({
   value,
   onChange,
+  disabled,
 }: {
   value: Customer | null;
   onChange: (customer: Customer | null) => void;
+  disabled?: boolean;
 }) {
   const search = useCustomerSearch({ selected: value, activeOnly: true });
   return (
@@ -31,11 +34,38 @@ export function CustomerField({
       getOptionLabel={(option) => `${option.name}${option.phone ? ` (${option.phone})` : ''}`}
       filterOptions={(options) => options}
       value={value}
+      disabled={disabled}
       onChange={(_, next) => onChange(next)}
       onInputChange={(_, next) => search.setQuery(next)}
       loading={search.isFetching}
       sx={{ minWidth: 240 }}
       renderInput={(params) => <TextField {...params} size="small" label={t('growth.customer')} />}
+    />
+  );
+}
+
+export function LeadField({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: { id: number; name: string } | null;
+  onChange: (lead: { id: number; name: string } | null) => void;
+  disabled?: boolean;
+}) {
+  const search = useLeadSearch({ selected: value });
+  return (
+    <Autocomplete
+      options={search.options}
+      getOptionLabel={(option) => option.name}
+      isOptionEqualToValue={(a, b) => a.id === b.id}
+      filterOptions={(options) => options}
+      value={value}
+      disabled={disabled}
+      onChange={(_, next) => onChange(next)}
+      onInputChange={(_, next) => search.setQuery(next)}
+      loading={search.isFetching}
+      renderInput={(params) => <TextField {...params} label={t('nav.leads')} />}
     />
   );
 }

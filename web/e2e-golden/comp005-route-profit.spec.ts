@@ -4,7 +4,7 @@ import {
   convertDraftOrderToCompletedInvoiceViaChallan,
   createCustomer,
   createProduct,
-  createQuotationConvertedToOrder,
+  confirmOrderInList, createQuotationConvertedToOrder, pickOrderForRoute,
   createSupplier,
   registerTenant,
   unique,
@@ -50,12 +50,12 @@ test('COMP-005: completing a route with an invoiced stop shows trip profit', asy
   // Quotation -> Order lands on the order detail page, status DRAFT — the
   // shape the delivery-route "add orders" picker filters on.
   await createQuotationConvertedToOrder(page, { customerName, sku });
+  await confirmOrderInList(page, customerName);
   const orderUrl = page.url();
 
   await page.goto('/sales/delivery-routes');
   await page.getByRole('button', { name: 'New delivery route' }).click();
-  await expect(page.getByText(new RegExp(customerName))).toBeVisible({ timeout: 15_000 });
-  await page.getByText(new RegExp(customerName)).locator('..').getByRole('checkbox').check();
+  await pickOrderForRoute(page, customerName);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page).toHaveURL(/\/sales\/delivery-routes\/\d+/, { timeout: 20_000 });
   const routeUrl = page.url();
@@ -65,11 +65,17 @@ test('COMP-005: completing a route with an invoiced stop shows trip profit', asy
   await page.goto(orderUrl);
   await convertDraftOrderToCompletedInvoiceViaChallan(page, customerName);
 
+  await page.waitForLoadState('networkidle');
   await page.goto(routeUrl);
   await page.getByRole('button', { name: 'Start route' }).click();
+  // A route cannot be closed while a stop is still pending: record the delivery first.
+  await page.getByLabel('Received by').fill('Ravi');
+  await page.getByLabel('The customer gave a delivery code (driver’s phone)').uncheck();
+  await page.getByRole('button', { name: 'Record outcome' }).click();
+  await expect(page.getByText(/Received by:/)).toBeVisible({ timeout: 15_000 });
   await expect(page.getByLabel('Actual logistics cost')).toBeVisible({ timeout: 15_000 });
   await page.getByLabel('Actual logistics cost').fill('20');
-  await page.getByRole('button', { name: 'Complete', exact: true }).click();
+  await page.getByRole('button', { name: 'Close route' }).click();
 
   // Revenue 200 (taxable, unregistered tenant so no GST), COGS 1 x purchase
   // price 120, logistics 20 -> profit 60. One of one stops invoiced.

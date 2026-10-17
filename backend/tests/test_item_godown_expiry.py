@@ -784,17 +784,20 @@ def test_low_stock_uses_warehouse_reorder(tenant_a):
     assert Decimal(str(row["reorder_level"])) == Decimal("5")
 
 
-def test_low_stock_includes_default_zero_reorder_when_out_of_stock(tenant_a):
+def test_zero_reorder_item_that_is_out_of_stock_is_out_of_stock_not_low(tenant_a):
+    # INV-WP-08 (D2): no reorder rule + nothing left is reported apart from low stock, so the
+    # low-stock count is not padded with items nobody reorders.
     product = make_product(tenant_a.company, sku="LS-0", reorder_level="0")
     add_stock(tenant_a, product, "1")
     InventoryService.post_movement(
         company=tenant_a.company, product=product, movement_type=MovementType.ADJUSTMENT,
         quantity=Decimal("-1"), reason="TEST", user=tenant_a.owner,
     )
-    resp = tenant_a.client.get("/api/v1/inventory/alerts/")
-    assert resp.status_code == 200
-    ids = [row["product"] for row in resp.data.get("items") or []]
-    assert product.id in ids
+    low = tenant_a.client.get("/api/v1/inventory/alerts/")
+    assert low.status_code == 200
+    assert product.id not in [row["product"] for row in low.data.get("items") or []]
+    out = tenant_a.client.get("/api/v1/inventory/alerts/", {"status": "out"})
+    assert product.id in [row["product"] for row in out.data.get("items") or []]
 
 
 def test_low_stock_sums_across_godowns_without_override(tenant_a):

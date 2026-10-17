@@ -17,7 +17,7 @@ import {
   isHelpV2Enabled,
   isTdsEnabled,
 } from '@/config/features';
-import { isRuntimeFlagEnabled } from '@/config/featureFlags';
+import { isMoneyHubEnabled, isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { isNavMarkedNotReady } from '@/navigation/notReadyNav';
 
 /**
@@ -109,6 +109,56 @@ function accountAggregatorNavVisible(user: User | null): boolean {
 export const navigation: NavItem[] = [
   { id: 'dashboard', labelKey: 'nav.dashboard', path: '/', visible: canViewFinancialReports },
   { id: 'attention', labelKey: 'nav.attention', path: '/attention', visible: canViewFinancialReports },
+  {
+    // One place for everything about money coming in and going out. The screens keep their
+    // routes; this group only gathers them (docs/plans/MONEY_HUB_PLAN.md, decision D-1).
+    id: 'money',
+    labelKey: 'nav.money',
+    visible: canViewPaymentSurfaces,
+    children: [
+      {
+        id: 'money-overview',
+        labelKey: 'nav.moneyOverview',
+        path: '/money',
+        visible: (user) => canViewFinancialReports(user) && isMoneyHubEnabled(),
+      },
+      { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canViewPaymentSurfaces },
+      {
+        id: 'collections',
+        labelKey: 'nav.collections',
+        path: '/payments/collections',
+        visible: canViewFinancialReports,
+      },
+      {
+        id: 'supplier-payments',
+        labelKey: 'nav.supplierPayments',
+        path: '/purchases/payments',
+        visible: canCreatePayments,
+      },
+      { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
+      {
+        id: 'customer-portal',
+        labelKey: 'nav.customerPortal',
+        path: '/portal',
+        visible: (user) => canCreateSales(user) && isRuntimeFlagEnabled('ENABLE_CUSTOMER_PORTAL'),
+      },
+      { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
+      { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
+      {
+        id: 'account-aggregator',
+        labelKey: 'nav.accountAggregator',
+        path: '/payments/account-aggregator',
+        visible: accountAggregatorNavVisible,
+      },
+      { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book', visible: canViewFinancialReports },
+      {
+        id: 'tds-receivable',
+        labelKey: 'nav.tdsReceivable',
+        path: '/reports/tds-receivable',
+        visible: canViewFinancialReports,
+      },
+    ],
+  },
   { id: 'pos', labelKey: 'nav.pos', path: '/pos', visible: posVisible },
   {
     id: 'insights',
@@ -134,7 +184,6 @@ export const navigation: NavItem[] = [
       { id: 'new-invoice', labelKey: 'nav.newInvoice', path: '/sales/new', visible: canCreateSales },
       { id: 'sales-history', labelKey: 'nav.salesHistory', path: '/sales/history', visible: canViewSalesSurfaces },
       { id: 'quotations', labelKey: 'nav.quotations', path: '/sales/quotations', visible: canViewSalesSurfaces },
-      { id: 'receipts', labelKey: 'nav.receipts', path: '/sales/receipts', visible: canViewPaymentSurfaces },
       { id: 'customers', labelKey: 'nav.customers', path: '/sales/customers', visible: canViewSalesSurfaces },
       { id: 'sales-bill-upload', labelKey: 'nav.uploadSalesBill', path: '/sales/bill-upload', visible: canImportSalesBill },
       {
@@ -167,12 +216,6 @@ export const navigation: NavItem[] = [
         path: '/purchases/bill-upload',
         visible: canImportPurchaseBill,
       },
-      {
-        id: 'supplier-payments',
-        labelKey: 'nav.supplierPayments',
-        path: '/purchases/payments',
-        visible: canCreatePayments,
-      },
       { id: 'purchase-returns', labelKey: 'nav.purchaseReturns', path: '/purchases/returns', visible: canViewPurchaseSurfaces },
       { id: 'purchase-credit-notes', labelKey: 'nav.purchaseCreditNotes', path: '/purchases/credit-notes', visible: canViewPurchaseSurfaces },
       { id: 'purchase-debit-notes', labelKey: 'nav.purchaseDebitNotes', path: '/purchases/debit-notes', visible: canViewPurchaseSurfaces },
@@ -180,35 +223,6 @@ export const navigation: NavItem[] = [
       { id: 'goods-receipts', labelKey: 'nav.goodsReceipts', path: '/purchases/grns', visible: canViewPurchaseSurfaces },
       { id: 'bills-of-entry', labelKey: 'nav.billsOfEntry', path: '/purchases/bills-of-entry', visible: canViewPurchaseSurfaces },
       { id: 'suppliers', labelKey: 'nav.suppliers', path: '/purchases/suppliers', visible: canViewPurchaseSurfaces },
-    ],
-  },
-  {
-    id: 'payments',
-    labelKey: 'nav.payments',
-    visible: canViewPaymentSurfaces,
-    children: [
-      { id: 'payment-links', labelKey: 'nav.paymentLinks', path: '/payments/links', visible: canCreatePayments },
-      {
-        id: 'customer-portal',
-        labelKey: 'nav.customerPortal',
-        path: '/portal',
-        visible: (user) => canCreateSales(user) && isRuntimeFlagEnabled('ENABLE_CUSTOMER_PORTAL'),
-      },
-      {
-        id: 'collections',
-        labelKey: 'nav.collections',
-        path: '/payments/collections',
-        visible: canViewFinancialReports,
-      },
-      { id: 'bank-statements', labelKey: 'nav.bankStatements', path: '/payments/statements', visible: canCreatePayments },
-      { id: 'payment-recon', labelKey: 'nav.bankReconciliation', path: '/payments/reconciliation', visible: canViewBankRecon },
-      {
-        id: 'account-aggregator',
-        labelKey: 'nav.accountAggregator',
-        path: '/payments/account-aggregator',
-        visible: accountAggregatorNavVisible,
-      },
-      { id: 'cash-book-payments', labelKey: 'nav.cashBook', path: '/reports/cash-book', visible: canViewFinancialReports },
     ],
   },
   {
@@ -223,6 +237,7 @@ export const navigation: NavItem[] = [
     children: [
       { id: 'products', labelKey: 'nav.products', path: '/inventory/products', visible: canViewInventorySurfaces },
       { id: 'current-stock', labelKey: 'nav.currentStock', path: '/inventory/stock', visible: canViewInventorySurfaces },
+      { id: 'stock-ledger', labelKey: 'nav.stockLedger', path: '/inventory/ledger', visible: canViewInventorySurfaces },
       {
         id: 'stock-adjustment',
         labelKey: 'nav.stockAdjustment',
@@ -234,7 +249,11 @@ export const navigation: NavItem[] = [
         id: 'purchase-planning',
         labelKey: 'nav.purchasePlanning',
         path: '/inventory/purchase-planning',
-        visible: (user) => canViewInventorySurfaces(user) && isRuntimeFlagEnabled('ENABLE_PURCHASE_PLANNING'),
+        visible: (user) =>
+          canViewInventorySurfaces(user) &&
+          isRuntimeFlagEnabled('ENABLE_PURCHASE_PLANNING') &&
+          // The plan is built from replenishment; with it off the page only shows an error.
+          isRuntimeFlagEnabled('ENABLE_REPLENISHMENT'),
       },
       {
         id: 'demand-forecast',
@@ -242,7 +261,9 @@ export const navigation: NavItem[] = [
         path: '/inventory/demand-forecast',
         visible: canViewInventorySurfaces,
       },
-      { id: 'label-print', labelKey: 'nav.labelPrint', path: '/inventory/labels', visible: canAdjustInventory },
+      // Printing a label is a read (the server lets anyone who can see stock do it); giving an item a barcode
+      // inside the page needs the inventory right.
+      { id: 'label-print', labelKey: 'nav.labelPrint', path: '/inventory/labels', visible: canViewInventorySurfaces },
       { id: 'warehouses', labelKey: 'nav.warehouses', path: '/inventory/warehouses', visible: canAdjustInventory },
       { id: 'stock-counts', labelKey: 'nav.stockCounts', path: '/inventory/stock-counts', visible: canAdjustInventory },
       { id: 'stock-transfers', labelKey: 'nav.stockTransfers', path: '/inventory/transfers', visible: canAdjustInventory },
@@ -345,7 +366,6 @@ export const navigation: NavItem[] = [
       { id: 'report-sales', labelKey: 'nav.salesReports', path: '/reports/sales' },
       { id: 'report-purchases', labelKey: 'nav.purchaseReports', path: '/reports/purchases' },
       { id: 'report-discounts', labelKey: 'nav.discountReport', path: '/reports/discounts' },
-      { id: 'report-tds-receivable', labelKey: 'nav.tdsReceivable', path: '/reports/tds-receivable' },
       { id: 'report-invoice-profit', labelKey: 'nav.invoiceProfitReport', path: '/reports/invoice-profit' },
       { id: 'report-inventory', labelKey: 'nav.inventoryReports', path: '/reports/inventory' },
       { id: 'customer-ledger', labelKey: 'nav.customerLedger', path: '/reports/customer-ledger' },

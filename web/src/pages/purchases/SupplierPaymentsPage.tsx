@@ -6,6 +6,7 @@ import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
+import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Dialog from '@mui/material/Dialog';
@@ -23,10 +24,12 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   createAllocation,
   createSupplierPayment,
+  getSupplierPaymentsSummary,
   listAllPurchases,
   listSupplierPaymentsPage,
   listSuppliers,
@@ -36,7 +39,11 @@ import {
 import { ChequePaymentFields, type ChequePaymentValues } from '@/components/ChequePaymentFields';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { todayIso } from '@/components/billing';
+import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
 import { PageTitle } from '@/contextHelp';
+import { isMoneyHubEnabled } from '@/config/featureFlags';
+import { useAuth } from '@/auth/AuthContext';
+import { canViewFinancialReports } from '@/utils/permissions';
 import { confirmAction } from '@/utils/confirmBridge';
 import { invalidatePurchaseSideEffects } from '@/pages/purchases/purchaseQueries';
 import { t, useLocale } from '@/i18n';
@@ -50,10 +57,40 @@ const PAGE_SIZE = 50;
 export function SupplierPaymentsPage() {
   useLocale();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
+  // The Money hub links here with these three filters (cheques still to clear, money not yet
+  // applied to a bill, one supplier).
+  const [chequeStatus, setChequeStatus] = useState(() => {
+    const raw = (searchParams.get('cheque_status') ?? '').toUpperCase();
+    return ['PENDING_CLEARANCE', 'CLEARED', 'BOUNCED'].includes(raw) ? raw : '';
+  });
+  const [advanceOnly, setAdvanceOnly] = useState(() => searchParams.get('advance') === '1');
+  const [supplierFilter, setSupplierFilter] = useState(() => {
+    const raw = searchParams.get('supplier') ?? '';
+    return /^\d+$/.test(raw) ? raw : '';
+  });
+  const filters = {
+    cheque_status: chequeStatus || undefined,
+    advance: advanceOnly ? 'true' : undefined,
+    supplier: supplierFilter || undefined,
+  };
+  const filtersActive = Boolean(chequeStatus || advanceOnly || supplierFilter);
+  const showAll = () => {
+    setChequeStatus('');
+    setAdvanceOnly(false);
+    setSupplierFilter('');
+    setSearchParams({}, { replace: true });
+    setPage(1);
+  };
   const query = useQuery({
-    queryKey: ['supplier-payments', page],
-    queryFn: () => listSupplierPaymentsPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['supplier-payments', page, filters],
+    queryFn: () => listSupplierPaymentsPage({ page, pageSize: PAGE_SIZE, ...filters }),
+  });
+  const summary = useQuery({
+    queryKey: ['supplier-payments-summary', filters],
+    queryFn: () => getSupplierPaymentsSummary(filters),
   });
   const suppliers = useQuery({ queryKey: ['suppliers'], queryFn: listSuppliers });
   const purchases = useQuery({
@@ -204,6 +241,116 @@ export function SupplierPaymentsPage() {
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} /> : null}
+      <MoneyHandoffBar
+        filterLabel={
+          advanceOnly
+            ? t('money.filters.advancesPaid')
+            : chequeStatus === 'PENDING_CLEARANCE'
+              ? t('money.filters.chequesIssued')
+              : t('money.filters.supplierPayments')
+        }
+        onShowAll={showAll}
+      />
+      {summary.data ? (
+        <Box>
+          <Box
+            display="grid"
+            gridTemplateColumns={{ xs: '1fr 1fr', md: summary.data.payable !== null ? 'repeat(5, 1fr)' : 'repeat(3, 1fr)' }}
+            gap={2}
+            role="group"
+            aria-label={t('supplierPayments.kpiGroup')}
+          >
+            {summary.data.payable !== null ? (
+              <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">{t('supplierPayments.kpiPayable')}</Typography>
+                <Typography variant="h6" component="p">{formatMoney(summary.data.payable)}</Typography>
+              </Paper>
+            ) : null}
+            {summary.data.overdue !== null ? (
+              <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">{t('supplierPayments.kpiOverdue')}</Typography>
+                <Typography variant="h6" component="p" color={toNumber(summary.data.overdue) > 0 ? 'error.main' : undefined}>
+                  {formatMoney(summary.data.overdue)}
+                </Typography>
+              </Paper>
+            ) : null}
+            <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">{t('supplierPayments.kpiPaid')}</Typography>
+              <Typography variant="h6" component="p">{formatMoney(summary.data.paid)}</Typography>
+            </Paper>
+            <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">{t('supplierPayments.kpiAdvance')}</Typography>
+              <Typography variant="h6" component="p" color="info.main">{formatMoney(summary.data.advance)}</Typography>
+            </Paper>
+            <Paper sx={{ p: 1.5, textAlign: 'center' }}>
+              <Typography variant="caption" color="text.secondary">{t('supplierPayments.kpiChequesPending')}</Typography>
+              <Typography
+                variant="h6"
+                component="p"
+                color={toNumber(summary.data.chequesPending) > 0 ? 'warning.main' : undefined}
+              >
+                {formatMoney(summary.data.chequesPending)}
+              </Typography>
+            </Paper>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            {t('supplierPayments.kpiNote', { excluded: summary.data.excludedCount })}{' '}
+            {canViewFinancialReports(user) && isMoneyHubEnabled() ? (
+              <RouterLink to="/money">{t('receipts.kpiSeeMoney')}</RouterLink>
+            ) : null}
+          </Typography>
+        </Box>
+      ) : summary.isError ? (
+        <Typography variant="caption" color="text.secondary">{t('receipts.kpiUnavailable')}</Typography>
+      ) : null}
+      <Paper sx={{ p: 1.5 }}>
+        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ xs: 'stretch', md: 'center' }} useFlexGap flexWrap="wrap">
+          <TextField
+            select
+            size="small"
+            label={t('receipts.chequeFilter')}
+            value={chequeStatus}
+            onChange={(e) => {
+              setChequeStatus(e.target.value);
+              setPage(1);
+            }}
+            sx={{ minWidth: 170 }}
+          >
+            <MenuItem value="">{t('common.all')}</MenuItem>
+            <MenuItem value="PENDING_CLEARANCE">{t('supplierPayments.chequePending')}</MenuItem>
+            <MenuItem value="CLEARED">{t('receipts.chequeCleared')}</MenuItem>
+            <MenuItem value="BOUNCED">{t('receipts.chequeBounced')}</MenuItem>
+          </TextField>
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={advanceOnly}
+                onChange={(e) => {
+                  setAdvanceOnly(e.target.checked);
+                  setPage(1);
+                }}
+              />
+            }
+            label={t('supplierPayments.notYetApplied')}
+          />
+          {supplierFilter ? (
+            <Chip
+              size="small"
+              label={t('supplierPayments.oneSupplier')}
+              onDelete={() => {
+                setSupplierFilter('');
+                setPage(1);
+              }}
+            />
+          ) : null}
+          {filtersActive ? (
+            <Button size="small" onClick={showAll}>
+              {t('common.clearFilters')}
+            </Button>
+          ) : null}
+        </Stack>
+      </Paper>
       <Typography variant="caption" color="text.secondary">
         {t('billing.paymentActionsHelp')}
       </Typography>
@@ -232,6 +379,7 @@ export function SupplierPaymentsPage() {
                 <TableCell>{t('sweep2.mode')}</TableCell>
                 <TableCell align="right">{t('common.amount')}</TableCell>
                 <TableCell align="right">{t('sweep2.allocated')}</TableCell>
+                <TableCell align="right">{t('supplierPayments.colNotApplied')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
@@ -244,6 +392,7 @@ export function SupplierPaymentsPage() {
                   <TableCell>{p.mode}</TableCell>
                   <TableCell align="right">{formatMoney(p.amount)}</TableCell>
                   <TableCell align="right">{formatMoney(p.allocated)}</TableCell>
+                  <TableCell align="right">{formatMoney(p.unallocated ?? 0)}</TableCell>
                   <TableCell align="right">
                     {p.status && p.status !== 'POSTED' ? (
                       <Chip size="small" label={p.status} />

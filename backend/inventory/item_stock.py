@@ -185,7 +185,7 @@ def assert_unit_change_allowed(instance):
 _OPEN_DOCUMENT_CHECKS = (
     ("purchases", "PurchaseOrderItem", "purchase_order__status", ("DRAFT",), "an open purchase order"),
     ("purchases", "PurchaseItem", "invoice__status", ("DRAFT",), "a draft purchase bill"),
-    ("sales", "SalesOrderItem", "sales_order__status", ("DRAFT", "CONFIRMED"), "an open sales order"),
+    ("sales", "SalesOrderItem", "sales_order__status", ("DRAFT", "CONFIRMED", "PARTIALLY_CONVERTED"), "an open sales order"),
     ("sales", "SalesItem", "invoice__status", ("DRAFT",), "a draft sales invoice"),
     ("sales", "DeliveryChallanItem", "challan__status", ("DRAFT",), "an open delivery challan"),
 )
@@ -385,12 +385,43 @@ def expiry_horizon_rows(company, days: int = 30, warehouse_id=None):
         batch__isnull=False,
         batch__expiry_date__isnull=False,
         batch__expiry_date__lte=horizon,
+        # The system in-transit godown cannot be written off from here, so it is not listed.
+        warehouse__is_system=False,
     ).select_related("product", "batch", "warehouse")
     if warehouse_id:
         qs = qs.filter(warehouse_id=warehouse_id)
+    balances = list(qs)
+    # What each lot is worth where it sits: its running (weighted) cost, else the item's price.
+    from decimal import Decimal as _D
+
+    from .models import InventoryRunningCost
+
+    running = {
+        (rc.warehouse_id, rc.product_id, rc.batch_id): rc
+        for rc in InventoryRunningCost.objects.filter(
+            company=company, batch_id__in={b.batch_id for b in balances}
+        )
+    }
+    # The purchase bill each lot came in on (newest first), so a lot can be returned to its supplier.
+    from .models import MovementType, StockMovement
+
+    bill_by_batch: dict[int, int] = {}
+    for batch_id, reference_id in (
+        StockMovement.objects.filter(
+            company=company, batch_id__in={b.batch_id for b in balances},
+            movement_type=MovementType.PURCHASE, reference_type="purchase_invoice",
+        )
+        .order_by("-movement_date", "-id")
+        .values_list("batch_id", "reference_id")
+    ):
+        if batch_id not in bill_by_batch and str(reference_id or "").isdigit():
+            bill_by_batch[batch_id] = int(reference_id)
     rows = []
-    for balance in qs:
+    for balance in balances:
         expiry = balance.batch.expiry_date
+        rc = running.get((balance.warehouse_id, balance.product_id, balance.batch_id))
+        unit_cost = _D(str(rc.unit_cost)) if rc is not None and rc.qty else _D(str(balance.product.purchase_price or 0))
+        available = balance.on_hand - balance.reserved
         rows.append(
             {
                 "id": balance.batch_id,
@@ -403,6 +434,12 @@ def expiry_horizon_rows(company, days: int = 30, warehouse_id=None):
                 "warehouse": balance.warehouse_id,
                 "warehouse_name": balance.warehouse.name,
                 "on_hand": str(balance.on_hand),
+                "reserved": str(balance.reserved),
+                # What can be written off: held-for-order stock cannot be.
+                "available": str(max(available, _D("0"))),
+                "unit_cost": str(unit_cost.quantize(_D("0.0001"))),
+                "value": str((max(available, _D("0")) * unit_cost).quantize(_D("0.01"))),
+                "purchase_invoice": bill_by_batch.get(balance.batch_id),
                 "days_to_expiry": (expiry - today).days,
                 "expired": expiry < today,
             }

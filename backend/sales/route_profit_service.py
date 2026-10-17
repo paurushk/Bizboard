@@ -44,27 +44,36 @@ def _q2(value: Decimal) -> Decimal:
 
 
 def compute_route_financials(route) -> RouteFinancials:
-    stops = list(route.stops.select_related("sales_order__converted_invoice"))
+    """Revenue and COGS of the stops' orders, counting every invoice an order has (H-13).
+
+    A partly shipped order is billed in parts, so one order can carry several invoices; the
+    single ``converted_invoice`` pointer only names the latest.
+    """
+    from .order_quantities import invoices_for_order
+
+    stops = list(route.stops.select_related("sales_order"))
     revenue = Decimal("0")
     cogs = Decimal("0")
     invoiced = 0
     for stop in stops:
-        invoice = getattr(stop.sales_order, "converted_invoice", None)
-        if invoice is None:
-            continue
-        if invoice.status not in _REALIZED_INVOICE_STATUSES:
-            # Cancelled or fully-returned — treat like "not invoiced" for
-            # revenue/COGS purposes; still not counted as realized.
-            continue
         if stop.status in _UNREALIZED_STOP_STATUSES:
             # Delivery failed or was returned on arrival — the invoice may
             # still be COMPLETED (not reversed same-day), but this trip did
             # not actually realize that sale.
             continue
+        # Cancelled or fully-returned invoices are treated like "not invoiced" for
+        # revenue/COGS purposes; they are not realized.
+        realized = [
+            inv for inv in invoices_for_order(stop.sales_order).order_by("id")
+            if inv.status in _REALIZED_INVOICE_STATUSES
+        ]
+        if not realized:
+            continue
         invoiced += 1
-        revenue += Decimal(str(invoice.taxable_total or 0))
-        for move in CogsService.invoice_sale_moves(invoice):
-            cogs += Decimal(str(move.unit_cost or 0)) * abs(Decimal(str(move.quantity or 0)))
+        for invoice in realized:
+            revenue += Decimal(str(invoice.taxable_total or 0))
+            for move in CogsService.invoice_sale_moves(invoice):
+                cogs += Decimal(str(move.unit_cost or 0)) * abs(Decimal(str(move.quantity or 0)))
     logistics = Decimal(str(route.actual_logistics_cost or 0))
     return RouteFinancials(
         realized_revenue=_q2(revenue),

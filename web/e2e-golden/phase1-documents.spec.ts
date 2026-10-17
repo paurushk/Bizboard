@@ -37,6 +37,8 @@ async function completeInvoiceWithProducts(
   }
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // Completing opens the invoice itself; the list is where the row and its number are read.
+  await page.goto('/sales/history');
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).first();
   await expect(invoiceRow).toContainText('Unpaid');
   const textCells = await invoiceRow.locator('td').allTextContents();
@@ -108,6 +110,6 @@ test('phase1: multi-line return + credit note PDF + SO convert', async ({ page }
   await page.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/\/sales\/orders\/\d+/);
-  await page.getByRole('button', { name: /Convert/ }).click();
+  await page.getByRole('button', { name: 'Convert to invoice' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 });

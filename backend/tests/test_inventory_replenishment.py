@@ -48,7 +48,7 @@ def test_configured_uses_velocity_lead_time_and_safety(tenant_a):
     )
     StockMovement.objects.create(
         company=tenant_a.company, warehouse=warehouse, product=product,
-        movement_type=MovementType.SALE, quantity=Decimal("-14"), unit_cost=Decimal("10"),
+        movement_type=MovementType.SALE, quantity=Decimal("-30"), unit_cost=Decimal("10"),
         movement_date=timezone.localdate(),
     )
     since = timezone.localdate() - timedelta(days=14)
@@ -56,7 +56,9 @@ def test_configured_uses_velocity_lead_time_and_safety(tenant_a):
         tenant_a.company, warehouse, product,
         on_hand=Decimal("3"), reserved=Decimal("1"), reorder_level=Decimal("1"), since=since,
     )
-    # available 2; velocity 14; per day 1; lead 14; safety 2 → 2+14-2 = 14
+    # INV-IDR-08: the pace is the forecast's (30 days, net of returns): 30 sold -> 1 a day.
+    # available 2; per day 1; lead 14; safety 2 -> 2+14-2 = 14
+    assert suggestion.velocity_per_day == Decimal("1")
     assert suggestion.velocity_14d == Decimal("14")
     assert suggestion.suggested_qty == Decimal("14.000")
 

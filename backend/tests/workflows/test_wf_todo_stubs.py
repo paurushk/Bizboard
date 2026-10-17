@@ -319,7 +319,7 @@ def test_wf07_sales_credit_note_financial(tenant_a, assert_consistent):
     company.accounting_enabled = True
     company.save(update_fields=["accounting_enabled"])
 
-    product = make_product(company, gst_rate="18", selling_price="100")
+    product = make_product(company, gst_rate="18", selling_price="100", hsn_code="8517")
     add_stock(tenant_a, product, "20", unit_cost="60")
     customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
 
@@ -392,7 +392,7 @@ def test_wf08_customer_debit_note(tenant_a, assert_consistent):
     company.accounting_enabled = True
     company.save(update_fields=["accounting_enabled"])
 
-    product = make_product(company, gst_rate="18", selling_price="100")
+    product = make_product(company, gst_rate="18", selling_price="100", hsn_code="8517")
     add_stock(tenant_a, product, "20", unit_cost="60")
     customer = make_customer(company, state="Karnataka", gstin="29AAAAA0000A1ZY")
 

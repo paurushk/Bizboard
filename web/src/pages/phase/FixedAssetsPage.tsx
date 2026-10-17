@@ -4,7 +4,9 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
+import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import Alert from '@mui/material/Alert';
 import TextField from '@mui/material/TextField';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
@@ -16,11 +18,17 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { useAuth } from '@/auth/AuthContext';
+import { canPostJournals } from '@/utils/permissions';
 
 const DEFAULT_USEFUL_LIFE_MONTHS = '36';
 
+type DisposeTarget = { id: number; name: string; cost: number; depreciated: number; acquisitionDate: string };
+
 export function FixedAssetsPage() {
-  const { writesBlocked } = useSubscriptionGate();
+  const { writesBlocked: subscriptionBlocked } = useSubscriptionGate();
+  const { user } = useAuth();
+  const writesBlocked = subscriptionBlocked || !canPostJournals(user);
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['fixed-assets'],
@@ -35,6 +43,13 @@ export function FixedAssetsPage() {
   const [usefulLifeMonths, setUsefulLifeMonths] = useState(DEFAULT_USEFUL_LIFE_MONTHS);
   const [depreciatedAmount, setDepreciatedAmount] = useState(0);
   const [error, setError] = useState('');
+  // ACS-12: disposal needs a date, the money received and where it went -- not a bare confirm.
+  const [disposeTarget, setDisposeTarget] = useState<DisposeTarget | null>(null);
+  const [disposalDate, setDisposalDate] = useState(todayIso());
+  const [disposalProceeds, setDisposalProceeds] = useState('');
+  const [receivedIn, setReceivedIn] = useState('CASH');
+  const [typedName, setTypedName] = useState('');
+  const banks = useQuery({ queryKey: ['bank-accounts'], queryFn: api.listBankAccounts, enabled: disposeTarget !== null });
 
   const resetForm = () => {
     setEditingId(null);
@@ -87,24 +102,47 @@ export function FixedAssetsPage() {
     onError: (e) => setError(getErrorMessage(e)),
   });
   const dispose = useMutation({
-    mutationFn: (row: Row) => {
-      const num = (value: unknown) => toNumber(value as string | number | null | undefined);
-      const nbv = formatMoney(Math.max(0, num(row.acquisitionCost) - num(row.depreciatedAmount)));
-      const proceeds = formatMoney(num(row.disposalProceeds));
-      if (!window.confirm(t('phase.confirmDisposeAsset', { nbv, proceeds }))) {
-        throw new Error('Cancelled');
+    mutationFn: (target: DisposeTarget) => {
+      const proceeds = Number(disposalProceeds) || 0;
+      const payload: Record<string, unknown> = { confirm: true, proceeds, disposalDate };
+      if (proceeds > 0) {
+        if (receivedIn === 'BANK_AGGREGATE') payload.cashAccountCode = '1500';
+        else if (receivedIn !== 'CASH') payload.bankAccount = Number(receivedIn);
       }
-      return api.disposeFixedAsset(Number(row.id), { confirm: true, proceeds: num(row.disposalProceeds) || undefined });
+      return api.disposeFixedAsset(target.id, payload);
     },
     onSuccess: () => {
       setError('');
+      setDisposeTarget(null);
       void qc.invalidateQueries({ queryKey: ['fixed-assets'] });
     },
-    onError: (e) => {
-      if (getErrorMessage(e) === 'Cancelled') return;
-      setError(getErrorMessage(e));
-    },
+    onError: (e) => setError(getErrorMessage(e)),
   });
+  const openDispose = (row: Row) => {
+    const num = (value: unknown) => toNumber(value as string | number | null | undefined);
+    setDisposeTarget({
+      id: Number(row.id),
+      name: String(row.name ?? ''),
+      cost: num(row.acquisitionCost),
+      depreciated: num(row.depreciatedAmount),
+      acquisitionDate: String(row.acquisitionDate ?? '').slice(0, 10),
+    });
+    setDisposalDate(todayIso());
+    setDisposalProceeds('');
+    setReceivedIn('CASH');
+    setTypedName('');
+    setError('');
+  };
+  const nbv = disposeTarget ? Math.max(0, disposeTarget.cost - disposeTarget.depreciated) : 0;
+  const proceedsNumber = Number(disposalProceeds) || 0;
+  const gainOrLoss = proceedsNumber - nbv;
+  const disposalDateError = !disposeTarget
+    ? ''
+    : disposalDate > todayIso()
+      ? t('phase.disposalDateFuture')
+      : disposeTarget.acquisitionDate && disposalDate < disposeTarget.acquisitionDate
+        ? t('phase.disposalDateBeforePurchase')
+        : '';
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   return (
@@ -117,6 +155,7 @@ export function FixedAssetsPage() {
         </Button>
       }
     >
+      {error && !open && !disposeTarget ? <HelpErrorAlert message={error} /> : null}
       <DataTable
         rows={asRows(query.data)}
         empty={t('phase.noFixedAssets')}
@@ -133,12 +172,9 @@ export function FixedAssetsPage() {
               <Button size="small" disabled={writesBlocked} onClick={() => openEdit(row)}>{t('common.edit')}</Button>
             ) : null}
             {row.status === 'ACTIVE' ? (
-              <Button size="small" color="error" disabled={writesBlocked} onClick={() => {
-                const name = String(row.name ?? '');
-                const typed = window.prompt(t('cog.typeName', { name }), '');
-                if (typed?.trim() !== name) return;
-                dispose.mutate(row);
-              }}>{t('phase.assetDispose')}</Button>
+              <Button size="small" color="error" disabled={writesBlocked} onClick={() => openDispose(row)}>
+                {t('phase.assetDispose')}
+              </Button>
             ) : null}
           </Stack>
         )}
@@ -196,8 +232,74 @@ export function FixedAssetsPage() {
           >
             {t('common.cancel')}
           </Button>
-          <Button variant="contained" disabled={writesBlocked || !name || !cost || create.isPending} onClick={() => create.mutate()}>
+          <Button variant="contained" disabled={writesBlocked || !name || !(Number(cost) > 0) || !(Number(usefulLifeMonths) >= 1) || create.isPending} onClick={() => create.mutate()}>
             {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog open={disposeTarget !== null} onClose={() => setDisposeTarget(null)} fullWidth maxWidth="xs">
+        <DialogTitle>{t('phase.disposeAssetTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {disposeTarget ? (
+              <Alert severity="info">{t('phase.disposeAssetBody', { name: disposeTarget.name })}</Alert>
+            ) : null}
+            {error ? <HelpErrorAlert message={error} /> : null}
+            <TextField
+              type="date"
+              label={t('phase.disposalDate')}
+              value={disposalDate}
+              onChange={(e) => setDisposalDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              error={Boolean(disposalDateError)}
+              helperText={disposalDateError || undefined}
+            />
+            <TextField
+              type="number"
+              label={t('phase.disposalProceeds')}
+              value={disposalProceeds}
+              onChange={(e) => setDisposalProceeds(e.target.value)}
+              inputProps={{ min: 0, step: 0.01 }}
+            />
+            {proceedsNumber > 0 ? (
+              <TextField select label={t('phase.disposalReceivedIn')} value={receivedIn} onChange={(e) => setReceivedIn(e.target.value)}>
+                <MenuItem value="CASH">{t('phase.disposalCashInHand')}</MenuItem>
+                <MenuItem value="BANK_AGGREGATE">{t('phase.disposalBankAggregate')}</MenuItem>
+                {(banks.data ?? []).map((b) => (
+                  <MenuItem key={String(b.id)} value={String(b.id)}>
+                    {String(b.name)}
+                  </MenuItem>
+                ))}
+              </TextField>
+            ) : null}
+            <Alert severity={gainOrLoss < 0 ? 'warning' : 'success'}>
+              {t('phase.disposalNbv', { amount: formatMoney(nbv) })} ·{' '}
+              {gainOrLoss > 0.004
+                ? t('phase.disposalGain', { amount: formatMoney(gainOrLoss) })
+                : gainOrLoss < -0.004
+                  ? t('phase.disposalLoss', { amount: formatMoney(-gainOrLoss) })
+                  : t('phase.disposalBreakEven')}
+            </Alert>
+            <TextField
+              label={t('phase.disposalTypeName')}
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+              helperText={disposeTarget?.name}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDisposeTarget(null)} disabled={dispose.isPending}>{t('common.cancel')}</Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={
+              writesBlocked || dispose.isPending || !disposeTarget || Boolean(disposalDateError) ||
+              proceedsNumber < 0 || typedName.trim() !== disposeTarget.name
+            }
+            onClick={() => disposeTarget && dispose.mutate(disposeTarget)}
+          >
+            {t('phase.disposeAssetConfirm')}
           </Button>
         </DialogActions>
       </Dialog>

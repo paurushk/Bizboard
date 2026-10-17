@@ -126,14 +126,36 @@ class Opportunity(CompanyScopedModel):
         WON = "WON"
         LOST = "LOST"
 
+    class LostReason(models.TextChoices):
+        PRICE = "PRICE", "Price"
+        COMPETITOR = "COMPETITOR", "Competitor"
+        NO_RESPONSE = "NO_RESPONSE", "No response"
+        NOT_A_FIT = "NOT_A_FIT", "Not a fit"
+        DUPLICATE = "DUPLICATE", "Duplicate"
+        OTHER = "OTHER", "Other"
+
     OPEN_STAGES = (Stage.OPEN, Stage.QUALIFIED, Stage.NEGOTIATION)
+    CLOSED_STAGES = (Stage.WON, Stage.LOST)
+    # CRM review D9: what a stage means as a win chance, until someone sets their own number.
+    STAGE_DEFAULT_PROBABILITY = {
+        Stage.OPEN: 10, Stage.QUALIFIED: 30, Stage.NEGOTIATION: 60, Stage.WON: 100, Stage.LOST: 0,
+    }
+
+    @classmethod
+    def probability_after_move(cls, current: int, old_stage: str, new_stage: str) -> int:
+        """Follow the stage default only while the number was never customised (0 or the old default)."""
+        if int(current or 0) in (0, cls.STAGE_DEFAULT_PROBABILITY.get(old_stage, 0)):
+            return cls.STAGE_DEFAULT_PROBABILITY.get(new_stage, 0)
+        return int(current)
 
     lead = models.ForeignKey(Lead, null=True, blank=True, on_delete=models.SET_NULL, related_name="opportunities")
     customer = models.ForeignKey(
         "masters.Customer", null=True, blank=True, on_delete=models.SET_NULL, related_name="opportunities",
     )
     title = models.CharField(max_length=255)
-    amount = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    amount = models.DecimalField(
+        max_digits=14, decimal_places=2, default=0, validators=[MinValueValidator(Decimal("0"))],
+    )
     stage = models.CharField(max_length=16, choices=Stage.choices, default=Stage.OPEN)
     probability = models.PositiveSmallIntegerField(default=0, validators=[MaxValueValidator(100)])
     expected_close_date = models.DateField(null=True, blank=True)
@@ -141,6 +163,14 @@ class Opportunity(CompanyScopedModel):
     # B9-039: stamped once, the first time stage moves to a terminal value.
     closed_at = models.DateTimeField(null=True, blank=True)
     stage_move_count = models.PositiveIntegerField(default=0)
+    # CRM review D8: a LOST deal says why. Blank on rows closed before this field existed.
+    lost_reason = models.CharField(max_length=16, choices=LostReason.choices, blank=True, default="")
+    lost_reason_note = models.CharField(max_length=200, blank=True, default="")
+    # CRM review D4: only an owner or manager reopens a closed deal.
+    reopened_at = models.DateTimeField(null=True, blank=True)
+    reopened_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
     class Meta:
         ordering = ["-created_at"]

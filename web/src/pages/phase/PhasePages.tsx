@@ -17,11 +17,6 @@ export {
   CashBookPage,
 } from '@/pages/phase/BankingPhasePages';
 export {
-  WarehousesPage,
-  StockTransferPage,
-  ExpiryAlertsPage,
-  SerialsPage,
-  StockValuationPage,
   PriceListsPage,
 } from '@/pages/phase/InventoryPhasePages';
 export {

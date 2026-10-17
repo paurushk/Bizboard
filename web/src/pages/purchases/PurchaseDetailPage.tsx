@@ -41,7 +41,8 @@ import { StatusChip } from '@/components/StatusChip';
 import { t } from '@/i18n';
 import { triggerBlobDownload } from '@/utils/blob';
 import { formatMoney, toNumber } from '@/utils/money';
-import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
+import { canAdjustInventory, canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
+import { labelItemsParam } from '@/pages/inventory/labelHelpers';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import type { PaymentMode, PurchaseInvoice, PurchasePayNow, PurchaseRelatedDocument } from '@/types/domain';
@@ -361,6 +362,15 @@ export function PurchaseDetailPage() {
           {inv.status !== 'DRAFT' ? (
             <Button variant="outlined" disabled={pdfMutation.isPending} onClick={() => pdfMutation.mutate()}>
               {t('purchaseDetail.downloadPdf')}
+            </Button>
+          ) : null}
+          {inv.status === 'COMPLETED' && canAdjustInventory(user) && (inv.items ?? []).length > 0 ? (
+            <Button
+              variant="outlined"
+              component={RouterLink}
+              to={`/inventory/labels?items=${labelItemsParam((inv.items ?? []).map((i) => ({ product: Number(i.product), quantity: i.quantity })))}`}
+            >
+              {t('labels.printFromBill')}
             </Button>
           ) : null}
           {inv.status === 'COMPLETED' && canCancelDocuments(user) ? (

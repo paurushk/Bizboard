@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Chip from '@mui/material/Chip';
+import FormControlLabel from '@mui/material/FormControlLabel';
 import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -17,12 +18,13 @@ import TableSortLabel from '@mui/material/TableSortLabel';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
   exportReceiptsCsv,
+  getCustomerReceipt,
   getReceiptsSummary,
   listReceiptsPage,
   refundGatewayPayment,
@@ -32,6 +34,9 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useAuth } from '@/auth/AuthContext';
+import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
+import { isMoneyHubEnabled } from '@/config/featureFlags';
+import { invalidateMoney } from '@/lib/moneyInvalidate';
 import { PageTitle } from '@/contextHelp';
 import { t, useLocale } from '@/i18n';
 import { trackShopFloor } from '@/lib/telemetry';
@@ -58,6 +63,7 @@ import {
   canCorrectClosedTill,
   canCreatePayments,
   canExport,
+  canViewFinancialReports,
   isOwner,
 } from '@/utils/permissions';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
@@ -107,6 +113,20 @@ export function ReceiptsPage() {
   const [reassigning, setReassigning] = useState<CustomerReceipt | null>(null);
   const [correcting, setCorrecting] = useState<CustomerReceipt | null>(null);
   const [sending, setSending] = useState<CustomerReceipt | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // A completed credit note links here with ?refund=<receipt id> to open the advance refund directly.
+  const refundParam = searchParams.get('refund');
+  const refundTarget = useQuery({
+    queryKey: ['receipt-refund-target', refundParam],
+    queryFn: () => getCustomerReceipt(refundParam as string),
+    enabled: Boolean(refundParam),
+    retry: false,
+  });
+  const [openedRefundFor, setOpenedRefundFor] = useState<string | null>(null);
+  if (refundTarget.data && refundParam && openedRefundFor !== refundParam) {
+    setOpenedRefundFor(refundParam);
+    setRefunding(refundTarget.data);
+  }
   const [menu, setMenu] = useState<{ anchor: HTMLElement; receipt: CustomerReceipt } | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -121,11 +141,19 @@ export function ReceiptsPage() {
   const [goTo, setGoTo] = useState('');
   const [sort, setSort] = useState<{ field: SortField; dir: 'asc' | 'desc' } | null>(null);
   // An alert can link here with the receipt it is about (?q=RCT-...).
-  const [searchParams] = useSearchParams();
   const [filterQuery, setFilterQuery] = useState(() => (searchParams.get('q') ?? '').slice(0, 100));
   const debouncedFilterQuery = useDebouncedValue(filterQuery, 300);
   const [modeFilter, setModeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState(() => {
+    const raw = (searchParams.get('status') ?? '').toUpperCase();
+    return ['POSTED', 'VOIDED', 'REFUNDED'].includes(raw) ? raw : '';
+  });
+  // The Money hub links here with these two (cheques waiting to clear, money not yet applied).
+  const [chequeStatusFilter, setChequeStatusFilter] = useState(() => {
+    const raw = (searchParams.get('cheque_status') ?? '').toUpperCase();
+    return ['PENDING_CLEARANCE', 'CLEARED', 'BOUNCED'].includes(raw) ? raw : '';
+  });
+  const [advanceOnly, setAdvanceOnly] = useState(() => searchParams.get('advance') === '1');
   const [reconciledFilter, setReconciledFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -138,12 +166,35 @@ export function ReceiptsPage() {
     q: trimmedQuery || undefined,
     mode: modeFilter || undefined,
     status: statusFilter || undefined,
+    cheque_status: chequeStatusFilter || undefined,
+    advance: advanceOnly ? 'true' : undefined,
     reconciled: reconciledFilter || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
   };
   const ordering = sort ? `${sort.dir === 'desc' ? '-' : ''}${sort.field}` : undefined;
-  const filtersActive = Boolean(filterQuery || modeFilter || statusFilter || reconciledFilter || dateFrom || dateTo);
+  const filtersActive = Boolean(
+    filterQuery || modeFilter || statusFilter || chequeStatusFilter || advanceOnly || reconciledFilter || dateFrom || dateTo,
+  );
+  const handoffLabel = advanceOnly
+    ? t('money.filters.advances')
+    : chequeStatusFilter === 'PENDING_CLEARANCE'
+      ? t('money.filters.chequesPending')
+      : chequeStatusFilter === 'BOUNCED'
+        ? t('money.filters.chequesBounced')
+        : t('money.filters.receipts');
+  const showAll = () => {
+    setFilterQuery('');
+    setModeFilter('');
+    setStatusFilter('');
+    setChequeStatusFilter('');
+    setAdvanceOnly(false);
+    setReconciledFilter('');
+    setDateFrom('');
+    setDateTo('');
+    setSearchParams({}, { replace: true });
+    resetPaging();
+  };
 
   const query = useQuery({
     queryKey: ['receipts', page, pageSize, ordering, filters],
@@ -172,6 +223,7 @@ export function ReceiptsPage() {
     void qc.invalidateQueries({ queryKey: ['receipts-summary'] });
     void qc.invalidateQueries({ queryKey: ['sales-invoices-open'] });
     void qc.invalidateQueries({ queryKey: ['receipt-manage-bills'] });
+    invalidateMoney(qc);
   };
   const done = (text: string) => {
     setMessage(text);
@@ -287,6 +339,7 @@ export function ReceiptsPage() {
       </Stack>
       {message ? <Alert severity="success">{message}</Alert> : null}
       {error ? <HelpErrorAlert message={error} error={errorSource} /> : null}
+      <MoneyHandoffBar filterLabel={handoffLabel} onShowAll={showAll} />
 
       {outbox.items.length > 0 ? (
         <Alert
@@ -371,6 +424,12 @@ export function ReceiptsPage() {
               ? ` ${t('receipts.kpiChequeNote', { amount: formatMoney(summary.data.chequesPending) })}`
               : ''}
           </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            {filtersActive ? t('receipts.kpiScopeFiltered') : t('receipts.kpiScopeAll')}{' '}
+            {canViewFinancialReports(user) && isMoneyHubEnabled() ? (
+              <RouterLink to="/money">{t('receipts.kpiSeeMoney')}</RouterLink>
+            ) : null}
+          </Typography>
         </Box>
       ) : summary.isError ? (
         <Typography variant="caption" color="text.secondary">{t('receipts.kpiUnavailable')}</Typography>
@@ -427,6 +486,35 @@ export function ReceiptsPage() {
           <TextField
             select
             size="small"
+            label={t('receipts.chequeFilter')}
+            value={chequeStatusFilter}
+            onChange={(e) => {
+              setChequeStatusFilter(e.target.value);
+              resetPaging();
+            }}
+            sx={{ minWidth: 150 }}
+          >
+            <MenuItem value="">{t('common.all')}</MenuItem>
+            <MenuItem value="PENDING_CLEARANCE">{t('receipts.chequePending')}</MenuItem>
+            <MenuItem value="CLEARED">{t('receipts.chequeCleared')}</MenuItem>
+            <MenuItem value="BOUNCED">{t('receipts.chequeBounced')}</MenuItem>
+          </TextField>
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={advanceOnly}
+                onChange={(e) => {
+                  setAdvanceOnly(e.target.checked);
+                  resetPaging();
+                }}
+              />
+            }
+            label={t('receipts.notYetApplied')}
+          />
+          <TextField
+            select
+            size="small"
             label={t('receipts.reconciledFilter')}
             value={reconciledFilter}
             onChange={(e) => {
@@ -467,15 +555,7 @@ export function ReceiptsPage() {
           {filtersActive ? (
             <Button
               size="small"
-              onClick={() => {
-                setFilterQuery('');
-                setModeFilter('');
-                setStatusFilter('');
-                setReconciledFilter('');
-                setDateFrom('');
-                setDateTo('');
-                resetPaging();
-              }}
+              onClick={showAll}
             >
               {t('common.clearFilters')}
             </Button>

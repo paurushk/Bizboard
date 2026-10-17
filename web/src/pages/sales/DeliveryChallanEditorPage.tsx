@@ -54,10 +54,13 @@ import type { Customer, Product, SalesOrder } from '@/types/domain';
 import { expectedProfitAmount, formatMoney, toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { getCompany } from '@/api/resources';
+import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
+import { isOrderPickableForChallan } from './orderActions';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function DeliveryChallanEditorPage() {
+  useFeatureFlagEpoch();
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
   const isEdit = Number.isFinite(editId) && (editId as number) > 0;
@@ -411,7 +414,7 @@ export function DeliveryChallanEditorPage() {
         />
         {!isEdit ? (
           <Autocomplete
-            options={(orders.data ?? []).filter((o) => o.status === 'DRAFT')}
+            options={(orders.data ?? []).filter((o) => isOrderPickableForChallan(o.status, isRuntimeFlagEnabled('ENABLE_ORDER_GATES')))}
             getOptionLabel={(o) => `${o.number ?? o.id} · ${o.customerName ?? ''}`}
             value={(orders.data ?? []).find((o) => o.id === Number(salesOrderId)) ?? null}
             onChange={(_, v) => void onOrderPick(v)}

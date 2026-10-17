@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearNavNotReady, markNavNotReady } from './notReadyNav';
 import { filterNav, isNavPathActive, isReallyReachable } from './menu';
 import type { User } from '@/types/domain';
@@ -10,6 +10,7 @@ vi.mock('@/config/featureFlags', async (importOriginal) => {
   return {
     ...actual,
     isRuntimeFlagEnabled: (key: string) => Boolean(flags()?.[key]),
+    isMoneyHubEnabled: () => flags()?.ENABLE_MONEY_HUB !== false,
     getCachedFeatureFlags: () => {
       const current = flags();
       return current && Object.keys(current).length > 0 ? current : null;
@@ -44,7 +45,7 @@ describe('account aggregator nav (R-063 / R-087)', () => {
   } as unknown as User;
 
   function aaVisible(): boolean {
-    const payments = filterNav(owner).find((i) => i.id === 'payments');
+    const payments = filterNav(owner).find((i) => i.id === 'money');
     return Boolean(payments?.children?.some((c) => c.id === 'account-aggregator'));
   }
 
@@ -73,7 +74,7 @@ describe('customer portal nav (COMP-003)', () => {
   } as User;
 
   function portalVisible(user: User = sales): boolean {
-    const payments = filterNav(user).find((item) => item.id === 'payments');
+    const payments = filterNav(user).find((item) => item.id === 'money');
     return Boolean(payments?.children?.some((child) => child.id === 'customer-portal'));
   }
 
@@ -126,7 +127,8 @@ describe('sales nav length', () => {
     const sales = filterNav(owner).find((item) => item.id === 'sales');
     const ids = sales?.children?.map((child) => child.id) ?? [];
     expect(ids).toContain('new-invoice');
-    expect(ids).toContain('receipts');
+    // Receipts moved to the Money group (docs/plans/MONEY_HUB_PLAN.md, D-1).
+    expect(ids).not.toContain('receipts');
     expect(ids).toContain('customers');
     expect(ids).not.toContain('sales-returns');
     // Upload Sales Bill sits up front, like Upload Bill under Purchases, not buried under More.
@@ -151,25 +153,30 @@ describe('vision plan nav', () => {
   it('shows collections to a report reader, and purchase planning and the pack wizard only when their flags are on', () => {
     (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
     const hidden = filterNav(owner);
-    expect(hidden.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(true);
+    expect(hidden.find((item) => item.id === 'money')?.children?.some((child) => child.id === 'collections')).toBe(true);
     expect(isReallyReachable(owner, '/payments/collections')).toBe(true);
     const staff = { id: 2, role: 'SALES_STAFF', canViewFinancialReports: false } as unknown as User;
-    expect(filterNav(staff).find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections') ?? false).toBe(false);
+    expect(filterNav(staff).find((item) => item.id === 'money')?.children?.some((child) => child.id === 'collections') ?? false).toBe(false);
     expect(hidden.find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(false);
     expect(hidden.find((item) => item.id === 'settings')?.children?.some((child) => child.id === 'pack-wizard')).toBe(false);
 
     (globalThis as { __ff?: Record<string, boolean> }).__ff = {
       ENABLE_PREDICTIVE_DUNNING: true,
       ENABLE_PURCHASE_PLANNING: true,
+      ENABLE_REPLENISHMENT: true,
       ENABLE_ARCHETYPE_PACKS: true,
     };
     const shown = filterNav(owner);
-    expect(shown.find((item) => item.id === 'payments')?.children?.some((child) => child.id === 'collections')).toBe(true);
+    expect(shown.find((item) => item.id === 'money')?.children?.some((child) => child.id === 'collections')).toBe(true);
     expect(shown.find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(true);
     expect(shown.find((item) => item.id === 'settings')?.children?.some((child) => child.id === 'pack-wizard')).toBe(true);
     expect(isReallyReachable(owner, '/payments/collections')).toBe(true);
     expect(isReallyReachable(owner, '/inventory/purchase-planning')).toBe(true);
     expect(isReallyReachable(owner, '/settings/packs')).toBe(true);
+
+    // Planning is built from replenishment: with only planning on, the entry stays hidden.
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = { ENABLE_PURCHASE_PLANNING: true };
+    expect(filterNav(owner).find((item) => item.id === 'inventory')?.children?.some((child) => child.id === 'purchase-planning')).toBe(false);
   });
 
   it('permanently hides distractive out-of-scope desks (tickets, insurance, contracts, telegram)', () => {
@@ -281,5 +288,62 @@ describe('Sales Returns navigation (SRF-14)', () => {
     expect(ids).toContain('sales-returns');
     expect(ids).toContain('credit-notes');
     expect(more?.children?.find((c) => c.id === 'sales-returns')?.path).toBe('/sales/returns');
+  });
+});
+
+describe('Money group', () => {
+  const owner = {
+    id: 1,
+    role: 'OWNER',
+    canViewFinancialReports: true,
+    canCreateSales: true,
+    canCreatePayments: true,
+  } as unknown as User;
+
+  afterEach(() => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
+  });
+
+  it('gathers money in, money out, collections, banking and TDS under one group, overview first', () => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
+    const money = filterNav(owner).find((item) => item.id === 'money');
+    const ids = money?.children?.map((child) => child.id) ?? [];
+    expect(ids[0]).toBe('money-overview');
+    for (const id of ['receipts', 'collections', 'supplier-payments', 'payment-links', 'bank-statements', 'payment-recon', 'cash-book-payments', 'tds-receivable']) {
+      expect(ids).toContain(id);
+    }
+    expect(filterNav(owner).some((item) => item.id === 'payments')).toBe(false);
+    const purchases = filterNav(owner).find((item) => item.id === 'purchases');
+    expect(purchases?.children?.some((child) => child.id === 'supplier-payments')).toBe(false);
+    const reports = filterNav(owner).find((item) => item.id === 'reports');
+    expect(reports?.children?.some((child) => child.id === 'report-tds-receivable')).toBe(false);
+  });
+
+  it('puts Money right after the dashboard and attention links', () => {
+    const order = filterNav(owner).map((item) => item.id);
+    expect(order.indexOf('money')).toBeGreaterThan(order.indexOf('dashboard'));
+    expect(order.indexOf('money')).toBeLessThan(order.indexOf('sales'));
+  });
+
+  it('hides the overview, but not the lists, from someone who cannot view financial reports', () => {
+    const cashier = { id: 5, role: 'SALES_STAFF', canCreatePayments: true, canViewFinancialReports: false } as unknown as User;
+    const money = filterNav(cashier).find((item) => item.id === 'money');
+    const ids = money?.children?.map((child) => child.id) ?? [];
+    expect(ids).not.toContain('money-overview');
+    expect(ids).not.toContain('collections');
+    expect(ids).toContain('receipts');
+    expect(isReallyReachable(cashier, '/money')).toBe(false);
+  });
+
+  it('hides the overview when the company has turned the hub off', () => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = { ENABLE_MONEY_HUB: false };
+    const money = filterNav(owner).find((item) => item.id === 'money');
+    expect(money?.children?.some((child) => child.id === 'money-overview')).toBe(false);
+    expect(money?.children?.some((child) => child.id === 'receipts')).toBe(true);
+  });
+
+  it('reaches the overview for an owner', () => {
+    (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
+    expect(isReallyReachable(owner, '/money')).toBe(true);
   });
 });

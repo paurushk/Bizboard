@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -17,16 +17,20 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
+import { LOST_REASONS, reopenOpportunity } from '@/api/growth';
+import { useAuth } from '@/auth/AuthContext';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import {
   createOpportunity,
-  createInvoiceFromOpportunity,
+  draftOpportunityInvoice,
   createQuotationFromOpportunity,
-  listLeadsPage,
   listOpportunitiesPage,
   updateOpportunity,
   type Opportunity,
 } from '@/api/crm';
-import { listCustomersPage } from '@/api/resources';
+import { CustomerField, LeadField } from '@/pages/growth/widgets';
+import type { Customer } from '@/types/domain';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
@@ -47,6 +51,8 @@ const emptyForm = {
   lead: '' as number | '',
   customer: '' as number | '',
   competitor: '',
+  lostReason: '',
+  lostReasonNote: '',
 };
 
 export function OpportunitiesPage() {
@@ -65,31 +71,19 @@ function OpportunitiesPageInner() {
   const [editing, setEditing] = useState<Opportunity | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmReopen, setConfirmReopen] = useState(false);
+  const { writesBlocked } = useSubscriptionGate();
+  const { user } = useAuth();
+  const canReopen = user?.role === 'OWNER' || user?.role === 'MANAGER';
+  const isClosed = Boolean(editing && (editing.stage === 'WON' || editing.stage === 'LOST'));
 
   const query = useQuery({
     queryKey: ['opportunities', page],
     queryFn: () => listOpportunitiesPage({ page, pageSize: PAGE_SIZE }),
   });
-  const leadsQuery = useQuery({
-    queryKey: ['leads', 'all'],
-    queryFn: () => listLeadsPage({ page: 1, pageSize: 200 }),
-  });
-  const customersQuery = useQuery({
-    queryKey: ['customers', 'crm'],
-    queryFn: () => listCustomersPage({ page: 1, pageSize: 200 }),
-  });
-
-  const leadMap = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const l of leadsQuery.data?.results ?? []) map.set(l.id, l.name);
-    return map;
-  }, [leadsQuery.data]);
-
-  const customerMap = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const c of customersQuery.data?.results ?? []) map.set(c.id, c.name);
-    return map;
-  }, [customersQuery.data]);
+  const [leadPick, setLeadPick] = useState<{ id: number; name: string } | null>(null);
+  const [customerPick, setCustomerPick] = useState<Customer | null>(null);
 
   const rows = query.data?.results ?? [];
 
@@ -98,7 +92,12 @@ function OpportunitiesPageInner() {
       if (form.stage === 'WON' && !form.customer) {
         throw new Error(t('growth.wonNeedsCustomer'));
       }
-      const payload = {
+      const closing = form.stage === 'LOST' && (!editing || editing.stage !== 'LOST');
+      if (closing) {
+        if (!form.lostReason) throw new Error(t('growth.lostReason'));
+        if (form.lostReason === 'OTHER' && !form.lostReasonNote.trim()) throw new Error(t('growth.lostReasonNeedsNote'));
+      }
+      const payload: Record<string, unknown> = {
         title: form.title,
         amount: form.amount || '0',
         stage: form.stage,
@@ -106,8 +105,28 @@ function OpportunitiesPageInner() {
         customer: form.customer ? Number(form.customer) : null,
         competitor: form.competitor.trim(),
       };
-      if (editing) return updateOpportunity(editing.id, payload);
-      return createOpportunity(payload);
+      if (closing) {
+        payload.lost_reason = form.lostReason;
+        payload.lost_reason_note = form.lostReasonNote.trim();
+      }
+      if (editing) {
+        // Send only what changed: a deal with lines has a derived amount, and a closed deal is locked.
+        const before: Record<string, unknown> = {
+          title: editing.title,
+          amount: editing.amount ?? '0',
+          stage: editing.stage ?? 'OPEN',
+          lead: editing.lead ?? null,
+          customer: editing.customer ?? null,
+          competitor: editing.competitor ?? '',
+        };
+        const changed: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(payload)) {
+          if (key in before && String(before[key] ?? '') === String(value ?? '')) continue;
+          changed[key] = value;
+        }
+        return updateOpportunity(editing.id, changed as Partial<Opportunity>);
+      }
+      return createOpportunity(payload as Partial<Opportunity>);
     },
     onSuccess: () => {
       setOpen(false);
@@ -119,12 +138,37 @@ function OpportunitiesPageInner() {
   });
 
   const openCreate = () => {
+    setError(null);
     setEditing(null);
     setForm(emptyForm);
+    setLeadPick(null);
+    setCustomerPick(null);
     setOpen(true);
   };
 
+  const reopen = useMutation({
+    mutationFn: (id: number) => reopenOpportunity(id),
+    onSuccess: () => {
+      setConfirmReopen(false);
+      setOpen(false);
+      setEditing(null);
+      void qc.invalidateQueries({ queryKey: ['opportunities'] });
+    },
+    onError: (err) => {
+      setConfirmReopen(false);
+      setError(getErrorMessage(err));
+    },
+  });
+
+  // Moving a deal to Won or Lost is terminal, so it asks first, like the Pipeline board does.
+  const requestSave = () => {
+    const closing = (form.stage === 'WON' || form.stage === 'LOST') && (!editing || editing.stage !== form.stage);
+    if (closing) setConfirmClose(true);
+    else saveMutation.mutate();
+  };
+
   const openEdit = (opp: Opportunity) => {
+    setError(null);
     setEditing(opp);
     setForm({
       title: opp.title,
@@ -133,7 +177,11 @@ function OpportunitiesPageInner() {
       lead: opp.lead ?? '',
       customer: opp.customer ?? '',
       competitor: opp.competitor ?? '',
+      lostReason: opp.lostReason ?? '',
+      lostReasonNote: opp.lostReasonNote ?? '',
     });
+    setLeadPick(opp.lead ? { id: opp.lead, name: opp.leadName ?? `#${opp.lead}` } : null);
+    setCustomerPick(opp.customer ? ({ id: opp.customer, name: opp.customerName ?? `#${opp.customer}` } as Customer) : null);
     setOpen(true);
   };
 
@@ -142,7 +190,7 @@ function OpportunitiesPageInner() {
       <MvpModuleBanner module="crm" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.opportunities')}</PageTitle>
-        <Button variant="contained" onClick={openCreate}>
+        <Button variant="contained" onClick={openCreate} disabled={writesBlocked}>
           {t('common.add')}
         </Button>
       </Stack>
@@ -172,9 +220,9 @@ function OpportunitiesPageInner() {
               {rows.map((opp) => (
                 <TableRow key={opp.id}>
                   <TableCell>{opp.title}</TableCell>
-                  <TableCell>{opp.lead ? leadMap.get(opp.lead) ?? opp.lead : '—'}</TableCell>
+                  <TableCell>{opp.lead ? opp.leadName ?? `#${opp.lead}` : '—'}</TableCell>
                   <TableCell>
-                    {opp.customer ? customerMap.get(opp.customer) ?? opp.customer : '—'}
+                    {opp.customer ? opp.customerName ?? `#${opp.customer}` : '—'}
                   </TableCell>
                   <TableCell align="right">{formatMoney(opp.amount)}</TableCell>
                   <TableCell>{opp.competitor || '—'}</TableCell>
@@ -185,7 +233,7 @@ function OpportunitiesPageInner() {
                     />
                   </TableCell>
                   <TableCell align="right">
-                    <Button size="small" onClick={() => openEdit(opp)}>
+                    <Button size="small" onClick={() => openEdit(opp)} disabled={writesBlocked}>
                       {t('common.edit')}
                     </Button>
                     {opp.stage === 'WON' ? (
@@ -203,7 +251,7 @@ function OpportunitiesPageInner() {
                         <Button
                           size="small"
                           onClick={() => {
-                            void createInvoiceFromOpportunity(opp.id)
+                            void draftOpportunityInvoice(opp.id)
                               .then((invoice) => navigate(`/sales/history/${invoice.id}`))
                               .catch((err) => setError(getErrorMessage(err)));
                           }}
@@ -242,21 +290,27 @@ function OpportunitiesPageInner() {
         <DialogTitle>{editing ? t('common.edit') : t('common.create')} opportunity</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            {error ? <HelpErrorAlert message={error} /> : null}
+            {isClosed ? <Typography variant="body2" color="text.secondary">{t('growth.closedDealNote')}</Typography> : null}
             <TextField
               label={t('erp.title')}
               required
+              disabled={isClosed}
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
             />
             <TextField
               label={t('common.amount')}
               type="number"
+              disabled={isClosed}
+              inputProps={{ min: 0, step: '0.01' }}
               value={form.amount}
               onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
             />
             <TextField
               select
               label={t('erp.stage')}
+              disabled={isClosed}
               value={form.stage}
               onChange={(e) => setForm((f) => ({ ...f, stage: e.target.value as Stage }))}
             >
@@ -266,61 +320,91 @@ function OpportunitiesPageInner() {
                 </MenuItem>
               ))}
             </TextField>
-            <TextField
-              select
-              label={t('nav.leads')}
-              value={form.lead}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  lead: e.target.value ? Number(e.target.value) : '',
-                }))
-              }
-            >
-              <MenuItem value="">—</MenuItem>
-              {(leadsQuery.data?.results ?? []).map((l) => (
-                <MenuItem key={l.id} value={l.id}>
-                  {l.name}
-                </MenuItem>
-              ))}
-            </TextField>
-            <TextField
-              select
-              label={t('nav.customers')}
-              value={form.customer}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  customer: e.target.value ? Number(e.target.value) : '',
-                }))
-              }
-            >
-              <MenuItem value="">—</MenuItem>
-              {(customersQuery.data?.results ?? []).map((c) => (
-                <MenuItem key={c.id} value={c.id}>
-                  {c.name}
-                </MenuItem>
-              ))}
-            </TextField>
+            <LeadField
+              value={leadPick}
+              disabled={isClosed}
+              onChange={(lead) => {
+                setLeadPick(lead);
+                setForm((f) => ({ ...f, lead: lead?.id ?? '' }));
+              }}
+            />
+            <CustomerField
+              value={customerPick}
+              disabled={isClosed}
+              onChange={(customer) => {
+                setCustomerPick(customer);
+                setForm((f) => ({ ...f, customer: customer?.id ?? '' }));
+              }}
+            />
             <TextField
               label={t('growth.competitor')}
               value={form.competitor}
               onChange={(e) => setForm((f) => ({ ...f, competitor: e.target.value }))}
               inputProps={{ maxLength: 120 }}
             />
+            {form.stage === 'LOST' && !isClosed ? (
+              <>
+                <TextField
+                  select
+                  required
+                  label={t('growth.lostReason')}
+                  value={form.lostReason}
+                  onChange={(e) => setForm((f) => ({ ...f, lostReason: e.target.value }))}
+                >
+                  {LOST_REASONS.map((reason) => (
+                    <MenuItem key={reason} value={reason}>{t(`growth.lostReason${reason}`)}</MenuItem>
+                  ))}
+                </TextField>
+                {form.lostReason === 'OTHER' ? (
+                  <TextField
+                    label={t('growth.lostReasonNote')}
+                    value={form.lostReasonNote}
+                    onChange={(e) => setForm((f) => ({ ...f, lostReasonNote: e.target.value }))}
+                    inputProps={{ maxLength: 200 }}
+                  />
+                ) : null}
+              </>
+            ) : null}
           </Stack>
         </DialogContent>
         <DialogActions>
+          {isClosed && canReopen && editing ? (
+            <Button color="warning" disabled={writesBlocked || reopen.isPending} onClick={() => setConfirmReopen(true)}>
+              {t('growth.reopenDeal')}
+            </Button>
+          ) : null}
           <Button onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!form.title || saveMutation.isPending}
-            onClick={() => saveMutation.mutate()}
+            disabled={!form.title || saveMutation.isPending || writesBlocked}
+            onClick={requestSave}
           >
             {t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmClose}
+        title={form.stage === 'LOST'
+          ? t('cog.confirmLost', { name: form.title })
+          : t('cog.confirmWon', { name: form.title })}
+        body={t('growth.convertWonWarning')}
+        onClose={() => setConfirmClose(false)}
+        onConfirm={() => {
+          setConfirmClose(false);
+          saveMutation.mutate();
+        }}
+      />
+      <ConfirmDialog
+        open={confirmReopen}
+        title={t('growth.reopenConfirmTitle', { name: editing?.title ?? '' })}
+        body={t('growth.reopenConfirmBody')}
+        confirming={reopen.isPending}
+        onClose={() => setConfirmReopen(false)}
+        onConfirm={() => {
+          if (editing) reopen.mutate(editing.id);
+        }}
+      />
     </Stack>
   );
 }

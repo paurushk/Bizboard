@@ -61,6 +61,7 @@ import { useSourceVisibility } from './useSourceVisibility';
 import {
   billedFromPack,
   hasPackData,
+  clearEditedErrors,
   isLineComplete,
   linePayload,
   lineSignature,
@@ -256,7 +257,8 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
       setHeaderErrors(head);
       const byId = new Map(lineErrors.map((e) => [e.lineId, e.errors]));
       setLines((prev) =>
-        prev.map((l) => (l.lineId != null && byId.has(l.lineId) ? { ...l, errors: byId.get(l.lineId) } : l)),
+        // A saved line the server no longer lists is now valid: clear its old errors too.
+        prev.map((l) => (l.lineId != null ? { ...l, errors: byId.get(l.lineId) ?? [] } : l)),
       );
       const first = linesRef.current.find((l) => l.lineId != null && byId.has(l.lineId));
       if (first) {
@@ -552,11 +554,26 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
     setHeaderDirty(true);
   };
 
+  // The bill carries no GST column (common on handwritten bills): let the reviewer set one rate for every blank row.
+  const blankGstKeys = lines.filter((l) => String(l.gstRate ?? '').trim() === '').map((l) => l.clientKey);
+  const applyGstToBlank = (rate: string) => {
+    const keys = new Set(blankGstKeys);
+    setLines((prev) =>
+      prev.map((l) => (keys.has(l.clientKey) ? { ...l, gstRate: rate, errors: clearEditedErrors(l.errors, ['gstRate']) } : l)),
+    );
+    setLineDirty((prev) => {
+      const next = new Set(prev);
+      keys.forEach((k) => next.add(k));
+      return next;
+    });
+  };
+
   const updateLine = (key: string, patch: Partial<EditorLine>) => {
     setLines((prev) =>
       prev.map((l) => {
         if (l.clientKey !== key) return l;
         const next = { ...l, ...patch };
+        if (!('errors' in patch)) next.errors = clearEditedErrors(l.errors, Object.keys(patch));
         if ('cs' in patch || 'pcs' in patch || 'upc' in patch) {
           const billed = billedFromPack(next.cs, next.pcs, next.upc);
           if (billed != null) {
@@ -903,6 +920,18 @@ export function BillReviewPanel({ kind, job, onStale, onCommittedElsewhere, onEr
                   />
                 </Stack>
 
+                {blankGstKeys.length > 0 ? (
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Typography variant="body2">
+                      {t('billUpload.gstBlankRows', { count: blankGstKeys.length })}
+                    </Typography>
+                    {[0, 5, 12, 18, 28].map((rate) => (
+                      <Button key={rate} size="small" variant="outlined" onClick={() => applyGstToBlank(String(rate))}>
+                        {t('billUpload.gstApplyAll', { rate })}
+                      </Button>
+                    ))}
+                  </Stack>
+                ) : null}
                 <BillLinesTable
                   lines={lines}
                   visibleKeys={visibleKeys}

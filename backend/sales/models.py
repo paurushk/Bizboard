@@ -528,6 +528,13 @@ class NoteReason(models.TextChoices):
     OTHERS = "OTHERS", "Others"
 
 
+# Q1 / DEP-02: a post-sale discount only adjusts the price of goods the customer
+# keeps, so it never uses up returnable quantity on the source line. (Other
+# notes are judged line by line: crediting less than the sold unit price is a
+# price-only credit; crediting the full unit price credits the unit itself.)
+VALUE_ONLY_NOTE_REASONS = (NoteReason.POST_SALE_DISCOUNT,)
+
+
 class SalesCreditNote(DocumentTotalsModel):
     """Value-only credit against a completed sales invoice — no stock movement."""
 
@@ -773,6 +780,11 @@ class SalesOrder(DocumentTotalsModel):
     converted_invoice = models.ForeignKey(
         SalesInvoice, null=True, blank=True, on_delete=models.SET_NULL, related_name="source_orders"
     )
+    # True while this order holds a stock reservation: set by confirm, cleared when the order is
+    # cancelled or sent back to draft after a failed delivery. The status alone cannot say it (an
+    # unconfirmed draft can become "partly processed" without ever reserving anything), and
+    # releasing stock the order never held takes it from other orders (H-01, H-02).
+    stock_held = models.BooleanField(default=False)
     salesman = models.ForeignKey(
         "payroll.Employee", null=True, blank=True, on_delete=models.SET_NULL, related_name="sales_orders",
     )
@@ -1071,6 +1083,27 @@ class DeliveryRouteStop(CompanyScopedModel):
         ]
 
 
+class RouteStopAcknowledgement(CompanyScopedModel):
+    """A risk someone accepted, with the reason, when an order was put on a route or the route started.
+
+    One row per stop and risk code. The route screen and the manifest show them; reports can count
+    them (which warnings do dispatchers accept, and who accepts them). The audit log has the same
+    event; this table is the queryable record.
+    """
+
+    stop = models.ForeignKey(DeliveryRouteStop, on_delete=models.CASCADE, related_name="acknowledgements")
+    risk_code = models.CharField(max_length=32)
+    level = models.CharField(max_length=8)
+    reason = models.CharField(max_length=500)
+
+    class Meta:
+        ordering = ["id"]
+        constraints = [
+            models.UniqueConstraint(fields=["stop", "risk_code"], name="uniq_route_stop_ack_per_risk"),
+        ]
+        indexes = [models.Index(fields=["company", "risk_code"], name="sales_routeack_co_code_idx")]
+
+
 class RouteCashHandover(CompanyScopedModel):
     """Cashier count of driver COD/UPI. Status and amounts only — no cash journal."""
 
@@ -1085,6 +1118,9 @@ class RouteCashHandover(CompanyScopedModel):
     counted_cash = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     counted_upi = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
     variance_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    # Why the count differs from what the driver reported. A route with a variance and no note
+    # stays on the "needs attention" list until someone writes one.
+    variance_note = models.CharField(max_length=500, blank=True, default="")
     verified_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

@@ -69,6 +69,26 @@ class ReceiptSummarySerializer(serializers.Serializer):
     )
 
 
+class SupplierPaymentSummarySerializer(serializers.Serializer):
+    """Totals for the supplier payment list filters, across every page."""
+
+    count = serializers.IntegerField(help_text="Payments counted as money out.")
+    paid = serializers.DecimalField(max_digits=16, decimal_places=2, help_text="Cleared money paid out.")
+    cheques_pending = serializers.DecimalField(max_digits=16, decimal_places=2)
+    advance = serializers.DecimalField(
+        max_digits=16, decimal_places=2, help_text="Paid to suppliers but not yet applied to a bill."
+    )
+    excluded_count = serializers.IntegerField(help_text="Matching payments left out: voided or bounced.")
+    payable = serializers.DecimalField(
+        max_digits=16, decimal_places=2, allow_null=True,
+        help_text="Owed to suppliers today. Null unless the caller may view financial reports.",
+    )
+    overdue = serializers.DecimalField(
+        max_digits=16, decimal_places=2, allow_null=True,
+        help_text="Part of payable that is past due. Null unless the caller may view financial reports.",
+    )
+
+
 class AdvanceRefundLineSerializer(serializers.ModelSerializer):
     """One advance refund paid out of a receipt (read-only, for the voucher and the list)."""
 
@@ -125,6 +145,8 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
             "reconciled",
             "tds_deducted",
             "tds_section",
+            "tds_certificate_received_on",
+            "tds_certificate_ref",
             "allocate_on_clear",
             "intended_sales_invoice",
             "intended_amount",
@@ -151,6 +173,7 @@ class CustomerReceiptSerializer(serializers.ModelSerializer):
             "number", "source", "gateway_payment", "status", "shift",
             "tendered", "change_given",
             "dishonour_fee", "section_138_notice",
+            "tds_certificate_received_on", "tds_certificate_ref",
             "void_reason", "voided_at",
             "allocate_on_clear", "intended_sales_invoice", "intended_amount",
         ]

@@ -157,8 +157,11 @@ def test_ledger_union_is_sales_side_only(tenant_a):
 def test_delivery_route_lifecycle(tenant_a):
     from sales.models import SalesOrder
 
-    customer = make_customer(tenant_a.company)
+    customer = make_customer(tenant_a.company, phone="9876500001", pincode="560001")
     product = make_product(tenant_a.company, sku="RT-1")
+    from tests.conftest import add_stock
+
+    add_stock(tenant_a, product, "5")
     order = tenant_a.client.post(
         "/api/v1/sales/orders/",
         {
@@ -169,6 +172,8 @@ def test_delivery_route_lifecycle(tenant_a):
         format="json",
     )
     assert order.status_code == 201, order.data
+    # Only a confirmed order goes on a route.
+    assert tenant_a.client.post(f"/api/v1/sales/orders/{order.data['id']}/confirm/").status_code == 200
     route = tenant_a.client.post(
         "/api/v1/sales/delivery-routes/",
         {"route_date": timezone.localdate().isoformat(), "vehicle_number": "KA01AB1234"},

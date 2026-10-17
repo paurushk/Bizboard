@@ -107,9 +107,22 @@ export function canCreateSales(user: User | null): boolean {
   return isOwner(user.role) || user.canCreateSales === true;
 }
 
+/** Create / complete sales credit & debit notes. Mirrors the backend
+ * CanCreateOrCompleteNotes: Owner, Accountant, or anyone with the sales flag. */
+export function canIssueNotes(user: User | null): boolean {
+  if (!user || isViewer(user.role)) return false;
+  return isOwner(user.role) || isAccountant(user.role) || user.canCreateSales === true;
+}
+
 export function canCreatePurchases(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;
   return isOwner(user.role) || user.canCreatePurchases === true;
+}
+
+/** Post / reverse journals and edit the books masters (mirrors backend CanPostJournals). */
+export function canPostJournals(user: User | null): boolean {
+  if (!user || isViewer(user.role)) return false;
+  return isOwner(user.role) || user.canPostJournals === true;
 }
 
 export function canCreatePayments(user: User | null): boolean {
@@ -148,9 +161,12 @@ export function canViewPurchaseSurfaces(user: User | null): boolean {
 /** BB-000297: inventory list/detail read surfaces. */
 export function canViewInventorySurfaces(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;
+  // Same rule as the server (CanViewInventorySurfaces): anyone who sells or buys needs to see stock.
   return (
     canAdjustInventory(user) ||
-    canViewFinancialReports(user)
+    canViewFinancialReports(user) ||
+    canCreateSales(user) ||
+    canCreatePurchases(user)
   );
 }
 

@@ -15,10 +15,16 @@ export function NoteReasonSelect({
   value,
   onChange,
   disabled,
+  allowSalesReturn = false,
 }: {
   value: NoteReason;
   onChange: (v: NoteReason) => void;
   disabled?: boolean;
+  /**
+   * SALES_RETURN belongs to the credit note a sales return issues (stock is restored
+   * there). It is offered only when that is what is being shown (CN-01).
+   */
+  allowSalesReturn?: boolean;
 }) {
   return (
     <TextField
@@ -29,7 +35,7 @@ export function NoteReasonSelect({
       disabled={disabled}
       fullWidth
     >
-      {REASONS.map((r) => (
+      {REASONS.filter((r) => r !== 'SALES_RETURN' || allowSalesReturn || value === 'SALES_RETURN').map((r) => (
         <MenuItem key={r} value={r}>
           {t(`phase1.reason.${r}`)}
         </MenuItem>

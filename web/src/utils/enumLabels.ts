@@ -18,7 +18,9 @@ export type EnumGroup =
   | 'gstr2bMatchClass'
   | 'gstr2bMatchStatus'
   | 'imsAction'
-  | 'forecastMethod';
+  | 'forecastMethod'
+  | 'serialStatus'
+  | 'countStatus';
 
 function titleCase(value: string): string {
   return value

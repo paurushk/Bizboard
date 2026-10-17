@@ -1561,27 +1561,31 @@ export function NewInvoicePage() {
     }
     return null;
   };
-  const shownTotals = preview.totals
-    ? {
-        ...totals,
-        subtotal: preview.totals.subtotal,
-        taxableTotal: preview.totals.taxableTotal,
-        cgstTotal: preview.totals.cgstTotal,
-        sgstTotal: preview.totals.sgstTotal,
-        igstTotal: preview.totals.igstTotal,
-        cessTotal: preview.totals.cessTotal,
-        taxTotal: preview.totals.taxTotal,
-        roundOff: preview.totals.roundOff,
-        grandTotal: preview.totals.grandTotal,
-        tcsAmount: preview.totals.tcsAmount ?? 0,
-        amountDue: preview.totals.amountDue ?? preview.totals.grandTotal,
-        rcmTaxable: preview.totals.rcmTaxable,
-        rcmCgst: preview.totals.rcmCgst,
-        rcmSgst: preview.totals.rcmSgst,
-        rcmIgst: preview.totals.rcmIgst,
-        rcmCess: preview.totals.rcmCess,
-      }
-    : totals;
+  const shownTotals = useMemo(
+    () =>
+      preview.totals
+        ? {
+            ...totals,
+            subtotal: preview.totals.subtotal,
+            taxableTotal: preview.totals.taxableTotal,
+            cgstTotal: preview.totals.cgstTotal,
+            sgstTotal: preview.totals.sgstTotal,
+            igstTotal: preview.totals.igstTotal,
+            cessTotal: preview.totals.cessTotal,
+            taxTotal: preview.totals.taxTotal,
+            roundOff: preview.totals.roundOff,
+            grandTotal: preview.totals.grandTotal,
+            tcsAmount: preview.totals.tcsAmount ?? 0,
+            amountDue: preview.totals.amountDue ?? preview.totals.grandTotal,
+            rcmTaxable: preview.totals.rcmTaxable,
+            rcmCgst: preview.totals.rcmCgst,
+            rcmSgst: preview.totals.rcmSgst,
+            rcmIgst: preview.totals.rcmIgst,
+            rcmCess: preview.totals.rcmCess,
+          }
+        : totals,
+    [preview.totals, totals],
+  );
 
   const rcmDisplay = useMemo(() => {
     if (!isReverseCharge || invoiceType === 'NON_GST') return null;

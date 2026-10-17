@@ -14,7 +14,11 @@ type ProductPayload = {
   gstRate?: number | string;
 };
 
-const { createProductMock, authCompany } = vi.hoisted(() => ({
+const { findProductByNameMock, forecastMock, createProductMock, updateProductMock, createOpeningStockMock, authCompany } = vi.hoisted(() => ({
+  findProductByNameMock: vi.fn(async (_name: string) => null as null | { id: number; sku: string; name: string }),
+  forecastMock: vi.fn(async () => ({ rows: [] as unknown[] })),
+  updateProductMock: vi.fn(),
+  createOpeningStockMock: vi.fn(),
   createProductMock: vi.fn(async (payload: ProductPayload) => ({
     id: 101,
     name: payload.name,
@@ -43,10 +47,12 @@ vi.mock('@/auth/AuthContext', () => ({
   }),
 }));
 
+vi.mock('@/api/osPlan', () => ({ getDemandForecast: () => forecastMock() }));
+
 vi.mock('@/api/resources', () => ({
   createProduct: (payload: ProductPayload) => createProductMock(payload),
-  updateProduct: vi.fn(),
-  createOpeningStock: vi.fn(),
+  updateProduct: (...a: unknown[]) => updateProductMock(...a),
+  createOpeningStock: (...a: unknown[]) => createOpeningStockMock(...a),
   createWarehouse: vi.fn(),
   fetchBarcodeImage: vi.fn(),
   generateBarcode: vi.fn(async () => ({ barcode: 'AUTO-BAR-123' })),
@@ -54,6 +60,7 @@ vi.mock('@/api/resources', () => ({
   listCategories: async () => [],
   listBrands: async () => [],
   listStock: async () => [],
+  findProductByName: (name: string) => findProductByNameMock(name),
   listUnits: async () => [{ id: 1, name: 'Pieces', shortName: 'PCS' }],
   listWarehouses: async () => [{ id: 1, name: 'Main Godown' }],
   searchHsn: async () => ({ items: [] }),
@@ -182,6 +189,63 @@ describe('ItemFormDialog (CW-PR-4)', () => {
   });
 });
 
+describe('ItemFormDialog reorder suggestion', () => {
+  const soap = {
+    id: 11, name: 'Alpha Soap', sku: 'AL-1', sellingPrice: 30, purchasePrice: 20, gstRate: 18,
+    status: 'ACTIVE', unitName: 'PCS', trackInventory: true, reorderLevel: 2,
+  };
+
+  it('offers a reorder level from recent sales and applies it only when asked', async () => {
+    forecastMock.mockResolvedValueOnce({
+      rows: [{ productId: 11, productName: 'Alpha Soap', windowDays: 30, reorderCoverDays: 14, suggestedReorderLevel: '14.000' }],
+    });
+    const user = userEvent.setup();
+    renderWithClient(
+      <ItemFormDialog open={true} product={soap as never} existingNames={[]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    await user.click(await screen.findByRole('tab', { name: /Stock details/i }));
+    expect(await screen.findByText(/Based on the last 30 days of sales, about 14 covers 14 days/)).toBeInTheDocument();
+    const level = document.getElementById('item-form-reorder-level') as HTMLInputElement;
+    expect(level.value).toBe('2');
+    await user.click(screen.getByRole('button', { name: 'Use 14' }));
+    expect(level.value).toBe('14');
+    expect(screen.queryByRole('button', { name: 'Use 14' })).toBeNull();
+  });
+});
+
+describe('ItemFormDialog opening stock retry', () => {
+  it('retries only the opening stock after it fails, without creating the item twice', async () => {
+    createProductMock.mockClear();
+    updateProductMock.mockReset();
+    createOpeningStockMock.mockReset();
+    updateProductMock.mockImplementation(async (id: number) => ({ id, name: 'Rice', sku: 'RICE-1' }));
+    createOpeningStockMock.mockRejectedValueOnce(new Error('Godown is inactive')).mockResolvedValue({});
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    renderWithClient(
+      <ItemFormDialog open={true} product={null} existingNames={[]} onClose={vi.fn()} onSaved={onSaved} />,
+    );
+    await user.type(screen.getByRole('textbox', { name: /^Name/i }), 'Rice');
+    await user.type(screen.getByRole('textbox', { name: /SKU \/ Item Code/i }), 'RICE-1');
+    await user.click(screen.getByRole('button', { name: /Add opening stock, lots or serials/i }));
+    const qty = await screen.findByLabelText(/^Opening stock/i);
+    await user.clear(qty);
+    await user.type(qty, '5');
+    await user.click(screen.getByRole('button', { name: /^Save item/i }));
+
+    const retry = await screen.findByRole('button', { name: 'Retry opening stock' });
+    expect(onSaved).not.toHaveBeenCalled();
+    await user.click(retry);
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(createProductMock).toHaveBeenCalledTimes(1);
+    expect(updateProductMock).toHaveBeenCalledWith(101, expect.objectContaining({ sku: 'RICE-1' }));
+    expect(createOpeningStockMock).toHaveBeenCalledTimes(2);
+    const keys = createOpeningStockMock.mock.calls.map((c) => (c[1] as { idempotencyKey: string }).idempotencyKey);
+    expect(keys[0]).toBe(keys[1]);
+  });
+});
+
 describe('ItemFormDialog form lifecycle', () => {
   const PRODUCT_A = {
     id: 11,
@@ -204,6 +268,30 @@ describe('ItemFormDialog form lifecycle', () => {
     </QueryClientProvider>
   );
   const nameBox = () => screen.getByRole('textbox', { name: /^Name/i }) as HTMLInputElement;
+
+  it('warns, from the server, that an item with this name exists and names its code', async () => {
+    findProductByNameMock.mockResolvedValueOnce({ id: 5, sku: 'GT-1', name: 'Green Tea' });
+    const user = userEvent.setup();
+    renderWithClient(<ItemFormDialog open={true} product={null} existingNames={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    await user.type(screen.getByRole('textbox', { name: /^Name/i }), 'green tea');
+    expect(await screen.findByText(/already exists \(code GT-1\)/)).toBeInTheDocument();
+    expect(findProductByNameMock).toHaveBeenCalledWith('green tea');
+  });
+
+  it('warns, without blocking, about a zero price and a cost above the price', async () => {
+    const user = userEvent.setup();
+    renderWithClient(<ItemFormDialog open={true} product={null} existingNames={[]} onClose={vi.fn()} onSaved={vi.fn()} />);
+    await user.type(screen.getByRole('textbox', { name: /^Name/i }), 'Gift pack');
+    expect(await screen.findByText('The selling price is 0.')).toBeInTheDocument();
+    const sell = screen.getByRole('spinbutton', { name: /Selling Price/i });
+    await user.clear(sell);
+    await user.type(sell, '50');
+    const cost = screen.getByRole('spinbutton', { name: /Purchase Price/i });
+    await user.clear(cost);
+    await user.type(cost, '60');
+    expect(await screen.findByText(/cost is higher than the selling price/)).toBeInTheDocument();
+    expect(screen.queryByText('The selling price is 0.')).toBeNull();
+  });
 
   it('opens an existing item with its saved details', async () => {
     render(dialog(true, PRODUCT_A));

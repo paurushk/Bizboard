@@ -59,7 +59,10 @@ import { preferredInvoiceType } from '@/onboarding/taxHints';
 import type { Customer, InvoiceType, Product } from '@/types/domain';
 import { formatMoney, expectedProfitAmount, toNumber } from '@/utils/money';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
-import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { documentStatusTone, orderDisplayStatus, statusLabelKey } from '@/utils/status';
+import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { orderActions } from './orderActions';
 import { firstCompleteDisabledReason } from '@/completeGates/completeBlockers';
 
 export function SalesOrderEditorPage() {
@@ -129,6 +132,17 @@ export function SalesOrderEditorPage() {
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
+  const gatesOn = isRuntimeFlagEnabled('ENABLE_ORDER_GATES');
+  const actions = orderActions(editingStatus, {
+    gatesOn,
+    canWrite: canCreateSales(user),
+    canCancel: canCancelDocuments(user),
+  });
+  const shownStatus = orderDisplayStatus({
+    status: editingStatus ?? 'DRAFT',
+    fulfilmentState: existing.data?.fulfilmentState,
+  });
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const selectedCustomer =
     selectedCustomerQuery.data ?? customerSearch.options.find((c) => c.id === Number(customerId));
   const intraState = isIntraState(
@@ -405,7 +419,7 @@ export function SalesOrderEditorPage() {
       onPrimarySave={() => saveMutation.mutate()}
       extraActions={
         <>
-          {isEdit && editingStatus === 'DRAFT' && isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? (
+          {isEdit && actions.confirm ? (
             <Button
               size="small"
               variant="contained"
@@ -413,6 +427,11 @@ export function SalesOrderEditorPage() {
               onClick={() => {
                 saveMutation.mutate(undefined, {
                   onSuccess: () => {
+                    if (!gatesOn) {
+                      // Order checks are off: there is no credit or margin dialog to show.
+                      confirmMutation.mutate();
+                      return;
+                    }
                     void checkSalesOrderGate(editId as number).then(setGate).catch((err) => flashError(getErrorMessage(err)));
                   },
                 });
@@ -421,7 +440,7 @@ export function SalesOrderEditorPage() {
               {t('osPlan.confirmOrder')}
             </Button>
           ) : null}
-          {isEdit && (isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? editingStatus === 'CONFIRMED' : editingStatus === 'DRAFT') ? (
+          {isEdit && actions.createChallan ? (
             <Button
               size="small"
               variant="outlined"
@@ -431,18 +450,18 @@ export function SalesOrderEditorPage() {
               {t('phase1.toChallan')}
             </Button>
           ) : null}
-          {isEdit && (isRuntimeFlagEnabled('ENABLE_ORDER_GATES') ? editingStatus === 'CONFIRMED' : editingStatus === 'DRAFT') ? (
+          {isEdit && actions.createInvoice ? (
             <Button size="small" disabled={convertMutation.isPending || convertToChallanMutation.isPending} onClick={() => convertMutation.mutate()}>
               {t('common.convert')}
             </Button>
           ) : null}
-          {editingStatus === 'DRAFT' && isEdit ? (
-            <Button size="small" color="warning" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
+          {isEdit && actions.cancel ? (
+            <Button size="small" color="warning" disabled={cancelMutation.isPending} onClick={() => setConfirmCancel(true)}>
               {t('common.cancel')}
             </Button>
           ) : null}
           {editingStatus && editingStatus !== 'DRAFT' ? (
-            <StatusChip tone={documentStatusTone(editingStatus)} labelKey={statusLabelKey(editingStatus)} />
+            <StatusChip tone={documentStatusTone(shownStatus)} labelKey={statusLabelKey(shownStatus)} />
           ) : null}
         </>
       }
@@ -509,8 +528,26 @@ export function SalesOrderEditorPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmCancel}
+        title={t('common.confirm')}
+        body={t(editingStatus === 'CONFIRMED' ? 'history.confirmCancelConfirmedSalesOrder' : 'history.confirmCancelSalesOrder')}
+        confirmLabel={t('history.confirmCancelAction')}
+        confirmColor="error"
+        confirming={cancelMutation.isPending}
+        onClose={() => setConfirmCancel(false)}
+        onConfirm={() => {
+          setConfirmCancel(false);
+          cancelMutation.mutate();
+        }}
+      />
       <UnsavedChangesGuard when={!skipLeaveGuard && (lines.length > 0 || Boolean(customerId))} />
       <Stack spacing={2}>
+        {isEdit && editingStatus === 'DRAFT' ? (
+          <Typography variant="body2" color="text.secondary">
+            {t(gatesOn ? 'phase1.orderChecksOn' : 'phase1.orderChecksOff')}
+          </Typography>
+        ) : null}
         <Autocomplete
           options={customerSearch.options}
           getOptionLabel={(o: Customer) => o.name}

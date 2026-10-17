@@ -42,6 +42,9 @@ class CampaignViewSet(CompanyScopedViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
+        status_param = (self.request.query_params.get("status") or "").upper()
+        if status_param in Campaign.Status.values:
+            qs = qs.filter(status=status_param)
         term = (self.request.query_params.get("q") or "").strip()
         # Search on the server: the list is paged, so a filter over the loaded page misses the rest.
         return qs.filter(name__icontains=term) if term else qs
@@ -75,7 +78,16 @@ class OpportunityLineViewSet(CompanyScopedViewSet):
     def get_queryset(self):
         return super().get_queryset().filter(opportunity=self.opportunity)
 
+    def _assert_deal_open(self):
+        from rest_framework.exceptions import ValidationError
+
+        if self.opportunity.stage in (Opportunity.Stage.WON, Opportunity.Stage.LOST):
+            raise ValidationError(
+                {"detail": "This deal is closed. Ask an owner or manager to reopen it before changing its lines."}
+            )
+
     def perform_create(self, serializer):
+        self._assert_deal_open()
         instance = serializer.save(
             company=self.company,
             opportunity=self.opportunity,
@@ -86,11 +98,13 @@ class OpportunityLineViewSet(CompanyScopedViewSet):
         self._audit("CREATE", instance)
 
     def perform_update(self, serializer):
+        self._assert_deal_open()
         instance = serializer.save(updated_by=self.request.user, company=self.company)
         sync_opportunity_amount(self.opportunity)
         self._audit("UPDATE", instance)
 
     def perform_destroy(self, instance):
+        self._assert_deal_open()
         super().perform_destroy(instance)
         sync_opportunity_amount(self.opportunity)
 

@@ -21,6 +21,7 @@ import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
@@ -279,6 +280,10 @@ export function PaymentGatewayPage() {
 export function PaymentLinksPage() {
   const { writesBlocked } = useSubscriptionGate();
   const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The Money hub links here with ?status=open (links a customer can still pay).
+  const [openOnly, setOpenOnly] = useState(() => searchParams.get('status') === 'open');
+  const [nowMs] = useState(() => Date.now());
   const query = useQuery({
     queryKey: ['payment-links'],
     queryFn: () => api.listAllPaymentLinks(),
@@ -387,6 +392,13 @@ export function PaymentLinksPage() {
       }
     >
       {error ? <HelpErrorAlert message={error} /> : null}
+      <MoneyHandoffBar
+        filterLabel={openOnly ? t('money.filters.linksOpen') : t('money.filters.gatewayWaiting')}
+        onShowAll={() => {
+          setOpenOnly(false);
+          setSearchParams({}, { replace: true });
+        }}
+      />
       {holding.data && holding.data.length ? (
         <Alert severity="warning" sx={{ mb: 2 }}>
           {holding.data.length} capture(s) paid at the gateway — receipt pending books. Retry after the period is open.
@@ -414,7 +426,13 @@ export function PaymentLinksPage() {
         </Stack>
       ) : null}
       <DataTable
-        rows={asRows(query.data)}
+        rows={asRows(query.data).filter((r) => {
+          if (!openOnly) return true;
+          const status = String(r.status);
+          if (status !== 'CREATED' && status !== 'SENT' && status !== 'PARTIALLY_PAID') return false;
+          const expires = r.expiresAt ? Date.parse(String(r.expiresAt)) : NaN;
+          return Number.isNaN(expires) || expires > nowMs;
+        })}
         empty="No payment links yet."
         columns={[
           { key: 'invoiceNumber', label: 'Invoice' },
@@ -663,6 +681,9 @@ export function BankStatementsPage() {
   );
 }
 
+/** The reconciliation queue endpoint returns at most this many lines. */
+const RECON_QUEUE_CAP = 100;
+
 export function BankReconPage() {
   const { user } = useAuth();
   const { writesBlocked } = useSubscriptionGate();
@@ -673,8 +694,13 @@ export function BankReconPage() {
     queryKey: ['payment-recon'],
     queryFn: () => api.listRecon() as Promise<Row[]>,
   });
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const focusLine = Number(searchParams.get('line')) || null;
+  // The Money hub links here with money in (credits) or money out (debits) only.
+  const [direction, setDirection] = useState<'' | 'credit' | 'debit'>(() => {
+    const raw = searchParams.get('direction');
+    return raw === 'credit' || raw === 'debit' ? raw : '';
+  });
   const review = useQuery({ queryKey: ['payment-recon-review'], queryFn: api.listReconNeedsReview });
   const matchReturn = useMutation({
     mutationFn: (payload: { line: number; receipt: number }) => api.matchReconReturn(payload),
@@ -736,7 +762,15 @@ export function BankReconPage() {
   // confirms each suggestion, or uses "accept exact matches" for the unambiguous ones.
   if (query.isLoading) return <LoadingState />;
   if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  const rows = query.data ?? [];
+  const allRows = query.data ?? [];
+  const rows = direction
+    ? allRows.filter((item) => {
+        const amount = Number(((item.line || item) as Row).amount);
+        return direction === 'credit' ? amount > 0 : amount < 0;
+      })
+    : allRows;
+  // The server sends the oldest lines first and stops at this many.
+  const queueCapped = allRows.length >= RECON_QUEUE_CAP;
   const aging = (health.data?.unmatchedAging as Record<string, number>) || {};
   return (
     <PageShell
@@ -758,6 +792,18 @@ export function BankReconPage() {
         ) : null
       }
     >
+      <MoneyHandoffBar
+        filterLabel={direction === 'debit' ? t('money.filters.bankDebits') : t('money.filters.bankCredits')}
+        onShowAll={() => {
+          setDirection('');
+          setSearchParams({}, { replace: true });
+        }}
+      />
+      {queueCapped ? (
+        <Alert severity="info" sx={{ mb: 1 }}>
+          {t('money.recon.capped', { count: RECON_QUEUE_CAP })}
+        </Alert>
+      ) : null}
       {reconErr ? (
         <Alert severity="error" sx={{ mb: 1 }} onClose={() => setReconErr('')}>
           {reconErr}

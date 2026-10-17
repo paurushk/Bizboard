@@ -11,16 +11,13 @@ import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { checkSalesOrderGate, confirmSalesOrder, type GateCheck } from '@/api/osPlan';
 import {
-  addOrdersToDeliveryRoute,
   cancelSalesOrder,
   convertSalesOrder,
   convertSalesOrderToChallan,
-  createDeliveryRoute,
   listSalesOrdersPage,
 } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { useAuth } from '@/auth/AuthContext';
-import { todayIso } from '@/components/billing';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DocumentListPage } from '@/components/DocumentListPage';
 import {
@@ -31,6 +28,8 @@ import {
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { t } from '@/i18n';
 import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
+import { orderDisplayStatus } from '@/utils/status';
+import { orderActions, orderStatusParam } from './orderActions';
 
 const PAGE_SIZE = 50;
 
@@ -48,9 +47,10 @@ export function SalesOrdersPage() {
   const [convertingId, setConvertingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+  const [confirmCancelStatus, setConfirmCancelStatus] = useState<string>('DRAFT');
   const [gate, setGate] = useState<(GateCheck & { id: number }) | null>(null);
-  const statusParam =
-    filters.status === 'OPEN' ? 'DRAFT' : filters.status === 'CLOSED' ? 'COMPLETED' : filters.status || undefined;
+  // "Open" is every order with something left to do; "Closed" is converted or cancelled (H-06).
+  const statusParam = orderStatusParam(filters.status);
   const query = useQuery({
     queryKey: ['sales-orders', page, statusParam, debouncedQ, filters.dateFrom, filters.dateTo],
     queryFn: () =>
@@ -100,6 +100,7 @@ export function SalesOrdersPage() {
       setConvertingId(null);
       setError(null);
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      void qc.invalidateQueries({ queryKey: ['sales-orders-open'] });
     },
     onError: (err) => {
       setConvertingId(null);
@@ -130,22 +131,16 @@ export function SalesOrdersPage() {
       setConfirmCancelId(null);
       setError(null);
       void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+      // Cancelling a confirmed order gives its reserved stock back.
+      void qc.invalidateQueries({ queryKey: ['stock-balance'] });
+      void qc.invalidateQueries({ queryKey: ['products'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setConfirmCancelId(null);
+      setError(getErrorMessage(err));
+    },
   });
 
-  const toRoute = useMutation({
-    mutationFn: async () => {
-      const route = await createDeliveryRoute({ routeDate: todayIso() });
-      return addOrdersToDeliveryRoute(Number(route.id), selected);
-    },
-    onSuccess: (route) => {
-      setSelected([]);
-      void qc.invalidateQueries({ queryKey: ['delivery-routes'] });
-      navigate(`/sales/delivery-routes/${route.id}`);
-    },
-    onError: (err) => setError(getErrorMessage(err)),
-  });
 
   const converting = convertMutation.isPending || convertToChallanMutation.isPending || confirmOrder.isPending;
   const rows = query.data?.results ?? [];
@@ -192,14 +187,18 @@ export function SalesOrdersPage() {
             dateRangePresets
             statusOptions={[
               { value: 'OPEN', label: t('status.OPEN') },
-              { value: 'CLOSED', label: t('status.completed') },
+              { value: 'CLOSED', label: t('status.CLOSED') },
             ]}
           />
         }
         bulkBar={
           selected.length > 0 && canWrite ? (
             <Stack direction="row" spacing={1}>
-              <Button size="small" variant="outlined" disabled={toRoute.isPending} onClick={() => toRoute.mutate()}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => navigate('/sales/delivery-routes', { state: { orderIds: selected } })}
+              >
                 {t('routes.addOrdersFromList')}
               </Button>
             </Stack>
@@ -210,62 +209,62 @@ export function SalesOrdersPage() {
           number: o.number,
           date: o.orderDate,
           partyName: o.customerName,
-          status: o.status,
+          status: orderDisplayStatus(o),
           grandTotal: o.grandTotal,
         }))}
         extraColumn={(row) => {
           const gatesOn = isRuntimeFlagEnabled('ENABLE_ORDER_GATES');
-          const showConfirm = row.status === 'DRAFT' && canWrite;
-          const showConvert = canWrite && (gatesOn ? row.status === 'CONFIRMED' : row.status === 'DRAFT');
-          if (showConfirm || showConvert) {
-            return (
-              <Stack direction="row" spacing={1} justifyContent="flex-end">
-                {showConfirm ? (
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disabled={converting && convertingId === row.id}
-                    onClick={() => void startConfirm(row.id)}
-                  >
-                    {t('osPlan.confirmOrder')}
-                  </Button>
-                ) : null}
-                {showConvert ? (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    disabled={converting && convertingId === row.id}
-                    onClick={() => {
-                      setConvertingId(row.id);
-                      convertToChallanMutation.mutate(row.id);
-                    }}
-                  >
-                    {t('phase1.toChallan')}
-                  </Button>
-                ) : null}
-                {showConvert ? (
-                  <Button
-                    size="small"
-                    disabled={converting && convertingId === row.id}
-                    onClick={() => {
-                      setConvertingId(row.id);
-                      convertMutation.mutate(row.id);
-                    }}
-                  >
-                    {t('common.convert')}
-                  </Button>
-                ) : null}
-              </Stack>
-            );
-          }
-          if (row.status === 'COMPLETED' && canCancel) {
-            return (
-              <Button size="small" color="warning" onClick={() => setConfirmCancelId(row.id)}>
-                {t('common.cancel')}
-              </Button>
-            );
-          }
-          return null;
+          // The row shows "Shipped" for a converted order; the actions follow the stored status.
+          const stored = rows.find((o) => o.id === row.id)?.status ?? row.status;
+          const actions = orderActions(stored, { gatesOn, canWrite, canCancel });
+          const busy = converting && convertingId === row.id;
+          if (!actions.confirm && !actions.createInvoice && !actions.createChallan && !actions.cancel) return null;
+          return (
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+              {actions.confirm ? (
+                <Button size="small" variant="contained" disabled={busy} onClick={() => void startConfirm(row.id)}>
+                  {t('osPlan.confirmOrder')}
+                </Button>
+              ) : null}
+              {actions.createChallan ? (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={busy}
+                  onClick={() => {
+                    setConvertingId(row.id);
+                    convertToChallanMutation.mutate(row.id);
+                  }}
+                >
+                  {t('phase1.toChallan')}
+                </Button>
+              ) : null}
+              {actions.createInvoice ? (
+                <Button
+                  size="small"
+                  disabled={busy}
+                  onClick={() => {
+                    setConvertingId(row.id);
+                    convertMutation.mutate(row.id);
+                  }}
+                >
+                  {t('common.convert')}
+                </Button>
+              ) : null}
+              {actions.cancel ? (
+                <Button
+                  size="small"
+                  color="warning"
+                  onClick={() => {
+                    setConfirmCancelStatus(String(stored));
+                    setConfirmCancelId(row.id);
+                  }}
+                >
+                  {t('common.cancel')}
+                </Button>
+              ) : null}
+            </Stack>
+          );
         }}
       />
       <Dialog open={gate !== null} onClose={() => setGate(null)} fullWidth maxWidth="sm">
@@ -295,7 +294,7 @@ export function SalesOrdersPage() {
       <ConfirmDialog
         open={confirmCancelId !== null}
         title={t('common.confirm')}
-        body={t('history.confirmCancelSalesOrder')}
+        body={t(confirmCancelStatus === 'CONFIRMED' ? 'history.confirmCancelConfirmedSalesOrder' : 'history.confirmCancelSalesOrder')}
         confirmLabel={t('history.confirmCancelAction')}
         confirmColor="error"
         confirming={cancel.isPending}

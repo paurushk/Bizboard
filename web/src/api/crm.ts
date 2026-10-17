@@ -21,6 +21,8 @@ export type Lead = SchemaOr<
   dedupeReview?: string;
   dedupeCandidates?: { customers?: number[]; leads?: number[] };
   campaign?: number | null;
+  campaignName?: string | null;
+  customerName?: string | null;
   referralCode?: number | null;
 };
 
@@ -53,6 +55,10 @@ export type Opportunity = SchemaOr<
   }
 > & {
   competitor?: string;
+  lostReason?: string;
+  lostReasonNote?: string;
+  leadName?: string | null;
+  customerName?: string | null;
 };
 
 const BASE = apiPath('/crm');
@@ -64,6 +70,8 @@ export function listLeadsPage(params?: {
   campaign?: string;
   dedupe_review?: string;
   mine?: boolean;
+  q?: string;
+  status?: string;
 }) {
   return fetchPage<Lead>(`${BASE}/leads/`, params);
 }

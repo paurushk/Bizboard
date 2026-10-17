@@ -52,7 +52,7 @@ def _setup_gst_month(tenant):
     tenant.company.state = "Karnataka"
     tenant.company.save(update_fields=["gstin", "state"])
 
-    product = make_product(tenant.company, sku="GST-P1")
+    product = make_product(tenant.company, sku="GST-P1", hsn_code="8517")
     add_stock(tenant, product, "100")
 
     b2b_customer = make_customer(
@@ -161,7 +161,7 @@ def test_gstr3b_excludes_opening_balance_purchase(tenant_a):
     baseline_itc = Decimal(str(baseline.data["itc"]["available_from_purchases"]["total_tax"]))
 
     supplier = make_supplier(tenant_a.company, name="Opening Supplier", gstin="29AABCU9603R1ZJ")
-    product = make_product(tenant_a.company, sku="GST-OPEN")
+    product = make_product(tenant_a.company, sku="GST-OPEN", hsn_code="8517")
     pur = create_draft_purchase(
         tenant_a, supplier,
         [{"product": product.id, "quantity": "1", "unit_price": "1000", "gst_rate": "18"}],

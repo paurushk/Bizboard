@@ -234,6 +234,26 @@ describe('GoodsReceiptsPage', () => {
       expect(opts.idempotencyKey).toBeTruthy();
     });
 
+    it('lists products as soon as the line product box is opened, with no separate search first', async () => {
+      setup([]);
+      await userEvent.click(await screen.findByRole('combobox', { name: /^product$/i }));
+      expect(await screen.findByRole('option', { name: 'Widget' })).toBeInTheDocument();
+    });
+
+    it('searches products on the server as the user types and sends the picked product', async () => {
+      setup([]);
+      mocks.createGoodsReceipt.mockResolvedValue(grn({}));
+      await pickSupplier();
+      const box = await screen.findByRole('combobox', { name: /^product$/i });
+      await userEvent.type(box, 'Wid');
+      await waitFor(() => expect(mocks.searchProducts).toHaveBeenCalledWith('Wid'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Widget' }));
+      await userEvent.type(screen.getByLabelText(/unit price/i), '5');
+      await userEvent.click(screen.getByRole('button', { name: /create receipt/i }));
+      await waitFor(() => expect(mocks.createGoodsReceipt).toHaveBeenCalledTimes(1));
+      expect(mocks.createGoodsReceipt.mock.calls[0][0].items[0]).toMatchObject({ product: 1, unitPrice: '5' });
+    });
+
     it('lets a line be removed but never the last one', async () => {
       setup([]);
       await screen.findByRole('combobox', { name: /supplier/i });

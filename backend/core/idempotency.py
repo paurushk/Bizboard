@@ -143,6 +143,11 @@ TRANSIENT_4XX_CODES = frozenset({
     # R-066: create/complete 400s while the operator fills serials must
     # release the key so the same family (key / key-complete) can retry.
     "serial_required",
+    # INV-IDR-01: "not enough stock" is fixed by adding stock, then the same gesture is retried.
+    # Storing it would replay the refusal forever (dispatch / adjustment / transfer create).
+    "insufficient_stock",
+    # INV-IDR-02: the counter ticks the flagged lines and posts again with the same key.
+    "recheck_required",
 })
 
 

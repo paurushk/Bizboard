@@ -124,3 +124,56 @@ describe('Bank reconciliation: bounced cheques', () => {
     expect(screen.queryByRole('option', { name: 'Walk-in' })).toBeNull();
   });
 });
+
+describe('Bank reconciliation opened from the Money hub', () => {
+  const credit = { line: { id: 1, txnDate: '2026-10-03', amount: '1000.00', narration: 'NEFT IN', matchStatus: 'UNMATCHED' }, suggestions: [] };
+  const debit = { line: { id: 2, txnDate: '2026-10-04', amount: '-400.00', narration: 'CHQ OUT', matchStatus: 'UNMATCHED' }, suggestions: [] };
+
+  it('shows only the bank credits when the money-in tile sends the user here', async () => {
+    m.listReconNeedsReview.mockResolvedValue([]);
+    m.listRecon.mockResolvedValue([credit, debit]);
+    wrap(<BankReconPage />, '/payments/reconciliation?direction=credit&via=money');
+    expect(await screen.findByText('NEFT IN')).toBeTruthy();
+    expect(screen.queryByText('CHQ OUT')).toBeNull();
+    expect(screen.getByText('Opened from Money: Bank credits not matched')).toBeTruthy();
+  });
+
+  it('shows only the bank debits when the money-out tile sends the user here', async () => {
+    m.listReconNeedsReview.mockResolvedValue([]);
+    m.listRecon.mockResolvedValue([credit, debit]);
+    wrap(<BankReconPage />, '/payments/reconciliation?direction=debit&via=money');
+    expect(await screen.findByText('CHQ OUT')).toBeTruthy();
+    expect(screen.queryByText('NEFT IN')).toBeNull();
+    expect(screen.getByText('Opened from Money: Bank debits not matched')).toBeTruthy();
+  });
+
+  it('shows every line again on request', async () => {
+    m.listReconNeedsReview.mockResolvedValue([]);
+    m.listRecon.mockResolvedValue([credit, debit]);
+    wrap(<BankReconPage />, '/payments/reconciliation?direction=debit&via=money');
+    await screen.findByText('CHQ OUT');
+    await userEvent.click(screen.getByRole('button', { name: 'Show everything' }));
+    expect(await screen.findByText('NEFT IN')).toBeTruthy();
+    expect(screen.getByText('CHQ OUT')).toBeTruthy();
+  });
+
+  it('says when the queue is cut off at 100 lines, so a tile with a bigger count is not a mystery', async () => {
+    m.listReconNeedsReview.mockResolvedValue([]);
+    m.listRecon.mockResolvedValue(
+      Array.from({ length: 100 }, (_, i) => ({
+        line: { id: 1000 + i, txnDate: '2026-10-03', amount: '10.00', narration: `LINE ${i}`, matchStatus: 'UNMATCHED' },
+        suggestions: [],
+      })),
+    );
+    wrap(<BankReconPage />);
+    expect(await screen.findByText('Showing the oldest 100 lines. Match some to see the rest.')).toBeTruthy();
+  });
+
+  it('does not show the cut-off note for a short queue', async () => {
+    m.listReconNeedsReview.mockResolvedValue([]);
+    m.listRecon.mockResolvedValue([credit]);
+    wrap(<BankReconPage />);
+    await screen.findByText('NEFT IN');
+    expect(screen.queryByText(/Showing the oldest/)).toBeNull();
+  });
+});

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { StockTransferPage } from '@/pages/phase/InventoryPhasePages';
+import { StockTransferPage } from '@/pages/inventory/StockTransferPage';
 import type { Product } from '@/types/domain';
 
 const product = { id: 8, name: 'Transfer soap', sku: 'TS', trackSerial: false } as Product;
@@ -14,6 +14,7 @@ vi.mock('@/auth/AuthContext', () => ({
 
 vi.mock('@/pages/inventory/useStockOffline', () => ({
   useStockOffline: () => undefined,
+  STOCK_FLUSHED_EVENT: 'bizboard:stock-outbox-flushed',
 }));
 
 vi.mock('@/hooks/useSubscriptionGate', () => ({

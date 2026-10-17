@@ -47,7 +47,9 @@ def test_convert_lead_won_query_param(tenant_a):
         format="json",
     )
     lead_id = _body(lead_resp)["id"]
-    converted = tenant_a.client.post(f"/api/v1/crm/leads/{lead_id}/convert/?won=1")
+    converted = tenant_a.client.post(
+        f"/api/v1/crm/leads/{lead_id}/convert/?won=1", {"amount": "100"}, format="json",
+    )
     assert converted.status_code == 200, converted.data
     opp_id = _body(converted)["opportunity"]["id"]
     assert Opportunity.objects.get(pk=opp_id).stage == Opportunity.Stage.WON
@@ -201,7 +203,7 @@ def test_opportunity_stage_is_terminal_once_won(tenant_a):
     assert reopen.status_code == 400, reopen.data
 
     flip = tenant_a.client.patch(
-        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST"}, format="json",
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST", "lost_reason": "PRICE"}, format="json",
     )
     assert flip.status_code == 400, flip.data
 
@@ -210,7 +212,7 @@ def test_opportunity_open_to_lost_stamps_closed_at_once(tenant_a):
     opp = Opportunity.objects.create(company=tenant_a.company, title="Deal 2", amount="200")
     assert opp.closed_at is None
     resp = tenant_a.client.patch(
-        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST"}, format="json",
+        f"/api/v1/crm/opportunities/{opp.id}/", {"stage": "LOST", "lost_reason": "PRICE"}, format="json",
     )
     assert resp.status_code == 200, resp.data
     opp.refresh_from_db()

@@ -1075,6 +1075,17 @@ class ReportService:
         }
 
     @staticmethod
+    def _cleared_money_q():
+        """Money that has actually moved: anything but a cheque, or a cheque that has cleared.
+
+        The same rule as ``reporting.transactions._cheque_counts_as_cash`` (used by the cash
+        book), written as a query so the totals and the book cannot disagree.
+        """
+        from django.db.models import Q
+
+        return ~Q(mode="CHEQUE") | Q(cheque_status="CLEARED")
+
+    @staticmethod
     def _cash_opening_balance(company, *, date_from=None, bank_account_id=None) -> Decimal:
         """Shared by cash_book and cash_totals so the opening-balance logic
         (bank-account opening_balance vs. company.opening_cash_balance, plus
@@ -1092,14 +1103,13 @@ class ReportService:
         if not date_from:
             return initial_opening
 
-        from django.db.models import Q
 
         pre_receipts = CustomerReceipt.objects.filter(
             company=company, status=ReceiptStatus.POSTED, receipt_date__lt=date_from
-        ).exclude(mode="CREDIT").filter(~Q(mode="CHEQUE") | Q(cheque_status="CLEARED"))
+        ).exclude(mode="CREDIT").filter(ReportService._cleared_money_q())
         pre_payments = SupplierPayment.objects.filter(
             company=company, status=SupplierPaymentStatus.POSTED, payment_date__lt=date_from
-        ).exclude(mode="CREDIT")
+        ).exclude(mode="CREDIT").filter(ReportService._cleared_money_q())
         if bank_account_id:
             pre_receipts = pre_receipts.filter(bank_account_id=bank_account_id)
             pre_payments = pre_payments.filter(bank_account_id=bank_account_id)
@@ -1120,10 +1130,10 @@ class ReportService:
 
         receipts = CustomerReceipt.objects.filter(
             company=company, status=ReceiptStatus.POSTED
-        ).exclude(mode="CREDIT")
+        ).exclude(mode="CREDIT").filter(ReportService._cleared_money_q())
         payments = SupplierPayment.objects.filter(
             company=company, status=SupplierPaymentStatus.POSTED
-        ).exclude(mode="CREDIT")
+        ).exclude(mode="CREDIT").filter(ReportService._cleared_money_q())
         if date_from:
             receipts = receipts.filter(receipt_date__gte=date_from)
             payments = payments.filter(payment_date__gte=date_from)

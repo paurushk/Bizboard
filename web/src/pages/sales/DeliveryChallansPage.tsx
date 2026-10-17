@@ -16,6 +16,7 @@ import {
   completeDeliveryChallanReturn,
   convertDeliveryChallan,
   createDeliveryChallanReturn,
+  deleteDeliveryChallan,
   downloadSalesDocumentPdf,
   getDeliveryChallan,
   listDeliveryChallansPage,
@@ -27,6 +28,7 @@ import { DocumentListPage } from '@/components/DocumentListPage';
 import { printBlob } from '@/utils/blob';
 import { t } from '@/i18n';
 import { toNumber } from '@/utils/money';
+import { GoodsToCheckIn } from './routes/GoodsToCheckIn';
 import { canCancelDocuments, canCreateSales } from '@/utils/permissions';
 
 const PAGE_SIZE = 50;
@@ -40,6 +42,7 @@ export function DeliveryChallansPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<{ id: number; label: string } | null>(null);
   const [returnId, setReturnId] = useState<number | null>(null);
   const [returnQtys, setReturnQtys] = useState<Record<number, string>>({});
   const query = useQuery({
@@ -99,6 +102,19 @@ export function DeliveryChallansPage() {
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteDeliveryChallan(id),
+    onSuccess: () => {
+      setError(null);
+      setConfirmDelete(null);
+      void qc.invalidateQueries({ queryKey: ['delivery-challans'] });
+      void qc.invalidateQueries({ queryKey: ['sales-orders'] });
+    },
+    onError: (err) => {
+      setConfirmDelete(null);
+      setError(getErrorMessage(err));
+    },
+  });
   const cancel = useMutation({
     mutationFn: (id: number) => cancelDeliveryChallan(id),
     onSuccess: () => {
@@ -111,6 +127,7 @@ export function DeliveryChallansPage() {
 
   return (
     <>
+      <GoodsToCheckIn canWrite={canWrite} />
       <DocumentListPage
         titleKey="nav.deliveryChallans"
         newPath="/sales/delivery-challans/new"
@@ -140,6 +157,17 @@ export function DeliveryChallansPage() {
             {row.status === 'DRAFT' && canWrite ? (
               <Button size="small" disabled={complete.isPending} onClick={() => complete.mutate(row.id)}>
                 {t('common.complete')}
+              </Button>
+            ) : null}
+            {row.status === 'DRAFT' && canWrite ? (
+              <Button
+                size="small"
+                color="error"
+                onClick={() =>
+                  setConfirmDelete({ id: row.id, label: [row.partyName, row.date].filter(Boolean).join(' · ') })
+                }
+              >
+                {t('common.delete')}
               </Button>
             ) : null}
             {row.status === 'COMPLETED' && canWrite ? (
@@ -205,6 +233,16 @@ export function DeliveryChallansPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={confirmDelete !== null}
+        title={t('common.confirm')}
+        body={t('history.confirmDeleteDraft', { label: confirmDelete?.label ?? '' })}
+        confirmLabel={t('common.delete')}
+        confirmColor="error"
+        confirming={remove.isPending}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => confirmDelete && remove.mutate(confirmDelete.id)}
+      />
       <ConfirmDialog
         open={confirmCancelId !== null}
         title={t('common.confirm')}

@@ -1,0 +1,27 @@
+id: "QOS-0127"
+category: "BUSINESS_GAP"
+title: "Credit notes: enforce the annual-return filing date in the Section 34(2) time limit"
+persona: ["P1"]
+journey: "Issue a credit note late in the financial year after the annual return"
+problem: "Section 34(2) lets a credit note be issued until the earlier of 30 November after the financial year or the date the annual return is filed. The app enforces only 30 November, because it keeps no record of when the annual return was filed (a GSTR-9 snapshot is a draft, not a filing)."
+evidence:
+  strength: "heuristic"
+  source: ["backend/sales/notes_services.py", "backend/reporting/models.py"]
+  detail: "complete_credit_note rejects a note dated after 30 November following the invoice's financial year. GstReturnSnapshot GSTR9 rows record generation, not filing."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 1
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Heuristic. Needs a product decision on where the user records the filing date."
+effort: "M"
+recommendation: "DONE: the filing date is recorded per financial year on the GSTR-9 screen (reports/gstr9/filing-date/, model AnnualReturnFiling) and complete_credit_note uses the earlier of the two dates. Original text: decide where the filing date is recorded (for example on the GSTR-9 screen), store it per financial year, and make the credit note limit the earlier of the two dates."
+test_required: "backend/tests/test_credit_debit_notes_plan.py::test_credit_note_stops_at_annual_return_filing_date"
+guard_ref:
+  test: "backend/tests/test_credit_debit_notes_plan.py::test_credit_note_stops_at_annual_return_filing_date"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-14"
+closed: "2026-10-14"

@@ -872,3 +872,19 @@ cheaper and faster than a behavioural test.
 **Change control for this document:** edits that change method, priorities, or
 the §7 ranking need founder + QA sign-off. Line-item status lives in
 `FREEZE_SCOPE_COVERAGE.md` and is updated there first.
+
+## Addendum 2026-10-14 — order-to-delivery and routes
+
+The hardening of quotation → order → challan → invoice → delivery route added an L8 style check: documents are the truth and order line counters are a cache (`sales/order_quantities.py`), rebuilt after every create, complete, cancel and delete. Per-item status is in `FREEZE_SCOPE_COVERAGE.md` (section "Order-to-delivery and delivery routes hardening"); case IDs are in `docs/plans/ORDER_DELIVERY_ROUTES_TEST_CASES.md`. Postgres-only concurrency cases stay under G-11a.
+
+## Addendum 2026-10-14 — Money hub (L10 in practice)
+
+The Money hub is the first screen whose job is to put several named metrics side by side, so its tests are
+L10 checks: **the same named number is one number everywhere.** `backend/tests/test_money_hub.py` asserts the
+hub's receivable and payable equal the dashboard and the ledger service, its cash equals the cash book's
+closing, each ageing bucket sums to the headline, and every tile equals the list it links to (same filter, same
+due-date rule). A guard test fails the build if any file outside `ledgers` defines its own outstanding formula.
+The first run found that totals and the opening balance counted uncleared cheques while the cash book did not
+(`test_money_hub_wp0.py`). Front-end: the hub page, every hand-off page, the menu group and the cache
+invalidation have unit tests; `web/e2e-golden/money-hub-golden.spec.ts` walks the loop in a real browser. Postgres
+adds nothing new here: the hub takes no locks.

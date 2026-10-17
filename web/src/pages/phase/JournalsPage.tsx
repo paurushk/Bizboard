@@ -5,10 +5,11 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
-import MenuItem from '@mui/material/MenuItem';
 import Stack from '@mui/material/Stack';
+import Typography from '@mui/material/Typography';
 import TextField from '@mui/material/TextField';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { todayIso } from '@/components/billing';
@@ -19,9 +20,15 @@ import { t } from '@/i18n';
 import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { useAuth } from '@/auth/AuthContext';
+import { AccountSelect } from '@/components/accounting/AccountSelect';
+import { canPostJournals } from '@/utils/permissions';
 
 export function JournalsPage() {
-  const { writesBlocked } = useSubscriptionGate();
+  const { writesBlocked: subscriptionBlocked } = useSubscriptionGate();
+  const { user } = useAuth();
+  // ACS-00: one gate for every write button -- subscription lapse or no journal-posting right.
+  const writesBlocked = subscriptionBlocked || !canPostJournals(user);
   const qc = useQueryClient();
   const query = useQuery({
     queryKey: ['journals'],
@@ -38,6 +45,19 @@ export function JournalsPage() {
     { account: '', debit: '', credit: '' },
   ]);
   const [error, setError] = useState('');
+  const resetForm = () => {
+    setNarration('');
+    setEntryDate(todayIso());
+    setLines([
+      { account: '', debit: '', credit: '' },
+      { account: '', debit: '', credit: '' },
+    ]);
+    setError('');
+  };
+  const openDialog = () => {
+    resetForm();
+    setOpen(true);
+  };
   const [confirm, setConfirm] = useState<{ mode: 'post' | 'reverse'; id: number } | null>(null);
   const totals = useMemo(() => {
     const debit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
@@ -59,7 +79,7 @@ export function JournalsPage() {
       }),
     onSuccess: () => {
       setOpen(false);
-      setEntryDate(todayIso());
+      resetForm();
       void qc.invalidateQueries({ queryKey: ['journals'] });
     },
     onError: (e) => setError(getErrorMessage(e)),
@@ -88,7 +108,7 @@ export function JournalsPage() {
       title={t('phase.journals')}
       subtitle={t('phase.journalsSubtitle')}
       actions={
-        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
+        <Button variant="contained" onClick={openDialog} disabled={writesBlocked}>
           {t('phase.newVoucher')}
         </Button>
       }
@@ -105,6 +125,23 @@ export function JournalsPage() {
           { key: 'number', label: t('common.number') },
           { key: 'entryDate', label: t('common.date') },
           { key: 'status', label: t('common.status'), status: true },
+          {
+            key: 'sourceLabel',
+            label: t('phase.journalSource'),
+            render: (r) => {
+              const path = typeof r.sourcePath === 'string' ? r.sourcePath : '';
+              const label = r.sourceType === 'MANUAL_JOURNAL' || !r.sourceType
+                ? t('phase.journalManualEntry')
+                : String(r.sourceLabel ?? '');
+              return path ? (
+                <Typography component={RouterLink} to={path} variant="body2" sx={{ color: 'primary.main' }}>
+                  {label}
+                </Typography>
+              ) : (
+                label
+              );
+            },
+          },
           { key: 'narration', label: t('phase.journalNarration') },
         ]}
         actions={(r) =>
@@ -112,7 +149,7 @@ export function JournalsPage() {
             <Button size="small" variant="contained" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'post', id: Number(r.id) })}>
               {t('phase.journalPost')}
             </Button>
-          ) : r.status === 'POSTED' ? (
+          ) : r.status === 'POSTED' && r.canReverse === true ? (
             <Button size="small" color="warning" disabled={writesBlocked} onClick={() => setConfirm({ mode: 'reverse', id: Number(r.id) })}>
               {t('phase.journalReverse')}
             </Button>
@@ -134,23 +171,17 @@ export function JournalsPage() {
             <TextField label={t('phase.journalNarration')} value={narration} onChange={(e) => setNarration(e.target.value)} fullWidth />
             {lines.map((line, idx) => (
               <Stack key={idx} direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                <TextField
-                  select
+                <AccountSelect
+                  accounts={accounts.data}
                   label={t('phase.journalAccount')}
                   value={line.account}
-                  onChange={(e) => {
+                  onChange={(id) => {
                     const next = [...lines];
-                    next[idx] = { ...next[idx], account: e.target.value };
+                    next[idx] = { ...next[idx], account: id };
                     setLines(next);
                   }}
                   sx={{ flex: 2 }}
-                >
-                  {(accounts.data ?? []).map((a) => (
-                    <MenuItem key={a.id} value={String(a.id)}>
-                      {a.code} — {a.name}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                />
                 <TextField
                   label={t('phase.journalDebit')}
                   type="number"

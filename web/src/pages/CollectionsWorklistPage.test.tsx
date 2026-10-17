@@ -337,3 +337,109 @@ describe('Smart Aging Cohorts & WhatsApp Dunning Engine (Sprint 1.2)', () => {
     );
   });
 });
+
+describe('CollectionsWorklistPage opened from the Money hub', () => {
+  function wrapAt(url: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[url]}>
+          <CollectionsWorklistPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  const row = (invoiceId: number, customerId: number, name: string, daysOverdue: number, dueInDays: number) => ({
+    invoiceId,
+    invoiceNumber: `INV-${invoiceId}`,
+    customerId,
+    customerName: name,
+    dueDate: isoDaysFromNow(dueInDays),
+    daysOverdue,
+    amountReceived: '0.00',
+    outstanding: '500.00',
+    customerOutstanding: '500.00',
+  });
+
+  function seed() {
+    listOpenInvoices.mockResolvedValue([
+      row(1, 10, 'Late Customer', 12, -12),
+      row(2, 11, 'Soon Customer', 0, 3),
+      row(3, 12, 'Far Customer', 0, 40),
+    ] as never);
+  }
+
+  it('shows only the bills past their due date for the overdue tile', async () => {
+    seed();
+    wrapAt('/payments/collections?due=overdue&via=money');
+    expect(await screen.findByText('INV-1')).toBeTruthy();
+    expect(screen.queryByText('INV-2')).toBeNull();
+    expect(screen.queryByText('INV-3')).toBeNull();
+    expect(screen.getByText('Opened from Money: Overdue bills')).toBeTruthy();
+    expect(screen.getByText('Showing 1 of 3 open bills.')).toBeTruthy();
+  });
+
+  it('shows only the bills due in the next 7 days for the due-soon tile', async () => {
+    seed();
+    wrapAt('/payments/collections?due=soon&via=money');
+    expect(await screen.findByText('INV-2')).toBeTruthy();
+    expect(screen.queryByText('INV-1')).toBeNull();
+    expect(screen.queryByText('INV-3')).toBeNull();
+  });
+
+  it('shows one customer for a chase-payment action', async () => {
+    seed();
+    wrapAt('/payments/collections?customer=12&via=money');
+    expect(await screen.findByText('INV-3')).toBeTruthy();
+    expect(screen.queryByText('INV-1')).toBeNull();
+    expect(screen.getByText('Opened from Money: One customer')).toBeTruthy();
+  });
+
+  it('shows only broken promises for the promises-not-kept tile', async () => {
+    listOpenInvoices.mockResolvedValue([]);
+    listPaymentPromises.mockResolvedValue([
+      { ...SOON_PROMISE, id: 1, customerName: 'Patient Payer' },
+      { ...OVERDUE_PROMISE, id: 2, customerName: 'Broken Payer', broken: true },
+    ]);
+    wrapAt('/payments/collections?promises=broken&via=money');
+    expect(await screen.findByText('Broken Payer')).toBeTruthy();
+    expect(screen.queryByText('Patient Payer')).toBeNull();
+    expect(screen.getByText('Opened from Money: Promises not kept')).toBeTruthy();
+  });
+
+  it('shows only promises due within a week for the promises-due tile', async () => {
+    listOpenInvoices.mockResolvedValue([]);
+    listPaymentPromises.mockResolvedValue([
+      { ...SOON_PROMISE, id: 1, customerName: 'Near Payer', promisedDate: isoDaysFromNow(5) },
+      { ...SOON_PROMISE, id: 3, customerName: 'Distant Payer', promisedDate: isoDaysFromNow(30) },
+    ]);
+    wrapAt('/payments/collections?promises=due&via=money');
+    expect(await screen.findByText('Near Payer')).toBeTruthy();
+    expect(screen.queryByText('Distant Payer')).toBeNull();
+  });
+
+  it('lets the user show everything again', async () => {
+    seed();
+    wrapAt('/payments/collections?due=overdue&via=money');
+    await screen.findByText('INV-1');
+    await userEvent.click(screen.getByRole('button', { name: 'Show everything' }));
+    expect(await screen.findByText('INV-3')).toBeTruthy();
+    expect(screen.queryByText(/Opened from Money/)).toBeNull();
+  });
+
+  it('ignores filter values it does not know', async () => {
+    seed();
+    wrapAt('/payments/collections?due=banana&customer=abc');
+    expect(await screen.findByText('INV-3')).toBeTruthy();
+    expect(screen.getByText('INV-1')).toBeTruthy();
+  });
+
+  it('lets someone record the payment straight from the row, on the bill that was chased', async () => {
+    seed();
+    wrapAt('/payments/collections');
+    await screen.findByText('INV-1');
+    const links = screen.getAllByRole('link', { name: 'Record payment' });
+    expect(links[0].getAttribute('href')).toBe('/sales/history/1?pay=1');
+  });
+});

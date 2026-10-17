@@ -986,6 +986,53 @@ const MORE_FAQ: FaqItem[] = [
     ],
   ),
   faq(
+    'order-to-delivery-flow',
+    'Quotations, orders & challans',
+    'How do quotations, sales orders, challans, invoices and routes connect?',
+    ['document flow', 'order to invoice', 'challan', 'sales order status', 'shipped', 'confirmed', 'partly processed', 'which step next'],
+    [
+      'A **quotation** is an offer: it holds no stock and posts nothing. **Convert to order** (or straight to an invoice) when the customer says yes.',
+      'A **sales order** is a commitment. **Confirm** it to reserve the stock. You can then **Convert to challan** (goods go out) and/or **Convert to invoice** (the bill). Both are optional: a shop can invoice straight from the order, or ship first and bill later.',
+      'Status words: **Draft** is not confirmed and holds no stock. **Confirmed** has its stock reserved. **Partly processed** has some quantity shipped or billed and the rest still open. **Shipped** means the challan is complete and no invoice exists yet. **Converted** is fully shipped or billed. **Cancelled** gives any reserved stock back.',
+      'If your company has **order checks** on, an order must be confirmed before it can become a challan or invoice, and confirming checks the customer’s credit limit and margin. With checks off you can convert a draft directly.',
+      'A **delivery route** is the van trip that takes confirmed or shipped orders to customers; see **t:nav.deliveryRoutes**.',
+    ],
+  ),
+  faq(
+    'delivery-routes-office',
+    'Quotations, orders & challans',
+    'How does a delivery route work for the office and the godown?',
+    ['delivery route', 'dispatch', 'load list', 'manifest', 'driver', 'stop', 'record delivery', 'close route', 'cancel route'],
+    [
+      'Plan a route from **t:nav.deliveryRoutes**: pick the date, the vehicle and the driver, and tick the orders that are ready (confirmed, partly processed or shipped). An order can be on only one live route at a time. The same vehicle or driver on two routes the same day shows a warning.',
+      'Print the **manifest** before loading: it lists every stop with the customer, phone, address and what to collect, and a **load list** by product so the godown picks once.',
+      '**Start** the route when the van leaves. Each stop is a card: record the outcome there (delivered, not delivered, refused, or goods came back). A delivery needs the name of who received it; cash and UPI collected are entered on the same card. The office can record a delivery without the customer’s code; it is marked "recorded by office" and the audit keeps who did it.',
+      'A route cannot be **closed** while any stop has no outcome. Changing an outcome that was already recorded needs a reason. A route on the road can be **cancelled** only with a reason, and not once goods were delivered or money collected on it.',
+    ],
+  ),
+  faq(
+    'route-cashier-count',
+    'Quotations, orders & challans',
+    'How is the cash a driver collected counted and recorded?',
+    ['cashier', 'cash count', 'driver cash', 'variance', 'receipt', 'collected', 'upi', 'link receipt'],
+    [
+      'Cash and UPI the driver reports are entered on each stop. The cashier then counts the drawer in **Cashier count** on the route and records what is really there. A different person from the one who entered the amounts must count, unless it is the owner or a manager.',
+      'If the count differs, the screen says by how much and asks why; the route shows **Cash difference not explained** until a reason is written. A route with money collected cannot be closed until it has been counted.',
+      'Bizboard does **not** create the customer receipt from a collection. Post the receipt on the receipts screen as usual, then use **Link receipt** on the stop so the delivery and the receipt point at each other. If the receipt differs from the collection you give a reason.',
+    ],
+  ),
+  faq(
+    'route-planning-risks',
+    'Quotations, orders & challans',
+    'What does the route planning table warn me about, and who can override it?',
+    ['route planning', 'risk', 'warning', 'blocked', 'accept', 'override', 'stock short', 'credit limit', 'no phone', 'preflight'],
+    [
+      'When you create a route or add orders, each order shows its customer, area, wanted-by date, items, whether the stock is there, the bill and what the driver must collect. **Details** opens everything about the order in one place.',
+      'Some things **block** an order (already on another route, cancelled, customer blocked, already delivered). Fix them or choose another order. Other things are **warnings** (stock short, no phone, over credit limit, e-Way Bill needed). You can still send the order, but you must write a reason. The reason is kept on the route and printed on the manifest. Some warnings can only be accepted by a manager or the owner.',
+      'Before the route starts, the same check runs again on every stop, because stock or credit may have changed since you planned. Anything blocked has to be fixed or removed; warnings can be accepted there.',
+    ],
+  ),
+  faq(
     'quotation-partial-close',
     'Quotations, orders & challans',
     'What if only part of a quotation is converted and the rest is dropped?',
@@ -1454,7 +1501,7 @@ const MORE_FAQ: FaqItem[] = [
     ['30 november', 'nov 30', 'section 34', 'credit note deadline', 'annual return'],
     [
       'GST law caps credit notes that change output tax at 30 November after the financial year (or annual return filing, whichever is earlier).',
-      'Bizboard currently enforces period lock, not that statutory cutoff. Your CA should still watch 30 Nov. Do not treat a successful Complete as still legal forever.',
+      'Bizboard refuses a credit note dated after 30 November. If you record the date your annual return was filed on the GSTR-9 screen, it refuses notes dated after that date too.',
     ],
   ),
 
@@ -1696,7 +1743,7 @@ const MORE_FAQ: FaqItem[] = [
     'How do payment links work?',
     ['payment link', 'razorpay', 'pay page', 'share link', 'public pay'],
     [
-      'Create a link on a completed invoice (**t:nav.payments** → **t:nav.paymentLinks**). Share WhatsApp or email. The buyer pays at the public pay page. Capture creates a receipt and allocates it.',
+      'Create a link on a completed invoice (**t:nav.money** → **t:nav.paymentLinks**). Share WhatsApp or email. The buyer pays at the public pay page. Capture creates a receipt and allocates it.',
       'You cannot create a link on a draft. Cancelling a paid link is blocked. Cancelling the invoice cancels an open link.',
     ],
   ),
@@ -2481,6 +2528,46 @@ const MORE_FAQ: FaqItem[] = [
     [
       'It is a flagged preview (leads, opportunities), Owner-gated. Billing, stock and GST do not depend on it.',
       'Treat it as optional. **t:nav.customers** under Sales is the system of record for people you bill.',
+    ],
+  ),
+  faq(
+    'money-overview',
+    'Payments & banking',
+    'Where can I see everything I am owed and everything I owe?',
+    ['money', 'overview', 'owed', 'receivable', 'payable', 'cash', 'outstanding', 'pending payments'],
+    [
+      'Open **t:nav.money** → **t:nav.moneyOverview**. It shows what customers owe you, what you owe suppliers, cash and bank now, and what is stuck: cheques waiting to clear, advances not yet applied, unmatched bank lines and TDS waiting for its certificate.',
+      'Each line opens the list it adds up. Act on it there, then come back: the figure has already changed.',
+    ],
+  ),
+  faq(
+    'money-cash-vs-dashboard',
+    'Payments & banking',
+    'Why is cash lower than before, or different from the receipts total?',
+    ['cash', 'cheque', 'pending cheque', 'cash book', 'closing', 'uncleared'],
+    [
+      'Cash and bank now counts cleared money only. A cheque you have received, or issued, is shown apart until it clears. **t:nav.cashBook**, the dashboard and the Money overview use the same rule, so they agree.',
+      'The totals at the top of **t:nav.receipts** follow the filters you chose, so they show part of the picture. The Money overview shows where you stand today.',
+    ],
+  ),
+  faq(
+    'money-advance-paid',
+    'Payments & banking',
+    'I paid a supplier in advance. Why do I still owe them the full bill?',
+    ['advance paid', 'supplier advance', 'unapplied payment', 'owe supplier'],
+    [
+      'Money paid to a supplier that no bill has taken yet is shown as **advances paid** beside what you owe them. It is not taken off the amount owed until you apply it to a bill.',
+      'Open **t:nav.supplierPayments**, tick not yet applied to a bill, and apply the payment to the bill it was for.',
+    ],
+  ),
+  faq(
+    'money-tds-certificate',
+    'Payments & banking',
+    'How do I clear TDS that a customer deducted?',
+    ['tds', 'certificate', '16a', 'form 16a', 'tds receivable', '26as'],
+    [
+      'Open **t:nav.tdsReceivable**. When the customer sends the certificate (Form 16A), choose Certificate received on that receipt and add the date and number.',
+      'This only marks the receipt on your list. It posts nothing to your books, so your CA still decides how the tax is claimed.',
     ],
   ),
 ];

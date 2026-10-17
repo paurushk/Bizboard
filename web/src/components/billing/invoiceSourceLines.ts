@@ -16,6 +16,7 @@ export interface InvoiceSourceLine {
   cessRate: number;
   discountPercent: number;
   included: boolean;
+  hsnCode?: string;
   condition?: 'SELLABLE' | 'DAMAGED';
   serialNumbersText?: string;
   soldSerialNumbers?: string[];
@@ -129,6 +130,7 @@ export function invoiceItemsToSourceLines(
       cessRate: toNumber(item.cessRate),
       discountPercent: toNumber(item.discountPercent),
       included: false,
+      hsnCode: item.hsnCode ?? '',
       condition: 'SELLABLE',
       // Nothing is pre-picked: the operator chooses which sold serials come back.
       serialNumbersText: '',
@@ -145,23 +147,32 @@ export function noteItemsToSourceLines(
   items: LineItem[],
   invoiceItems: LineItem[],
 ): InvoiceSourceLine[] {
+  // NEW-09: a note line points at its invoice line through `sourceItem`. The old
+  // code used the note line's own id there, so re-saving a draft pointed the line
+  // at the wrong (or a missing) invoice line.
+  const maxByInvoiceLine = new Map<number, number>();
   const maxByProduct = new Map<number, number>();
   for (const inv of invoiceItems) {
+    if (inv.id != null) maxByInvoiceLine.set(inv.id, toNumber(inv.quantity));
     maxByProduct.set(inv.product, toNumber(inv.quantity));
   }
   return items.map((item, idx) => ({
     key: `edit-${item.id ?? idx}-${item.product}`,
     lineId: item.id,
-    sourceItemId: item.id,
+    sourceItemId: item.sourceItem ?? undefined,
     product: item.product,
     productName: item.productName ?? item.description ?? `Product #${item.product}`,
-    maxQty: maxByProduct.get(item.product) ?? toNumber(item.quantity),
+    maxQty:
+      (item.sourceItem != null ? maxByInvoiceLine.get(item.sourceItem) : undefined) ??
+      maxByProduct.get(item.product) ??
+      toNumber(item.quantity),
     quantity: toNumber(item.quantity),
     unitPrice: toNumber(item.unitPrice),
     gstRate: toNumber(item.gstRate),
     cessRate: toNumber(item.cessRate),
     discountPercent: toNumber(item.discountPercent),
     included: true,
+    hsnCode: item.hsnCode ?? '',
   }));
 }
 

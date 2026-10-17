@@ -424,7 +424,7 @@ _SCHEDULE_III_BALANCE = (
 
 _SCHEDULE_III_PNL = (
     ("pnl", "Statement of profit and loss", (
-        ("revenue_from_operations", "Revenue from operations", {"4100"}, ()),
+        ("revenue_from_operations", "Revenue from operations", {"4100", "4110"}, ()),
         ("other_income", "Other income", {"5700"}, ()),
         ("cost_of_materials_consumed", "Cost of materials consumed", {"5100", "5110", "5400"}, ()),
         ("employee_benefits_expense", "Employee benefits expense", {"5800"}, ()),

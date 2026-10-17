@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -15,6 +17,8 @@ class LeadSerializer(serializers.ModelSerializer):
     campaign = CompanyPrimaryKeyRelatedField(
         queryset=Campaign.objects.all(), allow_null=True, required=False
     )
+    customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True, default=None)
+    campaign_name = serializers.CharField(source="campaign.name", read_only=True, allow_null=True, default=None)
 
     class Meta:
         model = Lead
@@ -22,10 +26,11 @@ class LeadSerializer(serializers.ModelSerializer):
             "id", "name", "phone", "email", "state", "gstin", "address", "status",
             "source", "message", "assigned_to", "dedupe_matched_customer",
             "dedupe_matched_lead", "dedupe_review", "dedupe_candidates",
-            "customer", "campaign", "referral_code", "last_touched_at", "created_at", "updated_at",
+            "customer", "customer_name", "campaign", "campaign_name", "referral_code",
+            "last_touched_at", "created_at", "updated_at",
         ]
         read_only_fields = [
-            "created_at", "updated_at", "assigned_to", "dedupe_matched_customer",
+            "created_at", "updated_at", "customer_name", "campaign_name", "assigned_to", "dedupe_matched_customer",
             "dedupe_matched_lead", "dedupe_review", "dedupe_candidates", "referral_code",
             "last_touched_at",
         ]
@@ -43,15 +48,24 @@ class OpportunitySerializer(serializers.ModelSerializer):
     customer = CompanyPrimaryKeyRelatedField(
         queryset=Customer.objects.all(), allow_null=True, required=False
     )
+    lead_name = serializers.CharField(source="lead.name", read_only=True, allow_null=True, default=None)
+    customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True, default=None)
 
     class Meta:
         model = Opportunity
         fields = [
-            "id", "lead", "customer", "title", "amount", "probability",
+            "id", "lead", "lead_name", "customer", "customer_name", "title", "amount", "probability",
             "expected_close_date", "competitor", "stage", "closed_at", "stage_move_count",
+            "lost_reason", "lost_reason_note", "reopened_at",
             "created_at", "updated_at",
         ]
-        read_only_fields = ["created_at", "updated_at", "closed_at", "stage_move_count"]
+        read_only_fields = [
+            "created_at", "updated_at", "closed_at", "stage_move_count", "reopened_at",
+            "lead_name", "customer_name",
+        ]
+
+    # A closed deal keeps its numbers and parties; only these fields may still change.
+    CLOSED_EDITABLE = {"competitor", "stage", "lost_reason", "lost_reason_note"}
 
     def validate_stage(self, value):
         # B9-039: WON/LOST are terminal -- once closed, an opportunity's
@@ -65,12 +79,35 @@ class OpportunitySerializer(serializers.ModelSerializer):
         return value
 
     def validate_amount(self, value):
-        if self.instance is not None and self.instance.lines.exists():
+        # The edit form always sends the amount back; only a real change is refused.
+        if (
+            self.instance is not None
+            and self.instance.lines.exists()
+            and Decimal(value) != Decimal(self.instance.amount or 0)
+        ):
             raise serializers.ValidationError("Amount is derived from line items.")
         return value
 
     def validate(self, attrs):
+        instance = self.instance
+        if instance is not None and instance.stage in (
+            Opportunity.Stage.WON, Opportunity.Stage.LOST,
+        ):
+            for field, value in attrs.items():
+                if field in self.CLOSED_EDITABLE:
+                    continue
+                if getattr(instance, field) != value:
+                    raise serializers.ValidationError(
+                        {field: "This deal is closed. Ask an owner or manager to reopen it before changing it."}
+                    )
         stage = attrs.get("stage", getattr(self.instance, "stage", None))
+        if stage == Opportunity.Stage.LOST and (instance is None or instance.stage != Opportunity.Stage.LOST):
+            reason = attrs.get("lost_reason") or getattr(instance, "lost_reason", "")
+            note = attrs.get("lost_reason_note", getattr(instance, "lost_reason_note", ""))
+            if not reason:
+                raise serializers.ValidationError({"lost_reason": "Say why the deal was lost."})
+            if reason == Opportunity.LostReason.OTHER and not (note or "").strip():
+                raise serializers.ValidationError({"lost_reason_note": "Add a short note for Other."})
         if "customer" in attrs:
             customer = attrs.get("customer")
         else:
@@ -81,6 +118,10 @@ class OpportunitySerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         stage = validated_data.get("stage")
+        if "probability" not in validated_data:
+            validated_data["probability"] = Opportunity.STAGE_DEFAULT_PROBABILITY.get(
+                stage or Opportunity.Stage.OPEN, 0,
+            )
         if stage in (Opportunity.Stage.WON, Opportunity.Stage.LOST):
             validated_data["closed_at"] = timezone.now()
         instance = super().create(validated_data)
@@ -94,6 +135,10 @@ class OpportunitySerializer(serializers.ModelSerializer):
         new_stage = validated_data.get("stage")
         if new_stage and new_stage != instance.stage:
             validated_data["stage_move_count"] = (instance.stage_move_count or 0) + 1
+            if "probability" not in validated_data:
+                validated_data["probability"] = Opportunity.probability_after_move(
+                    instance.probability, instance.stage, new_stage,
+                )
         if (
             new_stage in (Opportunity.Stage.WON, Opportunity.Stage.LOST)
             and instance.stage != new_stage
@@ -145,11 +190,15 @@ class CampaignSerializer(serializers.ModelSerializer):
 
 class OpportunityLineSerializer(serializers.ModelSerializer):
     product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
+    product_name = serializers.CharField(source="product.name", read_only=True)
 
     class Meta:
         model = OpportunityLine
-        fields = ["id", "opportunity", "product", "description", "quantity", "unit_price", "created_at"]
-        read_only_fields = ["id", "opportunity", "created_at"]
+        fields = [
+            "id", "opportunity", "product", "product_name", "description", "quantity", "unit_price",
+            "created_at",
+        ]
+        read_only_fields = ["id", "opportunity", "product_name", "created_at"]
 
 
 class ReferralCodeSerializer(serializers.ModelSerializer):

@@ -21,6 +21,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CreateDialog } from '@/components/CreateDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { enumLabel } from '@/utils/enumLabels';
 import { formatMoney } from '@/utils/money';
 import { t } from '@/i18n';
@@ -58,12 +59,14 @@ function CampaignsInner() {
   const [q, setQ] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Campaign | null>(null);
   const [more, setMore] = useState(false);
-  const [funnel, setFunnel] = useState<Funnel | null>(null);
+  const [funnel, setFunnel] = useState<{ id: number; data: Funnel } | null>(null);
+  const [statusFilter, setStatusFilter] = useState('');
+  const { writesBlocked } = useSubscriptionGate();
   const [error, setError] = useState('');
   const term = useDebouncedValue(q, 300).trim();
   const list = useQuery({
-    queryKey: ['campaigns', page, term],
-    queryFn: () => listCampaignsPage({ page, pageSize: 20, q: term || undefined }),
+    queryKey: ['campaigns', page, term, statusFilter],
+    queryFn: () => listCampaignsPage({ page, pageSize: 20, q: term || undefined, status: statusFilter || undefined }),
   });
   const rows = list.data?.results ?? [];
   // The parent choice must not depend on the page or the search text on screen.
@@ -123,7 +126,14 @@ function CampaignsInner() {
       endDate: row.endDate ?? '',
     });
     setError('');
-    void getCampaignFunnel(row.id).then(setFunnel).catch((err) => setError(getErrorMessage(err)));
+    showFunnel(row);
+  };
+
+  const showFunnel = (row: Campaign) => {
+    setError('');
+    void getCampaignFunnel(row.id)
+      .then((data) => setFunnel({ id: row.id, data }))
+      .catch((err) => setError(getErrorMessage(err)));
   };
 
   return (
@@ -131,13 +141,24 @@ function CampaignsInner() {
       <PageTitle>{t('nav.campaigns')}</PageTitle>
       <Typography variant="body2" color="text.secondary">{t('growth.campaignHonesty')}</Typography>
       <TextField size="small" label={t('cog.searchGrowth')} value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} />
-      <Button sx={{ alignSelf: 'flex-start' }} variant="contained" onClick={() => { setEditing(null); setDraft(emptyDraft); setMore(false); setCreateOpen(true); }}>{t('growth.newCampaign')}</Button>
+      <TextField
+        select
+        size="small"
+        label={t('growth.status')}
+        value={statusFilter}
+        onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+        sx={{ maxWidth: 220 }}
+      >
+        <MenuItem value="">{t('common.all')}</MenuItem>
+        {STATUSES.map((value) => <MenuItem key={value} value={value}>{enumLabel('campaignStatus', value)}</MenuItem>)}
+      </TextField>
+      <Button sx={{ alignSelf: 'flex-start' }} variant="contained" disabled={writesBlocked} onClick={() => { setEditing(null); setDraft(emptyDraft); setMore(false); setCreateOpen(true); }}>{t('growth.newCampaign')}</Button>
       <CreateDialog
         open={createOpen}
         onClose={() => { setCreateOpen(false); setEditing(null); setDraft(emptyDraft); setMore(false); }}
         title={editing ? t('growth.detail') : t('growth.newCampaign')}
         submitLabel={t('growth.save')}
-        submitDisabled={!draft.name.trim() || save.isPending}
+        submitDisabled={!draft.name.trim() || save.isPending || writesBlocked}
         dirty={draft.name.trim() !== '' || draft.budget !== '0' || draft.expectedOutcome !== ''}
         onSubmit={() => save.mutate()}
       >
@@ -169,19 +190,30 @@ function CampaignsInner() {
       {!list.isLoading && !list.isError && rows.length === 0 ? (
         <EmptyState description={t('cog.emptyCampaigns')} action={<Button variant="contained" onClick={() => setCreateOpen(true)}>{t('growth.newCampaign')}</Button>} />
       ) : null}
-      {rows.map((row) => (
-        <Paper key={row.id} variant="outlined" sx={{ p: 1.5 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center">
-            <Typography>{row.name} · {enumLabel('campaignType', row.campaignType)} · {enumLabel('campaignStatus', row.status)}</Typography>
-            <Button size="small" onClick={() => { load(row); setCreateOpen(true); }}>{t('common.edit')}</Button>
-            <Button size="small" onClick={() => {
-              setError('');
-              void getCampaignFunnel(row.id).then(setFunnel).catch((err) => setError(getErrorMessage(err)));
-            }}>{t('growth.funnel')}</Button>
-            <Button size="small" color="warning" onClick={() => setPendingDelete(row)}>{t('growth.remove')}</Button>
-          </Stack>
-        </Paper>
-      ))}
+      {rows.map((row) => {
+        const parentName = row.parent
+          ? (parentChoices.data?.results ?? []).find((choice) => choice.id === row.parent)?.name
+          : undefined;
+        return (
+          <Paper key={row.id} variant="outlined" sx={{ p: 1.5 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center">
+              <Typography>
+                {row.name} · {enumLabel('campaignType', row.campaignType)} · {enumLabel('campaignStatus', row.status)}
+                {parentName ? ` · ${t('growth.childOf', { name: parentName })}` : ''}
+              </Typography>
+              <Button size="small" disabled={writesBlocked} onClick={() => { load(row); setCreateOpen(true); }}>{t('common.edit')}</Button>
+              <Button size="small" onClick={() => showFunnel(row)}>{t('growth.funnel')}</Button>
+              <Button size="small" color="warning" disabled={writesBlocked} onClick={() => setPendingDelete(row)}>{t('growth.remove')}</Button>
+            </Stack>
+            {funnel?.id === row.id ? (
+              <Stack spacing={1} sx={{ mt: 1 }}>
+                <FunnelBlock title={`${t('growth.funnel')} — ${row.name}`} funnel={funnel.data} />
+                {funnel.data.rollup ? <FunnelBlock title={`${t('growth.rollup')} — ${row.name}`} funnel={funnel.data.rollup} /> : null}
+              </Stack>
+            ) : null}
+          </Paper>
+        );
+      })}
       <Stack direction="row" spacing={1}>
         <Button size="small" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{t('common.previous')}</Button>
         <Button size="small" disabled={!list.data?.next} onClick={() => setPage((p) => p + 1)}>{t('common.next')}</Button>
@@ -198,8 +230,6 @@ function CampaignsInner() {
           setPendingDelete(null);
         }}
       />
-      {funnel ? <FunnelBlock title={t('growth.funnel')} funnel={funnel} /> : null}
-      {funnel?.rollup ? <FunnelBlock title={t('growth.rollup')} funnel={funnel.rollup} /> : null}
     </Stack>
   );
 }

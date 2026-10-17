@@ -511,7 +511,8 @@ def test_bug_crm_001_002_percent_uses_invoices_and_paid_drafts_a_note(tenant_a):
     reward.refresh_from_db()
     assert reward.reward_status == ReferralReward.Status.PAID
     note = SalesCreditNote.objects.get(pk=reward.credit_note_id)
-    assert note.status == SalesCreditNote.Status.DRAFT
+    # Credit/debit note plan (Q4): mark-paid completes the reward's credit note.
+    assert note.status == SalesCreditNote.Status.COMPLETED
 
 
 def test_bug_crm_004_campaign_can_be_edited_and_labels_invoice_revenue(tenant_a):

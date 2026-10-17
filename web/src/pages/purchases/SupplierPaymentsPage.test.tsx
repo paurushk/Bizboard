@@ -7,7 +7,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { SupplierPaymentsPage } from '@/pages/purchases/SupplierPaymentsPage';
 import type { SupplierPayment } from '@/types/domain';
 
-const { PAYMENT, setSupplierPaymentChequeStatus, voidSupplierPayment, trackShopFloor } = vi.hoisted(() => {
+const {
+  setSupplierPaymentChequeStatus,
+  voidSupplierPayment,
+  trackShopFloor,
+  listSupplierPaymentsPage,
+  getSupplierPaymentsSummary,
+} = vi.hoisted(() => {
   const payment: SupplierPayment = {
     id: 71,
     number: 'PAY-0001',
@@ -31,15 +37,30 @@ const { PAYMENT, setSupplierPaymentChequeStatus, voidSupplierPayment, trackShopF
     })),
     voidSupplierPayment: vi.fn(async () => ({ ...payment, status: 'VOID' })),
     trackShopFloor: vi.fn(),
+    listSupplierPaymentsPage: vi.fn(async () => ({ results: [payment], count: 1, next: null, previous: null })),
+    getSupplierPaymentsSummary: vi.fn(async () => ({
+      count: 1,
+      paid: '0.00',
+      chequesPending: '80.00',
+      advance: '80.00',
+      excludedCount: 2,
+      payable: '1500.00',
+      overdue: '400.00',
+    })),
   };
 });
+
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, role: 'OWNER', canViewFinancialReports: true, companyId: 9 } }),
+}));
 
 vi.mock('@/lib/telemetry', () => ({
   trackShopFloor: (...args: unknown[]) => trackShopFloor(...args),
 }));
 
 vi.mock('@/api/resources', () => ({
-  listSupplierPaymentsPage: async () => ({ results: [PAYMENT], count: 1, next: null, previous: null }),
+  listSupplierPaymentsPage: (...args: unknown[]) => listSupplierPaymentsPage(...args),
+  getSupplierPaymentsSummary: (...args: unknown[]) => getSupplierPaymentsSummary(...args),
   listSuppliers: async () => [{ id: 4, name: 'Mega Suppliers', status: 'ACTIVE' }],
   listAllPurchases: async () => [
     { id: 501, number: 'PUR-1', supplier: 4, status: 'COMPLETED', grandTotal: '60.00', balance: '60.00' },
@@ -152,5 +173,71 @@ describe('SupplierPaymentsPage allocation amount', () => {
     const dialog = await openDialog();
     await fillPayment(dialog, '100');
     expect(within(dialog).queryByLabelText(/^allocate$/i)).toBeNull();
+  });
+});
+
+describe('SupplierPaymentsPage money strip and Money hub filters', () => {
+  function wrapAt(url: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter initialEntries={[url]}>
+          <SupplierPaymentsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('shows what is owed, overdue, paid, unapplied and waiting to clear', async () => {
+    wrap(<SupplierPaymentsPage />);
+    const group = await screen.findByRole('group', { name: /supplier payment totals/i });
+    expect(within(group).getByText('You owe suppliers')).toBeTruthy();
+    expect(within(group).getByText('₹1,500.00')).toBeTruthy();
+    expect(within(group).getByText('₹400.00')).toBeTruthy();
+    expect(within(group).getByText('Paid, not yet applied')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /see where you stand today/i })).toBeTruthy();
+  });
+
+  it('leaves out what is owed for someone who cannot see it', async () => {
+    getSupplierPaymentsSummary.mockResolvedValueOnce({
+      count: 1, paid: '0.00', chequesPending: '0.00', advance: '0.00', excludedCount: 0, payable: null, overdue: null,
+    });
+    wrap(<SupplierPaymentsPage />);
+    const group = await screen.findByRole('group', { name: /supplier payment totals/i });
+    expect(within(group).queryByText('You owe suppliers')).toBeNull();
+    expect(within(group).getByText('Paid out')).toBeTruthy();
+  });
+
+  it('opens filtered when the Money hub sends cheques to clear, and sends the filter to the server', async () => {
+    wrapAt('/purchases/payments?cheque_status=PENDING_CLEARANCE&via=money');
+    expect(await screen.findByText(/opened from money: cheques issued, not cleared/i)).toBeTruthy();
+    await waitFor(() =>
+      expect(listSupplierPaymentsPage).toHaveBeenCalledWith(
+        expect.objectContaining({ cheque_status: 'PENDING_CLEARANCE' }),
+      ),
+    );
+    expect(getSupplierPaymentsSummary).toHaveBeenCalledWith(
+      expect.objectContaining({ cheque_status: 'PENDING_CLEARANCE' }),
+    );
+    expect(screen.getByRole('link', { name: /back to money/i })).toBeTruthy();
+  });
+
+  it('opens on money not yet applied when the hub sends advances, and shows everything again on request', async () => {
+    wrapAt('/purchases/payments?advance=1&via=money');
+    expect(await screen.findByText(/opened from money: advances paid to suppliers/i)).toBeTruthy();
+    await waitFor(() =>
+      expect(listSupplierPaymentsPage).toHaveBeenCalledWith(expect.objectContaining({ advance: 'true' })),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /show everything/i }));
+    await waitFor(() => expect(screen.queryByText(/opened from money/i)).toBeNull());
+    await waitFor(() =>
+      expect(listSupplierPaymentsPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ advance: 'true' })),
+    );
+  });
+
+  it('shows a normal page, with no hand-off bar, when opened directly', async () => {
+    wrap(<SupplierPaymentsPage />);
+    await screen.findByText('PAY-0001');
+    expect(screen.queryByText(/opened from money/i)).toBeNull();
   });
 });

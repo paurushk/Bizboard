@@ -6,6 +6,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { CampaignsPage } from '@/pages/crm/CampaignsPage';
 import type { Campaign, Funnel } from '@/api/growth';
 
+vi.mock('@/hooks/useSubscriptionGate', () => ({
+  useSubscriptionGate: () => ({ writesBlocked: false, subscription: null, isLoading: false }),
+}));
+
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'u@x.test', fullName: 'U', role: 'OWNER', companyId: 9 } }),
+}));
+
 vi.mock('@/pages/erp/erpShared', () => ({
   ModuleGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -93,5 +101,18 @@ describe('CampaignsPage', () => {
     expect(await screen.findByText(/Leads: 4/)).toBeInTheDocument();
     expect(screen.getByText(/Revenue: .*650.00/)).toBeInTheDocument();
     expect(screen.getByText(/ROI 0.6500/)).toBeInTheDocument();
+  });
+
+  it('names the campaign on its funnel and filters the list by status on the server', async () => {
+    const user = userEvent.setup();
+    wrap();
+    await user.click(await screen.findByRole('button', { name: 'Funnel' }));
+    expect(await screen.findByText('Funnel — Diwali')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Status'));
+    await user.click(await screen.findByRole('option', { name: 'Paused' }));
+    await waitFor(() => expect(listCampaignsPage).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'PAUSED' }),
+    ));
   });
 });

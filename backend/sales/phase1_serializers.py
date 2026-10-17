@@ -62,7 +62,8 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
         model = SalesCreditNote
         fields = [
             "id", "number", "status", "customer", "customer_name", "sales_invoice",
-            "invoice_number", "note_date", "reason", "reason_detail",
+            "invoice_number", "note_date", "reason", "reason_detail", "sales_return",
+            "peeled_receipt_allocations",
             "invoice_discount", "invoice_discount_mode", "auto_round_off",
             "additional_charges", "charges_hsn", "charges_gst_rate", "tcs_amount",
             "filing_party_gstin", "filing_place_of_supply",
@@ -72,7 +73,8 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             "created_at", "updated_at",
         ] + TOTAL_READONLY
         read_only_fields = [
-            "number", "status", "pdf_status", "completed_at", "cancelled_at",
+            "number", "status", "pdf_status", "completed_at", "cancelled_at", "sales_return",
+            "peeled_receipt_allocations",
             "irn", "ack_no", "ack_date", "einvoice_qr", "einvoice_status", "einvoice_error",
             "tcs_amount",
         ] + TOTAL_READONLY
@@ -233,6 +235,12 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
     items = SalesOrderItemSerializer(many=True)
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     expected_profit = serializers.SerializerMethodField()
+    fulfilment_state = serializers.SerializerMethodField()
+
+    def get_fulfilment_state(self, obj):
+        from .order_quantities import fulfilment_state
+
+        return fulfilment_state(obj)
 
     def get_expected_profit(self, obj):
         from .expected_profit import can_view_expected_profit, expected_profit_for_order
@@ -252,9 +260,9 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
             "supply_type", "company_gstin",
             "salesman", "sales_channel", "delivery_address", "ship_to",
             "expected_profit", "source_quotations", "source_quotations_differ",
-            "converted_invoice", "created_at", "updated_at",
+            "converted_invoice", "fulfilment_state", "created_at", "updated_at",
         ] + TOTAL_READONLY
-        read_only_fields = ["number", "status", "converted_invoice", "expected_profit"] + TOTAL_READONLY
+        read_only_fields = ["number", "status", "converted_invoice", "expected_profit", "fulfilment_state"] + TOTAL_READONLY
 
     ship_to = serializers.PrimaryKeyRelatedField(
         queryset=CustomerShippingAddress.objects.all(), write_only=True, required=False, allow_null=True
@@ -343,7 +351,10 @@ class SalesOrderSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin, 
             validated_data["delivery_address"] = ship_to.address
         instance = super().update(instance, validated_data)
         if items_data is not None:
-            SalesNotesService.set_order_items(instance, [dict(l) for l in items_data], request.user)
+            # An edit sends the stored (exclusive) prices back; see set_order_items.
+            SalesNotesService.set_order_items(
+                instance, [dict(l) for l in items_data], request.user, lines_are_exclusive=True
+            )
         return instance
 
 

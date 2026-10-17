@@ -101,6 +101,7 @@ export function InventoryReportPage() {
       product: String(r.product ?? r.productName ?? r.product_name ?? '—'),
       sku: String(r.sku ?? '—'),
       warehouse: String(r.warehouse ?? r.warehouseName ?? r.warehouse_name ?? '—'),
+      warehouseId: (r.warehouseId ?? r.warehouse_id) as number | undefined,
       onHand: (r.onHand ?? r.on_hand) as string | number,
       reserved: (r.reserved) as string | number,
       available: (r.available) as string | number,
@@ -120,14 +121,16 @@ export function InventoryReportPage() {
     );
   }, [query.data?.rows, filters.q]);
 
+  // Not a sum of quantities: kilograms and pieces do not add up. Rows, rows that disagree with the
+  // movement history, and value.
   const kpis = useMemo(() => {
-    let qty = 0;
     let value = 0;
+    let drift = 0;
     for (const row of rows) {
-      qty += toNumber(row.onHand);
       value += toNumber(row.stockValue);
+      if (row.balanceDrift || row.reservedDrift) drift += 1;
     }
-    return { qty, value };
+    return { count: rows.length, drift, value };
   }, [rows]);
 
   return (
@@ -141,22 +144,9 @@ export function InventoryReportPage() {
               disabled={exportMutation.isPending}
               onClick={() => exportMutation.mutate()}
             >
-              {t('common.download')}
+              {t('inventory.downloadCsv')}
             </Button>
           ) : null}
-          <Button
-            variant="outlined"
-            onClick={() => {
-              const url = exportMutation.data?.url;
-              if (url) {
-                window.location.href = `mailto:?subject=${encodeURIComponent(t('nav.inventoryReports'))}&body=${encodeURIComponent(url)}`;
-              } else {
-                exportMutation.mutate();
-              }
-            }}
-          >
-            {t('reports.emailExcel')}
-          </Button>
           <Button variant="outlined" onClick={() => window.print()}>
             {t('common.print')}
           </Button>
@@ -164,7 +154,8 @@ export function InventoryReportPage() {
       </Stack>
       <HistoryFilterBar value={filters} onChange={setFilters} showDateRange={false} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-        <Chip label={`${t('reports.stockQty')}: ${kpis.qty}`} />
+        <Chip label={t('inventory.reportRows', { count: String(kpis.count) })} />
+        {kpis.drift > 0 ? <Chip color="warning" label={t('inventory.reportDriftRows', { count: String(kpis.drift) })} /> : null}
         <Chip label={`${t('reports.stockValue')}: ${formatMoney(kpis.value)}`} />
       </Stack>
       {exportMutation.isError ? (

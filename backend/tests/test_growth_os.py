@@ -962,7 +962,9 @@ def test_opportunity_competitor_is_stored_and_ignored_by_forecast(tenant_a):
     assert blank.data["competitor"] == ""
     forecast = tenant_a.client.get("/api/v1/crm/opportunities/forecast/")
     assert forecast.status_code == 200
-    assert Decimal(str(forecast.data["unscheduled"])) == 0
+    # The rival deal asked for 0%; the other takes the OPEN stage default (10% of 500).
+    # The competitor text itself changes nothing.
+    assert Decimal(str(forecast.data["unscheduled"])) == Decimal("50")
 
 
 def test_fmea2_004_campaign_roi_taxable_net(tenant_a, tenant_b):

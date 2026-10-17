@@ -126,6 +126,24 @@ class ApprovalListCreate(_CompanyView):
         return Response({"id": row.pk, "status": row.status}, status=201)
 
 
+def _apply_stock_approval(row) -> dict:
+    """A single-line stock request is applied for the requester the moment it is approved
+    (INV-IDR-02). A failure (closed period, stock gone) does not undo the decision: the requester can
+    repeat the action and the approved request is spent then."""
+    from core.exceptions import BusinessRuleError
+    from inventory.stock_loss import apply_approved_stock_loss
+
+    try:
+        result = apply_approved_stock_loss(row)
+    except BusinessRuleError as exc:
+        return {"applied": False, "apply_error": str(exc.detail)}
+    if result is None:
+        return {}
+    if result.pending:
+        return {"applied": False, "apply_error": "Another approval is needed."}
+    return {"applied": True, "movement_id": result.movement.pk}
+
+
 class ApprovalDecide(_CompanyView):
     def post(self, request, pk):
         # Only an Owner may approve or reject. Any other member deciding a request
@@ -142,7 +160,10 @@ class ApprovalDecide(_CompanyView):
             accept=bool(request.data.get("accept")),
             owner_exception=owner_exception,
         )
-        return Response({"status": row.status})
+        body = {"status": row.status}
+        if row.status == ApprovalRequest.Status.APPROVED and row.action == "stock_adjustment":
+            body.update(_apply_stock_approval(row))
+        return Response(body)
 
 
 class Section50View(_CompanyView):

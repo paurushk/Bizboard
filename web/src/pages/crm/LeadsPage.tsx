@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState, type HTMLAttributes } from 'react';
 import axios from 'axios';
-import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
 import Dialog from '@mui/material/Dialog';
@@ -47,7 +46,9 @@ import { enumLabel } from '@/utils/enumLabels';
 import { useAuth } from '@/auth/AuthContext';
 import { isReferralsEnabled } from '@/config/features';
 import { ModuleGate, MvpModuleBanner } from '@/pages/erp/erpShared';
-import { useCustomerSearch } from '@/hooks/usePartySearch';
+import { CustomerField } from '@/pages/growth/widgets';
+import { formatDateTime } from '@/utils/dateTime';
+import type { Customer } from '@/types/domain';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -101,7 +102,7 @@ function LeadsPageInner() {
   const [activityDue, setActivityDue] = useState('');
   const [convertLeadRow, setConvertLeadRow] = useState<Lead | null>(null);
   const [convertAmount, setConvertAmount] = useState('0');
-  const [convertWon, setConvertWon] = useState(true);
+  const [convertWon, setConvertWon] = useState(false);
   const [sourceFilter, setSourceFilter] = useState('');
   const [campaignFilter, setCampaignFilter] = useState('');
   const [reviewOnly, setReviewOnly] = useState(false);
@@ -114,6 +115,7 @@ function LeadsPageInner() {
     errors: Array<{ row: number; detail: string }>;
   } | null>(null);
   const [captureAnchor, setCaptureAnchor] = useState<HTMLElement | null>(null);
+  const [customerPick, setCustomerPick] = useState<Customer | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const query = useQuery({
@@ -129,7 +131,6 @@ function LeadsPageInner() {
   });
   const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
   const campaigns = useQuery({ queryKey: ['campaigns', 'filter'], queryFn: () => listCampaignsPage({ pageSize: 100 }) });
-  const customerSearch = useCustomerSearch({ activeOnly: true });
   const customersQuery = useQuery({
     queryKey: ['customers', 'crm'],
     queryFn: () => listCustomersPage({ page: 1, pageSize: 200 }),
@@ -152,6 +153,16 @@ function LeadsPageInner() {
   }, [campaigns.data]);
 
   const rows = query.data?.results ?? [];
+
+  // Clipboard needs HTTPS and permission; when it fails the link is shown so it can still be copied by hand.
+  const copyLink = async (url: string, doneKey: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setNotice(t(doneKey));
+    } catch {
+      setNotice(t('growth.copyFailed', { url }));
+    }
+  };
 
   const saveMutation = useMutation({
     mutationFn: async (decision?: string) => {
@@ -205,25 +216,21 @@ function LeadsPageInner() {
   const formLink = useMutation({
     mutationFn: issueLeadFormToken,
     onSuccess: async (result) => {
-      const url = `${window.location.origin}/lead-form/${result.token}`;
-      await navigator.clipboard.writeText(url);
-      setNotice(t('osPlan.formLinkCopied'));
+      await copyLink(`${window.location.origin}/lead-form/${result.token}`, 'osPlan.formLinkCopied');
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
   const whatsappLink = useMutation({
     mutationFn: () => issueWhatsappWebhookToken(false),
     onSuccess: async (result) => {
-      await navigator.clipboard.writeText(whatsappWebhookUrl(result.token));
-      setNotice(t('osPlan.whatsappLinkCopied'));
+      await copyLink(whatsappWebhookUrl(result.token), 'osPlan.whatsappLinkCopied');
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
   const whatsappReplace = useMutation({
     mutationFn: () => issueWhatsappWebhookToken(true),
     onSuccess: async (result) => {
-      await navigator.clipboard.writeText(whatsappWebhookUrl(result.token));
-      setNotice(t('osPlan.whatsappLinkReplaced'));
+      await copyLink(whatsappWebhookUrl(result.token), 'osPlan.whatsappLinkReplaced');
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -240,10 +247,11 @@ function LeadsPageInner() {
           .then((draft) => {
             if (draft?.id) navigate(`/sales/history/${draft.id}/edit`);
           })
-          .catch((err) => setError(getErrorMessage(err))); // a failed draft must not vanish silently
+          .catch((err) => setError(t('growth.convertDraftFailed', { detail: getErrorMessage(err) }))); // a failed draft must not vanish silently
       }
     },
     onError: (err) => setError(getErrorMessage(err)),
+    onSettled: () => setConvertLeadRow(null),
   });
 
   const activityMutation = useMutation({
@@ -266,6 +274,7 @@ function LeadsPageInner() {
     setError(null);
     setEditing(null);
     setForm(emptyForm);
+    setCustomerPick(null);
     setOpen(true);
   };
 
@@ -282,6 +291,9 @@ function LeadsPageInner() {
       campaign: lead.campaign ?? '',
       referralCode: '',
     });
+    setCustomerPick(
+      lead.customer ? ({ id: lead.customer, name: lead.customerName ?? `#${lead.customer}` } as Customer) : null,
+    );
     setOpen(true);
   };
 
@@ -395,10 +407,10 @@ function LeadsPageInner() {
                   <TableCell>{lead.phone || '—'}</TableCell>
                   <TableCell>{lead.email || '—'}</TableCell>
                   <TableCell>
-                    {lead.customer ? customerMap.get(lead.customer) ?? lead.customer : '—'}
+                    {lead.customer ? lead.customerName ?? customerMap.get(lead.customer) ?? `#${lead.customer}` : '—'}
                   </TableCell>
                   <TableCell>{lead.source ? enumLabel('leadSource', lead.source) : '—'}</TableCell>
-                  <TableCell>{lead.campaign ? campaignMap.get(lead.campaign) ?? `#${lead.campaign}` : '—'}</TableCell>
+                  <TableCell>{lead.campaign ? lead.campaignName ?? campaignMap.get(lead.campaign) ?? `#${lead.campaign}` : '—'}</TableCell>
                   <TableCell>
                     <TextField
                       select
@@ -442,7 +454,7 @@ function LeadsPageInner() {
                         setError(null);
                         setConvertLeadRow(lead);
                         setConvertAmount('0');
-                        setConvertWon(true);
+                        setConvertWon(false);
                       }}
                     >
                       {t('erp.convertLead')}
@@ -539,12 +551,12 @@ function LeadsPageInner() {
                 onChange={(e) => setForm((f) => ({ ...f, referralCode: e.target.value }))}
               />
             ) : null}
-            <Autocomplete
-              options={customerSearch.options}
-              getOptionLabel={(option) => option.name}
-              onInputChange={(_, value) => customerSearch.setQuery(value)}
-              onChange={(_, option) => setForm((f) => ({ ...f, customer: option?.id ?? '' }))}
-              renderInput={(params) => <TextField {...params} label={t('nav.customers')} />}
+            <CustomerField
+              value={customerPick}
+              onChange={(customer) => {
+                setCustomerPick(customer);
+                setForm((f) => ({ ...f, customer: customer?.id ?? '' }));
+              }}
             />
           </Stack>
         </DialogContent>
@@ -581,9 +593,9 @@ function LeadsPageInner() {
             {(activitiesQuery.data ?? []).map((activity) => (
               <Paper key={activity.id} variant="outlined" sx={{ p: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">
-                  {activityKindLabel(activity.kind)} · {activity.createdAt}
+                  {activityKindLabel(activity.kind)} · {formatDateTime(activity.createdAt)}
                   {activity.dueAt
-                    ? ` · ${isPastIso(activity.dueAt) ? t('osPlan.overdue') : t('osPlan.activityDue')} ${activity.dueAt}`
+                    ? ` · ${isPastIso(activity.dueAt) ? t('osPlan.overdue') : t('osPlan.activityDue')} ${formatDateTime(activity.dueAt)}`
                     : ''}
                 </Typography>
                 <Typography variant="body2">{activity.body}</Typography>
@@ -646,13 +658,18 @@ function LeadsPageInner() {
               }
               label={t('erp.markAsWon')}
             />
+            {convertWon ? (
+              <Typography variant="body2" color={Number(convertAmount) > 0 ? 'text.secondary' : 'error'}>
+                {Number(convertAmount) > 0 ? t('growth.convertWonWarning') : t('growth.wonNeedsAmount')}
+              </Typography>
+            ) : null}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setError(null); setConvertLeadRow(null); }}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={writesBlocked || convertMutation.isPending || !convertLeadRow}
+            disabled={writesBlocked || convertMutation.isPending || !convertLeadRow || (convertWon && !(Number(convertAmount) > 0))}
             onClick={() => {
               if (!convertLeadRow) return;
               convertMutation.mutate({
@@ -660,7 +677,6 @@ function LeadsPageInner() {
                 amount: Number(convertAmount) || 0,
                 won: convertWon,
               });
-              setConvertLeadRow(null);
             }}
           >
             {t('erp.convertLead')}

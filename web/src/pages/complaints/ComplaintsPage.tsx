@@ -20,7 +20,8 @@ import {
   updateComplaint,
   uploadComplaintAttachment,
 } from '@/api/growth';
-import { listSalesInvoicesPage, getSalesInvoice } from '@/api/resources';
+import { completeSalesCreditNote, getSalesCreditNote, listSalesInvoicesPage, getSalesInvoice } from '@/api/resources';
+import { completeWithConfirms } from '@/utils/completeWithConfirms';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { isComplaintsEnabled } from '@/config/features';
@@ -160,6 +161,12 @@ function ComplaintDetail({ id, onError }: { id: number; onError: (message: strin
     enabled: Boolean(detail.data?.sourceInvoice),
   });
   const row = detail.data;
+  // DEP-08: a complaint cannot be resolved while its credit note is a draft; finish it from here.
+  const linkedNote = useQuery({
+    queryKey: ['complaint-credit-note', row?.salesCreditNote],
+    queryFn: () => getSalesCreditNote(row!.salesCreditNote as number),
+    enabled: Boolean(row?.salesCreditNote),
+  });
   const invoiceLines = (invoiceDetail.data?.items ?? []) as { id?: number; product: number; productName?: string; unitPrice?: string | number }[];
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['complaint', id] });
@@ -242,9 +249,43 @@ function ComplaintDetail({ id, onError }: { id: number; onError: (message: strin
           if (created.id) navigate(`/sales/orders/${created.id}`);
         })}>{t('growth.createReplacement')}</Button>
       </Stack>
-      <Typography variant="caption" display="block" sx={{ mt: 1 }}>
-        {t('growth.documents')}: {row.salesReturn ?? '—'} / {row.salesCreditNote ?? '—'} / {row.replacementOrder ?? '—'}
-      </Typography>
+      {/* DEP-08: link the linked documents so a draft credit note can be opened and completed. */}
+      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+        <Typography variant="caption">{t('growth.documents')}:</Typography>
+        {row.salesReturn ? (
+          <Button size="small" component={RouterLink} to="/sales/returns">{t('growth.createReturn')} #{row.salesReturn}</Button>
+        ) : null}
+        {row.salesCreditNote ? (
+          <Button size="small" component={RouterLink} to={`/sales/credit-notes/${row.salesCreditNote}`}>
+            {t('growth.createCreditNote')} #{row.salesCreditNote}
+          </Button>
+        ) : null}
+        {row.salesCreditNote && linkedNote.data?.status === 'DRAFT' ? (
+          <Button
+            size="small"
+            variant="contained"
+            disabled={run.isPending}
+            onClick={() =>
+              run.mutate(async () => {
+                await completeWithConfirms((extra) => completeSalesCreditNote(row.salesCreditNote as number, extra));
+                await qc.invalidateQueries({ queryKey: ['complaint-credit-note'] });
+              })
+            }
+          >
+            {t('growth.completeCreditNote')}
+          </Button>
+        ) : null}
+        {row.replacementOrder ? (
+          <Button size="small" component={RouterLink} to={`/sales/orders/${row.replacementOrder}`}>
+            {t('growth.createReplacement')} #{row.replacementOrder}
+          </Button>
+        ) : null}
+        {!row.salesReturn && !row.salesCreditNote && !row.replacementOrder ? (
+          <Typography variant="caption">—</Typography>
+        ) : (
+          <Typography variant="caption" color="text.secondary">{t('growth.completeLinkedDocs')}</Typography>
+        )}
+      </Stack>
       <AttachmentEditor
         rows={files.data ?? []}
         onUpload={(file) => run.mutate(async () => {

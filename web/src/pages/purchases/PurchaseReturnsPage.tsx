@@ -279,14 +279,26 @@ export function PurchaseReturnsPage() {
     }
   };
 
-  // An inbound ?create=1 opens the dialog; the effect below then strips the param.
-  if (searchParams.get('create') === '1' && !open) setOpen(true);
+  // An inbound ?create=1 or ?purchase=<id> (the bill a lot came in on, from Expiry alerts) opens the
+  // dialog; the effect below then strips the params and picks that bill.
+  if ((searchParams.get('create') === '1' || searchParams.get('purchase')) && !open) setOpen(true);
 
   useEffect(() => {
-    if (searchParams.get('create') !== '1') return;
+    const wantsCreate = searchParams.get('create') === '1';
+    const purchaseRaw = searchParams.get('purchase');
+    if (!wantsCreate && !purchaseRaw) return;
     const next = new URLSearchParams(searchParams);
     next.delete('create');
+    next.delete('purchase');
     setSearchParams(next, { replace: true });
+    const id = Number(purchaseRaw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    void getPurchase(id)
+      .then((bill) => onPurchasePick(bill))
+      .catch((err) => setError(getErrorMessage(err)));
+    // Prefill once from the inbound query string; onPurchasePick is recreated each render and only
+    // reads dialog state that is empty when the dialog was just opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setSearchParams]);
 
   const activeLines = useMemo(() => activeSourceLines(lines), [lines]);

@@ -68,11 +68,21 @@ COMPANY_ROLLOUT_KEYS = (
     # Bill upload review v2 (UPLOAD_SALES_BILL_REVIEW.md 23.x): strict product
     # confirmation and multi-GSTIN blocking. Company JSON true is the opt-in.
     "BILL_IMPORT_REVIEW_V2",
+    # DEP-04: credit notes post to contra-revenue 4110 instead of Sales 4100.
+    "ENABLE_CONTRA_SALES_ACCOUNT",
+    # Money hub (docs/plans/MONEY_HUB_PLAN.md). Default on; JSON false is the kill-switch.
+    "ENABLE_MONEY_HUB",
+    # INV-WP-12: stock adjustments, count differences, expiry write-offs and serial scrap post a
+    # journal (Dr 5450 / Cr 1400). Opt-in per company once the accountant has agreed the treatment.
+    "ACCOUNTING_POST_STOCK_ADJUSTMENTS",
+    # INV-IDR-02: expiry write-off, serial scrap and stock-count posting need a second person's
+    # approval under the same rule as a manual adjustment. Off until the owner agrees the thresholds.
+    "STOCK_LOSS_APPROVAL_ALL_PATHS",
 )
 
 # Rollout keys that are on unless the company JSON sets them to false (a kill-switch).
 # Releasing converted quantity must not depend on someone remembering to turn it on.
-COMPANY_DEFAULT_ON_KEYS = frozenset({"QUOTE_CONVERSION_RELEASE"})
+COMPANY_DEFAULT_ON_KEYS = frozenset({"QUOTE_CONVERSION_RELEASE", "ENABLE_MONEY_HUB"})
 
 ENV_FLAG_KEYS = (
     "ENABLE_MANUFACTURING",

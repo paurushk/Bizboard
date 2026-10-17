@@ -42,3 +42,60 @@ def last_completed_suppliers(company, product_ids) -> dict[int, int]:
         if product_id not in found and supplier_id is not None:
             found[product_id] = supplier_id
     return found
+
+
+def open_order_quantities(company, product_ids, *, now=None):
+    """Quantity already on its way from suppliers, per product: ``(counted, stale)``.
+
+    Shared by Purchase planning and the Demand forecast so neither orders what the other has
+    already ordered (INV-IDR-08). Counted: draft purchase orders raised in the last
+    ``PLANNING_DRAFT_PO_DAYS`` days, and orders converted into a purchase bill that is not yet
+    completed (the goods have not been received). Draft orders older than that are forgotten
+    drafts: they are returned as ``stale`` so the screen can say so, but they are not counted.
+    """
+    from datetime import timedelta
+
+    from django.db.models import Sum
+    from django.utils import timezone
+
+    from inventory import planning_settings as ps
+    from purchases.models import PurchaseInvoice, PurchaseOrder, PurchaseOrderItem
+
+    counted: dict[int, object] = {}
+    stale: dict[int, object] = {}
+    if not product_ids:
+        return counted, stale
+    cutoff = (now or timezone.now()) - timedelta(days=ps.number_setting(company, ps.PLANNING_DRAFT_PO_DAYS))
+    base = PurchaseOrderItem.objects.filter(company=company, product_id__in=list(product_ids))
+    fresh = base.filter(purchase_order__status=PurchaseOrder.Status.DRAFT, purchase_order__created_at__gte=cutoff)
+    old = base.filter(purchase_order__status=PurchaseOrder.Status.DRAFT, purchase_order__created_at__lt=cutoff)
+    converted = base.filter(
+        purchase_order__status=PurchaseOrder.Status.CONVERTED,
+        purchase_order__converted_purchase__status=PurchaseInvoice.Status.DRAFT,
+    )
+    for queryset, target in ((fresh, counted), (converted, counted), (old, stale)):
+        for row in queryset.values("product_id").annotate(qty=Sum("quantity")).order_by():
+            target[row["product_id"]] = target.get(row["product_id"], 0) + (row["qty"] or 0)
+    return counted, stale
+
+
+def last_purchase_prices(company, product_ids) -> dict[int, object]:
+    """The unit price on the latest completed purchase bill, per product (one grouped read).
+
+    ``Product.purchase_price`` is the price typed into the item master, which can be years old.
+    """
+    from purchases.models import PurchaseInvoice, PurchaseItem
+
+    if not product_ids:
+        return {}
+    rows = (
+        PurchaseItem.objects.filter(
+            company=company, product_id__in=list(product_ids), invoice__status=PurchaseInvoice.Status.COMPLETED,
+        )
+        .order_by("-invoice__invoice_date", "-invoice_id", "-id")
+        .values_list("product_id", "unit_price")
+    )
+    found: dict[int, object] = {}
+    for product_id, price in rows:
+        found.setdefault(product_id, price)
+    return found

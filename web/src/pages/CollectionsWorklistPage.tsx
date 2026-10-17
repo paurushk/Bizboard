@@ -19,10 +19,12 @@ import Stack from '@mui/material/Stack';
 import WhatsAppIcon from '@mui/icons-material/WhatsApp';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { listCollectionsWorklist, listOpenInvoices, type OpenInvoiceRow } from '@/api/osPlan';
 import { getCompany, listPaymentPromises, resolvePaymentPromise } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
@@ -52,7 +54,32 @@ const COHORT_CARDS: Array<{
   { id: 'CRITICAL_45_PLUS', labelKey: 'osPlan.cohortCritical', labelColor: 'error.dark', selectedBorder: 'error.main' },
 ];
 
+const SOON_DAYS = 7;
+
+/** Date `days` ahead of today as YYYY-MM-DD, local time (the server's due-soon window). */
+function isoDaysAhead(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function CollectionsWorklistPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The Money hub opens this list pre-filtered: bills past due, due this week, one customer,
+  // or the promises that are due / broken.
+  const [dueFilter, setDueFilter] = useState<'' | 'overdue' | 'soon'>(() => {
+    const raw = searchParams.get('due');
+    return raw === 'overdue' || raw === 'soon' ? raw : '';
+  });
+  const [promisesFilter, setPromisesFilter] = useState<'' | 'due' | 'broken'>(() => {
+    const raw = searchParams.get('promises');
+    return raw === 'due' || raw === 'broken' ? raw : '';
+  });
+  const [customerFilter, setCustomerFilter] = useState(() => {
+    const raw = searchParams.get('customer') ?? '';
+    return /^\d+$/.test(raw) ? raw : '';
+  });
   const predictive = isRuntimeFlagEnabled('ENABLE_PREDICTIVE_DUNNING');
   const query = useQuery({
     queryKey: ['collections-worklist'],
@@ -70,9 +97,33 @@ export function CollectionsWorklistPage() {
     queryFn: () => listPaymentPromises(),
   });
   const promiseList = Array.isArray(promisesQuery.data) ? promisesQuery.data : [];
-  const promises = [...promiseList].sort((a, b) =>
-    a.promisedDate.localeCompare(b.promisedDate),
-  );
+  const promises = [...promiseList]
+    .filter((p) => {
+      if (customerFilter && String(p.customer) !== customerFilter) return false;
+      if (promisesFilter === 'broken') return Boolean(p.broken);
+      if (promisesFilter === 'due') return p.promisedDate >= todayIso() && p.promisedDate <= isoDaysAhead(SOON_DAYS);
+      return true;
+    })
+    .sort((a, b) => a.promisedDate.localeCompare(b.promisedDate));
+  const handoffActive = Boolean(dueFilter || promisesFilter || customerFilter);
+  const handoffLabel = promisesFilter === 'broken'
+    ? t('money.filters.promisesBroken')
+    : promisesFilter === 'due'
+      ? t('money.filters.promisesDue')
+      : dueFilter === 'overdue'
+        ? t('money.filters.overdueBills')
+        : dueFilter === 'soon'
+          ? t('money.filters.dueSoonBills')
+          : customerFilter
+            ? t('money.filters.oneCustomer')
+            : t('money.filters.openBills');
+  const showAll = () => {
+    setDueFilter('');
+    setPromisesFilter('');
+    setCustomerFilter('');
+    setSelectedCohort(null);
+    setSearchParams({}, { replace: true });
+  };
   const resolveMutation = useMutation({
     mutationFn: (id: number) => resolvePaymentPromise(id),
     onSuccess: () => {
@@ -104,9 +155,18 @@ export function CollectionsWorklistPage() {
   }, [rows]);
 
   const filteredRows = useMemo(() => {
-    if (!selectedCohort) return rows;
-    return rows.filter((r) => getAgingCohort(r.daysOverdue) === selectedCohort);
-  }, [rows, selectedCohort]);
+    const today = todayIso();
+    const soonLimit = isoDaysAhead(SOON_DAYS);
+    return rows.filter((r) => {
+      if (selectedCohort && getAgingCohort(r.daysOverdue) !== selectedCohort) return false;
+      if (customerFilter && String(r.customerId) !== customerFilter) return false;
+      if (dueFilter === 'overdue' && r.daysOverdue <= 0) return false;
+      if (dueFilter === 'soon' && !(r.daysOverdue <= 0 && r.dueDate && r.dueDate >= today && r.dueDate <= soonLimit)) {
+        return false;
+      }
+      return true;
+    });
+  }, [rows, selectedCohort, customerFilter, dueFilter]);
 
   const handleOpenNudge = (row: OpenInvoiceRow) => {
     const upiUri = company?.upiId
@@ -135,6 +195,12 @@ export function CollectionsWorklistPage() {
       <PageTitle>{t('nav.collections')}</PageTitle>
       <Typography variant="body2" color="text.secondary">{t('osPlan.collectionsHelp')}</Typography>
       <Typography variant="body2" color="text.secondary">{t('osPlan.screenOnly')}</Typography>
+      <MoneyHandoffBar filterLabel={handoffLabel} onShowAll={showAll} />
+      {handoffActive ? (
+        <Typography variant="body2" color="text.secondary">
+          {t('money.filters.showing', { shown: filteredRows.length, total: rows.length })}
+        </Typography>
+      ) : null}
 
       {/* Aging cohorts: one card per bucket; clicking filters the list below. */}
       {rows.length > 0 ? (
@@ -229,6 +295,14 @@ export function CollectionsWorklistPage() {
                             {t('osPlan.remind')}
                           </Button>
                         ) : null}
+                        <Button
+                          size="small"
+                          variant="contained"
+                          component={RouterLink}
+                          to={`/sales/history/${row.invoiceId}?pay=1`}
+                        >
+                          {t('osPlan.recordPayment')}
+                        </Button>
                       </Stack>
                     </Stack>
                   </TableCell>

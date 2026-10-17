@@ -35,6 +35,8 @@ interface Props {
   availableToAdd?: InvoiceSourceLine[];
   /** When true, qty may exceed maxQty so Complete can name the over-cap gate. */
   allowOverCap?: boolean;
+  /** Credit / debit notes: show each line's HSN and flag the ones without (GSTR HSN summary). */
+  showHsn?: boolean;
 }
 
 export function InvoiceSourceLineTable({
@@ -44,6 +46,7 @@ export function InvoiceSourceLineTable({
   readOnly = false,
   availableToAdd = [],
   allowOverCap = false,
+  showHsn = false,
 }: Props) {
   const updateLine = (key: string, patch: Partial<InvoiceSourceLine>) => {
     onChange(
@@ -92,6 +95,7 @@ export function InvoiceSourceLineTable({
           <TableHead>
             <TableRow>
               <TableCell>{t('nav.products')}</TableCell>
+              {showHsn ? <TableCell>{t('phase1.hsnColumn')}</TableCell> : null}
               <TableCell align="right">{t('billing.qty')}</TableCell>
               <TableCell align="right">{t('billing.priceShort')}</TableCell>
               <TableCell align="right">{t('billing.discountPercent')}</TableCell>
@@ -102,7 +106,7 @@ export function InvoiceSourceLineTable({
           <TableBody>
             {active.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={readOnly ? 5 : 6} align="center">
+                <TableCell colSpan={(readOnly ? 5 : 6) + (showHsn ? 1 : 0)} align="center">
                   {t('phase1.selectInvoiceLines')}
                 </TableCell>
               </TableRow>
@@ -119,6 +123,15 @@ export function InvoiceSourceLineTable({
                 return (
                   <TableRow key={line.key}>
                     <TableCell>{line.productName}</TableCell>
+                    {showHsn ? (
+                      <TableCell>
+                        {line.hsnCode ? (
+                          line.hsnCode
+                        ) : (
+                          <Chip size="small" color="warning" label={t('phase1.hsnMissing')} />
+                        )}
+                      </TableCell>
+                    ) : null}
                     <TableCell align="right">
                       {readOnly ? (
                         line.quantity
@@ -181,6 +194,7 @@ export function InvoiceSourceLineTable({
                           size="small"
                           aria-label={t('common.remove')}
                           onClick={() => removeLine(line.key)}
+                          sx={{ minWidth: 44, minHeight: 44 }}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>

@@ -126,6 +126,11 @@ const getSalesInvoice = vi.fn(async (id: number | string) => {
   return RETURNED_INVOICE;
 });
 
+const noteRows = {
+  credits: [] as Array<Record<string, unknown>>,
+  debits: [] as Array<Record<string, unknown>>,
+};
+
 const completeSalesInvoice = vi.fn(async (_id: number, _options?: Record<string, unknown>) => RETURNED_INVOICE);
 const listPaymentPromises = vi.fn(async () => [] as Array<Record<string, unknown>>);
 const createPaymentPromise = vi.fn(async (payload: Record<string, unknown>) => ({
@@ -149,6 +154,8 @@ vi.mock('@/api/resources', () => ({
   createPaymentPromise: (payload: Record<string, unknown>) => createPaymentPromise(payload),
   resolvePaymentPromise: (id: number) => resolvePaymentPromise(id),
   listSalesReturns: async () => [LINKED_RETURN],
+  listSalesCreditNotesPage: async () => ({ results: noteRows.credits, count: noteRows.credits.length, next: null, previous: null }),
+  listSalesDebitNotesPage: async () => ({ results: noteRows.debits, count: noteRows.debits.length, next: null, previous: null }),
   getSalesDocumentPdfStatus: async () => ({ pdfStatus: 'READY' }),
   downloadSalesDocumentPdf: vi.fn(),
   regenerateSalesDocumentPdf: vi.fn(),
@@ -468,5 +475,57 @@ describe('InvoiceDetailPage — return goods entry point (SR-04)', () => {
     await openMore();
     await screen.findByRole('menuitem', { name: /new credit note/i });
     expect(screen.queryByRole('menuitem', { name: /return goods/i })).toBeNull();
+  });
+});
+
+
+// Credit / debit notes plan: DN-01 (New Debit Note action) and DEP-01 (notes on the invoice).
+describe('InvoiceDetailPage — credit and debit notes', () => {
+  afterEach(() => {
+    currentUser = OWNER_USER;
+    noteRows.credits = [];
+    noteRows.debits = [];
+  });
+
+  it('DN-01 — offers New Debit Note beside New Credit Note, pre-filled with this invoice', async () => {
+    wrap(<InvoiceDetailPage />, '/sales/history/2');
+    await screen.findByText('INV-0002');
+    await userEvent.click(screen.getByRole('button', { name: /^more$/i }));
+    const debit = await screen.findByRole('menuitem', { name: /new debit note/i });
+    expect(debit.getAttribute('href')).toBe('/sales/debit-notes/new?fromInvoice=2');
+    const credit = screen.getByRole('menuitem', { name: /new credit note/i });
+    expect(credit.getAttribute('href')).toBe('/sales/credit-notes/new?fromInvoice=2');
+  });
+
+  it('DN-01 — hides New Debit Note from a user who cannot issue notes', async () => {
+    currentUser = { id: 5, email: 'v@x.test', fullName: 'View', role: 'VIEWER', companyId: 9 };
+    wrap(<InvoiceDetailPage />, '/sales/history/2');
+    await screen.findByText('INV-0002');
+    await userEvent.click(screen.getByRole('button', { name: /^more$/i }));
+    expect(screen.queryByRole('menuitem', { name: /new debit note/i })).toBeNull();
+  });
+
+  it('DEP-01 — says so when the invoice has no notes', async () => {
+    wrap(<InvoiceDetailPage />, '/sales/history/2');
+    const section = await screen.findByTestId('invoice-notes-section');
+    expect(await within(section).findByText(/no credit or debit notes on this invoice/i)).toBeTruthy();
+  });
+
+  it('DEP-01 — lists notes and the net amount (credits reduce, debits increase)', async () => {
+    noteRows.credits = [
+      { id: 11, number: 'SCN-1', status: 'COMPLETED', noteDate: '2026-09-13', grandTotal: '100.00' },
+      { id: 12, number: 'SCN-2', status: 'CANCELLED', noteDate: '2026-09-14', grandTotal: '999.00' },
+    ];
+    noteRows.debits = [
+      { id: 21, number: 'SDN-1', status: 'COMPLETED', noteDate: '2026-09-15', grandTotal: '30.00' },
+    ];
+    wrap(<InvoiceDetailPage />, '/sales/history/2');
+    const section = await screen.findByTestId('invoice-notes-section');
+    expect(await within(section).findByText('SCN-1')).toBeTruthy();
+    expect(within(section).getByText('SDN-1')).toBeTruthy();
+    expect(within(section).getByRole('link', { name: 'SCN-1' }).getAttribute('href')).toBe('/sales/credit-notes/11');
+    expect(within(section).getByRole('link', { name: 'SDN-1' }).getAttribute('href')).toBe('/sales/debit-notes/21');
+    // 500 invoice - 100 completed credit + 30 completed debit; the cancelled 999 is ignored.
+    expect(within(section).getByText(/430/)).toBeTruthy();
   });
 });

@@ -92,6 +92,7 @@ const PurchaseDetailPage = lazy(() => import('@/pages/purchases/PurchaseDetailPa
 const BillsOfEntryPage = lazy(() => import('@/pages/purchases/BillsOfEntryPage').then((m) => ({ default: m.BillsOfEntryPage })));
 const GoodsReceiptsPage = lazy(() => import('@/pages/purchases/GoodsReceiptsPage').then((m) => ({ default: m.GoodsReceiptsPage })));
 const ProductsPage = lazy(() => import('@/pages/inventory/ProductsPage').then((m) => ({ default: m.ProductsPage })));
+const StockLedgerPage = lazy(() => import('@/pages/inventory/StockLedgerPage').then((m) => ({ default: m.StockLedgerPage })));
 const CurrentStockPage = lazy(() => import('@/pages/inventory/CurrentStockPage').then((m) => ({ default: m.CurrentStockPage })));
 const StockAdjustmentPage = lazy(() => import('@/pages/inventory/StockAdjustmentPage').then((m) => ({ default: m.StockAdjustmentPage })));
 const LowStockPage = lazy(() => import('@/pages/inventory/LowStockPage').then((m) => ({ default: m.LowStockPage })));
@@ -128,6 +129,7 @@ const InsightsAssistantPage = lazy(() => import('@/pages/insights/InsightsAssist
 const AttentionPage = lazy(() => import('@/pages/AttentionPage').then((m) => ({ default: m.AttentionPage })));
 const MorningPage = lazy(() => import('@/pages/MorningPage').then((m) => ({ default: m.MorningPage })));
 const CloseMonthPage = lazy(() => import('@/pages/reports/CloseMonthPage').then((m) => ({ default: m.CloseMonthPage })));
+const MoneyHubPage = lazy(() => import('@/pages/money/MoneyHubPage').then((m) => ({ default: m.MoneyHubPage })));
 const CollectionsWorklistPage = lazy(() => import('@/pages/CollectionsWorklistPage').then((m) => ({ default: m.CollectionsWorklistPage })));
 const PurchasePlanningPage = lazy(() => import('@/pages/purchases/PurchasePlanningPage').then((m) => ({ default: m.PurchasePlanningPage })));
 const DemandForecastPage = lazy(() => import('@/pages/inventory/DemandForecastPage').then((m) => ({ default: m.DemandForecastPage })));
@@ -531,11 +533,13 @@ export function App() {
             <Route element={<RoleRoute allow={canViewInventorySurfaces} />}>
               <Route path="inventory/products" element={<ProductsPage />} />
               <Route path="inventory/stock" element={<CurrentStockPage />} />
+              <Route path="inventory/ledger" element={<StockLedgerPage />} />
               <Route path="inventory/low-stock" element={<LowStockPage />} />
               <Route path="inventory/purchase-planning" element={<PurchasePlanningPage />} />
               <Route path="inventory/demand-forecast" element={<DemandForecastPage />} />
               <Route path="inventory/expiry-alerts" element={<ExpiryAlertsPage />} />
               <Route path="inventory/expiry" element={<Navigate to="/inventory/expiry-alerts" replace />} />
+              <Route path="inventory/labels" element={<LabelPrintPage />} />
             </Route>
             <Route element={<RoleRoute allow={canAdjustInventory} />}>
               <Route path="inventory/adjustments" element={<StockAdjustmentPage />} />
@@ -544,10 +548,10 @@ export function App() {
               <Route path="inventory/count" element={<Navigate to="/inventory/stock-counts" replace />} />
               <Route path="inventory/transfers" element={<StockTransferPage />} />
               <Route path="inventory/serials" element={<SerialsPage />} />
-              <Route path="inventory/labels" element={<LabelPrintPage />} />
             </Route>
             <Route element={<RoleRoute allow={canViewFinancialReports} />}>
               <Route path="attention" element={<AttentionPage />} />
+              <Route path="money" element={<MoneyHubPage />} />
               <Route path="morning" element={<MorningPage />} />
               <Route path="reports/close-month" element={<CloseMonthPage />} />
               <Route path="payments/collections" element={<CollectionsWorklistPage />} />

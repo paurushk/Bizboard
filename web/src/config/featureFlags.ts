@@ -115,6 +115,12 @@ export function isRuntimeFlagEnabled(key: string): boolean {
   return Boolean(cachedFlags[lowerCamel]);
 }
 
+/** The Money overview is on unless the company's ENABLE_MONEY_HUB is explicitly false (kill-switch). */
+export function isMoneyHubEnabled(): boolean {
+  if (!cachedFlags || !('ENABLE_MONEY_HUB' in cachedFlags)) return true;
+  return cachedFlags.ENABLE_MONEY_HUB !== false;
+}
+
 export function clearFeatureFlagsCache() {
   cachedFlags = null;
   notifyFeatureFlags();

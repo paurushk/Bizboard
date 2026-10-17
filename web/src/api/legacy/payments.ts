@@ -235,9 +235,18 @@ export type ReceiptFilterParams = Pick<PageParams, 'q'> & {
   date_to?: string;
   /** `true`: matched to a bank line; `false`: not matched. */
   reconciled?: string;
+  /** PENDING_CLEARANCE, CLEARED or BOUNCED (cheque receipts only). */
+  cheque_status?: string;
+  /** `true`: live receipts with money not yet applied to a bill. */
+  advance?: string;
   /** Sort column, `-` prefix for descending: receipt_date, amount, number, customer__name, status. */
   ordering?: string;
 };
+
+export async function getCustomerReceipt(id: number | string): Promise<CustomerReceipt> {
+  const { data } = await apiClient.get(`/payments/receipts/${id}/`);
+  return unwrapData<CustomerReceipt>(data);
+}
 
 export async function getReceiptsSummary(params?: ReceiptFilterParams): Promise<ReceiptSummary> {
   return withMocks(

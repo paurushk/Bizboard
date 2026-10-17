@@ -37,6 +37,16 @@ def _require_owner(request):
         raise BusinessRuleError("Only Owner can perform this action.")
 
 
+def _require_note_einvoice_submitter(request):
+    """DEP-06: Owner, Manager or Accountant may submit a credit/debit note IRN."""
+    from core.permissions import get_company_user
+
+    cu = get_company_user(request)
+    if cu is None or cu.role not in ("OWNER", "MANAGER", "ACCOUNTANT"):
+        raise BusinessRuleError("Only Owner, Manager or Accountant can submit an e-invoice for a note.")
+    return cu
+
+
 def _require_audit_reason(request) -> str:
     reason = (request.data.get("reason") or "").strip()
     if not reason:
@@ -947,8 +957,18 @@ class NoteEinvoiceActionsMixin:
 
     @action(detail=True, methods=["post"], url_path="submit-einvoice")
     def submit_einvoice(self, request, pk=None):
-        _require_owner(request)
+        cu = _require_note_einvoice_submitter(request)
         note = self.get_object()
+        if cu.role != "OWNER":
+            AuditService.log(
+                company=note.company,
+                user=request.user,
+                action="UPDATE",
+                entity_type=type(note).__name__.lower(),
+                entity_id=note.pk,
+                description="note_einvoice.submit_by_non_owner",
+                metadata={"role": cu.role},
+            )
         _assert_sandbox_gsp_allowed(note.company)
         _require_einvoice_enabled(note.company)
         if getattr(note, "irn", None):

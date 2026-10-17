@@ -120,4 +120,15 @@ class ChallanReturnService:
         challan_return.completed_at = timezone.now()
         challan_return.updated_by = user
         challan_return.save()
+        if challan.sales_order_id:
+            # The goods are back on the shelf: the order owes them again, holds stock for them again,
+            # and reads as ready rather than shipped (DEC-O3, OG-33).
+            from .notes_services import SalesNotesService
+
+            quantities: dict[int, Decimal] = {}
+            for item in challan_return.items.all():
+                quantities[item.product_id] = quantities.get(item.product_id, Decimal("0")) + Decimal(
+                    str(item.quantity or 0)
+                )
+            SalesNotesService.reopen_order_after_goods_back(challan.sales_order, challan, quantities, user)
         return challan_return

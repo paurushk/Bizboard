@@ -11,6 +11,7 @@ import { getErrorMessage } from '@/api/client';
 import { issueLeadFormToken } from '@/api/crm';
 import { decideReferralReward, issueReferralCode, listReferralRewards, referralLeaderboard } from '@/api/growth';
 import { useAuth } from '@/auth/AuthContext';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { isReferralsEnabled } from '@/config/features';
@@ -35,7 +36,8 @@ export function ReferralsPage() {
 function ReferralsInner() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const canDecide = user?.role === 'OWNER' || user?.role === 'MANAGER';
+  const { writesBlocked } = useSubscriptionGate();
+  const canDecide = (user?.role === 'OWNER' || user?.role === 'MANAGER') && !writesBlocked;
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [rewardType, setRewardType] = useState('FLAT');
   const [rewardValue, setRewardValue] = useState('0');
@@ -84,7 +86,7 @@ function ReferralsInner() {
           <MenuItem value="PERCENT">{enumLabel('rewardType', 'PERCENT')}</MenuItem>
         </TextField>
         <TextField size="small" label={t('growth.rewardValue')} value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
-        <Button variant="contained" disabled={!customer || issue.isPending} onClick={() => issue.mutate()}>{t('growth.issueCode')}</Button>
+        <Button variant="contained" disabled={!customer || issue.isPending || writesBlocked} onClick={() => issue.mutate()}>{t('growth.issueCode')}</Button>
       </Stack>
       {issued ? (
         <Stack direction="row" spacing={1} alignItems="center">

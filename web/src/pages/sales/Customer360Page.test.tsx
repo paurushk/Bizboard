@@ -30,6 +30,10 @@ const resolvePaymentPromise = vi.fn(async (id: number) => ({ id, resolved: true 
 
 const getCustomer = vi.fn();
 const updateCustomer = vi.fn();
+const noteRows = {
+  credits: [] as Array<Record<string, unknown>>,
+  debits: [] as Array<Record<string, unknown>>,
+};
 const listCustomerHistory = vi.fn(async () => [] as Array<Record<string, unknown>>);
 vi.mock('@/hooks/useSubscriptionGate', () => ({
   useSubscriptionGate: () => ({ writesBlocked: false, isLoading: false }),
@@ -44,6 +48,8 @@ vi.mock('@/api/resources', () => ({
   listCustomerHistory: () => listCustomerHistory(),
   repeatLastInvoice: vi.fn(),
   listSalesInvoicesPage: async () => ({ results: [], count: 0, next: null, previous: null }),
+  listSalesCreditNotesPage: async () => ({ results: noteRows.credits, count: noteRows.credits.length, next: null, previous: null }),
+  listSalesDebitNotesPage: async () => ({ results: noteRows.debits, count: noteRows.debits.length, next: null, previous: null }),
   listPaymentPromises: () => listPaymentPromises(),
   createPaymentPromise: (payload: Record<string, unknown>) => createPaymentPromise(payload),
   resolvePaymentPromise: (id: number) => resolvePaymentPromise(id),
@@ -230,5 +236,32 @@ describe('Customer360Page', () => {
       expect(screen.queryByRole('button', { name: /log a promise to pay/i })).not.toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /mark as resolved/i })).not.toBeInTheDocument();
     });
+  });
+});
+
+
+// DN-09 / DEP-10: credit and debit notes on the customer page.
+describe('Customer360Page — credit and debit notes', () => {
+  afterEach(() => {
+    noteRows.credits = [];
+    noteRows.debits = [];
+  });
+
+  it('says so when the customer has no notes', async () => {
+    renderPage();
+    const panel = await screen.findByTestId('customer-notes-panel');
+    expect(within(panel).getByText(/no credit or debit notes for this customer/i)).toBeTruthy();
+  });
+
+  it('lists credit and debit notes newest first, each linking to its editor', async () => {
+    noteRows.credits = [{ id: 11, number: 'SCN-1', status: 'COMPLETED', noteDate: '2026-09-01', grandTotal: '100.00' }];
+    noteRows.debits = [{ id: 21, number: 'SDN-1', status: 'DRAFT', noteDate: '2026-09-05', grandTotal: '30.00' }];
+    renderPage();
+    const panel = await screen.findByTestId('customer-notes-panel');
+    const debit = await within(panel).findByRole('link', { name: 'SDN-1' });
+    const credit = within(panel).getByRole('link', { name: 'SCN-1' });
+    expect(debit.getAttribute('href')).toBe('/sales/debit-notes/21');
+    expect(credit.getAttribute('href')).toBe('/sales/credit-notes/11');
+    expect(debit.compareDocumentPosition(credit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

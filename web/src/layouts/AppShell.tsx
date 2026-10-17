@@ -19,7 +19,7 @@ import Toolbar from '@mui/material/Toolbar';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Outlet, NavLink, Link as RouterLink, useLocation } from 'react-router-dom';
 import { getCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
@@ -37,6 +37,7 @@ import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
 import { GlobalConfirmHost } from '@/components/GlobalConfirmHost';
 import { listDrafts } from '@/offline/invoiceDraftCache';
 import { drainPodPhotos } from '@/offline/photoOutbox';
+import { STOCK_FLUSHED_EVENT, useStockOffline } from '@/pages/inventory/useStockOffline';
 
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
@@ -138,6 +139,20 @@ export function AppShell() {
     () => typeof window !== 'undefined' && localStorage.getItem(MOBILE_BILLING_TIP_KEY) === '1',
   );
   const [queuedDrafts, setPendingDrafts] = useState(0);
+  // INV-WP-07: queued stock counts / transfers are sent from here, on any page, not only the two
+  // screens that queued them. A failure or a conflict is shown on every page until it is resolved.
+  const queryClient = useQueryClient();
+  const [stockOutboxMessage, setStockOutboxMessage] = useState<string | null>(null);
+  useStockOffline(user?.companyId ?? 0, user?.id ?? 0, setStockOutboxMessage);
+  useEffect(() => {
+    const onFlushed = () => {
+      for (const key of ['stock-counts', 'transfers', 'stock', 'low-stock', 'inventory-summary']) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    };
+    window.addEventListener(STOCK_FLUSHED_EVENT, onFlushed);
+    return () => window.removeEventListener(STOCK_FLUSHED_EVENT, onFlushed);
+  }, [queryClient]);
   // Nothing is pending for a signed-out user, whatever the last count was.
   const pendingDrafts = user?.companyId && user?.id ? queuedDrafts : 0;
   const [pwaReloadFn, setPwaReloadFn] = useState<(() => void) | null>(null);
@@ -303,9 +318,7 @@ export function AppShell() {
             </Box>
           </Box>
           {pendingDrafts > 0 &&
-          (/^\/(pos|sales|purchases|offline-outbox)/.test(location.pathname) ||
-            location.pathname.startsWith('/inventory/stock-counts') ||
-            location.pathname.startsWith('/inventory/transfers')) ? (
+          /^\/(pos|sales|purchases|inventory|offline-outbox)/.test(location.pathname) ? (
             <Chip
               component={RouterLink}
               to="/offline-outbox"
@@ -408,6 +421,19 @@ export function AppShell() {
             navigating to a different route remounts the boundary fresh
             instead of being stuck on the old crash until a full reload. */}
         <ErrorBoundary key={location.pathname}>
+          {stockOutboxMessage && stockOutboxMessage !== t('billing.offlineOutboxPending') ? (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" component={RouterLink} to="/offline-outbox">
+                  {t('inventory.viewQueued')}
+                </Button>
+              }
+            >
+              {stockOutboxMessage}
+            </Alert>
+          ) : null}
           <Outlet />
         </ErrorBoundary>
         <CommandPalette />

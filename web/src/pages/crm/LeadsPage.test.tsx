@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { listLeadsPage } from '@/api/crm';
+import { convertLead, listLeadsPage } from '@/api/crm';
 import { LeadsPage } from '@/pages/crm/LeadsPage';
 
 vi.mock('@/pages/erp/erpShared', () => ({
@@ -33,7 +33,8 @@ vi.mock('@/api/crm', () => ({
   listLeadActivities: vi.fn(async () => []),
   createLead: vi.fn(),
   updateLead: vi.fn(),
-  convertLead: vi.fn(),
+  convertLead: vi.fn(async () => ({ lead: {}, opportunity: { id: 5 } })),
+  draftOpportunityInvoice: vi.fn(async () => ({ id: 77 })),
   assignLead: vi.fn(),
   createLeadActivity: vi.fn(),
   issueLeadFormToken: vi.fn(),
@@ -114,5 +115,42 @@ describe('LeadsPage assignee target (GM-41)', () => {
     const root = box.closest('.MuiInputBase-root');
     expect(root).toBeTruthy();
     expect(getComputedStyle(root as HTMLElement).minHeight).toBe('44px');
+  });
+});
+
+describe('LeadsPage convert dialog (CRM review F-02)', () => {
+  it('does not mark the deal won by default and needs an amount before it can', async () => {
+    vi.mocked(listLeadsPage).mockResolvedValue({
+      results: [{ id: 7, name: 'Asha', phone: '', email: '', status: 'NEW', assignedTo: null } as never],
+      count: 1,
+      next: null,
+      previous: null,
+    });
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LeadsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole('button', { name: 'Convert lead' }));
+    const won = await screen.findByRole('checkbox', { name: 'Mark as won' });
+    expect(won).not.toBeChecked();
+    const dialog = screen.getByRole('dialog');
+    const submit = () => within(dialog).getAllByRole('button', { name: 'Convert lead' }).at(-1) as HTMLElement;
+    expect(submit()).toBeEnabled();
+
+    await user.click(won);
+    expect(screen.getByText('Enter an amount above zero before marking this deal won.')).toBeInTheDocument();
+    expect(submit()).toBeDisabled();
+
+    const amount = screen.getByLabelText('Opportunity amount');
+    await user.clear(amount);
+    await user.type(amount, '100');
+    expect(submit()).toBeEnabled();
+    await user.click(submit());
+    await waitFor(() => expect(convertLead).toHaveBeenCalledWith(7, { amount: 100, won: true }));
   });
 });

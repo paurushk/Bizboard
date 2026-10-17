@@ -25,6 +25,7 @@ from core.throttles import CompanyRateThrottle
 
 from masters.models import Customer, Supplier
 
+from .annual_filing import note_deadline
 from .gst_health import build_gst_health
 from .gst_periods import accounting_period_open_warnings, reopen_period, soft_close_period
 from .gst_returns import (
@@ -286,7 +287,14 @@ class PurchaseDiscountReportView(BaseReportView):
         ))
 
 
-def _tds_receivable_rows(company, date_from, date_to, customer_id=None):
+def _certificate_filter(raw):
+    value = (raw or "").strip().lower()
+    if value and value not in ("pending", "received"):
+        raise BusinessRuleError("certificate must be pending or received.")
+    return value or None
+
+
+def _tds_receivable_rows(company, date_from, date_to, customer_id=None, certificate=None):
     """Receipts on which a customer deducted TDS, for matching against Form 26AS.
 
     One row per receipt: the PAN on the customer master, the section the cashier chose, the TDS
@@ -306,6 +314,10 @@ def _tds_receivable_rows(company, date_from, date_to, customer_id=None):
         qs = qs.filter(receipt_date__lte=date_to)
     if customer_id:
         qs = qs.filter(customer_id=customer_id)
+    if certificate == "pending":
+        qs = qs.filter(tds_certificate_received_on__isnull=True)
+    elif certificate == "received":
+        qs = qs.filter(tds_certificate_received_on__isnull=False)
     qs = qs.annotate(
         applied=Sum("allocations__tds_applied", filter=Q(allocations__reversed_at__isnull=True))
     ).order_by("receipt_date", "id")
@@ -324,6 +336,10 @@ def _tds_receivable_rows(company, date_from, date_to, customer_id=None):
             "tds_deducted": str(receipt.tds_deducted),
             "tds_applied": str(applied),
             "tds_unapplied": str(receipt.tds_deducted - applied),
+            "certificate_received_on": (
+                receipt.tds_certificate_received_on.isoformat() if receipt.tds_certificate_received_on else None
+            ),
+            "certificate_ref": receipt.tds_certificate_ref or "",
         })
     return rows
 
@@ -339,7 +355,8 @@ class TdsReceivableReportView(BaseReportView):
         date_to = _parse_date(request.query_params.get("date_to"))
         assert_report_date_span(date_from, date_to, kind="TDS receivable register")
         rows = _tds_receivable_rows(
-            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer"))
+            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer")),
+            certificate=_certificate_filter(request.query_params.get("certificate")),
         )
         total = sum((Decimal(row["tds_deducted"]) for row in rows), Decimal("0"))
         return Response({"rows": rows, "total_tds": str(total), "count": len(rows)})
@@ -359,16 +376,18 @@ class TdsReceivableExportView(BaseReportView):
         date_to = _parse_date(request.query_params.get("date_to"))
         assert_report_date_span(date_from, date_to, kind="TDS receivable register")
         rows = _tds_receivable_rows(
-            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer"))
+            self.company, date_from, date_to, _int_or_none(request.query_params.get("customer")),
+            certificate=_certificate_filter(request.query_params.get("certificate")),
         )
         response = HttpResponse(content_type="text/csv; charset=utf-8")
         response["Content-Disposition"] = 'attachment; filename="tds-receivable.csv"'
         writer = csv.writer(response)
-        writer.writerow(["Receipt", "Date", "Customer", "PAN", "Section", "Amount received", "TDS deducted", "TDS set against invoices", "TDS not yet set against invoices"])
+        writer.writerow(["Receipt", "Date", "Customer", "PAN", "Section", "Amount received", "TDS deducted", "TDS set against invoices", "TDS not yet set against invoices", "Certificate received on", "Certificate reference"])
         for row in rows:
             writer.writerow([csv_safe(v) for v in (
                 row["receipt_number"], row["receipt_date"], row["customer"], row["pan"], row["section"],
                 row["amount_received"], row["tds_deducted"], row["tds_applied"], row["tds_unapplied"],
+                row["certificate_received_on"] or "", row["certificate_ref"],
             )])
         return response
 
@@ -782,6 +801,15 @@ def _supplier_export(company, params):
     ]
 
 
+def _inventory_export(company, params):
+    """INV-IDR-10: the stock CSV follows the godown and search the page was showing."""
+    rows = ReportService.inventory_summary(company, warehouse_id=params.get("warehouse"))["rows"]
+    needle = (params.get("q") or params.get("search") or "").strip().lower()
+    if needle:
+        rows = [r for r in rows if needle in f"{r.get('product') or ''} {r.get('sku') or ''}".lower()]
+    return rows
+
+
 EXPORTS = {
     "sales-register": lambda company, params: ReportService.sales_register(
         company,
@@ -811,8 +839,8 @@ EXPORTS = {
         supplier_id=_int_or_none(params.get("supplier")),
         status=params.get("status"),
     )["rows"],
-    "inventory-summary": lambda company, params: ReportService.inventory_summary(company)["rows"],
-    "inventory": lambda company, params: ReportService.inventory_summary(company)["rows"],
+    "inventory-summary": lambda company, params: _inventory_export(company, params),
+    "inventory": lambda company, params: _inventory_export(company, params),
     "customers": lambda company, params: _customer_export(company, params),
     "customers-register": lambda company, params: _customer_export(company, params),
     "customer-list": lambda company, params: _customer_export(company, params),
@@ -994,6 +1022,70 @@ class Gstr9View(BaseReportView):
             response["Content-Disposition"] = f'attachment; filename="gstr9-{fy}.xlsx"'
             return response
         raise BusinessRuleError("Unsupported format. Use format=json, format=xlsx, or format=gstn-json.")
+
+
+class Gstr9FilingDateView(BaseReportView):
+    """Record the date the annual return for a financial year was filed (Sec 34(2))."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    @staticmethod
+    def _fy_start(value) -> int:
+        try:
+            start = int(str(value).split("-")[0])
+        except (TypeError, ValueError):
+            raise BusinessRuleError("Financial year must look like 2025-26.") from None
+        if not 2017 <= start <= 2100:
+            raise BusinessRuleError("Financial year must look like 2025-26.")
+        return start
+
+    @staticmethod
+    def _body(company, start, row):
+        return {
+            "fy": f"{start}-{str(start + 1)[-2:]}",
+            "filed_on": row.filed_on.isoformat() if row else None,
+            "note_deadline": note_deadline(company, date(start, 6, 1)).isoformat(),
+        }
+
+    def get(self, request):
+        from .models import AnnualReturnFiling
+
+        start = self._fy_start(request.query_params.get("fy"))
+        row = AnnualReturnFiling.objects.filter(company=self.company, fy_start_year=start).first()
+        return Response(self._body(self.company, start, row))
+
+    def put(self, request):
+        from core.services.audit import AuditService
+
+        from .models import AnnualReturnFiling
+
+        cu = get_company_user(request)
+        if not cu or cu.role not in ("OWNER", "MANAGER", "ACCOUNTANT"):
+            raise BusinessRuleError("Only an owner, manager or accountant can record the filing date.")
+        start = self._fy_start(request.data.get("fy"))
+        raw = request.data.get("filed_on")
+        if not raw:
+            AnnualReturnFiling.objects.filter(company=self.company, fy_start_year=start).delete()
+            return Response(self._body(self.company, start, None))
+        try:
+            filed_on = date.fromisoformat(str(raw))
+        except ValueError:
+            raise BusinessRuleError("Filing date must be a valid date (YYYY-MM-DD).") from None
+        if filed_on < date(start + 1, 4, 1):
+            raise BusinessRuleError("An annual return cannot be filed before the financial year ends.")
+        row, _ = AnnualReturnFiling.objects.update_or_create(
+            company=self.company, fy_start_year=start, defaults={"filed_on": filed_on}
+        )
+        AuditService.log(
+            action="annual_return_filing_date_set",
+            company=self.company,
+            user=request.user,
+            entity_type="AnnualReturnFiling",
+            entity_id=row.pk,
+            metadata={"fy_start_year": start, "filed_on": filed_on.isoformat()},
+        )
+        return Response(self._body(self.company, start, row))
 
 
 class CancelledDocumentNumbersView(BaseReportView):

@@ -12,7 +12,7 @@ PRODUCT QUALITY BACKLOG - dashboard
 🟡 Usability improvements     :   4
 🟣 Persona gaps               :   1
 🔵 Business gaps              :   5
-🟤 Reliability & trust issues :   3
+🟤 Reliability & trust issues :   6
 🔗 Cross-flow consistency     :   0
 🟢 Performance improvements   :   1
 ⚫ Security & privacy fixes   :   4
@@ -22,7 +22,7 @@ PRODUCT QUALITY BACKLOG - dashboard
 Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 23 open)
+## Do next - sequenced frontier (top 12 of 26 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
@@ -36,10 +36,10 @@ Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 | 8 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
 | 9 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
 | 10 | QOS-0125 | Customers: audit and export retention policy, and Hindi review of the new strings | SECURITY_PRIVACY | P2 | S | 5.0 | none | - |
-| 11 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
-| 12 | QOS-0097 | UX fixes and claims have not been verified on a real backend | RELIABILITY_TRUST | P1-investigate | M | 4.0 | none | - |
+| 11 | QOS-0129 | Money hub: Hindi review of the new strings and CA sign-off on the tax-dues wording | RELIABILITY_TRUST | P2 | S | 5.0 | none | - |
+| 12 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
 
-Risk retired by this frontier: **64.6%** of open High/Medium-impact risk.
+Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 
 ## 1. 🔴 Critical bugs  (0 open / 1 tracked)
 
@@ -80,7 +80,7 @@ Risk retired by this frontier: **64.6%** of open High/Medium-impact risk.
 | [QOS-0028](../qos/backlog/QOS-0028.yaml) | ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt | P1,P5 | Service-contract milestone invoicing and job-work | P2 | XL | heuristic | Medium | backend | open |
 | [QOS-0035](../qos/backlog/QOS-0035.yaml) | ARCH-06 bulk serial scanner-paste workflow is not built out | P4 | Inward-ing a large consignment of serialised units | P2 | M | heuristic | Medium | web | fixed |
 
-## 5. 🔵 Business gaps  (5 open / 22 tracked)
+## 5. 🔵 Business gaps  (5 open / 23 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -106,8 +106,9 @@ Risk retired by this frontier: **64.6%** of open High/Medium-impact risk.
 | [QOS-0089](../qos/backlog/QOS-0089.yaml) | Job card does not list earlier jobs for the serial | P1 | Workshop job | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0092](../qos/backlog/QOS-0092.yaml) | Won opportunity amount is not shown next to invoices | P2 | Pipeline | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
+| [QOS-0127](../qos/backlog/QOS-0127.yaml) | Credit notes: enforce the annual-return filing date in the Section 34(2) time limit | P1 | Issue a credit note late in the financial year after the annual return | P3 | M | heuristic | Low | founder | fixed |
 
-## 6. 🟤 Reliability & trust issues  (3 open / 32 tracked)
+## 6. 🟤 Reliability & trust issues  (6 open / 35 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -139,10 +140,13 @@ Risk retired by this frontier: **64.6%** of open High/Medium-impact risk.
 | [QOS-0087](../qos/backlog/QOS-0087.yaml) | Credit note after an allocated receipt is unproved | P1 | GST invoice | P2 | S | heuristic | Medium | founder | verified |
 | [QOS-0099](../qos/backlog/QOS-0099.yaml) | ESLint is red across the web app (fixed 2026-10-01) | P1 | Every web change | P2 | L | measured | Low | web | fixed |
 | [QOS-0106](../qos/backlog/QOS-0106.yaml) | config_consistency guard failed at HEAD: 24 feature flags unclassified in FREEZE_SCOPE.md | P1 | Every backend change (CI) | P2 | S | measured | Low | founder | fixed |
+| [QOS-0129](../qos/backlog/QOS-0129.yaml) | Money hub: Hindi review of the new strings and CA sign-off on the tax-dues wording | P1 | See everything owed, owing and stuck on one screen | P2 | S | heuristic | Low | founder | open |
 | [QOS-0012](../qos/backlog/QOS-0012.yaml) | Real-broker Celery task ordering is hidden by eager mode | P5 | Webhook vs period-close vs e-invoice-submit ordering | P3 | L | heuristic | Low | backend | fixed |
 | [QOS-0013](../qos/backlog/QOS-0013.yaml) | End-to-end tests run on Chromium only; two mobile-viewport failures carried | P1,P2 | Cross-browser and mobile-viewport rendering | P3 | M | heuristic | Low | web | fixed |
 | [QOS-0014](../qos/backlog/QOS-0014.yaml) | No schema-migration rehearsal against a production-shaped dataset | P1 | Applying a migration to real data | P3 | M | heuristic | Low | backend | in_progress |
 | [QOS-0015](../qos/backlog/QOS-0015.yaml) | No accuracy benchmark for LLM bill extraction | P5 | LLM bill extraction quality over time | P3 | M | heuristic | Low | backend | in_progress |
+| [QOS-0126](../qos/backlog/QOS-0126.yaml) | Credit and debit notes: a native-speaker review of the new Hindi strings | P1 | Issue a credit or debit note and read its warnings in Hindi | P3 | S | heuristic | Low | founder | open |
+| [QOS-0128](../qos/backlog/QOS-0128.yaml) | Delivery routes and route planning: a native-speaker review of the new Hindi strings | P1 | Plan and run a delivery route in Hindi | P3 | S | heuristic | Low | founder | open |
 
 ## 7. 🔗 Cross-flow consistency  (0 open / 3 tracked)
 

@@ -503,6 +503,40 @@ def test_pod_slip_pdf_is_isolated(tenant_a, tenant_b):
     assert resp.get("Content-Type", "").split(";")[0] != "application/pdf"
 
 
+def test_route_planning_and_cashier_actions_are_isolated(tenant_a, tenant_b):
+    """Preflight, cancel, cashier count and receipt link on another tenant's route: never 2xx, never a change."""
+    from sales.models import DeliveryRoute
+
+    _grant_all(tenant_a, tenant_b)
+    route = _ensure_row(DeliveryRoute, tenant_b.company)
+    assert route is not None, _BUILD_ERRORS
+    before = (route.status, route.updated_at)
+    base = f"/api/v1/sales/delivery-routes/{route.pk}"
+    resp = tenant_a.client.get(f"{base}/preflight/")
+    assert resp.status_code in (403, 404), f"preflight: tenant A got {resp.status_code}"
+    for action in ("cancel", "verify-handover", "link-receipt", "add-orders", "start"):
+        resp = tenant_a.client.post(f"{base}/{action}/", {"orderIds": [], "cash": "0", "upi": "0"}, format="json")
+        assert resp.status_code in (400, 403, 404), f"{action}: tenant A got {resp.status_code}"
+        assert resp.status_code != 400 or action == "add-orders", f"{action}: validation ran before the lookup"
+    route.refresh_from_db()
+    assert (route.status, route.updated_at) == before
+
+
+def test_route_candidates_never_list_another_tenants_orders(tenant_a, tenant_b):
+    from sales.models import SalesOrder
+
+    _grant_all(tenant_a, tenant_b)
+    order = _ensure_row(SalesOrder, tenant_b.company)
+    assert order is not None, _BUILD_ERRORS
+    order.status = SalesOrder.Status.CONFIRMED
+    order.save(update_fields=["status"])
+    resp = tenant_a.client.get("/api/v1/sales/delivery-routes/candidates/", {"show_unavailable": "true", "ids": str(order.pk)})
+    assert resp.status_code == 200
+    body = resp.json()
+    body = body.get("data", body)
+    assert body["count"] == 0
+
+
 def test_dead_letter_replay_and_list_are_isolated(tenant_a, tenant_b):
     from billing.models import DeadLetterEvent
 

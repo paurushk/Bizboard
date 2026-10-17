@@ -138,6 +138,22 @@ class StockCountConflict(APIException):
         super().__init__(detail=detail, code="STOCK_COUNT_CONFLICT")
 
 
+class StockCountLineChanged(APIException):
+    """INV-IDR-04: another counter saved a line after this one loaded it."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "Someone else changed these count lines. Reload them before saving."
+    default_code = "STOCK_COUNT_LINE_CHANGED"
+
+    def __init__(self, lines):
+        detail = {
+            "code": "STOCK_COUNT_LINE_CHANGED",
+            "message": self.default_detail,
+            "lines": lines,
+        }
+        super().__init__(detail=detail, code="STOCK_COUNT_LINE_CHANGED")
+
+
 def exception_error_code(exc) -> str:
     """Instance code from DRF `get_codes()`, else class `default_code`.
 

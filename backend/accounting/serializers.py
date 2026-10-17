@@ -4,12 +4,12 @@ from rest_framework import serializers
 
 from core.permissions import get_company_user
 from core.serializers import CompanyPrimaryKeyRelatedField
-from masters.models import Customer, Supplier
+from masters.models import Customer, ExpenseCategory, Supplier
 from payments.models import BankAccount
 
 from .models import (
     Account, AccountingPeriod, BankReconSession, CashShiftAdjustment, CashShiftRegister, CostCenter,
-    Expense, FixedAsset, JournalEntry, JournalLine,
+    Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine,
 )
 
 
@@ -65,14 +65,74 @@ class CashShiftRegisterSerializer(serializers.ModelSerializer):
 
 class ExpenseSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    bank_account = CompanyPrimaryKeyRelatedField(
+        queryset=BankAccount.objects.all(), required=False, allow_null=True,
+    )
+    expense_account = CompanyPrimaryKeyRelatedField(
+        queryset=Account.objects.all(), required=False, allow_null=True,
+    )
+    expense_account_name = serializers.SerializerMethodField()
+    posted_to_books = serializers.SerializerMethodField()
+    journal_number = serializers.CharField(source="journal_entry.number", read_only=True, default="")
 
     class Meta:
         model = Expense
         fields = [
             "id", "number", "expense_date", "category", "category_name",
             "party_name", "amount", "notes", "attachment", "created_at", "updated_at",
+            "status", "voided_at", "void_reason",
+            "payment_mode", "bank_account", "expense_account", "expense_account_name",
+            "posted_to_books", "journal_number",
         ]
-        read_only_fields = ["number"]
+        read_only_fields = ["number", "status", "voided_at", "void_reason"]
+
+    def get_posted_to_books(self, obj):
+        return obj.journal_entry_id is not None
+
+    def get_expense_account_name(self, obj):
+        account = obj.expense_account
+        return f"{account.code} {account.name}" if account else ""
+
+    def validate_expense_account(self, account):
+        if account is None:
+            return account
+        if account.type != Account.Type.EXPENSE:
+            raise serializers.ValidationError("Choose an expense account.")
+        if not account.is_active:
+            raise serializers.ValidationError("That account is inactive.")
+        return account
+
+    def validate(self, attrs):
+        inst = self.instance
+        mode = attrs.get("payment_mode", getattr(inst, "payment_mode", Expense.PaymentMode.CASH))
+        bank = attrs["bank_account"] if "bank_account" in attrs else getattr(inst, "bank_account", None)
+        if mode == Expense.PaymentMode.BANK and bank is None:
+            raise serializers.ValidationError({"bank_account": "Choose the bank account this was paid from."})
+        if mode == Expense.PaymentMode.CASH and bank is not None:
+            # Cash expenses carry no bank; clear it rather than keep a misleading link.
+            attrs["bank_account"] = None
+        return attrs
+
+
+class ExpenseCategoryAccountSerializer(serializers.ModelSerializer):
+    category = CompanyPrimaryKeyRelatedField(queryset=ExpenseCategory.objects.all())
+    account = CompanyPrimaryKeyRelatedField(queryset=Account.objects.all())
+    account_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ExpenseCategoryAccount
+        fields = ["id", "category", "account", "account_name"]
+
+    def get_account_name(self, obj):
+        return f"{obj.account.code} {obj.account.name}"
+
+    def validate_account(self, account):
+        if account.type != Account.Type.EXPENSE:
+            raise serializers.ValidationError("Choose an expense account.")
+        if not account.is_active:
+            raise serializers.ValidationError("That account is inactive.")
+        return account
 
 
 class AccountSerializer(serializers.ModelSerializer):
@@ -202,6 +262,11 @@ class JournalLineSerializer(serializers.ModelSerializer):
         company = self._company()
         if company is not None and account.company_id != company.id:
             raise serializers.ValidationError("Account must belong to this company.")
+        # ACS-11: inactive accounts take no new manual postings.
+        if not account.is_active:
+            raise serializers.ValidationError(
+                f"Account {account.code} {account.name} is inactive. Reactivate it or choose another account."
+            )
         return account
 
     def validate(self, attrs):
@@ -252,12 +317,33 @@ class JournalLineSerializer(serializers.ModelSerializer):
 
 class JournalEntrySerializer(serializers.ModelSerializer):
     lines = JournalLineSerializer(many=True)
+    # ACS-10: where the entry came from, and whether the user may reverse it here.
+    source_label = serializers.SerializerMethodField()
+    source_path = serializers.SerializerMethodField()
+    can_reverse = serializers.SerializerMethodField()
 
     class Meta:
         model = JournalEntry
         fields = ["id", "number", "entry_date", "status", "source_type", "source_id", "purpose",
-                  "narration", "posted_at", "reversed_entry", "lines"]
-        read_only_fields = ["status", "source_type", "source_id", "purpose", "posted_at", "reversed_entry"]
+                  "narration", "posted_at", "reversed_entry", "lines",
+                  "source_label", "source_path", "can_reverse"]
+        read_only_fields = ["status", "source_type", "source_id", "purpose", "posted_at", "reversed_entry",
+                            "source_label", "source_path", "can_reverse"]
+
+    def get_source_label(self, obj):
+        from .journal_sources import source_label
+
+        return source_label(obj.source_type)
+
+    def get_source_path(self, obj):
+        from .journal_sources import source_path
+
+        return source_path(obj.source_type, obj.source_id)
+
+    def get_can_reverse(self, obj):
+        from .journal_sources import is_manual
+
+        return obj.status == JournalEntry.Status.POSTED and is_manual(obj.source_type)
 
     def validate_lines(self, lines):
         # B1-014: reject a line with BOTH sides set (or neither) here — it passes
@@ -364,7 +450,10 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         model = FixedAsset
         fields = "__all__"
         # BB-000084: company must never be client-writable.
-        read_only_fields = ["company", "depreciated_amount", "status", "disposed_at"]
+        read_only_fields = [
+            "company", "depreciated_amount", "status", "disposed_at",
+            "last_depreciation_error", "depreciation_catchup_months",
+        ]
         extra_kwargs = {
             "company": {"read_only": True},
             "asset_account": {"required": False},
@@ -372,10 +461,55 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             "depreciation_expense_account": {"required": False},
         }
 
+    # ACS-13: once depreciation has posted the schedule inputs are history. The
+    # screen greys these out, but the API must refuse them too.
+    _SCHEDULE_FIELDS = (
+        "acquisition_cost", "acquisition_date", "useful_life_months", "method",
+        "salvage_value", "wdv_annual_rate", "block_key",
+        "asset_account", "accumulated_depreciation_account", "depreciation_expense_account",
+    )
+
+    def validate(self, attrs):
+        inst = self.instance
+        cost = attrs.get("acquisition_cost", getattr(inst, "acquisition_cost", None))
+        life = attrs.get("useful_life_months", getattr(inst, "useful_life_months", None))
+        salvage = attrs.get("salvage_value", getattr(inst, "salvage_value", None)) or Decimal("0")
+        rate = attrs.get("wdv_annual_rate", getattr(inst, "wdv_annual_rate", None)) or Decimal("0")
+        errors = {}
+        if cost is not None and cost <= 0:
+            errors["acquisition_cost"] = "Cost must be greater than zero."
+        if life is not None and life < 1:
+            errors["useful_life_months"] = "Useful life must be at least one month."
+        if salvage < 0:
+            errors["salvage_value"] = "Salvage value cannot be negative."
+        elif cost is not None and salvage >= cost:
+            errors["salvage_value"] = "Salvage value must be less than the cost."
+        if rate < 0 or rate > 100:
+            errors["wdv_annual_rate"] = "Rate must be between 0 and 100."
+        if errors:
+            raise serializers.ValidationError(errors)
+        if inst is not None:
+            if inst.status != FixedAsset.Status.ACTIVE:
+                raise serializers.ValidationError("A disposed asset cannot be changed.")
+            if (inst.depreciated_amount or Decimal("0")) > 0:
+                changed = [
+                    name for name in self._SCHEDULE_FIELDS
+                    if name in attrs and attrs[name] != getattr(inst, name)
+                ]
+                if changed:
+                    raise serializers.ValidationError({
+                        name: "Depreciation has already posted; this cannot be changed. Only the name can be edited."
+                        for name in changed
+                    })
+        return attrs
+
 
 class AccountingSettingsSerializer(serializers.Serializer):
     """GET/POST /accounting/settings/ — 7.9b backfill flag is part of the money contract."""
 
     accounting_enabled = serializers.BooleanField()
     accounting_backfill_needed = serializers.BooleanField(read_only=True)
+    # ACS-15: expenses dated on or after this day post to the ledger (null = register only).
+    expense_gl_start_date = serializers.DateField(allow_null=True, required=False)
+    expense_gl_pending = serializers.DictField(read_only=True, required=False)
 

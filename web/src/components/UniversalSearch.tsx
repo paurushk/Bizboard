@@ -82,7 +82,19 @@ export function UniversalSearch() {
               {option.title}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              {option.type === 'help' ? option.subtitle : option.type}
+              {option.type === 'help'
+                ? option.subtitle
+                : option.type === 'credit_note'
+                  ? t('nav.creditNotes')
+                  : option.type === 'debit_note'
+                    ? t('nav.debitNotes')
+                    : option.type === 'sales_order'
+                      ? t('nav.salesOrders')
+                      : option.type === 'delivery_challan'
+                        ? t('nav.deliveryChallans')
+                        : option.type === 'delivery_route'
+                          ? t('nav.deliveryRoutes')
+                          : option.type}
               {option.type !== 'help' && option.subtitle ? ` · ${option.subtitle}` : ''}
             </Typography>
           </div>

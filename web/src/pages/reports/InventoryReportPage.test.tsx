@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactElement, ReactNode } from 'react';
 import { MemoryRouter } from 'react-router-dom';
@@ -53,7 +53,7 @@ function wrap(ui: ReactElement) {
 describe('InventoryReportPage Hindi columns', () => {
   afterEach(() => setLocale('en'));
 
-  it('uses Hindi column headings, the drift note, and the email subject', async () => {
+  it('uses Hindi column headings and the drift note, and downloads a CSV instead of mailing a link', async () => {
     setLocale('hi');
     const { getInventorySummary, exportReport } = await import('@/api/resources');
     vi.mocked(getInventorySummary).mockResolvedValue({
@@ -93,9 +93,11 @@ describe('InventoryReportPage Hindi columns', () => {
       await userEvent.hover(screen.getByText(t('sweep.balanceDrift')));
       expect(await screen.findByRole('tooltip')).toHaveTextContent(t('cog.cacheDrift', { qty: '4' }));
 
-      await userEvent.click(screen.getByRole('button', { name: t('reports.emailExcel') }));
-      await userEvent.click(screen.getByRole('button', { name: t('reports.emailExcel') }));
-      expect(hrefs.some((value) => value.includes(encodeURIComponent(t('nav.inventoryReports'))))).toBe(true);
+      // INV-WP-11: the old "email" button mailed a blob: link that only works in this tab. Gone.
+      expect(screen.queryByRole('button', { name: t('reports.emailExcel') })).toBeNull();
+      await userEvent.click(screen.getByRole('button', { name: t('inventory.downloadCsv') }));
+      await waitFor(() => expect(anchorClick).toHaveBeenCalled());
+      expect(hrefs.some((value) => value.startsWith('mailto:'))).toBe(false);
     } finally {
       anchorClick.mockRestore();
       Object.defineProperty(window, 'location', { configurable: true, value: realLocation });

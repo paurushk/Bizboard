@@ -363,12 +363,20 @@ class SalesInvoiceViewSet(IdempotentCreateMixin, InvoiceEinvoiceEwayActionsMixin
         ]
         if buckets:
             qs = _apply_payment_status(qs, buckets)
-        if (params.get("overdue") or "").lower() in ("1", "true", "yes"):
+        overdue = (params.get("overdue") or "").lower() in ("1", "true", "yes")
+        due_soon = (params.get("due_soon") or "").lower() in ("1", "true", "yes")
+        if overdue or due_soon:
+            # The same bills, with the same due-date rule, that the Money hub adds up.
+            from reporting.money_position import DUE_SOON_DAYS, open_sales_rows
             from django.utils import timezone
 
-            qs = qs.filter(
-                status=SalesInvoice.Status.COMPLETED, due_date__lt=timezone.localdate(), _balance__gt=0,
-            )
+            today = timezone.localdate()
+            ids = [
+                row["id"] for row in open_sales_rows(self.company, today)
+                if (overdue and row["days_overdue"] > 0)
+                or (due_soon and row["due"] is not None and 0 <= (row["due"] - today).days <= DUE_SOON_DAYS)
+            ]
+            qs = qs.filter(pk__in=ids)
         return self._order_invoice_list(qs, params.get("sort"))
 
     def _order_invoice_list(self, qs, raw_sort):
@@ -447,7 +455,14 @@ class SalesInvoiceViewSet(IdempotentCreateMixin, InvoiceEinvoiceEwayActionsMixin
             QuotationConversionService.release_for_invoice(
                 instance, self.request.user, QuotationConversion.ReleaseReason.DRAFT_DELETED
             )
+            source_order = getattr(instance, "source_order", None)
             super().perform_destroy(instance)
+            if source_order is not None:
+                from .order_quantities import recompute_order_status, sync_order_counters
+
+                source_order.refresh_from_db()
+                sync_order_counters(source_order)
+                recompute_order_status(source_order, self.request.user)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):

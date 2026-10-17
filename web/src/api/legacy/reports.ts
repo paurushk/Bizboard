@@ -70,7 +70,7 @@ export async function exportReport(
   type: string,
   // BUG-616/323: the export previously ignored whatever date range was
   // applied on-screen, silently exporting the full unfiltered register.
-  params?: { dateFrom?: string; dateTo?: string },
+  params?: { dateFrom?: string; dateTo?: string; warehouse?: number | string; q?: string },
 ): Promise<{ url: string }> {
   return withMocks(async () => {
     const reportMap: Record<string, string> = {
@@ -88,6 +88,8 @@ export async function exportReport(
       params: {
         date_from: params?.dateFrom || undefined,
         date_to: params?.dateTo || undefined,
+        warehouse: params?.warehouse || undefined,
+        q: params?.q || undefined,
       },
     });
     const blob =
@@ -330,6 +332,9 @@ export type TdsReceivableRow = {
   tdsDeducted: string;
   tdsApplied: string;
   tdsUnapplied: string;
+  /** Set when the customer's TDS certificate (Form 16A) arrived; bookkeeping only. */
+  certificateReceivedOn: string | null;
+  certificateRef: string;
 };
 export const getTdsReceivableReport = (params?: Record<string, string>) =>
   apiClient
@@ -431,3 +436,28 @@ export async function downloadCustomerLedgerXlsx(
   return data as Blob;
 }
 
+
+export interface Gstr9FilingDate {
+  fy: string;
+  filedOn: string | null;
+  noteDeadline: string;
+}
+
+function toFilingDate(raw: Record<string, unknown>): Gstr9FilingDate {
+  return {
+    fy: String(raw.fy ?? ''),
+    filedOn: (raw.filed_on ?? raw.filedOn ?? null) as string | null,
+    noteDeadline: String(raw.note_deadline ?? raw.noteDeadline ?? ''),
+  };
+}
+
+/** Sec 34(2): when the annual return for a financial year was filed (null until recorded). */
+export async function getGstr9FilingDate(fy: string): Promise<Gstr9FilingDate> {
+  const { data } = await apiClient.get('/reports/gstr9/filing-date/', { params: { fy } });
+  return toFilingDate(unwrapData<Record<string, unknown>>(data));
+}
+
+export async function setGstr9FilingDate(fy: string, filedOn: string | null): Promise<Gstr9FilingDate> {
+  const { data } = await apiClient.put('/reports/gstr9/filing-date/', { fy, filed_on: filedOn });
+  return toFilingDate(unwrapData<Record<string, unknown>>(data));
+}

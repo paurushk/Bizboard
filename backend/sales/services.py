@@ -791,8 +791,12 @@ class SalesService:
         # earlier drafts are found through source_order.
         source_orders = list(
             SalesOrder.objects.filter(
-                Q(converted_invoice=invoice) | Q(pk=getattr(invoice, "source_order_id", None))
-            ).prefetch_related("items")
+                Q(converted_invoice=invoice)
+                | Q(pk=getattr(invoice, "source_order_id", None))
+                | Q(challans__converted_invoice=invoice)
+            )
+            .distinct()
+            .prefetch_related("items")
         )
         if source_orders:
             so_qty = defaultdict(Decimal)
@@ -805,9 +809,12 @@ class SalesService:
                     so_qty[soi.product_id] += Decimal(str(soi.quantity or 0))
                 # What the order's other live invoices carry, read from them rather than from the
                 # line counters: editing a draft's quantity does not touch those counters.
-                for other_item in SalesItem.objects.filter(invoice__source_order=order).exclude(
-                    invoice=invoice
-                ).exclude(invoice__status=SalesInvoice.Status.CANCELLED):
+                from .order_quantities import invoices_for_order
+
+                other_invoice_ids = list(
+                    invoices_for_order(order).exclude(pk=invoice.pk).values_list("pk", flat=True)
+                )
+                for other_item in SalesItem.objects.filter(invoice_id__in=other_invoice_ids):
                     so_taken[other_item.product_id] += Decimal(str(other_item.quantity or 0))
             for product_id, new_q in new_qty_preview.items():
                 # What this invoice may carry: the order quantity minus what other documents
@@ -938,6 +945,11 @@ class SalesService:
 
         invoice.updated_by = user
         invoice.save()
+        if getattr(invoice, "source_order_id", None):
+            # A draft's quantities moved: the order's counters follow the documents.
+            from .order_quantities import sync_order_counters
+
+            sync_order_counters(invoice.source_order)
         return invoice
 
     @staticmethod
@@ -1528,50 +1540,48 @@ class SalesService:
             from .models import SalesOrder
 
             order_ids = set(
-                SalesOrder.objects.filter(converted_invoice=invoice).values_list("pk", flat=True)
+                SalesOrder.objects.filter(
+                    Q(converted_invoice=invoice) | Q(challans__converted_invoice=invoice)
+                ).values_list("pk", flat=True)
             )
             if getattr(invoice, "source_order_id", None):
                 order_ids.add(invoice.source_order_id)
+            from .models import DeliveryChallan
+            from .order_quantities import order_still_held
+
+            # An invoice made from a challan releases nothing: the challan already gave back
+            # its share when it completed (H-01). Releasing again would eat the reservations
+            # other orders hold for the same product.
+            challan_sourced = None  # looked up once, and only when an order is involved
             for order in SalesOrder.objects.select_for_update().filter(pk__in=order_ids):
+                if challan_sourced is None:
+                    challan_sourced = DeliveryChallan.objects.filter(
+                        company_id=invoice.company_id, converted_invoice=invoice
+                    ).exists()
                 inv_qty_by_product = defaultdict(Decimal)
                 for it in invoice.items.all():
                     inv_qty_by_product[it.product_id] += Decimal(str(it.quantity or 0))
 
-                if order.status in (
-                    SalesOrder.Status.CONFIRMED,
-                    SalesOrder.Status.PARTIALLY_CONVERTED,
-                ):
+                if not challan_sourced and order.stock_held:
                     warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
+                    # What this order still holds, less nothing this invoice already took: release
+                    # only this invoice's own quantity, and never more than the order still holds.
+                    held = order_still_held(order, exclude_invoice_id=invoice.pk)
                     for item in order.items.select_related("product"):
                         release_qty = min(
-                            Decimal(str(item.quantity or 0)),
-                            inv_qty_by_product.get(item.product_id, Decimal(str(item.quantity or 0))),
+                            held.get(item.product_id, Decimal("0")),
+                            inv_qty_by_product.get(item.product_id, Decimal("0")),
                         )
                         if release_qty > 0:
                             InventoryService.release_reservation(
                                 order.company, warehouse, item.product, release_qty, user
                             )
+                            held[item.product_id] = held.get(item.product_id, Decimal("0")) - release_qty
 
-                order_lines = list(order.items.all())
-                tracked = any(Decimal(str(it.invoiced_quantity or 0)) > 0 for it in order_lines)
-                if tracked:
-                    fully_converted = all(
-                        Decimal(str(it.invoiced_quantity or 0)) >= Decimal(str(it.quantity or 0))
-                        for it in order_lines
-                    )
-                else:
-                    fully_converted = all(
-                        inv_qty_by_product.get(it.product_id, Decimal("0")) >= Decimal(str(it.quantity or 0))
-                        for it in order_lines
-                    )
-                if fully_converted and order.status in (
-                    SalesOrder.Status.DRAFT,
-                    SalesOrder.Status.CONFIRMED,
-                    SalesOrder.Status.PARTIALLY_CONVERTED,
-                ):
-                    order.status = SalesOrder.Status.CONVERTED
-                    order.updated_by = user
-                    order.save(update_fields=["status", "updated_by", "updated_at"])
+                # What has completed decides the status; the counters are rebuilt from the documents.
+                from .order_quantities import recompute_order_status
+
+                recompute_order_status(order, user)
 
             cost_basis_counts: dict = {}
             cogs_total = CogsService.post_sale_stock_and_cogs(
@@ -1641,6 +1651,38 @@ class SalesService:
         return invoice, warnings
 
     @staticmethod
+    def _reopen_order_after_invoice_cancel(invoice: SalesInvoice, user, *, was_completed: bool):
+        """Cancelling a completed invoice gives its order the goods back.
+
+        A direct invoice released the order's reservation when it completed. Stock was restored by
+        the cancel, so the order reserves it again and drops back to where the remaining documents
+        leave it (confirmed, or partly processed when a challan or another invoice is still live).
+        """
+        from .models import SalesOrder
+        from .order_quantities import recompute_order_status
+
+        order_ids = set(
+            SalesOrder.objects.filter(company_id=invoice.company_id)
+            .filter(Q(pk=getattr(invoice, "source_order_id", None)) | Q(converted_invoice=invoice))
+            .values_list("pk", flat=True)
+        )
+        for order_id in order_ids:
+            order = SalesOrder.objects.select_for_update().get(pk=order_id)
+            if order.status == SalesOrder.Status.CANCELLED:
+                continue
+            if was_completed and order.stock_held and getattr(invoice, "source_order_id", None) == order.pk:
+                warehouse = order.warehouse or InventoryService.default_warehouse(order.company)
+                products = {line.product_id: line.product for line in order.items.select_related("product")}
+                for item in invoice.items.all():
+                    product = products.get(item.product_id)
+                    if product is not None and item.quantity > 0:
+                        InventoryService.reserve_stock(order.company, warehouse, product, item.quantity, user)
+            recompute_order_status(order, user, allow_reopen=True)
+            if order.converted_invoice_id == invoice.pk:
+                order.converted_invoice = None
+                order.save(update_fields=["converted_invoice", "updated_at"])
+
+    @staticmethod
     @transaction.atomic
     def cancel(invoice: SalesInvoice, user, *, reason: str = ""):
         invoice = SalesInvoice.objects.select_for_update().get(pk=invoice.pk)
@@ -1704,6 +1746,7 @@ class SalesService:
                 code="gateway_payment_received",
             )
 
+        posted_sale_cancelled = invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
         if invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
             if invoice.company.accounting_enabled:
                 from accounting.models import JournalEntry
@@ -1834,6 +1877,7 @@ class SalesService:
         SalesOrder.objects.filter(converted_invoice=invoice).exclude(
             status=SalesOrder.Status.CONVERTED
         ).update(converted_invoice=None, updated_by=user, updated_at=timezone.now())
+        SalesService._reopen_order_after_invoice_cancel(invoice, user, was_completed=posted_sale_cancelled)
         from .models import QuotationConversion
         from .quotation_conversions import QuotationConversionService
 
@@ -2119,9 +2163,7 @@ class SalesService:
             updated_by=user,
         )
         items_data = _quotation_items_data_from_plan(plan)
-        if getattr(quotation, "price_mode", None) and hasattr(order, "price_mode"):
-            order.price_mode = quotation.price_mode
-            order.save(update_fields=["price_mode"])
+        # A quotation has no price mode: its lines are exclusive, so the order keeps the default.
         SalesNotesService.set_order_items(order, items_data, user)
         _commit_quotation_conversion(quotation, plan, user, order=order)
         return order

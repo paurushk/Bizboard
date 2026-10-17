@@ -46,6 +46,8 @@ import {
   createPaymentPromise,
   resolvePaymentPromise,
   listSalesReturns,
+  listSalesCreditNotesPage,
+  listSalesDebitNotesPage,
   sharePaymentLink,
   unallocatePayment,
   updateSalesInvoice,
@@ -72,6 +74,7 @@ import {
   canCancelDocuments,
   canCreatePayments,
   canCreateSales,
+  canIssueNotes,
   canManagePaymentPromises,
   canOverrideGstGuard,
   canViewFinancialReports,
@@ -98,7 +101,8 @@ export function InvoiceDetailPage() {
   const [shareOpen, setShareOpen] = useState(false);
   const [shareChannel, setShareChannel] = useState<ShareChannel>('WHATSAPP');
   const [profitOpen, setProfitOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
+  // Collections links here with ?pay=1 to start the payment straight away.
+  const [payOpen, setPayOpen] = useState(() => searchParams.get('pay') === '1');
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
   const [amendOpen, setAmendOpen] = useState(false);
   const [amendGstin, setAmendGstin] = useState('');
@@ -279,6 +283,21 @@ export function InvoiceDetailPage() {
     enabled:
       Number.isFinite(invoiceId) &&
       (query.data?.status === 'RETURNED' || query.data?.returnState === 'PARTIAL'),
+  });
+
+  // DEP-01: credit and debit notes raised against this invoice.
+  const invoiceNotes = useQuery({
+    queryKey: ['invoice-notes', invoiceId],
+    queryFn: async () => {
+      const [credits, debits] = await Promise.all([
+        listSalesCreditNotesPage({ invoice: invoiceId, pageSize: 50 }),
+        listSalesDebitNotesPage({ invoice: invoiceId, pageSize: 50 }),
+      ]);
+      return { credits: credits.results, debits: debits.results };
+    },
+    enabled:
+      Number.isFinite(invoiceId) &&
+      (query.data?.status === 'COMPLETED' || query.data?.status === 'RETURNED'),
   });
 
   const unallocateMutation = useMutation({
@@ -683,6 +702,15 @@ export function InvoiceDetailPage() {
                 {t('phase1.newCreditNote')}
               </MenuItem>
             ) : null}
+            {canAct && canIssueNotes(user) ? (
+              <MenuItem
+                component={RouterLink}
+                to={`/sales/debit-notes/new?fromInvoice=${inv.id}`}
+                onClick={() => setMoreAnchor(null)}
+              >
+                {t('phase1.newDebitNote')}
+              </MenuItem>
+            ) : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('ORIGINAL'); }}>{t('billing.downloadOriginal')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('DUPLICATE'); }}>{t('billing.downloadDuplicate')}</MenuItem> : null}
             {canAct ? <MenuItem onClick={() => { setMoreAnchor(null); void downloadCopy('TRIPLICATE'); }}>{t('billing.downloadTriplicate')}</MenuItem> : null}
@@ -892,6 +920,79 @@ export function InvoiceDetailPage() {
               ))}
             </TableBody>
           </Table>
+        </Paper>
+      ) : null}
+
+      {canAct ? (
+        <Paper sx={{ p: 2 }} data-testid="invoice-notes-section">
+          <Typography variant="subtitle2" color="text.secondary">
+            {t('phase1.invoiceNotesTitle')}
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          {(() => {
+            const rows = [
+              ...(invoiceNotes.data?.credits ?? []).map((n) => ({ kind: 'credit' as const, note: n })),
+              ...(invoiceNotes.data?.debits ?? []).map((n) => ({ kind: 'debit' as const, note: n })),
+            ];
+            if (rows.length === 0) {
+              return (
+                <Typography variant="body2" color="text.secondary">
+                  {t('phase1.invoiceNotesNone')}
+                </Typography>
+              );
+            }
+            const live = rows.filter((r) => r.note.status === 'COMPLETED');
+            const credited = live
+              .filter((r) => r.kind === 'credit')
+              .reduce((sum, r) => sum + toNumber(r.note.grandTotal), 0);
+            const debited = live
+              .filter((r) => r.kind === 'debit')
+              .reduce((sum, r) => sum + toNumber(r.note.grandTotal), 0);
+            return (
+              <>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>{t('common.number')}</TableCell>
+                      <TableCell>{t('common.type')}</TableCell>
+                      <TableCell>{t('common.date')}</TableCell>
+                      <TableCell>{t('common.status')}</TableCell>
+                      <TableCell align="right">{t('common.total')}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {rows.map(({ kind, note }) => (
+                      <TableRow key={`${kind}-${note.id}`}>
+                        <TableCell>
+                          <Typography
+                            component={RouterLink}
+                            to={`/sales/${kind === 'credit' ? 'credit' : 'debit'}-notes/${note.id}`}
+                            sx={{ color: 'primary.main', textDecoration: 'none' }}
+                          >
+                            {note.number?.trim() ? note.number : `#${note.id}`}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          {t(kind === 'credit' ? 'phase1.noteKindCredit' : 'phase1.noteKindDebit')}
+                        </TableCell>
+                        <TableCell>{note.noteDate}</TableCell>
+                        <TableCell>
+                          <StatusChip
+                            tone={documentStatusTone(note.status)}
+                            labelKey={statusLabelKey(note.status)}
+                          />
+                        </TableCell>
+                        <TableCell align="right">{formatMoney(note.grandTotal)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <Typography variant="body2" sx={{ mt: 1 }}>
+                  {t('phase1.invoiceNotesNet')}: {formatMoney(toNumber(inv.grandTotal) - credited + debited)}
+                </Typography>
+              </>
+            );
+          })()}
         </Paper>
       ) : null}
 

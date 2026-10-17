@@ -22,6 +22,7 @@ import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { AccountingBackfillBanner } from '@/components/AccountingBackfillBanner';
+import { ExpensePostingSettings } from '@/components/accounting/ExpensePostingSettings';
 import {
   asRows,
   DataTable,
@@ -86,6 +87,9 @@ export function AccountingSettingsPage() {
           </Stack>
         </Stack>
       </Paper>
+      <Stack sx={{ mt: 2 }}>
+        <ExpensePostingSettings disabled={writesBlocked} />
+      </Stack>
       <Paper variant="outlined" sx={{ p: 3, mt: 2 }}>
         <Stack spacing={2}>
           <Typography variant="h6">{t('sweep2.closeFy')}</Typography>

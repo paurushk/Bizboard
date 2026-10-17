@@ -3,6 +3,7 @@ import { VirtualizedTable } from '@/components/VirtualizedTable';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
 import TextField from '@mui/material/TextField';
 import IconButton from '@mui/material/IconButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
@@ -24,7 +25,7 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Link as RouterLink, useLocation, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { formatDocumentDate } from '@/utils/documentDate';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
@@ -37,6 +38,7 @@ import {
   listPurchasesPage,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { StatusChip } from '@/components/StatusChip';
@@ -67,7 +69,18 @@ export function PurchaseHistoryPage() {
   const location = useLocation();
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
-  const [supplierId, setSupplierId] = useState<number | ''>('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  // The Money hub links here with one supplier and/or a money filter (owes money, overdue, due this week).
+  const [supplierId, setSupplierId] = useState<number | ''>(() => {
+    const raw = searchParams.get('supplier') ?? '';
+    return /^\d+$/.test(raw) ? Number(raw) : '';
+  });
+  const [moneyFilter, setMoneyFilter] = useState<'' | 'has_balance' | 'overdue' | 'due_soon'>(() => {
+    if (searchParams.get('overdue') === '1') return 'overdue';
+    if (searchParams.get('due_soon') === '1') return 'due_soon';
+    if (searchParams.get('has_balance') === '1') return 'has_balance';
+    return '';
+  });
   const supplierSearch = useSupplierSearch();
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
   const debouncedQ = useDebouncedValue(filters.q, 300);
@@ -83,7 +96,7 @@ export function PurchaseHistoryPage() {
   });
 
   const query = useQuery({
-    queryKey: ['purchases', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo, supplierId],
+    queryKey: ['purchases', page, filters.status, debouncedQ, filters.dateFrom, filters.dateTo, supplierId, moneyFilter],
     queryFn: () =>
       listPurchasesPage({
         page,
@@ -93,6 +106,9 @@ export function PurchaseHistoryPage() {
         date_from: filters.dateFrom || undefined,
         date_to: filters.dateTo || undefined,
         supplier: supplierId || undefined,
+        has_balance: moneyFilter === 'has_balance' ? 1 : undefined,
+        overdue: moneyFilter === 'overdue' ? 1 : undefined,
+        due_soon: moneyFilter === 'due_soon' ? 1 : undefined,
       }),
     staleTime: 0,
     refetchOnMount: 'always',
@@ -153,8 +169,22 @@ export function PurchaseHistoryPage() {
 
   const rows = query.data?.results ?? [];
   const filtersActive = Boolean(
-    filters.status || debouncedQ || filters.dateFrom || filters.dateTo,
+    filters.status || debouncedQ || filters.dateFrom || filters.dateTo || moneyFilter || supplierId,
   );
+  const handoffLabel =
+    moneyFilter === 'overdue'
+      ? t('money.filters.overduePurchases')
+      : moneyFilter === 'due_soon'
+        ? t('money.filters.dueSoonPurchases')
+        : moneyFilter === 'has_balance'
+          ? t('money.filters.owedPurchases')
+          : t('money.filters.purchases');
+  const showAll = () => {
+    setMoneyFilter('');
+    setSupplierId('');
+    setSearchParams({}, { replace: true });
+    setPage(1);
+  };
   const showLoading = query.isPending || (query.isFetching && rows.length === 0);
   const showEmpty = !showLoading && !query.isError && rows.length === 0 && !filtersActive;
   const showNoMatches =
@@ -179,6 +209,40 @@ export function PurchaseHistoryPage() {
       ) : null}
       {error ? (
         <HelpErrorAlert message={error} onClose={() => setError(null)} />
+      ) : null}
+      <MoneyHandoffBar filterLabel={handoffLabel} onShowAll={showAll} />
+      {!query.isError ? (
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" role="group" aria-label={t('money.filters.group')}>
+          {(
+            [
+              ['has_balance', t('money.filters.owedPurchases')],
+              ['overdue', t('money.filters.overduePurchases')],
+              ['due_soon', t('money.filters.dueSoonPurchases')],
+            ] as const
+          ).map(([key, label]) => (
+            <Chip
+              key={key}
+              label={label}
+              clickable
+              color={moneyFilter === key ? 'primary' : 'default'}
+              variant={moneyFilter === key ? 'filled' : 'outlined'}
+              aria-pressed={moneyFilter === key}
+              onClick={() => {
+                setMoneyFilter((current) => (current === key ? '' : key));
+                setPage(1);
+              }}
+            />
+          ))}
+          {supplierId ? (
+            <Chip
+              label={t('supplierPayments.oneSupplier')}
+              onDelete={() => {
+                setSupplierId('');
+                setPage(1);
+              }}
+            />
+          ) : null}
+        </Stack>
       ) : null}
       {!query.isError ? (
         <HistoryFilterBar

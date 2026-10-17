@@ -1,5 +1,5 @@
 import logging
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.core.cache import cache
 from django.db import transaction
@@ -989,7 +989,8 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
 
     def get_permissions(self):
         # mark-reviewed writes product rows: it needs the same right as an edit.
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "mark_reviewed"):
+        # generate-barcode writes a barcode onto an item when given one: that is an edit (INV-IDR-12).
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "mark_reviewed", "generate_barcode"):
             return [IsAuthenticated(), HasCompany(), CanManageInventory()]
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
@@ -1110,6 +1111,27 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         if (self.request.query_params.get("needs_review") or "").lower() in ("1", "true", "yes"):
             # Products created by a bill import with no cost/stock yet (23.11).
             qs = qs.filter(needs_review=True)
+        params = self.request.query_params
+        # INV-IDR-09: the filters the Items page offers are answered here, so "category = Tea" means
+        # every item in that category, not the ones that happen to be on the page being shown.
+        for field in ("category", "brand"):
+            value = params.get(field)
+            if value:
+                if not str(value).isdigit():
+                    raise ValidationError({field: "Choose from the list."})
+                qs = qs.filter(**{f"{field}_id": int(value)})
+        if rate := params.get("gst_rate"):
+            try:
+                qs = qs.filter(gst_rate=Decimal(str(rate)))
+            except (InvalidOperation, ValueError):
+                raise ValidationError({"gst_rate": "Enter a number."}) from None
+        if name := (params.get("name_exact") or "").strip():
+            qs = qs.filter(name__iexact=name)
+        stock_status = (params.get("stock_status") or "").strip().lower()
+        if stock_status:
+            if stock_status not in ("in", "low", "out"):
+                raise ValidationError({"stock_status": "Use in, low or out."})
+            qs = self._filter_stock_status(qs, stock_status)
         raw_ids = self.request.query_params.get("ids")
         if raw_ids:
             # Quick Entry hydrates its recent-product chips by id (max 50, integers only).
@@ -1137,6 +1159,50 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             )
         qs = apply_cf_filters(qs, self.request.query_params, defs)
         return qs
+
+    def _filter_stock_status(self, qs, status):
+        """``in`` = something available (low items included), ``low`` = at or under its reorder rule
+        (the Low stock page's definition), ``out`` = nothing available, or never stocked."""
+        from django.db.models import F, Sum
+
+        from inventory.low_stock import low_stock_product_ids
+        from inventory.models import StockBalance
+
+        if status == "low":
+            return qs.filter(pk__in=low_stock_product_ids(self.company))
+        # One grouped read of who has something available (not a per-item lookup: with 10,000 items a
+        # correlated subquery took minutes). "Out" is everyone else, including never-stocked items.
+        stocked = (
+            StockBalance.objects.filter(company=self.company)
+            .order_by().values("product_id")
+            .annotate(total=Sum(F("on_hand") - F("reserved")))
+            .filter(total__gt=0)
+            .values("product_id")
+        )
+        return qs.filter(pk__in=stocked) if status == "in" else qs.exclude(pk__in=stocked)
+
+    @action(detail=False, methods=["get"], url_path="filter-options")
+    def filter_options(self, request):
+        """What the Items page can filter by: the categories, brands and GST slabs in use."""
+        from django.db.models import Exists, OuterRef
+
+        from masters.models import Brand, Category
+
+        base = Product.objects.filter(company=self.company)
+        # Ask the small category and brand tables whether an item uses them, rather than
+        # scanning every item for distinct values.
+        in_use = Product.objects.filter(company=self.company)
+        categories = Category.objects.filter(company=self.company).filter(
+            Exists(in_use.filter(category_id=OuterRef("pk")))
+        ).order_by("name")
+        brands = Brand.objects.filter(company=self.company).filter(
+            Exists(in_use.filter(brand_id=OuterRef("pk")))
+        ).order_by("name")
+        return Response({
+            "categories": [{"id": row.id, "name": row.name} for row in categories],
+            "brands": [{"id": row.id, "name": row.name} for row in brands],
+            "gst_rates": [str(rate) for rate in base.order_by().values_list("gst_rate", flat=True).distinct().order_by("gst_rate")],
+        })
 
     def list(self, request, *args, **kwargs):
         # Cache the unfiltered catalog; filtered lists stay live.
@@ -1192,6 +1258,16 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         data = distinct_values_for_keys(self.company, keys)
         cache.set(cache_key, data, _MASTERS_LIST_TTL)
         return Response(data)
+
+    @action(detail=False, methods=["get"], url_path="missing-barcode")
+    def missing_barcode(self, request):
+        """Active items that have no barcode: how many, and a page of them (INV-IDR-11)."""
+        qs = self.get_queryset().filter(status=Product.Status.ACTIVE, barcode="").order_by("name", "id")
+        page = self.paginate_queryset(qs)
+        serializer = self.get_serializer(page if page is not None else qs, many=True)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
 
     @action(detail=False, methods=["post"], url_path="generate-barcode")
     def generate_barcode(self, request):

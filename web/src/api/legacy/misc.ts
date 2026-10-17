@@ -27,6 +27,11 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
           suppliers?: Array<{ id: number; name: string }>;
           invoices?: Array<{ id: number; number?: string; kind?: string }>;
           quotations?: Array<{ id: number; number?: string | null; status?: string; customer_name?: string; customerName?: string }>;
+          sales_orders?: Array<{ id: number; number?: string | null; status?: string; customer_name?: string; customerName?: string }>;
+          delivery_challans?: Array<{ id: number; number?: string | null; status?: string; customer_name?: string; customerName?: string }>;
+          delivery_routes?: Array<{ id: number; number?: string | null; status?: string; vehicle_number?: string; vehicleNumber?: string; driver_name?: string; driverName?: string }>;
+          credit_notes?: Array<{ id: number; number?: string | null; party?: string; invoice_number?: string }>;
+          debit_notes?: Array<{ id: number; number?: string | null; party?: string; invoice_number?: string }>;
         }
     >(data);
 
@@ -74,6 +79,61 @@ export async function universalSearch(q: string): Promise<SearchResult[]> {
         title: quote.number || String(quote.id),
         subtitle: [t('nav.quotations'), quote.customer_name ?? quote.customerName].filter(Boolean).join(' · '),
         path: `/sales/quotations/${quote.id}`,
+      });
+    }
+    for (const order of body.sales_orders ?? []) {
+      results.push({
+        id: order.id,
+        type: 'sales_order',
+        title: order.number || t('status.DRAFT'),
+        subtitle: [order.customer_name ?? order.customerName, order.status ? t(`status.${order.status}`) : '']
+          .filter(Boolean)
+          .join(' · '),
+        path: `/sales/orders/${order.id}`,
+      });
+    }
+    for (const challan of body.delivery_challans ?? []) {
+      results.push({
+        id: challan.id,
+        type: 'delivery_challan',
+        title: challan.number || t('status.DRAFT'),
+        subtitle: [challan.customer_name ?? challan.customerName, challan.status ? t(`status.${challan.status}`) : '']
+          .filter(Boolean)
+          .join(' · '),
+        path: `/sales/delivery-challans/${challan.id}`,
+      });
+    }
+    for (const route of body.delivery_routes ?? []) {
+      results.push({
+        id: route.id,
+        type: 'delivery_route',
+        title: route.number || String(route.id),
+        subtitle: [
+          route.vehicle_number ?? route.vehicleNumber,
+          route.driver_name ?? route.driverName,
+          route.status ? t(`status.${route.status}`) : '',
+        ]
+          .filter(Boolean)
+          .join(' · '),
+        path: `/sales/delivery-routes/${route.id}`,
+      });
+    }
+    for (const note of body.credit_notes ?? []) {
+      results.push({
+        id: note.id,
+        type: 'credit_note',
+        title: note.number || t('status.DRAFT'),
+        subtitle: [note.party, note.invoice_number].filter(Boolean).join(' · '),
+        path: `/sales/credit-notes/${note.id}`,
+      });
+    }
+    for (const note of body.debit_notes ?? []) {
+      results.push({
+        id: note.id,
+        type: 'debit_note',
+        title: note.number || t('status.DRAFT'),
+        subtitle: [note.party, note.invoice_number].filter(Boolean).join(' · '),
+        path: `/sales/debit-notes/${note.id}`,
       });
     }
     return results;
@@ -532,8 +592,48 @@ export async function updateExpense(id: number, payload: Record<string, unknown>
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function deleteExpense(id: number) {
-  await apiClient.delete(`/accounting/expenses/${id}/`);
+/** ACS-16: other active expenses with the same date, amount and party. */
+export async function findExpenseDuplicates(params: {
+  date: string;
+  amount: string;
+  party?: string;
+  exclude?: number;
+}): Promise<{ count: number; results: Array<{ id: number; number: string; partyName: string }> }> {
+  const { data } = await apiClient.get('/accounting/expenses/duplicates/', {
+    params: { date: params.date, amount: params.amount, party: params.party || undefined, exclude: params.exclude },
+  });
+  return unwrapData(data);
+}
+
+export type ExpenseCategoryAccount = { id: number; category: number; account: number; accountName: string };
+
+/** ACS-15: which expense ledger each category posts to. */
+export async function listExpenseCategoryAccounts(): Promise<ExpenseCategoryAccount[]> {
+  return fetchAllPagesMasters<ExpenseCategoryAccount>('/accounting/expense-category-accounts/');
+}
+
+export async function setExpenseCategoryAccount(payload: { category: number; account: number }) {
+  const { data } = await apiClient.post('/accounting/expense-category-accounts/', payload);
+  return unwrapData<ExpenseCategoryAccount>(data);
+}
+
+export type ExpensePostingPreview = {
+  posted: number;
+  total: string | number;
+  skipped: Array<{ id: number; number: string; reason: string }>;
+  dryRun: boolean;
+};
+
+/** ACS-15: post (or, with dryRun, count) the expenses that should be in the books. */
+export async function postPendingExpenses(dryRun: boolean): Promise<ExpensePostingPreview> {
+  const { data } = await apiClient.post('/accounting/expenses/post-pending/', { dry_run: dryRun });
+  return unwrapData(data);
+}
+
+/** ACS-14: an expense is voided with a reason, never deleted. */
+export async function voidExpense(id: number, reason: string) {
+  const { data } = await apiClient.post(`/accounting/expenses/${id}/void/`, { reason });
+  return unwrapData<Record<string, unknown>>(data);
 }
 
 export async function listFixedAssets(params?: Record<string, string>): Promise<Record<string, unknown>[]> {

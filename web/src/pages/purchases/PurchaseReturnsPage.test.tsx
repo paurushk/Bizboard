@@ -230,6 +230,14 @@ describe('PurchaseReturnsPage inbound ?create=1', () => {
     await waitFor(() => expect(screen.getByTestId('search').textContent).toBe(''));
   });
 
+  it('opens the return for the bill named in ?purchase= (a lot from Expiry alerts)', async () => {
+    mount('/purchases/returns?purchase=5');
+    expect(await screen.findByRole('dialog', { name: t('phase1.newPurchaseReturn') })).toBeTruthy();
+    await waitFor(() => expect(h.getPurchase).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(screen.getByTestId('search').textContent).toBe(''));
+    expect(await screen.findByDisplayValue(/PUR-0005/)).toBeTruthy();
+  });
+
   it('does not open the dialog again after it is closed', async () => {
     mount('/purchases/returns?create=1');
     await screen.findByRole('dialog', { name: t('phase1.newPurchaseReturn') });

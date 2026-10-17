@@ -8,6 +8,7 @@ import { getCompany, listAttentionRows, listLowStock } from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { safeAppPath } from '@/utils/safeUrl';
 import { PageHeader } from '@/components/insights';
+import { isMoneyHubEnabled } from '@/config/featureFlags';
 import { t } from '@/i18n';
 
 /** Morning list of attention, overdue, and low stock already on the dashboard. */
@@ -40,6 +41,9 @@ export function MorningPage() {
           <Button component={RouterLink} to="/sales/new" variant="contained">{t('cog.newBill')}</Button>
           <Button component={RouterLink} to="/pos" variant="outlined">{t('cog.openPos')}</Button>
         </Stack>
+      ) : null}
+      {isMoneyHubEnabled() ? (
+        <Button component={RouterLink} to="/money" variant="text">{t('money.morningLink')}</Button>
       ) : null}
       <Button component={RouterLink} to="/attention" variant="text">{t('cog.dues')} ({overdue.length})</Button>
       {(low.data ?? []).slice(0, 8).map((row) => (

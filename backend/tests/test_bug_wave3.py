@@ -348,8 +348,12 @@ def test_bug_sales_002_failed_stop_releases_stock_and_opens_return(tenant_a):
     product = make_product(tenant_a.company, sku="SAL002")
     add_stock(tenant_a, product, "6")
     order = _order(tenant_a, product, "2")
-    SalesNotesService.convert_sales_order_to_challan(order, tenant_a.owner)
+    challan = SalesNotesService.convert_sales_order_to_challan(order, tenant_a.owner)
     assert _reserved(tenant_a.company, product) == Decimal("2")
+    # A refused delivery opens a return only for goods that actually left: the challan completes
+    # first (and gives its share of the reservation back).
+    SalesNotesService.complete_challan(challan, tenant_a.owner)
+    assert _reserved(tenant_a.company, product) == Decimal("0")
     route = DeliveryRoute.objects.create(
         company=tenant_a.company, created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
@@ -357,7 +361,7 @@ def test_bug_sales_002_failed_stop_releases_stock_and_opens_return(tenant_a):
         company=tenant_a.company, route=route, sales_order=order, sequence=1,
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
-    RouteService.start_route(route, tenant_a.owner)
+    RouteService.start_route(route, tenant_a.owner, enforce_risks=False)
     RouteService.set_stop_status(route, stop, DeliveryRouteStop.StopStatus.FAILED, tenant_a.owner)
     assert _reserved(tenant_a.company, product) == Decimal("0")
     assert DeliveryChallanReturn.objects.filter(company=tenant_a.company, reason__startswith="Stop ").exists()
@@ -365,7 +369,8 @@ def test_bug_sales_002_failed_stop_releases_stock_and_opens_return(tenant_a):
     product_b = make_product(tenant_a.company, sku="SAL002B")
     add_stock(tenant_a, product_b, "4")
     order_b = _order(tenant_a, product_b, "1")
-    SalesNotesService.convert_sales_order_to_challan(order_b, tenant_a.owner)
+    challan_b = SalesNotesService.convert_sales_order_to_challan(order_b, tenant_a.owner)
+    SalesNotesService.complete_challan(challan_b, tenant_a.owner)
     route_b = DeliveryRoute.objects.create(
         company=tenant_a.company, created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
@@ -373,7 +378,7 @@ def test_bug_sales_002_failed_stop_releases_stock_and_opens_return(tenant_a):
         company=tenant_a.company, route=route_b, sales_order=order_b, sequence=1,
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
-    RouteService.start_route(route_b, tenant_a.owner)
+    RouteService.start_route(route_b, tenant_a.owner, enforce_risks=False)
     RouteService.set_stop_status(route_b, stop_b, DeliveryRouteStop.StopStatus.REJECTED, tenant_a.owner)
     assert _reserved(tenant_a.company, product_b) == Decimal("0")
     assert DeliveryChallanReturn.objects.filter(

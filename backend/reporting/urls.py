@@ -2,6 +2,7 @@ from django.urls import path
 from core.routers import DefaultRouter
 
 from .filing import GstPeriodFilingView
+from .money_views import MoneyPositionView, MoneyStatutoryView, MoneyTimelineView
 from .views import (
     CancelledDocumentNumbersView,
     CashBookView,
@@ -23,6 +24,7 @@ from .views import (
     Gstr6View,
     Gstr7View,
     Gstr8View,
+    Gstr9FilingDateView,
     Gstr9View,
     InventorySummaryView,
     InvoiceProfitReportView,
@@ -44,6 +46,9 @@ router.register("reports/gstr2b", Gstr2bIngestViewSet, basename="gstr2b")
 
 urlpatterns = [
     path("dashboard/", DashboardView.as_view(), name="dashboard"),
+    path("money/position/", MoneyPositionView.as_view(), name="money-position"),
+    path("money/timeline/", MoneyTimelineView.as_view(), name="money-timeline"),
+    path("money/statutory/", MoneyStatutoryView.as_view(), name="money-statutory"),
     path("reports/sales-register/", SalesRegisterView.as_view(), name="sales-register"),
     path("reports/purchase-register/", PurchaseRegisterView.as_view(), name="purchase-register"),
     path("reports/inventory-summary/", InventorySummaryView.as_view(), name="inventory-summary"),
@@ -62,6 +67,7 @@ urlpatterns = [
     path("reports/gstr1/", Gstr1View.as_view(), name="gstr1"),
     path("reports/gstr3b/", Gstr3bView.as_view(), name="gstr3b"),
     path("reports/gstr9/", Gstr9View.as_view(), name="gstr9"),
+    path("reports/gstr9/filing-date/", Gstr9FilingDateView.as_view(), name="gstr9-filing-date"),
     path("reports/cmp08/", Cmp08View.as_view(), name="cmp08"),
     path("reports/gstr4/", Gstr4View.as_view(), name="gstr4"),
     path("reports/gstr6/", Gstr6View.as_view(), name="gstr6"),

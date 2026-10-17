@@ -12,7 +12,7 @@ from core.services.audit import record_document_event
 from core.exceptions import BusinessRuleError
 from core.services.tax_engine.registry import get_tax_engine
 from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
-from .notes_services import _invoice_intra_state
+from .notes_services import _invoice_intra_state, credit_line_uses_goods
 from inventory.models import MovementType, StockMovement
 from inventory.services import InventoryService
 
@@ -23,6 +23,7 @@ from .models import (
     SalesInvoice,
     SalesReturn,
     SalesReturnItem,
+    VALUE_ONLY_NOTE_REASONS,
 )
 from .services import _build_items, _tax_enabled, _validate_lines
 
@@ -124,9 +125,18 @@ class ReturnService:
             credit_note__status=SalesCreditNote.Status.COMPLETED,
             credit_note__sales_return__isnull=True,
             source_item__isnull=False,
-        ).values_list("source_item_id", "quantity", "credit_note__number")
-        for lid, qty, number in cn_rows:
+        ).exclude(
+            # DEP-02: a post-sale discount keeps the goods.
+            credit_note__reason__in=VALUE_ONLY_NOTE_REASONS,
+        ).values_list(
+            "source_item_id", "quantity", "unit_price", "discount_percent",
+            "source_item__unit_price", "source_item__discount_percent", "credit_note__number",
+        )
+        for lid, qty, note_price, note_disc, src_price, src_disc, number in cn_rows:
             if lid not in remaining:
+                continue
+            # DEP-02: a price-only credit (rate correction) leaves the goods returnable.
+            if not credit_line_uses_goods(None, note_price, note_disc, src_price, src_disc):
                 continue
             q = Decimal(str(qty or 0))
             standalone[lid] += q

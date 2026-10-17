@@ -44,7 +44,17 @@ export interface StockTransfer {
   toWarehouse: number;
   status: string;
   notes?: string;
-  lines: Array<{ id?: number; product: number; batch?: number | null; serialNumbers?: string[]; quantity: string | number }>;
+  lines: Array<{
+    id?: number;
+    product: number;
+    productName?: string;
+    batch?: number | null;
+    batchNo?: string | null;
+    serialNumbers?: string[];
+    quantity: string | number;
+    shortageQty?: string | number | null;
+    shortageReason?: string;
+  }>;
 }
 
 export interface BatchLot {
@@ -74,6 +84,11 @@ export interface JournalEntry {
   entryDate: string;
   status: string;
   narration?: string;
+  sourceType?: string;
+  sourceId?: number | null;
+  sourceLabel?: string;
+  sourcePath?: string | null;
+  canReverse?: boolean;
   lines: Array<{
     id?: number;
     account: number;
@@ -85,7 +100,14 @@ export interface JournalEntry {
   }>;
 }
 
-export type DocumentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELLED' | 'RETURNED' | 'CONVERTED';
+export type DocumentStatus =
+  | 'DRAFT'
+  | 'COMPLETED'
+  | 'CANCELLED'
+  | 'RETURNED'
+  | 'CONVERTED'
+  | 'CONFIRMED'
+  | 'PARTIALLY_CONVERTED';
 
 export type NoteReason =
   | 'SALES_RETURN'
@@ -660,11 +682,18 @@ export interface SalesCreditNote extends DocumentTotals {
   customerName?: string;
   salesInvoice: number;
   invoiceNumber?: string;
+  /** Set on the credit note a sales return issued automatically. */
+  salesReturn?: number | null;
+  /** Receipt slices this note moved into the customer's advance when it completed. */
+  peeledReceiptAllocations?: Array<{ receiptId?: number; receipt_id?: number; amount: string }>;
   noteDate: string;
   reason: NoteReason;
   reasonDetail?: string;
   invoiceDiscount?: string | number;
   invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
+  additionalCharges?: string | number;
+  chargesHsn?: string;
+  chargesGstRate?: string | number;
   autoRoundOff?: boolean;
   notes?: string;
   items: LineItem[];
@@ -694,6 +723,9 @@ export interface SalesDebitNote extends DocumentTotals {
   reasonDetail?: string;
   invoiceDiscount?: string | number;
   invoiceDiscountMode?: 'AFTER_TAX' | 'BEFORE_TAX';
+  additionalCharges?: string | number;
+  chargesHsn?: string;
+  chargesGstRate?: string | number;
   autoRoundOff?: boolean;
   notes?: string;
   items: LineItem[];
@@ -733,6 +765,8 @@ export interface SalesOrder extends DocumentTotals {
   expectedProfit?: string | number;
   items: LineItem[];
   convertedInvoice?: number | null;
+  /** Read-only: `none`, `shipped_not_invoiced` or `invoiced` (drives the "Shipped" label). */
+  fulfilmentState?: 'none' | 'shipped_not_invoiced' | 'invoiced';
 }
 
 export interface DeliveryChallan extends DocumentTotals {
@@ -898,6 +932,7 @@ export interface PurchaseCreditNote extends DocumentTotals {
   supplier: number;
   supplierName?: string;
   purchaseInvoice?: number | null;
+  invoiceNumber?: string | null;
   supplierNoteNumber?: string;
   noteDate: string;
   reason: NoteReason;
@@ -918,6 +953,7 @@ export interface PurchaseDebitNote extends DocumentTotals {
   supplier: number;
   supplierName?: string;
   purchaseInvoice?: number | null;
+  invoiceNumber?: string | null;
   supplierNoteNumber?: string;
   noteDate: string;
   reason: NoteReason;
@@ -956,6 +992,8 @@ export interface AdjustableInvoiceSummary {
   invoiceNumber?: string;
   grandTotal: string | number;
   outstanding: string | number;
+  /** Value still creditable on the invoice (invoiced - prior credit notes + debit notes). */
+  creditableHeadroom?: string | number;
 }
 
 export interface CustomerReceipt {
@@ -1100,15 +1138,35 @@ export interface StockBalance {
   warehouseName?: string;
   batchNo?: string;
   customFields?: Record<string, string>;
+  /** Low-stock alert rows only: true = this godown's own rule, false = company-wide total. */
+  isWarehouseSpecific?: boolean | null;
+  /** Low-stock alert rows only: false = no reorder rule, listed because nothing is left. */
+  hasReorderRule?: boolean | null;
+  /** Low-stock alert rows only: OUT when nothing is available, LOW otherwise. */
+  stockStatus?: 'LOW' | 'OUT' | null;
 }
 
 export interface StockAdjustment {
   product: number;
   quantity: number;
   reason: string;
+  /** Short cause code for shrinkage reports (DAMAGED, COUNT_DIFFERENCE, THEFT_LOSS, OPENING_CORRECTION, OTHER). */
+  reasonCode?: string;
   warehouse?: number;
   batch?: number;
   batchNo?: string;
+  /** Business date of the adjustment (YYYY-MM-DD); the server defaults to today. */
+  date?: string;
+}
+
+/**
+ * What the adjustment endpoint did. `PENDING` (HTTP 202) means a second approver has to accept it
+ * and no stock has moved yet; `APPLIED` (HTTP 201) means the movement is posted.
+ */
+export interface StockAdjustmentResult {
+  status: 'APPLIED' | 'PENDING';
+  approvalId?: number;
+  warnings?: string[];
 }
 
 export interface OpeningStockInput {
@@ -1223,7 +1281,18 @@ export interface DashboardKpis {
 
 export interface SearchResult {
   id: number | string;
-  type: 'invoice' | 'customer' | 'product' | 'supplier' | 'quotation' | 'help';
+  type:
+    | 'invoice'
+    | 'customer'
+    | 'product'
+    | 'supplier'
+    | 'quotation'
+    | 'sales_order'
+    | 'delivery_challan'
+    | 'delivery_route'
+    | 'credit_note'
+    | 'debit_note'
+    | 'help';
   title: string;
   subtitle?: string;
   path: string;

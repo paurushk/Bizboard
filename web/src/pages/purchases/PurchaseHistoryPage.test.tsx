@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -27,10 +28,12 @@ vi.mock('@/auth/AuthContext', () => ({
   }),
 }));
 
+const { listPurchasesPage } = vi.hoisted(() => ({ listPurchasesPage: vi.fn() }));
+
 vi.mock('@/api/resources', () => ({
   listCustomersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
   listSuppliersPage: async () => ({ count: 0, next: null, previous: null, results: [] }),
-  listPurchasesPage: async () => ({ results: ROWS, count: ROWS.length, next: null, previous: null }),
+  listPurchasesPage: (...args: unknown[]) => listPurchasesPage(...args),
 }));
 
 vi.mock('@/components/VirtualizedTable', () => ({
@@ -56,11 +59,12 @@ vi.mock('@/components/VirtualizedTable', () => ({
   },
 }));
 
-function wrap(ui: ReactElement) {
+function wrap(ui: ReactElement, path = '/') {
+  listPurchasesPage.mockResolvedValue({ results: ROWS, count: ROWS.length, next: null, previous: null });
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <MemoryRouter>{ui}</MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -71,5 +75,58 @@ describe('PurchaseHistoryPage status badges — G-17 parity', () => {
     const row = (await screen.findByText('PUR-0001')).closest('tr');
     expect(row).toBeTruthy();
     expect(within(row as HTMLElement).getByText(/returned/i)).toBeTruthy();
+  });
+});
+
+describe('PurchaseHistoryPage opened from the Money hub', () => {
+  it('opens on overdue bills and asks the server for exactly those', async () => {
+    wrap(<PurchaseHistoryPage />, '/purchases/history?overdue=1&via=money');
+    expect(await screen.findByText('Opened from Money: Overdue to suppliers')).toBeTruthy();
+    expect(listPurchasesPage).toHaveBeenCalledWith(expect.objectContaining({ overdue: 1 }));
+    expect(screen.getByRole('button', { name: 'Overdue to suppliers', pressed: true })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Back to Money' }).getAttribute('href')).toBe('/money');
+  });
+
+  it('opens on bills due in 7 days', async () => {
+    wrap(<PurchaseHistoryPage />, '/purchases/history?due_soon=1&via=money');
+    await screen.findByText('PUR-0001');
+    expect(listPurchasesPage).toHaveBeenCalledWith(expect.objectContaining({ due_soon: 1 }));
+    expect(screen.getByRole('button', { name: 'Due in 7 days', pressed: true })).toBeTruthy();
+  });
+
+  it('opens on bills still owed, for one supplier', async () => {
+    wrap(<PurchaseHistoryPage />, '/purchases/history?has_balance=1&supplier=4&via=money');
+    await screen.findByText('PUR-0001');
+    expect(listPurchasesPage).toHaveBeenCalledWith(expect.objectContaining({ has_balance: 1, supplier: 4 }));
+    expect(screen.getByText('One supplier')).toBeTruthy();
+  });
+
+  it('switches the money filter from the page, and off again', async () => {
+    wrap(<PurchaseHistoryPage />);
+    await screen.findByText('PUR-0001');
+    expect(listPurchasesPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ overdue: 1 }));
+    await userEvent.click(screen.getByRole('button', { name: 'Overdue to suppliers' }));
+    await waitFor(() => expect(listPurchasesPage).toHaveBeenLastCalledWith(expect.objectContaining({ overdue: 1 })));
+    await userEvent.click(screen.getByRole('button', { name: 'Overdue to suppliers' }));
+    await waitFor(() => expect(listPurchasesPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ overdue: 1 })));
+  });
+
+  it('drops the hub filter and the bar when asked to show everything', async () => {
+    wrap(<PurchaseHistoryPage />, '/purchases/history?overdue=1&supplier=4&via=money');
+    await screen.findByText('Opened from Money: Overdue to suppliers');
+    await userEvent.click(screen.getByRole('button', { name: 'Show everything' }));
+    await waitFor(() => expect(screen.queryByText(/Opened from Money/)).toBeNull());
+    await waitFor(() =>
+      expect(listPurchasesPage).toHaveBeenLastCalledWith(
+        expect.not.objectContaining({ overdue: 1 }),
+      ),
+    );
+    expect(listPurchasesPage).toHaveBeenLastCalledWith(expect.not.objectContaining({ supplier: 4 }));
+  });
+
+  it('has no hand-off bar when opened directly', async () => {
+    wrap(<PurchaseHistoryPage />);
+    await screen.findByText('PUR-0001');
+    expect(screen.queryByText(/Opened from Money/)).toBeNull();
   });
 });

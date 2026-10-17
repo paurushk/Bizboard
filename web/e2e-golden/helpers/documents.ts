@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 /**
  * Shared golden-suite helpers for the real-backend Playwright lane
@@ -378,11 +378,11 @@ export async function createQuotationConvertedToOrder(
   // button, which renders after the party section in DOM order.
   await page.getByRole('button', { name: 'Add', exact: true }).last().click();
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByRole('button', { name: 'To Order' })).toBeVisible();
-  await page.getByRole('button', { name: 'To Order' }).click();
+  await expect(page.getByRole('button', { name: 'Convert to order' })).toBeVisible();
+  await page.getByRole('button', { name: 'Convert to order' }).click();
   const convertDialog = page.getByRole('dialog');
   await expect(convertDialog).toBeVisible();
-  await convertDialog.getByRole('button', { name: 'To Order' }).click();
+  await convertDialog.getByRole('button', { name: 'Convert to order' }).click();
   await expect(page).toHaveURL(/\/sales\/orders/, { timeout: 20_000 });
 }
 
@@ -402,10 +402,14 @@ export async function createQuotationConvertedToOrder(
 export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp) {
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // Completing opens the invoice itself; the list is where the row is read.
+  await page.goto('/sales/history');
+  // Let the session refresh settle: a reload while one is in flight can revoke the token family.
+  await page.waitForLoadState('networkidle');
   const row = page.getByRole('row', { name: rowMatcher }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
   // Open completed invoices show Unpaid/Paid, not the document word Completed.
-  const settledChip = /^(Completed|Unpaid|Paid)$/;
+  const settledChip = /^(Completed|Unpaid|Paid)b/;
   const completedNow = await row
     .getByText(settledChip)
     .isVisible()
@@ -417,6 +421,19 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
     // not the editor — "Edit" (InvoiceDetailPage.tsx) is what actually opens
     // /sales/history/:id/edit, where "Save & Complete" lives.
     await row.getByRole('link').first().click();
+    // A draft's detail page completes it directly ("Complete"); older builds went through the editor.
+    const completeHere = page.getByRole('button', { name: 'Complete', exact: true });
+    if (await appears(completeHere, 8_000)) {
+      await completeHere.click();
+      const confirm = page.getByRole('dialog').getByRole('button', { name: /^(Complete|Confirm|Yes)/ });
+      if (await appears(confirm.first(), 3_000)) await confirm.first().click();
+      // A completed invoice offers payment and the PDF; a draft does not.
+      await expect(page.getByRole('button', { name: 'Record Payment' })).toBeVisible({ timeout: 20_000 });
+      await page.goto('/sales/history');
+  // Let the session refresh settle: a reload while one is in flight can revoke the token family.
+  await page.waitForLoadState('networkidle');
+      return;
+    }
     // InvoiceDetailPage's "Edit" Button uses component={RouterLink} — an
     // <a>, whose implicit ARIA role is "link", not "button".
     await page.getByRole('link', { name: 'Edit', exact: true }).click();
@@ -424,14 +441,14 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
     await page.getByRole('button', { name: 'Save & Complete' }).click();
     await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   }
-  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText(/^(Completed|Unpaid|Paid)$/)).toBeVisible({
+  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText(/^(Completed|Unpaid|Paid)b/)).toBeVisible({
     timeout: 15_000,
   });
 }
 
 export async function convertDraftOrderToCompletedInvoiceViaChallan(page: Page, customerName: string) {
-  await expect(page.getByRole('button', { name: 'To Challan' })).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'To Challan' }).click();
+  await expect(page.getByRole('button', { name: 'Convert to challan' })).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Convert to challan' }).click();
   await expect(page).toHaveURL(/\/sales\/delivery-challans/);
   await expect(page.getByRole('button', { name: 'Complete', exact: true }).first()).toBeVisible({
     timeout: 20_000,
@@ -497,6 +514,8 @@ export async function completePurchaseReturn(page: Page, purchaseNumber: string)
 export async function createPaymentLinkAndReadPublicPath(page: Page, invoiceNumber: string) {
   await enableSandboxPayments(page);
   await page.goto('/sales/history');
+  // Let the session refresh settle: a reload while one is in flight can revoke the token family.
+  await page.waitForLoadState('networkidle');
   await page.getByRole('link', { name: invoiceNumber }).click();
   await expect(page).toHaveURL(/\/sales\/history\/\d+/);
   await page.getByRole('button', { name: 'Create payment link' }).click();
@@ -623,4 +642,42 @@ export async function inviteStaffViaToken(page: Page, opts: { email: string; ful
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   await expect(dialog).toBeHidden({ timeout: 5_000 });
   return { inviteUrl: urlMatch?.[0] ?? null, inviteToken: tokenMatch?.[1] ?? null, raw: text };
+}
+
+/** True when the locator shows up within the time; `isVisible({ timeout })` does not wait, this does. */
+async function appears(locator: Locator, timeout: number) {
+  try {
+    await locator.waitFor({ state: 'visible', timeout });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Confirm the customer's draft sales order from the Sales Orders list (drafts hold no stock and cannot go on a route). */
+export async function confirmOrderInList(page: Page, customerName: string) {
+  await page.goto('/sales/orders');
+  const row = page.getByRole('row', { name: new RegExp(customerName) }).first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole('button', { name: 'Confirm', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  if (await appears(dialog, 3_000)) {
+    await dialog.getByRole('button', { name: /Continue|Confirm/ }).last().click();
+  }
+  await expect(row.getByRole('button', { name: 'Confirm', exact: true })).toHaveCount(0, { timeout: 15_000 });
+}
+
+/**
+ * In the New delivery route dialog (planning table), tick the customer's order. Warnings such as a missing
+ * phone number must be accepted with a reason first, which is exactly what a dispatcher does.
+ */
+export async function pickOrderForRoute(page: Page, customerName: string) {
+  const row = page.getByRole('row', { name: new RegExp(customerName) });
+  await expect(row).toBeVisible({ timeout: 15_000 });
+  await row.getByRole('checkbox').click();
+  const accept = page.getByRole('button', { name: 'Accept and add' });
+  if (await appears(accept, 2_000)) {
+    await page.getByLabel(/Reason/).fill('Accepted in the golden path');
+    await accept.click();
+  }
 }

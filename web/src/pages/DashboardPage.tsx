@@ -31,6 +31,7 @@ import type { DashboardKpis } from '@/types/domain';
 import { formatMoney, toNumber } from '@/utils/money';
 import { documentStatusTone, invoiceDisplayStatus, statusLabelKey } from '@/utils/status';
 import { canViewPaymentSurfaces } from '@/utils/permissions';
+import { isMoneyHubEnabled } from '@/config/featureFlags';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { companyStepIncompleteNeedsGst } from '@/onboarding/taxHints';
 
@@ -298,6 +299,11 @@ export function DashboardPage() {
           />
         ) : null}
       </Box>
+      {canViewFinancialReports(user) && isMoneyHubEnabled() ? (
+        <Typography variant="body2">
+          <RouterLink to="/money">{t('dashboard.seeAllMoney')}</RouterLink>
+        </Typography>
+      ) : null}
 
       {agingBuckets.length > 0 ? (
         <Stack spacing={1.5}>

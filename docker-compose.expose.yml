@@ -1,0 +1,12 @@
+# Overlay for serving the dev stack on this machine's public/LAN IP over plain HTTP.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml -f docker-compose.expose.yml up -d
+# Turns off the dev OTP/portal echo so login codes are not returned in API responses.
+services:
+  api:
+    environment:
+      OTP_DEBUG_ECHO: "0"
+      PORTAL_DEBUG_ECHO: "0"
+  worker:
+    environment:
+      OTP_DEBUG_ECHO: "0"
+      PORTAL_DEBUG_ECHO: "0"

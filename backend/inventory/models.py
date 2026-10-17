@@ -47,6 +47,10 @@ class Warehouse(SoftDeleteFields, CompanyScopedModel):
     contact_phone = models.CharField(max_length=20, blank=True)
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # The "In transit" godown is the system's own: goods on the road sit there between dispatch and
+    # receipt. It is not somewhere a person counts, adjusts or transfers to, so it stays out of every
+    # godown list and cannot be edited or deleted.
+    is_system = models.BooleanField(default=False)
 
     objects = AliveManager()
     all_objects = models.Manager()
@@ -108,6 +112,8 @@ class StockMovement(models.Model):
     reference_type = models.CharField(max_length=64, blank=True)
     reference_id = models.CharField(max_length=64, blank=True)
     reason = models.CharField(max_length=255, blank=True)
+    # A short code for reports (shrinkage by cause); `reason` stays the free text the user typed.
+    reason_code = models.CharField(max_length=24, blank=True, default="", db_index=True)
     layer_peels = models.JSONField(default=list, blank=True)
     movement_date = models.DateField(default=timezone.localdate, db_index=True)
     created_by = models.ForeignKey(
@@ -252,6 +258,7 @@ class StockTransfer(CompanyScopedModel):
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT)
     transfer_date = models.DateField(default=timezone.localdate)
     notes = models.TextField(blank=True)
+    dispatched_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
 
@@ -280,6 +287,8 @@ class StockTransferLine(models.Model):
     serial_numbers = models.JSONField(default=list, blank=True)
     shortage_qty = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     shortage_reason = models.CharField(max_length=255, blank=True)
+    # INV-IDR-07: what happened to the short quantity left in transit (empty = still a claim).
+    shortage_resolution = models.CharField(max_length=16, blank=True)
 
     def save(self, *args, **kwargs):
         if self.transfer_id and not self.company_id:
@@ -367,6 +376,14 @@ class StockCountSession(CompanyScopedModel):
 
     class Meta:
         ordering = ["-id"]
+        constraints = [
+            # INV-IDR-04: two open counts on one godown fight over the same lines; finish or cancel one first.
+            models.UniqueConstraint(
+                fields=["company", "warehouse"],
+                condition=models.Q(status__in=["DRAFT", "COUNTED"]),
+                name="uniq_open_stock_count_per_godown",
+            ),
+        ]
 
 
 class StockCountLine(models.Model):
@@ -380,6 +397,19 @@ class StockCountLine(models.Model):
     system_qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
     counted_qty = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
     held_for_review = models.BooleanField(default=False)
+    # INV-WP-06: a part-count leaves lines out on purpose; a skipped line never adjusts stock.
+    skipped = models.BooleanField(default=False)
+    # Set when "keep server quantity" dropped this line at post time because stock moved after the
+    # count began — the session says POSTED, but this line was not reconciled.
+    drift_skipped = models.BooleanField(default=False)
+    # INV-IDR-04: when system_qty was taken and when the counted figure was last changed. Stock
+    # that moved in between is part of the count; stock that moved after is not.
+    snapshot_at = models.DateTimeField(null=True, blank=True)
+    counted_at = models.DateTimeField(null=True, blank=True)
+    # The counter pressed "count equals system" for this line instead of counting it.
+    filled_from_system = models.BooleanField(default=False)
+    # Bumped on every save of the line; a counter holding an older one is told the line changed.
+    version = models.PositiveIntegerField(default=0)
 
     class Meta:
         constraints = [

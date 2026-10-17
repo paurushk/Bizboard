@@ -43,6 +43,7 @@ bullet prose (wording drifts; the id does not).
 | A7 | Purchase return / debit note | ✅ | `test_wf05_purchase_return`, `test_wf12_purchase_credit_note` (AP ↓ + ITC reversal), `test_wf16_purchase_order_to_purchase` (PO → invoice) |
 | A8 | Product lookup | ✅ | `test_pj_retail_sales_staff_boundary`, `test_pj_trader_sales_staff_boundary` (`products/?search=` allowed, company-scoped) |
 | A9 | Inventory movements & balances | ✅ | invariants `inventory.balance_equals_movements` / `running_cost_qty_matches_movements` (swept every strict test), `test_wf21_stock_transfer_between_godowns`, `test_pj_wholesale_owner_multi_godown_day`, `test_pj_retail_owner_normal_day` (write-off) |
+| A9b | Inventory review fixes (adjustments, serials, transfers, counts, low stock, planning, forecast, ledger, godowns, expiry, valuation, labels; stock-write GL behind `ACCOUNTING_POST_STOCK_ADJUSTMENTS`) | ✅ | `tests/test_inventory_*_wp*.py` (adjustment, serials, transfers, counts, low stock, planning, forecast, GL, ledger, godowns, expiry), `web/src/pages/inventory/*.test.tsx`; plan: `docs/INVENTORY_REVIEW_IMPLEMENTATION_PLAN.md` §8. Open: CA sign-off for the GL flag, Postgres concurrency run, browser pass |
 | A10 | Customer receipt + allocation | ✅ | `test_wf39_advance_payment_on_account`, `test_pj_service_owner_no_stock`, `test_pj_trader_owner_normal_day`, `tests/test_money_in_receipts.py` (filters, summary, export, voucher, void audit, walk-in rule, one-request allocation) |
 | A11 | Supplier payment + allocation | ✅ | `tests/workflows/test_a11_supplier_payment.py::test_a11_supplier_payment_partial_then_full_allocation`, `test_wf04_purchase_full_chain` (pay-in-one), `test_supplier_payment_allocation_flow`; debit-note AP enlarge is `test_wf13_purchase_debit_note` (TDS-on-purchase remains WF-35) |
 | A11b | Supplier payment taken at bill entry (one transaction) | ✅ | `tests/test_purchase_pay_now.py` (payment+allocation together; refusal keeps the bill completed with `payment_error`; allocation failure leaves no orphan payment; replay pays once; `record-payment` partial/over-pay/idempotent/draft/cross-tenant), `tests/test_purchase_pay_now_concurrency_postgres.py` (two parallel payments cannot over-pay — Postgres only), `web/src/pages/purchases/NewPurchasePage.payNow.test.tsx`, `usePurchaseOffline.test.ts`; orphan report `manage.py report_orphan_purchase_payments` |
@@ -672,6 +673,28 @@ none). Tracked as QOS-0119 to QOS-0123; the plan is
 | WP-15 | Totals in one aggregate, no per-row UTR queries, covering indexes | ✅ gated | `::test_a_list_page_of_upi_receipts_does_not_query_per_row`, `::test_summary_is_one_aggregate_over_the_receipts`; timings in the plan |
 | WP-16 | Cross-tenant, concurrency (Postgres), bounce and re-receive, void date, cross-module tie-out | ✅ gated | `::test_cross_module_tie_out_through_cheque_tds_discount_bounce_void_and_refund`, `::test_receipts_of_another_tenant_stay_invisible`, `::test_two_refunds_cannot_together_exceed_the_advance` |
 
+## Money hub (2026-10-14)
+
+No new SUPPORTED feature. One read-only screen (`/money`) and three read-only endpoints; a kill-switch
+(`ENABLE_MONEY_HUB`, company feature flags, default on). Plan: [`plans/MONEY_HUB_PLAN.md`](plans/MONEY_HUB_PLAN.md);
+decisions D-1, D-2, D-4, D-9 and the Phase B scope are recorded in its section 3.0. One additive migration
+(`payments/0044_receipt_tds_certificate`): two columns that mark a TDS certificate as received.
+
+| Work package | Behaviour | Status | Gating test |
+|---|---|---|---|
+| WP-0 | Cash and bank count cleared money only (the cash book's rule) in totals, opening balance and dashboard; document-basis total of supplier payments not yet applied, never netted off payables | ✅ gated | `test_money_hub_wp0.py` (all), `test_ws08_report_performance.py::test_b5_009_cash_position_still_correct` |
+| WP-1 | `/money/position/`: receivable and payable (basis badge), cash by account, every money-in and money-out tile, ageing that foots, ledger comparison, needs-action list; a failing section is named in `partial`, never zero; kill-switch; permission; tenant scope; flat query count | ✅ gated | `test_money_hub.py::test_headline_foots_to_dashboard_ledger_and_cash_book`, `::test_ageing_foots_to_the_headline`, `::test_one_failing_section_is_named_not_zeroed`, `::test_kill_switch_hides_the_hub`, `::test_position_requires_financial_reports_permission`, `::test_cross_tenant_data_never_leaks`, `::test_position_query_count_does_not_grow_with_documents`, `::test_no_second_outstanding_formula_outside_ledgers_and_reporting` |
+| WP-2 | A tile equals its list: overdue / due-soon on sales and purchase bills (one due-date rule shared with ageing and collections), cheque status, money not yet applied, TDS certificate, supplier payments by cheque and advance | ✅ gated | `::test_overdue_matches_collections_list_and_sales_history_filter`, `::test_due_soon_filter_matches_tile`, `::test_purchase_filters_match_payable_tiles`, `::test_pending_cheque_list_filter_matches_tile`, `::test_advances_tile_matches_advance_filter`, `::test_advances_paid_tile_matches_supplier_payment_filter_and_summary` |
+| WP-3 | Hub page: net strip, two columns, ageing as numbers, needs action, unavailable tiles, 404 as "turned off", retry, no a11y violations | ✅ gated | `web/src/pages/money/MoneyHubPage.test.tsx` |
+| WP-4 | One Money menu group (overview first), role visibility, kill-switch, route; every successful write marks the money queries stale; dashboard and morning links | ✅ gated | `web/src/navigation/menu.test.ts` ("Money group"), `web/src/lib/queryClient.test.ts`, `web/src/lib/moneyLinks.test.ts` |
+| WP-5 | Receipts totals say whether they follow the filters; supplier payments get a summary strip (owed and overdue only for roles that may see them) | ✅ gated | `ReceiptsPage.test.tsx` ("opened from the Money hub"), `SupplierPaymentsPage.test.tsx` ("money strip"), `test_money_hub.py::test_supplier_summary_payable_visible_only_with_financial_permission` |
+| Loop | Every hub link lands on a filtered list with a way back and a way to show everything: collections, receipts, supplier payments, purchase history, bank reconciliation (and its 100-line cap), payment links, TDS; collections offers "record payment" on the chased bill | ✅ gated | `CollectionsWorklistPage.test.tsx`, `PurchaseHistoryPage.test.tsx`, `MoneyInPhasePages.test.tsx` ("opened from the Money hub"), `PaymentLinksMoneyHandoff.test.tsx`, `TdsReceivablePage.test.tsx` |
+| TDS | Mark a customer's TDS certificate received (or undo), bookkeeping only, audited, refused on voided or no-TDS receipts and future dates | ✅ gated | `test_money_hub.py::test_tds_receivable_clears_when_certificate_is_recorded`, `::test_tds_certificate_rules`, `TdsReceivablePage.test.tsx` ("certificates") |
+| WP-6 | 30-day outlook by due date (promise date overrides, already-late apart, running balance, tax estimates), range 1 to 90 days | ✅ gated | `::test_timeline_places_bills_promises_and_overdue`, `::test_timeline_ignores_resolved_and_past_promises`, `::test_timeline_days_must_be_valid`, `MoneyHubPage.test.tsx` ("outlook") |
+| WP-7 | Tax dues: TDS deducted on supplier bills and a GST estimate with due dates, labelled as estimates; no payment status claimed. **CA sign-off required on the wording** | ✅ gated | `::test_statutory_lists_tds_and_gst_with_due_dates`, `MoneyHubPage.test.tsx` ("tax dues") |
+| WP-8 | Real browser: bills foot, cheque pending then cleared, advance paid beside payable, TDS certificate, due-soon to record payment, the way back | ✅ gated | `web/e2e-golden/money-hub-golden.spec.ts` |
+| Attention | The "gateway paid, receipt not posted" alerts open Payment links, where the retry is | ✅ gated | `test_b05_attention.py`, `test_attention_outcomes.py` |
+
 ## Customers master hardening (2026-10-12)
 
 Not a freeze-table item; listed so the gating tests are findable. Plan and review: `CUSTOMERS_IMPLEMENTATION_PLAN.md`,
@@ -706,6 +729,43 @@ Quick Entry pricing and recents, feature flags), `backend/tests/test_tax_engine_
 `web/src/pages/sales/invalidateInvoiceSideEffects.test.ts`, `web/src/pages/sales/SalesOrdersPage.test.tsx` and
 `Customer360Page.test.tsx`. Backlog item: `qos/backlog/QOS-0048.yaml`. Rollout and rollback:
 [QUICK_ORDER_ENTRY_ROLLOUT.md](QUICK_ORDER_ENTRY_ROLLOUT.md).
+
+## Now covered (2026-10-14 — credit and debit notes plan)
+
+Sales credit notes (`/sales/credit-notes`) and debit notes (`/sales/debit-notes`), see
+`CREDIT_NOTES_IMPLEMENTATION_PLAN.md` (CN-01 .. CN-16, DN-01 .. DN-12, DEP-01 .. DEP-12, NEW-01 .. NEW-09).
+
+| Behaviour | Status | Tests |
+|---|---|---|
+| Owner, Accountant and users with the sales flag create and complete notes; a Viewer and unflagged staff cannot; only the sales flag deletes a draft; a non-owner completion is audited | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `web/src/components/billing/noteSupport.test.ts` |
+| Registers filter by search, status, date and invoice, reject bad or inverted dates, never cross companies, and export CSV with formula-safe cells and the export permission (sales and purchase) | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `web/src/pages/sales/NoteRegisters.test.tsx`, `web/src/pages/purchases/PurchaseNoteRegisters.test.tsx` |
+| Price-only credits keep the goods returnable; full-price credits use the units up | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `backend/tests/test_sales_returns_fix.py` |
+| Debit above the invoice value needs an Owner, a reason, an audit row and stays under 3x; the cap counts earlier debit notes | ✅ | `backend/tests/test_credit_debit_notes_plan.py` |
+| Credit notes post to 4110 behind the company flag, debit notes stay on 4100, and Schedule III revenue nets both | ✅ | `backend/tests/test_credit_debit_notes_plan.py` |
+| Freight / charges on notes: totals, GL balance, credit capped at what the invoice billed | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `web/src/pages/sales/SalesInvoiceNoteEditor.test.tsx` |
+| B2B standalone notes need an HSN; the credit note a sales return issues only warns | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `backend/tests/test_gst_returns.py` |
+| Referral mark-paid completes the credit note in one step and rolls back if it cannot | ✅ | `backend/tests/test_credit_debit_notes_plan.py`, `backend/tests/test_referral_paid_status.py` |
+| Closed GST period and the 30 November limit refuse completion | ✅ | `backend/tests/test_credit_debit_notes_plan.py` |
+| Cancelling after the advance was spent is audited; RCM credit and debit notes post balanced journals | ✅ | `backend/tests/test_credit_debit_notes_plan.py` |
+| Two notes completing together cannot pass the invoice value (Postgres) | ✅ | `backend/tests/test_credit_debit_notes_concurrency_postgres.py` |
+| Invoice screen lists notes with the net amount and offers New Debit Note; Customer 360 lists notes; search finds notes; complaints link and complete the draft note | ✅ | `web/src/pages/sales/InvoiceDetailPage.test.tsx`, `web/src/pages/sales/Customer360Page.test.tsx`, `web/src/api/legacy/misc.search.test.ts`, `web/src/pages/complaints/ComplaintsPage.test.tsx` |
+| The credit note links straight to the refund of the advance it created | ✅ | `web/src/pages/sales/SalesInvoiceNoteEditor.test.tsx`, `web/src/pages/sales/ReceiptsPage.test.tsx` |
+| Confirmations use an in-app dialog everywhere `completeWithConfirms` is used | ✅ | `web/src/components/billing/noteSupport.test.ts` |
+| Annual-return filing date in the Section 34(2) limit | ✅ | `reports/gstr9/filing-date/`, `AnnualReturnFiling`, `test_credit_note_stops_at_annual_return_filing_date`, `tests/test_annual_return_filing.py`, `Gstr9ReportPage.test.tsx` (QOS-0127) |
+| Hindi wording of the new note strings | 🟡 | LLM pass done; native-speaker spot-check open: QOS-0126 |
+
+## Order-to-delivery and delivery routes hardening (2026-10-14)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Reservation released once per order (challan, direct invoice, partial shipments) | ✅ | `tests/test_so_reservation_release_once.py`, `tests/test_order_partial_shipments.py` |
+| Shipped, uninvoiced challans count toward credit exposure; affected-customer report | ✅ | `tests/test_credit_exposure_challans.py`, `manage.py list_credit_exposure_changes` (run before enabling `ENABLE_ORDER_GATES`) |
+| Cancelling a completed direct invoice reopens the order and holds its stock again | ✅ | `tests/test_so_reservation_release_once.py::test_cancelling_*` |
+| Route rules, stop outcomes, cashier count, receipt link, goods-return loop | ✅ | `tests/test_route_rules.py`, `test_route_collections.py`, `test_route_return_loop.py`, `test_route_failed_stop_invoiced.py` |
+| Route planning risks, acknowledgements, preflight, server enforcement | ✅ | `tests/test_route_planning_risks.py`, `test_route_planning_enforcement.py`, web `routes/*.test.tsx` |
+| New route endpoints isolated between tenants | ✅ | `tests/tenancy/test_route_isolation_matrix.py::test_route_planning_and_cashier_actions_are_isolated`, `::test_route_candidates_never_list_another_tenants_orders` |
+| Concurrent shipping of one order (Postgres row locks) | 🟡 | `tests/test_order_partial_shipments_postgres.py`; Postgres-only, result recorded in the execution plan |
+| Hindi wording of the route and planning strings | 🟡 | native-speaker review open: QOS-0128 |
 
 ## Recurring invoices hardening (2026-10-15)
 

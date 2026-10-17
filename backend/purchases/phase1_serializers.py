@@ -49,11 +49,14 @@ class PurchaseCreditNoteItemSerializer(_Line):
 class PurchaseCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = PurchaseCreditNoteItemSerializer(many=True)
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    invoice_number = serializers.CharField(
+        source="purchase_invoice.number", read_only=True, default=None, allow_null=True
+    )
 
     class Meta:
         model = PurchaseCreditNote
         fields = [
-            "id", "number", "status", "supplier", "supplier_name", "purchase_invoice",
+            "id", "number", "status", "supplier", "supplier_name", "purchase_invoice", "invoice_number",
             "supplier_note_number", "note_date", "reason", "reason_detail",
             # CR-038: expose additional_charges and discount fields
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off", "notes",
@@ -121,11 +124,14 @@ class PurchaseDebitNoteItemSerializer(_Line):
 class PurchaseDebitNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelSerializer):
     items = PurchaseDebitNoteItemSerializer(many=True)
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    invoice_number = serializers.CharField(
+        source="purchase_invoice.number", read_only=True, default=None, allow_null=True
+    )
 
     class Meta:
         model = PurchaseDebitNote
         fields = [
-            "id", "number", "status", "supplier", "supplier_name", "purchase_invoice",
+            "id", "number", "status", "supplier", "supplier_name", "purchase_invoice", "invoice_number",
             "supplier_note_number", "note_date", "reason", "reason_detail",
             # CR-132: additional_charges parity with purchase CN / bill
             "additional_charges", "invoice_discount", "invoice_discount_mode", "auto_round_off", "notes",

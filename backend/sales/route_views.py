@@ -7,13 +7,14 @@ from rest_framework.views import APIView
 
 from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
-from core.permissions import CanCreateSales, CanViewSalesSurfaces, HasCompany
+from core.permissions import CanCancelDocuments, CanCreateSales, CanViewSalesSurfaces, HasCompany
 from core.viewsets import CompanyScopedViewSet
 
 from .challan_return import ChallanReturnService
 from .models import DeliveryChallanReturn, DeliveryRoute, DeliveryRouteStop
 from .route_optimization import SequencedStop
 from .route_serializers import DeliveryChallanReturnSerializer, DeliveryRouteSerializer, SequencedStopSerializer
+from .route_planning import planning_candidates, viewer_for
 from .route_service import RouteService
 
 
@@ -63,26 +64,53 @@ def _capped_stops(stops, cap):
 
 
 class DeliveryRouteViewSet(CompanyScopedViewSet):
-    queryset = DeliveryRoute.objects.prefetch_related(
-        "stops__sales_order__customer", "stops__sales_order__items__product"
+    queryset = DeliveryRoute.objects.select_related("cash_handover").prefetch_related(
+        "stops__sales_order__customer", "stops__sales_order__items__product", "stops__acknowledgements__created_by"
     )
     serializer_class = DeliveryRouteSerializer
     audit_entity = "DeliveryRoute"
 
     def get_permissions(self):
         action = getattr(self, "action", None)
+        if action == "cancel":
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "add_orders", "remove_stop",
                       "set_stop_status", "start", "complete", "suggest_sequence", "apply_sequence",
-                      "issue_otp", "verify_handover"):
+                      "issue_otp", "verify_handover", "link_receipt"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
 
     def get_queryset(self):
+        from datetime import date as _date
+
+        from django.db.models import Q
+
         qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        if self.request.query_params.get("date"):
-            qs = qs.filter(route_date=self.request.query_params["date"])
+        params = self.request.query_params
+        if params.get("status"):
+            wanted = [part.strip().upper() for part in str(params["status"]).split(",") if part.strip()]
+            unknown = [part for part in wanted if part not in DeliveryRoute.Status.values]
+            if unknown:
+                raise BusinessRuleError(f"Unknown route status: {', '.join(unknown)}.")
+            qs = qs.filter(status__in=wanted)
+        for key, lookup in (("date", "route_date"), ("date_from", "route_date__gte"), ("date_to", "route_date__lte")):
+            raw = params.get(key)
+            if raw:
+                try:
+                    qs = qs.filter(**{lookup: _date.fromisoformat(str(raw)[:10])})
+                except ValueError:
+                    raise BusinessRuleError(f"{key} must be an ISO date (YYYY-MM-DD).")
+        vehicle = (params.get("vehicle") or "").strip()[:32]
+        if vehicle:
+            qs = qs.filter(vehicle_number__icontains=vehicle)
+        driver = (params.get("driver") or "").strip()[:128]
+        if driver:
+            qs = qs.filter(Q(driver_name__icontains=driver) | Q(driver__name__icontains=driver))
+        term = (params.get("q") or "").strip()[:100]
+        if term:
+            qs = qs.filter(
+                Q(number__icontains=term) | Q(vehicle_number__icontains=term) | Q(driver_name__icontains=term)
+            )
         return qs
 
     def perform_create(self, serializer):
@@ -93,8 +121,17 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
             raise BusinessRuleError("order_ids must be a list of integers.") from exc
         with transaction.atomic():
             super().perform_create(serializer)
+            # The number is given at creation so the route can be found, printed and phoned about
+            # from the start (RT-15), not only after it is started.
+            RouteService._ensure_number(serializer.instance)
             if order_ids:
-                RouteService.add_orders(serializer.instance, order_ids, self.request.user)
+                RouteService.add_orders(
+                    serializer.instance,
+                    order_ids,
+                    self.request.user,
+                    acknowledgements=self.request.data.get("acknowledgements"),
+                    viewer=viewer_for(self.request),
+                )
 
     def perform_destroy(self, instance):
         if instance.status != DeliveryRoute.Status.PLANNED:
@@ -108,7 +145,13 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
             order_ids = [int(x) for x in ids]
         except (TypeError, ValueError) as exc:
             raise BusinessRuleError("order_ids must be a list of integers.") from exc
-        RouteService.add_orders(self.get_object(), order_ids, request.user)
+        RouteService.add_orders(
+            self.get_object(),
+            order_ids,
+            request.user,
+            acknowledgements=request.data.get("acknowledgements"),
+            viewer=viewer_for(request),
+        )
         return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=["post"], url_path="remove-stop")
@@ -164,13 +207,43 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
             upi_reference=request.data.get("upi_reference", request.data.get("upiReference", None))
             if ("upi_reference" in request.data or "upiReference" in request.data)
             else None,
+            reason=request.data.get("reason") or "",
+            returned_lines=request.data.get("returned_lines", request.data.get("returnedLines", None)),
         )
         return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=True, methods=["post"])
-    def start(self, request, pk=None):
-        route = RouteService.start_route(self.get_object(), request.user)
+    def cancel(self, request, pk=None):
+        route = RouteService.cancel_route(
+            self.get_object(), request.user, reason=request.data.get("reason") or ""
+        )
         return Response(self.get_serializer(route).data)
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        route = RouteService.start_route(
+            self.get_object(),
+            request.user,
+            acknowledgements=request.data.get("acknowledgements"),
+            viewer=viewer_for(request),
+        )
+        return Response(self.get_serializer(route).data)
+
+    @action(detail=True, methods=["get"])
+    def preflight(self, request, pk=None):
+        """Every stop's facts and risks as they stand now, and whether the route may start."""
+        route = self.get_object()
+        return Response(RouteService.preflight(route, viewer_for(request)))
+
+    @action(detail=False, methods=["get"])
+    def candidates(self, request):
+        """Orders a dispatcher can choose from, with what they need to know about each (paged).
+
+        By default only orders that can go out: confirmed, partly processed or shipped, and not
+        already on a live route or delivered. ``show_unavailable=1`` also lists those, as blocked
+        rows, and ``include_drafts=1`` adds unconfirmed orders (blocked unless an owner accepts them).
+        """
+        return Response(planning_candidates(self.company, request.query_params, viewer_for(request)))
 
     @action(detail=True, methods=["post"])
     def complete(self, request, pk=None):
@@ -192,14 +265,32 @@ class DeliveryRouteViewSet(CompanyScopedViewSet):
 
     @action(detail=True, methods=["post"], url_path="verify-handover")
     def verify_handover(self, request, pk=None):
+        route = self.get_object()
         if "cash_counted" not in request.data or "upi_counted" not in request.data:
             raise BusinessRuleError("Counted cash and counted UPI are required.")
         RouteService.verify_cashier_handover(
-            self.get_object(),
+            route,
             request.user,
             cash_counted=request.data.get("cash_counted"),
             upi_counted=request.data.get("upi_counted"),
+            variance_note=request.data.get("variance_note") or "",
         )
+        return Response(self.get_serializer(self.get_object()).data)
+
+    @action(detail=True, methods=["post"], url_path="link-receipt")
+    def link_receipt(self, request, pk=None):
+        from payments.models import CustomerReceipt
+
+        route = self.get_object()
+        stop_id = request.data.get("stop_id") or request.data.get("stopId")
+        receipt_id = request.data.get("receipt_id") or request.data.get("receiptId")
+        stop = DeliveryRouteStop.objects.filter(pk=stop_id, route=route).first()
+        if stop is None:
+            raise BusinessRuleError("Stop was not found on this route.")
+        receipt = CustomerReceipt.objects.filter(pk=receipt_id, company=route.company).first()
+        if receipt is None:
+            raise BusinessRuleError("Receipt was not found.")
+        RouteService.link_receipt(route, stop, receipt, request.user, reason=request.data.get("reason") or "")
         return Response(self.get_serializer(self.get_object()).data)
 
     @action(detail=False, methods=["get"], url_path="completion-baseline")
@@ -325,6 +416,20 @@ class DeliveryChallanReturnViewSet(CompanyScopedViewSet):
         if action in ("create", "update", "partial_update", "destroy", "complete"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        if params.get("status"):
+            wanted = [p.strip().upper() for p in str(params["status"]).split(",") if p.strip()]
+            unknown = [p for p in wanted if p not in DeliveryChallanReturn.Status.values]
+            if unknown:
+                raise BusinessRuleError(f"Unknown return status: {', '.join(unknown)}.")
+            qs = qs.filter(status__in=wanted)
+        if str(params.get("from_route") or "").lower() in ("1", "true", "yes"):
+            # Returns opened by a failed or refused delivery: the godown's "goods to check in" list.
+            qs = qs.filter(reason__startswith="Stop ")
+        return qs
 
     def perform_destroy(self, instance):
         if instance.status != DeliveryChallanReturn.Status.DRAFT:

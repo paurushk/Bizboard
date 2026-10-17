@@ -36,7 +36,11 @@ class UniversalSearchView(APIView):
     def get(self, request):
         q = (request.query_params.get("q") or "").strip()
         if len(q) < 2:
-            return Response({"customers": [], "suppliers": [], "products": [], "invoices": []})
+            return Response({
+                "customers": [], "suppliers": [], "products": [], "invoices": [],
+                "sales_orders": [], "delivery_challans": [], "delivery_routes": [],
+                "credit_notes": [], "debit_notes": [],
+            })
         cu = get_company_user(request)
         company = cu.company
 
@@ -118,6 +122,68 @@ class UniversalSearchView(APIView):
                     .select_related("customer")
                     .order_by("-id")[:LIMIT]
                 ]
+            # Orders, challans and delivery routes: the same sales visibility as quotations.
+            orders = challans = routes = []
+            if can_view_sales:
+                from sales.models import DeliveryChallan, DeliveryRoute, SalesOrder
+
+                orders = [
+                    {
+                        "id": row.id, "kind": "sales_order", "number": row.number,
+                        "status": row.status, "customer_name": row.customer.name,
+                    }
+                    for row in SalesOrder.objects.filter(company=company)
+                    .filter(Q(number__icontains=q) | Q(customer__name__icontains=q))
+                    .select_related("customer")
+                    .order_by("-id")[:LIMIT]
+                ]
+                challans = [
+                    {
+                        "id": row.id, "kind": "delivery_challan", "number": row.number,
+                        "status": row.status, "customer_name": row.customer.name,
+                    }
+                    for row in DeliveryChallan.objects.filter(company=company)
+                    .filter(Q(number__icontains=q) | Q(customer__name__icontains=q) | Q(vehicle_number__icontains=q))
+                    .select_related("customer")
+                    .order_by("-id")[:LIMIT]
+                ]
+                routes = [
+                    {
+                        "id": row.id, "kind": "delivery_route", "number": row.number,
+                        "status": row.status, "vehicle_number": row.vehicle_number,
+                        "driver_name": row.driver_name,
+                    }
+                    for row in DeliveryRoute.objects.filter(company=company)
+                    .filter(
+                        Q(number__icontains=q) | Q(vehicle_number__icontains=q) | Q(driver_name__icontains=q)
+                    )
+                    .order_by("-id")[:LIMIT]
+                ]
+            # DEP-09: credit / debit notes, same visibility as sales documents.
+            credit_notes = debit_notes = []
+            if can_view_sales:
+                from sales.models import SalesCreditNote, SalesDebitNote
+
+                def _note_rows(model, kind):
+                    return [
+                        {
+                            "id": row.id, "kind": kind, "number": row.number,
+                            "party": row.customer.name, "status": row.status,
+                            "invoice_number": row.sales_invoice.number,
+                            "grand_total": row.grand_total,
+                        }
+                        for row in model.objects.filter(company=company)
+                        .filter(
+                            Q(number__icontains=q)
+                            | Q(sales_invoice__number__icontains=q)
+                            | Q(customer__name__icontains=q)
+                        )
+                        .select_related("customer", "sales_invoice")
+                        .order_by("-id")[:LIMIT]
+                    ]
+
+                credit_notes = _note_rows(SalesCreditNote, "credit_note")
+                debit_notes = _note_rows(SalesDebitNote, "debit_note")
             can_view_growth = cu.role != "VIEWER"
             tickets = complaints = contracts = opportunities = []
             if can_view_growth:
@@ -163,6 +229,11 @@ class UniversalSearchView(APIView):
             ],
             "invoices": invoices,
             "quotations": quotations,
+            "sales_orders": orders,
+            "delivery_challans": challans,
+            "delivery_routes": routes,
+            "credit_notes": credit_notes,
+            "debit_notes": debit_notes,
             "tickets": tickets,
             "complaints": complaints,
             "contracts": contracts,

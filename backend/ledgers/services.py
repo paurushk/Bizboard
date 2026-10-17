@@ -865,6 +865,44 @@ class LedgerService:
         return LedgerService._supplier_outstanding_documents(company, supplier)
 
     @staticmethod
+    def supplier_advances_by_supplier(company, supplier=None) -> dict:
+        """Money paid to suppliers that no bill has taken yet, per supplier id (document basis).
+
+        Each payment is floored at zero on its own, so one over-allocated payment cannot hide
+        another supplier's advance. It is shown beside payables, never netted off them: the
+        supplier balance (``supplier_outstanding``) is unchanged.
+        """
+        payments = SupplierPayment.objects.filter(
+            company=company, status=SupplierPaymentStatus.POSTED
+        ).exclude(mode="CREDIT")
+        if supplier is not None:
+            payments = payments.filter(supplier=supplier)
+        applied = {
+            row["supplier_payment_id"]: row["total"] or Decimal("0")
+            for row in PaymentAllocation.objects.filter(
+                company=company,
+                supplier_payment__in=payments.values("pk"),
+                receipt__isnull=True,
+                reversed_at__isnull=True,
+            )
+            .values("supplier_payment_id")
+            .annotate(total=Sum("amount"))
+        }
+        by_supplier: dict = {}
+        # amount + tds_amount is what the payment can settle (the same figure as the payment's
+        # ``unallocated`` on the supplier payments screen).
+        for pk, supplier_id, amount, tds in payments.values_list("pk", "supplier_id", "amount", "tds_amount"):
+            left = max(Decimal("0"), amount + (tds or Decimal("0")) - applied.get(pk, Decimal("0")))
+            if left > 0:
+                by_supplier[supplier_id] = by_supplier.get(supplier_id, Decimal("0")) + left
+        return by_supplier
+
+    @staticmethod
+    def supplier_advances_total(company, supplier=None) -> Decimal:
+        """Total of ``supplier_advances_by_supplier`` (see there)."""
+        return sum(LedgerService.supplier_advances_by_supplier(company, supplier).values(), Decimal("0"))
+
+    @staticmethod
     def _supplier_outstanding_documents(company, supplier) -> Decimal:
         inv_qs = PurchaseInvoice.objects.filter(
             company=company,

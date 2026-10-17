@@ -57,13 +57,14 @@ def test_pj_wholesale_owner_route_sequencing_suggest_and_apply(boundary):
     far, mid, near = ns.customers[0], ns.customers[1], ns.customers[2]
     for cust, pin in ((far, "560090"), (mid, "560050"), (near, "560010")):
         cust.pincode = pin
-        cust.save(update_fields=["pincode"])
+        cust.phone = cust.phone or "9876500000"
+        cust.save(update_fields=["pincode", "phone"])
 
     order_ids = []
     for cust in (far, mid, near):
         so = oc.post(
             "/api/v1/sales/orders/",
-            {"customer": cust.id,
+            {"customer": cust.id, "delivery_address": f"{cust.name}, Bengaluru",
              "items": [{"product": product.id, "quantity": "5.000", "unit_price": "100.00", "gst_rate": "18"}]},
             format="json",
         )

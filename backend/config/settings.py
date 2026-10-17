@@ -1007,6 +1007,8 @@ GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")
 EINVOICE_AATO_THRESHOLD = os.environ.get("EINVOICE_AATO_THRESHOLD", "50000000")
 # Stock-count variances at or under this quantity auto-post. Larger ones wait for review.
 STOCK_COUNT_AUTO_POST_QTY = os.environ.get("STOCK_COUNT_AUTO_POST_QTY", "5")
+# INV-WP-06: a count line worth at least this much (qty x purchase price) is flagged for a recheck.
+STOCK_COUNT_RECHECK_VALUE = os.environ.get("STOCK_COUNT_RECHECK_VALUE", "10000")
 GSP_CERTIFIED = _env_bool("GSP_CERTIFIED")
 _gsp_provider = (_env_value("GSP_PROVIDER", "custom") or "custom").strip().lower()
 GSP_PROVIDER = _gsp_provider if _gsp_provider in ("cleartax", "mastergst", "custom") else "custom"

@@ -167,6 +167,7 @@ def test_bug_sales_003_driver_collections_reconcile_to_the_drawer_without_postin
     assert exact.status == RouteCashHandover.Status.VERIFIED
     assert exact.variance_amount == Decimal("0.00")
     assert CustomerReceipt.objects.filter(company=tenant_a.company).count() == before
+    matched.stops.update(status="DELIVERED")  # a route closes only when every stop has an outcome
     done = RouteService.complete_route(matched, tenant_a.owner)
     assert done.status == DeliveryRoute.Status.COMPLETED
 

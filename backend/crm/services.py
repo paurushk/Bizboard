@@ -40,6 +40,9 @@ def _unique_customer_by_email(company, email: str):
     return None
 
 
+WON_NEEDS_AMOUNT = "A won deal needs an amount or at least one line."
+
+
 @transaction.atomic
 def convert_lead(
     lead: Lead, user, *, won: bool = False, amount=None
@@ -73,9 +76,17 @@ def convert_lead(
             )
         updates = []
         if won and existing.stage != Opportunity.Stage.WON:
+            # CRM review F-02: closing a deal is terminal, so it needs something to close.
+            has_lines = existing.lines.exists()
+            effective = existing.amount if (amount is None or has_lines) else amount
+            if not has_lines and (effective or Decimal("0")) <= 0:
+                raise BusinessRuleError(WON_NEEDS_AMOUNT)
+            existing.probability = Opportunity.probability_after_move(
+                existing.probability, existing.stage, Opportunity.Stage.WON,
+            )
             existing.stage = Opportunity.Stage.WON
             existing.closed_at = timezone.now()
-            updates.extend(["stage", "closed_at"])
+            updates.extend(["stage", "closed_at", "probability"])
         if amount is not None and not existing.lines.exists():
             existing.amount = Decimal(str(amount))
             updates.append("amount")
@@ -90,6 +101,9 @@ def convert_lead(
         if customer is None:
             customer = existing.customer
         return lead, existing, customer
+
+    if won and (amount or Decimal("0")) <= 0:
+        raise BusinessRuleError(WON_NEEDS_AMOUNT)
 
     if lead.customer_id:
         customer = lead.customer
@@ -165,6 +179,9 @@ def convert_lead(
         title=f"{lead.name} opportunity",
         amount=Decimal(str(amount or 0)),
         stage=Opportunity.Stage.WON if won else Opportunity.Stage.OPEN,
+        probability=Opportunity.STAGE_DEFAULT_PROBABILITY[
+            Opportunity.Stage.WON if won else Opportunity.Stage.OPEN
+        ],
         closed_at=timezone.now() if won else None,
         created_by=user,
         updated_by=user,

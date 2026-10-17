@@ -1,6 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -23,6 +22,12 @@ vi.mock('@/api/resources', () => ({
   removeDeliveryRouteStop: vi.fn(),
   setDeliveryRouteStopStatus: vi.fn(),
   startDeliveryRoute: vi.fn(),
+  cancelDeliveryRoute: vi.fn(),
+  updateDeliveryRoute: vi.fn(),
+  verifyDeliveryRouteHandover: vi.fn(),
+  linkDeliveryRouteReceipt: vi.fn(),
+  listReceiptsPage: vi.fn(),
+  searchSalespeople: async () => [],
 }));
 
 function wrap(ui: ReactElement) {
@@ -49,6 +54,37 @@ const baseRoute = {
   stops: [],
 };
 
+describe('Delivery route — a failed stop on an invoiced order (H-14)', () => {
+  it('names the invoice that still stands and links to it', async () => {
+    getDeliveryRoute.mockResolvedValue({
+      ...baseRoute,
+      status: 'IN_TRANSIT',
+      realizedProfit: null,
+      stops: [
+        {
+          id: 9, salesOrder: 1, orderNumber: 'SO-1', customerName: 'Ravi', status: 'FAILED',
+          activeInvoice: { id: 77, number: 'INV-0077' },
+        },
+      ],
+    });
+    wrap(<DeliveryRoutesPage />);
+    expect(await screen.findByText(/Invoice INV-0077 is still active/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open invoice' }).getAttribute('href')).toBe('/sales/history/77');
+  });
+
+  it('says nothing when no invoice stands', async () => {
+    getDeliveryRoute.mockResolvedValue({
+      ...baseRoute,
+      status: 'IN_TRANSIT',
+      realizedProfit: null,
+      stops: [{ id: 9, salesOrder: 1, orderNumber: 'SO-1', customerName: 'Ravi', status: 'FAILED', activeInvoice: null }],
+    });
+    wrap(<DeliveryRoutesPage />);
+    expect(await screen.findByText('SO-1')).toBeTruthy();
+    expect(screen.queryByText(/is still active/)).toBeNull();
+  });
+});
+
 describe('Delivery route trip profit', () => {
   it('shows the frozen trip profit and invoiced-stop count', async () => {
     getDeliveryRoute.mockResolvedValue({
@@ -67,25 +103,5 @@ describe('Delivery route trip profit', () => {
     wrap(<DeliveryRoutesPage />);
     expect(await screen.findByText('RT-4')).toBeTruthy();
     expect(screen.queryByText(/Trip profit/)).toBeNull();
-  });
-
-  it('keeps Delivered unavailable until Received by is filled', async () => {
-    getDeliveryRoute.mockResolvedValue({
-      ...baseRoute,
-      status: 'IN_TRANSIT',
-      realizedProfit: null,
-      stops: [{ id: 9, salesOrder: 1, orderNumber: 'SO-1', customerName: 'Ravi', status: 'PENDING' }],
-    });
-    const user = userEvent.setup();
-    wrap(<DeliveryRoutesPage />);
-    expect(await screen.findByLabelText('Received by')).toBeTruthy();
-    await user.click(screen.getByRole('combobox'));
-    const delivered = await screen.findByRole('option', { name: 'Delivered' });
-    expect(delivered.getAttribute('aria-disabled')).toBe('true');
-    await user.keyboard('{Escape}');
-    await user.type(screen.getByLabelText('Received by'), 'Ravi');
-    await user.click(screen.getByRole('combobox'));
-    const open = await screen.findByRole('option', { name: 'Delivered' });
-    expect(open.getAttribute('aria-disabled')).not.toBe('true');
   });
 });

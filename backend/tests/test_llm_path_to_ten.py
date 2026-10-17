@@ -403,10 +403,10 @@ def test_referral_paid_records_settlement_without_a_credit_note(tenant_a):
     reward.refresh_from_db()
     assert reward.reward_status == ReferralReward.Status.PAID
     note = SalesCreditNote.objects.get(company=tenant_a.company, customer=referrer)
-    assert note.status == SalesCreditNote.Status.DRAFT
+    # Credit/debit note plan (Q4): mark-paid completes the note, so the referrer's dues fall by it.
+    assert note.status == SalesCreditNote.Status.COMPLETED
     assert reward.credit_note_id == note.id
-    # The draft is not posted, so the referrer's outstanding stays put.
-    assert LedgerService.customer_outstanding(tenant_a.company, referrer) == before
+    assert LedgerService.customer_outstanding(tenant_a.company, referrer) == before - note.grand_total
 
 
 def test_won_amount_sits_next_to_invoices(tenant_a, tenant_b):
@@ -588,7 +588,7 @@ def test_won_lead_draft_invoice_race(tenant_a):
         format="json",
     )
     converted = tenant_a.client.post(
-        f"/api/v1/crm/leads/{created.data['id']}/convert/", {"won": True}, format="json",
+        f"/api/v1/crm/leads/{created.data['id']}/convert/", {"won": True, "amount": "100"}, format="json",
     )
     opportunity_id = converted.data["opportunity"]["id"]
     ids = []
@@ -664,7 +664,7 @@ def test_referral_credit_note_race(tenant_a):
         thread.join(timeout=30)
     notes = SalesCreditNote.objects.filter(company=tenant_a.company, customer=referrer)
     assert notes.count() == 1
-    assert notes.get().status == SalesCreditNote.Status.DRAFT
+    assert notes.get().status == SalesCreditNote.Status.COMPLETED  # Q4: completed inside mark-paid
     reward.refresh_from_db()
     assert reward.reward_status == ReferralReward.Status.PAID
     assert reward.credit_note_id == notes.get().id

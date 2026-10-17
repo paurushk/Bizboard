@@ -11,8 +11,9 @@ from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import mixins, status, viewsets
+from rest_framework import serializers as serializers_module
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -87,6 +88,7 @@ from .serializers import (
     PaymentPromiseSerializer,
     ReconMatchSerializer,
     SupplierPaymentSerializer,
+    SupplierPaymentSummarySerializer,
     UpiQrSerializer,
 )
 from .services import PaymentService
@@ -155,6 +157,10 @@ RECEIPT_FILTER_PARAMETERS = [
     OpenApiParameter("date_to", OpenApiTypes.DATE, description="Receipt date on or before."),
     OpenApiParameter("customer", int),
     OpenApiParameter("reconciled", bool, description="true: matched to a bank line; false: not matched."),
+    OpenApiParameter("cheque_status", str, enum=list(ChequeStatus.values), description="Cheque receipts in this state."),
+    OpenApiParameter("advance", bool, description="true: live receipts with money not yet applied to a bill."),
+    OpenApiParameter("tds_certificate", str, enum=["pending", "received"],
+                     description="Receipts with TDS deducted: certificate still awaited, or recorded."),
     OpenApiParameter(
         "ordering", str,
         description="Sort column, with a leading '-' for descending: receipt_date, amount, number, "
@@ -201,6 +207,54 @@ def _utr_duplicates_for_page(company, rows) -> dict:
     return out
 
 
+def _truthy(params, key) -> bool:
+    return (params.get(key) or "").strip().lower() in ("1", "true", "yes")
+
+
+_MONEY_FIELD = models.DecimalField(max_digits=16, decimal_places=2)
+
+
+def _receipts_with_unapplied(qs):
+    """Annotate ``_unapplied``: amount + TDS - live cash and TDS applied - live refunds.
+
+    The same figure as ``payments.receipt_math.receipt_unallocated``, so the "money not yet
+    applied" list adds up to the Money hub's advances tile.
+    """
+    zero = models.Value(Decimal("0"), output_field=_MONEY_FIELD)
+    applied = (
+        PaymentAllocation.objects.filter(receipt=OuterRef("pk"), reversed_at__isnull=True)
+        .values("receipt")
+        .annotate(t=Sum(models.F("amount") + models.F("tds_applied")))
+        .values("t")[:1]
+    )
+    refunded = (
+        CustomerAdvanceRefund.objects.filter(receipt=OuterRef("pk"), status=AdvanceRefundStatus.POSTED)
+        .values("receipt")
+        .annotate(t=Sum("amount"))
+        .values("t")[:1]
+    )
+    return qs.annotate(
+        _unapplied=models.F("amount") + models.F("tds_deducted")
+        - Coalesce(Subquery(applied, output_field=_MONEY_FIELD), zero)
+        - Coalesce(Subquery(refunded, output_field=_MONEY_FIELD), zero)
+    )
+
+
+def _supplier_payments_with_unapplied(qs):
+    """Annotate ``_unapplied``: amount + TDS - live allocations (the serializer's ``unallocated``)."""
+    zero = models.Value(Decimal("0"), output_field=_MONEY_FIELD)
+    applied = (
+        PaymentAllocation.objects.filter(supplier_payment=OuterRef("pk"), reversed_at__isnull=True)
+        .values("supplier_payment")
+        .annotate(t=Sum("amount"))
+        .values("t")[:1]
+    )
+    return qs.annotate(
+        _unapplied=models.F("amount") + models.F("tds_amount")
+        - Coalesce(Subquery(applied, output_field=_MONEY_FIELD), zero)
+    )
+
+
 def _query_date(params, key):
     raw = str(params.get(key) or "").strip()
     if not raw:
@@ -241,7 +295,7 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action in ("void", "refund_advance", "correct_closed_till", "reassign_customer"):
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
-        if self.action in ("set_cheque_status", "partial_update", "bulk_allocate", "send"):
+        if self.action in ("set_cheque_status", "partial_update", "bulk_allocate", "send", "tds_certificate"):
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
         if self.action == "export":
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces(), CanExport()]
@@ -330,6 +384,19 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             qs = qs.filter(receipt_date__gte=date_from)
         if date_to:
             qs = qs.filter(receipt_date__lte=date_to)
+        cheque_status = _query_choice(params, "cheque_status", set(ChequeStatus.values))
+        if cheque_status:
+            qs = qs.filter(mode=PaymentMode.CHEQUE, cheque_status=cheque_status)
+        if _truthy(params, "advance"):
+            qs = _receipts_with_unapplied(qs).filter(
+                status=ReceiptStatus.POSTED, _unapplied__gt=0
+            ).exclude(mode=PaymentMode.CREDIT)
+        certificate = (params.get("tds_certificate") or "").strip().lower()
+        if certificate in ("pending", "received"):
+            qs = qs.filter(status=ReceiptStatus.POSTED, tds_deducted__gt=0)
+            qs = qs.filter(tds_certificate_received_on__isnull=(certificate == "pending"))
+        elif certificate:
+            raise ValidationError({"tds_certificate": "Use pending or received."})
         reconciled = (params.get("reconciled") or "").strip().lower()
         if reconciled in ("true", "false", "1", "0"):
             from banking.models import AaTransaction
@@ -372,6 +439,40 @@ class CustomerReceiptViewSet(CompanyScopedViewSet):
             ids = list(matched.values_list("pk", flat=True)[: RECEIPT_SEARCH_ID_CAP + 1])
             qs = qs.filter(pk__in=ids if len(ids) <= RECEIPT_SEARCH_ID_CAP else matched)
         return qs
+
+    @extend_schema(
+        request=inline_serializer(
+            "TdsCertificateRequest",
+            {
+                "received": serializers_module.BooleanField(default=True),
+                "received_on": serializers_module.DateField(required=False),
+                "reference": serializers_module.CharField(required=False, allow_blank=True, max_length=64),
+            },
+        ),
+        responses=CustomerReceiptSerializer,
+    )
+    @action(detail=True, methods=["post"], url_path="tds-certificate")
+    def tds_certificate(self, request, pk=None):
+        """Record that the customer's TDS certificate (Form 16A) arrived, or undo that.
+
+        Bookkeeping only: it takes the receipt off the "awaiting certificate" list and posts
+        nothing to the ledger.
+        """
+        received = request.data.get("received", True)
+        if isinstance(received, str):
+            received = received.strip().lower() not in ("false", "0", "no")
+        received_on = _query_date(
+            {"received_on": request.data.get("received_on") or request.data.get("receivedOn")}, "received_on"
+        )
+        receipt = PaymentService.set_tds_certificate(
+            receipt=self.get_object(),
+            received=bool(received),
+            received_on=received_on,
+            reference=str(request.data.get("reference") or ""),
+            user=request.user,
+        )
+        self._audit("TDS_CERTIFICATE" if received else "TDS_CERTIFICATE_UNDO", receipt)
+        return Response(self.get_serializer(receipt).data)
 
     @extend_schema(parameters=RECEIPT_FILTER_PARAMETERS, responses=ReceiptSummarySerializer)
     @action(detail=False, methods=["get"])
@@ -1001,19 +1102,107 @@ class SupplierPaymentViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanCancelDocuments()]
         if self.action == "set_cheque_status":
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
-        if self.action in ("list", "retrieve"):
+        if self.action in ("list", "retrieve", "summary"):
             return [IsAuthenticated(), HasCompany(), CanViewPaymentSurfaces()]
         return super().get_permissions()
 
+    _LIST_ACTIONS = ("list", "summary")
+
     def get_queryset(self):
         qs = super().get_queryset()
-        raw_supplier = self.request.query_params.get("supplier")
+        params = self.request.query_params
+        raw_supplier = params.get("supplier")
         if raw_supplier:
             try:
                 qs = qs.filter(supplier_id=int(raw_supplier))
             except (TypeError, ValueError):
                 raise BusinessRuleError("Invalid supplier ID.")
+        if getattr(self, "action", None) in self._LIST_ACTIONS:
+            qs = self._apply_list_filters(qs, params)
         return qs
+
+    @staticmethod
+    def _apply_list_filters(qs, params):
+        mode = _query_choice(params, "mode", set(PaymentMode.values))
+        if mode:
+            qs = qs.filter(mode=mode)
+        status_value = _query_choice(params, "status", set(SupplierPaymentStatus.values))
+        if status_value:
+            qs = qs.filter(status=status_value)
+        cheque_status = _query_choice(params, "cheque_status", set(ChequeStatus.values))
+        if cheque_status:
+            qs = qs.filter(mode=PaymentMode.CHEQUE, cheque_status=cheque_status)
+        date_from = _query_date(params, "date_from")
+        date_to = _query_date(params, "date_to")
+        if date_from and date_to and date_from > date_to:
+            raise ValidationError({"date_from": "The start date must be on or before the end date."})
+        if date_from:
+            qs = qs.filter(payment_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(payment_date__lte=date_to)
+        if _truthy(params, "advance"):
+            qs = _supplier_payments_with_unapplied(qs).filter(
+                status=SupplierPaymentStatus.POSTED, _unapplied__gt=0
+            ).exclude(mode=PaymentMode.CREDIT)
+        return qs
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("supplier", int),
+            OpenApiParameter("mode", str, enum=list(PaymentMode.values)),
+            OpenApiParameter("status", str, enum=list(SupplierPaymentStatus.values)),
+            OpenApiParameter("cheque_status", str, enum=list(ChequeStatus.values)),
+            OpenApiParameter("advance", bool, description="true: live payments not yet applied to a bill."),
+            OpenApiParameter("date_from", OpenApiTypes.DATE),
+            OpenApiParameter("date_to", OpenApiTypes.DATE),
+        ],
+        responses=SupplierPaymentSummarySerializer,
+    )
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """Totals for the same filters as the list, across every page.
+
+        Voided and bounced payments are not money out. Cheques still to clear are reported
+        apart. When the caller may see financial reports, what is owed and overdue to suppliers
+        today is added (company-wide, or for the one supplier filtered); it does not follow the
+        other list filters.
+        """
+        qs = self.get_queryset().prefetch_related(None).order_by()
+        live = ~models.Q(status=SupplierPaymentStatus.VOIDED) & ~models.Q(
+            cheque_status=ChequeStatus.BOUNCED
+        )
+        pending_q = models.Q(mode=PaymentMode.CHEQUE, cheque_status=ChequeStatus.PENDING_CLEARANCE)
+        agg = qs.aggregate(
+            rows=Count("id"),
+            n=Count("id", filter=live),
+            total=Sum("amount", filter=live),
+            pending=Sum("amount", filter=live & pending_q),
+        )
+        advance = Decimal("0")
+        for unapplied in _supplier_payments_with_unapplied(qs.filter(live)).values_list("_unapplied", flat=True):
+            advance += max(Decimal("0"), unapplied)
+        total = agg["total"] or Decimal("0")
+        pending = agg["pending"] or Decimal("0")
+        payload = {
+            "count": agg["n"],
+            "paid": total - pending,
+            "cheques_pending": pending,
+            "advance": advance,
+            "excluded_count": agg["rows"] - agg["n"],
+            "payable": None,
+            "overdue": None,
+        }
+        cu = get_company_user(request)
+        if cu is not None and (cu.role == "OWNER" or cu.can_view_financial_reports):
+            from reporting.money_position import open_purchase_rows
+
+            rows = open_purchase_rows(self.company)
+            supplier_id = request.query_params.get("supplier") or ""
+            if supplier_id.isdigit():
+                rows = [r for r in rows if r["party_id"] == int(supplier_id)]
+            payload["payable"] = sum((r["outstanding"] for r in rows), Decimal("0"))
+            payload["overdue"] = sum((r["outstanding"] for r in rows if r["days_overdue"] > 0), Decimal("0"))
+        return Response(payload)
 
     def create(self, request, *args, **kwargs):
         raw_key = (request.headers.get("Idempotency-Key") or "").strip()

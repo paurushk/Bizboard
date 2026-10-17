@@ -298,3 +298,15 @@ class GstPeriodFiling(CompanyScopedModel):
                 name="uniq_gst_period_filing_attempt",
             )
         ]
+
+
+class AnnualReturnFiling(CompanyScopedModel):
+    """Date the GSTR-9 for a financial year was filed (Sec 34(2) credit note limit)."""
+
+    fy_start_year = models.PositiveSmallIntegerField()  # 2025 means FY 2025-26
+    filed_on = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company", "fy_start_year"], name="uniq_annual_return_filing_fy"),
+        ]

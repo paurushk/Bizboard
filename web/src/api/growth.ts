@@ -38,11 +38,29 @@ export type OpportunityRow = {
   expectedCloseDate: string | null;
   customer: number | null;
   competitor?: string;
+  lostReason?: string;
+  lostReasonNote?: string;
+  lead?: number | null;
+};
+
+export type BoardStage = {
+  count: number;
+  totalAmount: string;
+  /** WON/LOST deals outside the closed-days window. */
+  older: number;
+  results: OpportunityRow[];
+};
+
+export type PipelineBoard = {
+  closedDays: number;
+  limit: number;
+  stages: Record<string, BoardStage>;
 };
 
 export type OpportunityLine = {
   id: number;
   product: number;
+  productName?: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -134,7 +152,7 @@ export type ReferralReward = {
   paidAt?: string | null;
 };
 
-export function listCampaignsPage(params?: { page?: number; pageSize?: number; q?: string }) {
+export function listCampaignsPage(params?: { page?: number; pageSize?: number; q?: string; status?: string }) {
   return fetchPage<Campaign>('/crm/campaigns/', params);
 }
 
@@ -161,10 +179,32 @@ export function listOpportunitiesPage(params?: { page?: number; pageSize?: numbe
   return fetchPage<OpportunityRow>('/crm/opportunities/', params);
 }
 
+export async function getPipelineBoard(closedDays = 90, limit = 25) {
+  const { data } = await apiClient.get('/crm/opportunities/board/', { params: { closed_days: closedDays, limit } });
+  return unwrapData<PipelineBoard>(data);
+}
+
+/** More deals for one board column, newest first. closedDays 0 = no window. */
+export function listOpportunitiesByStage(params: { stage: string; page: number; closedDays: number; pageSize?: number }) {
+  return fetchPage<OpportunityRow>('/crm/opportunities/', {
+    stage: params.stage,
+    page: params.page,
+    pageSize: params.pageSize ?? 25,
+    closed_days: params.closedDays,
+  });
+}
+
 export async function patchOpportunity(id: number, payload: Record<string, unknown>) {
   const { data } = await apiClient.patch(`/crm/opportunities/${id}/`, payload);
   return unwrapData<OpportunityRow>(data);
 }
+
+export async function reopenOpportunity(id: number) {
+  const { data } = await apiClient.post(`/crm/opportunities/${id}/reopen/`, {});
+  return unwrapData<OpportunityRow>(data);
+}
+
+export const LOST_REASONS = ['PRICE', 'COMPETITOR', 'NO_RESPONSE', 'NOT_A_FIT', 'DUPLICATE', 'OTHER'] as const;
 
 export function listOpportunityLines(opportunityId: number) {
   return fetchPage<OpportunityLine>(`/crm/opportunities/${opportunityId}/lines/`, { pageSize: 100 });

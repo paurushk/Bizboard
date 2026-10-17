@@ -1,18 +1,24 @@
 import { useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import Button from '@mui/material/Button';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage, userGestureIdempotencyKey } from '@/api/client';
 import {
   cancelPurchaseDebitNote,
   completePurchaseDebitNote,
+  exportPurchaseDebitNotesCsv,
   listPurchaseDebitNotesPage,
 } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { NoteRegisterFilterBar } from '@/components/billing/NoteRegisterFilters';
+import { useNoteRegisterFilters } from '@/hooks/useNoteRegisterFilters';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { DocumentListPage } from '@/components/DocumentListPage';
 import { t } from '@/i18n';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
-import { canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
+import { triggerBlobDownload } from '@/utils/blob';
+import { invalidatePurchaseNoteQueries } from '@/utils/noteQueries';
+import { canCancelDocuments, canCreatePurchases, canExport } from '@/utils/permissions';
 
 const PAGE_SIZE = 50;
 
@@ -24,9 +30,10 @@ export function PurchaseDebitNotesPage() {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<number | null>(null);
+  const filters = useNoteRegisterFilters();
   const query = useQuery({
-    queryKey: ['purchase-debit-notes', page],
-    queryFn: () => listPurchaseDebitNotesPage({ page, pageSize: PAGE_SIZE }),
+    queryKey: ['purchase-debit-notes', page, filters.apiFilters],
+    queryFn: () => listPurchaseDebitNotesPage({ page, pageSize: PAGE_SIZE, ...filters.apiFilters }),
   });
   const complete = useMutation({
     // CR-129: prompt + retry on the additional-debit confirm code.
@@ -39,7 +46,7 @@ export function PurchaseDebitNotesPage() {
       ),
     onSuccess: () => {
       setError(null);
-      void qc.invalidateQueries({ queryKey: ['purchase-debit-notes'] });
+      invalidatePurchaseNoteQueries(qc, 'debit');
     },
     onError: (err) => setError(getErrorMessage(err)),
   });
@@ -48,8 +55,13 @@ export function PurchaseDebitNotesPage() {
     onSuccess: () => {
       setError(null);
       setConfirmCancelId(null);
-      void qc.invalidateQueries({ queryKey: ['purchase-debit-notes'] });
+      invalidatePurchaseNoteQueries(qc, 'debit');
     },
+    onError: (err) => setError(getErrorMessage(err)),
+  });
+  const exportCsv = useMutation({
+    mutationFn: () => exportPurchaseDebitNotesCsv(filters.apiFilters),
+    onSuccess: (blob) => triggerBlobDownload(blob, 'purchase-debit-notes.csv'),
     onError: (err) => setError(getErrorMessage(err)),
   });
   return (
@@ -70,6 +82,30 @@ export function PurchaseDebitNotesPage() {
         hasNext={Boolean(query.data?.next)}
         hasPrevious={Boolean(query.data?.previous) || page > 1}
         onPageChange={setPage}
+        filters={
+          <NoteRegisterFilterBar
+            state={filters.state}
+            rangeInvalid={filters.rangeInvalid}
+            onChange={(patch) => {
+              setPage(1);
+              filters.set(patch);
+            }}
+            onExport={() => exportCsv.mutate()}
+            exporting={exportCsv.isPending}
+            canExport={canExport(user)}
+          />
+        }
+        sourceColumn={{
+          headerKey: 'phase1.sourceInvoice',
+          render: (row) =>
+            row.sourceId ? (
+              <Button component={RouterLink} to={`/purchases/history/${row.sourceId}`} size="small">
+                {row.sourceNumber ?? row.sourceId}
+              </Button>
+            ) : (
+              '—'
+            ),
+        }}
         rows={query.data?.results.map((n) => ({
           id: n.id,
           number: n.number,
@@ -77,6 +113,8 @@ export function PurchaseDebitNotesPage() {
           partyName: n.supplierName,
           status: n.status,
           grandTotal: n.grandTotal,
+          sourceId: n.purchaseInvoice ?? null,
+          sourceNumber: n.invoiceNumber ?? null,
         }))}
         rowActions={(row) => (
           <>

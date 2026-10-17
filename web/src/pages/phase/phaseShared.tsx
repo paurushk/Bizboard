@@ -24,17 +24,23 @@ export function asRows(data: unknown): Row[] {
   return (data as unknown as Row[]) || [];
 }
 
-export function StatusChip({ value }: { value: unknown }) {
+const STATUS_COLOR: Record<string, 'success' | 'error' | 'default' | 'warning' | 'info'> = {
+  PAID: 'success', COMPLETED: 'success', MATCHED: 'success', POSTED: 'success', COMMITTED: 'success',
+  ACTIVE: 'success', CLOSED: 'success',
+  CANCELLED: 'error', FAILED: 'error', EXPIRED: 'error',
+  DRAFT: 'default', PREVIEW: 'default', CREATED: 'default', OPEN: 'default', DISPOSED: 'default',
+  REVERSED: 'default', VOID: 'default', VOIDED: 'default', UNMATCHED: 'default',
+  SOFT_CLOSED: 'warning',
+};
+
+/** Colour and plain-language label for a backend status code (ACS-00). Unknown codes stay amber and Title-cased. */
+export function StatusChip({ value, label }: { value: unknown; label?: string }) {
   const v = String(value || '—');
-  const color =
-    v === 'PAID' || v === 'COMPLETED' || v === 'MATCHED' || v === 'POSTED' || v === 'COMMITTED'
-      ? 'success'
-      : v === 'CANCELLED' || v === 'FAILED' || v === 'EXPIRED'
-        ? 'error'
-        : v === 'DRAFT' || v === 'PREVIEW' || v === 'CREATED'
-          ? 'default'
-          : 'warning';
-  return <Chip size="small" label={v} color={color as 'success' | 'error' | 'default' | 'warning'} variant="outlined" />;
+  const color = STATUS_COLOR[v] ?? 'warning';
+  const key = `status.${v}`;
+  const translated = t(key);
+  const fallback = v === '—' ? v : v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, ' ');
+  return <Chip size="small" label={label ?? (translated === key ? fallback : translated)} color={color} variant="outlined" />;
 }
 
 export function PageShell({
@@ -79,19 +85,19 @@ export function BoolChip({ value }: { value: unknown }) {
   return (
     <Chip
       size="small"
-      label={value ? 'Yes' : 'No'}
+      label={value ? t('common.yes') : t('common.no')}
       color={value ? 'success' : 'default'}
       variant={value ? 'filled' : 'outlined'}
     />
   );
 }
 
-function dataTableCell(row: Row, c: { key: string; money?: boolean; status?: boolean; bool?: boolean; render?: (row: Row) => ReactNode }): ReactNode {
+function dataTableCell(row: Row, c: { key: string; money?: boolean; status?: boolean; statusLabel?: (raw: string) => string; bool?: boolean; render?: (row: Row) => ReactNode }): ReactNode {
   if (c.render) return c.render(row);
   const raw = row[c.key];
   let cell: ReactNode = raw == null || raw === '' ? '—' : String(raw);
   if (c.money) cell = formatMoney(toNumber(raw as string | number));
-  if (c.status) cell = <StatusChip value={raw} />;
+  if (c.status) cell = <StatusChip value={raw} label={c.statusLabel ? c.statusLabel(String(raw ?? '')) : undefined} />;
   if (c.bool) cell = <BoolChip value={raw} />;
   return cell;
 }
@@ -110,7 +116,7 @@ export function DataTable({
   maxHeight = 560,
   rowHeight = 52,
 }: {
-  columns: Array<{ key: string; label: string; money?: boolean; status?: boolean; bool?: boolean; render?: (row: Row) => ReactNode }>;
+  columns: Array<{ key: string; label: string; money?: boolean; status?: boolean; statusLabel?: (raw: string) => string; bool?: boolean; render?: (row: Row) => ReactNode }>;
   rows: Row[];
   empty: string;
   emptyAction?: ReactNode;

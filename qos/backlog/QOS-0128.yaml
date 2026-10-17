@@ -1,0 +1,26 @@
+id: "QOS-0128"
+category: "RELIABILITY_TRUST"
+title: "Delivery routes and route planning: a native-speaker review of the new Hindi strings"
+persona: ["P1"]
+journey: "Plan and run a delivery route in Hindi"
+problem: "About 120 new Hindi strings for the delivery route screens (stop cards, cashier count, goods to check in, planning risks, accept-and-start dialogs, order status labels) were written without a native-speaker review."
+evidence:
+  strength: "heuristic"
+  source: ["ORDER_DELIVERY_ROUTES_EXECUTION_PLAN.md", "web/src/i18n/hi.ts"]
+  detail: "Keys are under routes (including routes.risk and routes.plan) and the order status labels. The catalog parity test passes, which proves the keys exist, not that the wording is natural. The strings were written without a native-speaker review."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Heuristic. Needs a Hindi speaker, not code."
+effort: "S"
+recommendation: "A Hindi speaker reads the routes strings in web/src/i18n/hi.ts and returns corrections."
+test_required: "web/src/i18n/fullParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-14"
+closed: null

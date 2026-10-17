@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { getDemandForecast } from '@/api/osPlan';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -34,6 +35,7 @@ import {
   getCompany,
   listCategories,
   listBrands,
+  findProductByName,
   listStock,
   listUnits,
   listWarehouses,
@@ -51,6 +53,8 @@ import { activeCustomFieldDefs, type ItemCustomFieldDef } from './itemCustomFiel
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { trackShopFloor } from '@/lib/telemetry';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { useConfirmPrompt } from '@/hooks/useConfirmPrompt';
 
 type Tracking = 'NONE' | 'BATCH' | 'SERIAL';
 type TabKey = 'basic' | 'stock' | 'pricing' | 'custom';
@@ -181,6 +185,7 @@ interface Props {
 export function ItemFormDialog({ open, product, existingNames, onClose, onSaved }: Props) {
   useLocale();
   const qc = useQueryClient();
+  const { ask, dialog } = useConfirmPrompt();
   const { user } = useAuth();
   const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany, enabled: open });
   const customDefs = useMemo(
@@ -194,7 +199,12 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   const unitsQuery = useQuery({ queryKey: ['units'], queryFn: listUnits, enabled: open });
   const categoriesQuery = useQuery({ queryKey: ['categories'], queryFn: listCategories, enabled: open });
   const brandsQuery = useQuery({ queryKey: ['brands'], queryFn: listBrands, enabled: open });
-  const stockQuery = useQuery({ queryKey: ['stock'], queryFn: () => listStock(), enabled: open && Boolean(product) });
+  // INV-IDR-10: this item's balances only; the whole catalogue used to load every time the form opened.
+  const stockQuery = useQuery({
+    queryKey: ['stock', 'item', product?.id],
+    queryFn: () => listStock({ productIds: [Number(product?.id)] }),
+    enabled: open && Boolean(product?.id),
+  });
   const warehouses = warehousesQuery.data ?? [];
   const defaultWarehouseId = String(warehouses[0]?.id ?? '');
   const [tab, setTab] = useState<TabKey>('basic');
@@ -262,6 +272,18 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
 
   // Reset only when the dialog opens or the edited product changes — not when
   // company defs / godowns finish loading, which would wipe in-progress edits.
+  // The item that was created but whose opening stock failed: Save again retries the stock
+  // against this item (same idempotency keys) instead of creating a second item.
+  const [savedNeedsStock, setSavedNeedsStock] = useState<Product | null>(null);
+  // For an existing item: what its recent sales say the reorder level should be.
+  const forecastQuery = useQuery({
+    queryKey: ['demand-forecast'],
+    queryFn: getDemandForecast,
+    enabled: open && Boolean(product?.id) && Boolean(product?.trackInventory),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const suggestedReorder = (forecastQuery.data?.rows ?? []).find((row) => row.productId === product?.id) ?? null;
   const resetKey = open ? String(product?.id ?? 'new') : null;
   const [seenResetKey, setSeenResetKey] = useState<string | null>(null);
   const resettingForm = seenResetKey !== resetKey && resetKey !== null;
@@ -271,6 +293,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
       setTab('basic');
       setShowStockOnCreate(false);
       setError(null);
+      setSavedNeedsStock(null);
       const fresh = buildForm(product, defaultWarehouseId, customDefs);
       setForm(fresh);
       // F3-015: snapshot this as the "clean" baseline for the unsaved-changes
@@ -336,10 +359,30 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
     },
   });
 
+  // The name is checked on the server (any case), not just against the page of items on screen.
+  const debouncedName = useDebouncedValue(form.name.trim(), 400);
+  const sameName = useQuery({
+    queryKey: ['product-name-check', debouncedName],
+    queryFn: () => findProductByName(debouncedName),
+    enabled: open && !product && debouncedName.length >= 2,
+  });
+  const nameTwin = sameName.data && debouncedName.toLowerCase() === form.name.trim().toLowerCase() ? sameName.data : null;
   const duplicateName =
     !product &&
     Boolean(form.name.trim()) &&
-    existingNames.some((name) => name.trim().toLowerCase() === form.name.trim().toLowerCase());
+    (Boolean(nameTwin) ||
+      existingNames.some((name) => name.trim().toLowerCase() === form.name.trim().toLowerCase()));
+  // Warnings, not blocks: these are usually a slip, sometimes a decision.
+  const priceWarnings = (() => {
+    const out: string[] = [];
+    const sell = Number(form.sellingPrice) || 0;
+    const cost = Number(form.purchasePrice) || 0;
+    const mrp = Number(form.mrp) || 0;
+    if (form.name.trim() && sell === 0) out.push(t('inventory.priceWarnZero'));
+    if (mrp > 0 && sell > mrp) out.push(t('inventory.priceWarnMrp'));
+    if (cost > 0 && sell > 0 && cost > sell) out.push(t('inventory.priceWarnCost'));
+    return out;
+  })();
   const hsnInvalid = Boolean(form.hsnCode) && !isValidHsnSac(form.hsnCode);
   const customValuesReady = customDefs.every((def) => def.key in form.customValues);
   const conversionRateInvalid =
@@ -349,54 +392,54 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
 
   const validateForm = (): { valid: boolean; tab?: TabKey; fieldId?: string; message?: string } => {
     if (!form.name.trim()) {
-      return { valid: false, fieldId: 'item-form-name', message: 'Item name is required.' };
+      return { valid: false, fieldId: 'item-form-name', message: t('inventory.itemValName') };
     }
     if (isNaN(Number(form.sellingPrice)) || Number(form.sellingPrice) < 0) {
-      return { valid: false, fieldId: 'item-form-selling-price', message: 'Selling price cannot be negative.' };
+      return { valid: false, fieldId: 'item-form-selling-price', message: t('inventory.itemValSelling') };
     }
     if (isNaN(Number(form.purchasePrice)) || Number(form.purchasePrice) < 0) {
-      return { valid: false, fieldId: 'item-form-purchase-price', message: 'Purchase price cannot be negative.' };
+      return { valid: false, fieldId: 'item-form-purchase-price', message: t('inventory.itemValPurchase') };
     }
     if (hsnInvalid) {
       return {
         valid: false,
         tab: isRegularDealer ? undefined : 'basic',
         fieldId: 'item-form-hsn',
-        message: 'HSN/SAC must be 4, 6, or 8 digits',
+        message: t('inventory.itemValHsn'),
       };
     }
     if (!form.sku.trim()) {
-      return { valid: false, tab: 'basic', fieldId: 'item-form-sku', message: 'Item code is required.' };
+      return { valid: false, tab: 'basic', fieldId: 'item-form-sku', message: t('inventory.itemValSku') };
     }
     if (conversionRateInvalid) {
       return {
         valid: false,
         tab: 'basic',
         fieldId: 'item-form-conversion-rate',
-        message: 'Conversion rate must be greater than 0',
+        message: t('inventory.itemValConversion'),
       };
     }
     if (isNaN(Number(form.reorderLevel)) || Number(form.reorderLevel) < 0) {
-      return { valid: false, tab: 'stock', fieldId: 'item-form-reorder-level', message: 'Reorder level cannot be negative' };
+      return { valid: false, tab: 'stock', fieldId: 'item-form-reorder-level', message: t('inventory.itemValReorder') };
     }
     if (isNaN(Number(form.wholesalePrice)) || Number(form.wholesalePrice) < 0) {
-      return { valid: false, tab: 'pricing', fieldId: 'item-form-wholesale-price', message: 'Wholesale price cannot be negative' };
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-wholesale-price', message: t('inventory.itemValWholesale') };
     }
     if (isNaN(Number(form.mrp)) || Number(form.mrp) < 0) {
-      return { valid: false, tab: 'pricing', fieldId: 'item-form-mrp', message: 'MRP cannot be negative' };
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-mrp', message: t('inventory.itemValMrp') };
     }
     if (isNaN(Number(form.cessRate)) || Number(form.cessRate) < 0) {
-      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-rate', message: 'Cess rate cannot be negative' };
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-rate', message: t('inventory.itemValCessRate') };
     }
     if (isNaN(Number(form.cessAmount)) || Number(form.cessAmount) < 0) {
-      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-amount', message: 'Cess amount cannot be negative' };
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-cess-amount', message: t('inventory.itemValCessAmount') };
     }
     const disc = Number(form.defaultDiscountPercent);
     if (isNaN(disc) || disc < 0 || disc > 100) {
-      return { valid: false, tab: 'pricing', fieldId: 'item-form-discount', message: 'Default discount must be between 0 and 100%' };
+      return { valid: false, tab: 'pricing', fieldId: 'item-form-discount', message: t('inventory.itemValDiscount') };
     }
     if (!customValuesReady) {
-      return { valid: false, tab: 'custom', message: 'Please fill all required custom fields' };
+      return { valid: false, tab: 'custom', message: t('inventory.itemValCustom') };
     }
     return { valid: true };
   };
@@ -480,7 +523,9 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
             .filter(([, value]) => Boolean(value)),
         );
       }
-      const saved = product ? await updateProduct(product.id, payload) : await createProduct(payload);
+      const existing = product ?? savedNeedsStock;
+      const saved = existing ? await updateProduct(existing.id, payload) : await createProduct(payload);
+      if (!product) setSavedNeedsStock(saved);
       const rateNotice = String((saved as { gstRateNotice?: string }).gstRateNotice || '');
       if (!product && !isService && form.trackInventory) {
         try {
@@ -541,6 +586,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           throw new Error(`Item saved, but opening stock failed: ${getErrorMessage(err)}`);
         }
       }
+      setSavedNeedsStock(null);
       return { keepOpen, rateNotice };
     },
     onSuccess: ({ keepOpen, rateNotice }) => {
@@ -558,7 +604,11 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
         setShowStockOnCreate(false);
       }
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => {
+      setError(getErrorMessage(err));
+      // The item itself may have been created before the opening stock failed: show it in the list.
+      void qc.invalidateQueries({ queryKey: ['products'] });
+    },
   });
 
   const handleSave = (keepOpen: boolean) => {
@@ -599,8 +649,8 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
   // F3-011: UnsavedChangesGuard only covers browser nav/reload/tab-close --
   // the Dialog's own close triggers (backdrop click, Escape, Cancel button)
   // bypassed it entirely and discarded a dirty multi-tab form with no guard.
-  const handleClose = () => {
-    if (dirty && !window.confirm(t('inventory.confirmDiscardItemChanges'))) return;
+  const handleClose = async () => {
+    if (dirty && !(await ask([t('inventory.confirmDiscardItemChanges')]))) return;
     onClose();
   };
 
@@ -615,11 +665,31 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           {error ? (
             <HelpErrorAlert message={error} sx={{ mb: 2 }} />
           ) : null}
-          {duplicateName ? (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              An item with this name already exists — check SKU when billing. Duplicate names are allowed.
+          {savedNeedsStock && !save.isPending ? (
+            <Alert
+              severity="warning"
+              sx={{ mb: 2 }}
+              action={
+                <Button color="inherit" size="small" onClick={() => handleSave(false)}>
+                  {t('products.retryOpeningStock')}
+                </Button>
+              }
+            >
+              {t('products.openingStockNotSaved')}
             </Alert>
           ) : null}
+          {duplicateName ? (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              {nameTwin
+                ? t('inventory.itemDuplicateNamed', { sku: String(nameTwin.sku ?? '') })
+                : t('inventory.itemDuplicateName')}
+            </Alert>
+          ) : null}
+          {priceWarnings.map((message) => (
+            <Alert key={message} severity="info" sx={{ mb: 1 }}>
+              {message}
+            </Alert>
+          ))}
 
           <Paper variant="outlined" sx={{ p: 2, mb: 2.5, bgcolor: 'background.default' }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1.5, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -632,7 +702,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 required
                 value={form.name}
                 onChange={(e) => setForm((current) => ({ ...current, name: e.target.value }))}
-                helperText={duplicateName ? 'An item with this name already exists — check SKU when billing' : undefined}
+                helperText={duplicateName ? t('inventory.itemDuplicateName') : undefined}
                 fullWidth
               />
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -1146,6 +1216,29 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
                 onChange={(e) => setForm((current) => ({ ...current, reorderLevel: e.target.value }))}
                 helperText={t('products.reorderLevelHint')}
               />
+              {suggestedReorder && Number(suggestedReorder.suggestedReorderLevel) > 0 &&
+              Number(suggestedReorder.suggestedReorderLevel) !== Number(form.reorderLevel) ? (
+                <Alert
+                  severity="info"
+                  action={
+                    <Button
+                      color="inherit"
+                      size="small"
+                      onClick={() =>
+                        setForm((current) => ({ ...current, reorderLevel: String(Number(suggestedReorder.suggestedReorderLevel)) }))
+                      }
+                    >
+                      {t('products.useSuggestedReorder', { qty: String(Number(suggestedReorder.suggestedReorderLevel)) })}
+                    </Button>
+                  }
+                >
+                  {t('products.suggestedReorderHelp', {
+                    days: String(suggestedReorder.reorderCoverDays ?? 14),
+                    window: String(suggestedReorder.windowDays),
+                    qty: String(Number(suggestedReorder.suggestedReorderLevel)),
+                  })}
+                </Alert>
+              ) : null}
             </Stack>
           ) : null}
 
@@ -1351,6 +1444,7 @@ export function ItemFormDialog({ open, product, existingNames, onClose, onSaved 
           <Button onClick={() => setHsnOpen(false)}>{t('common.cancel')}</Button>
         </DialogActions>
       </Dialog>
+      {dialog}
     </>
   );
 }

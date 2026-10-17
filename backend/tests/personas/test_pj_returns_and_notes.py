@@ -97,12 +97,14 @@ def test_pj_returns_and_credit_debit_notes_lifecycle():
     clerk_cancel = trader.sales_client.post(f"/api/v1/sales/invoices/{inv_id}/cancel/")
     assert clerk_cancel.status_code == 403, "Sales staff must not cancel invoices"
 
-    # Boundary check: Accountant cannot complete sales credit notes (requires CanCreateSales)
-    acct_fail = trader.acct_client.post(f"/api/v1/sales/credit-notes/{cn_id}/complete/")
-    assert acct_fail.status_code == 403, "Accountant without sales create permission cannot complete sales credit notes"
+    # Credit/debit note plan (Q7): issuing a note is an accountant task, so the Accountant
+    # role may complete it without holding the sales-create flag. Deleting a draft still
+    # needs the sales-create permission, which the Accountant cannot hold.
+    acct_delete = trader.acct_client.delete(f"/api/v1/sales/credit-notes/{cn_id}/")
+    assert acct_delete.status_code == 403, "Accountant must not delete a draft credit note"
 
-    # Sales staff completes the credit note
-    clerk_complete = trader.sales_client.post(f"/api/v1/sales/credit-notes/{cn_id}/complete/")
+    # The Accountant completes the credit note
+    clerk_complete = trader.acct_client.post(f"/api/v1/sales/credit-notes/{cn_id}/complete/")
     assert clerk_complete.status_code == 200, clerk_complete.data
     assert SalesCreditNote.objects.get(pk=cn_id).status == "COMPLETED"
 

@@ -209,6 +209,25 @@ class CanCreateSales(BasePermission):
         return cu.role == "OWNER" or cu.can_create_sales
 
 
+class CanCreateOrCompleteNotes(BasePermission):
+    """Create / edit / complete sales credit & debit notes.
+
+    OWNER, anyone holding ``can_create_sales``, or the ACCOUNTANT role. The
+    accountant role cannot hold ``can_create_sales`` (role/capability
+    invariant), yet issuing credit/debit notes is a core accountant task, so
+    the role itself grants it. VIEWER/AUDITOR never pass. Cancel and delete
+    stay on their own (stricter) permissions for segregation of duties.
+    """
+
+    message = "Credit/debit note permission required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None or cu.role in ("VIEWER", "AUDITOR"):
+            return False
+        return cu.role in ("OWNER", "ACCOUNTANT") or bool(cu.can_create_sales)
+
+
 class CanCreatePurchases(BasePermission):
     """Create / complete purchase invoices (BB-000018)."""
 

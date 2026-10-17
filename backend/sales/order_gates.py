@@ -17,10 +17,14 @@ OVERRIDE_REASON_MAX = 500
 
 
 def sales_order_exposure(company, customer, order) -> Decimal:
-    """Posted exposure plus other open orders and drafts, including this order.
+    """Posted exposure plus other open orders, drafts and shipped-but-unbilled goods, including this order.
 
     A confirmed order that already has a ledger-counted invoice contributes
-    only the part the ledger has not picked up yet.
+    only the part the ledger has not picked up yet. A partly processed order stays in
+    (its unbilled part still counts), and a completed delivery challan that no ledger-counted
+    invoice covers counts at its own total: the goods left the godown on credit, whether or not
+    the bill exists yet (H-03). Each rupee is counted once: a challan that belongs to an order
+    already counted here is not added again.
     """
     from sales.models import DeliveryChallan, SalesOrder
     from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
@@ -30,7 +34,11 @@ def sales_order_exposure(company, customer, order) -> Decimal:
         SalesOrder.objects.filter(
             company=company,
             customer=customer,
-            status__in=(SalesOrder.Status.DRAFT, SalesOrder.Status.CONFIRMED),
+            status__in=(
+                SalesOrder.Status.DRAFT,
+                SalesOrder.Status.CONFIRMED,
+                SalesOrder.Status.PARTIALLY_CONVERTED,
+            ),
         )
         .exclude(pk=order.pk)
         .select_related("converted_invoice")
@@ -42,7 +50,28 @@ def sales_order_exposure(company, customer, order) -> Decimal:
         if remaining < 0:
             remaining = Decimal("0")
         extra += remaining
+    extra += _shipped_unbilled_value(company, customer, {row.pk for row in others} | {order.pk}, OPEN_RECEIVABLE_STATUSES)
     return posted + extra + (order.grand_total or Decimal("0"))
+
+
+def _shipped_unbilled_value(company, customer, counted_order_ids, open_statuses) -> Decimal:
+    """Completed challans whose goods no ledger-counted invoice covers and no counted order carries."""
+    from sales.models import DeliveryChallan
+
+    total = Decimal("0")
+    challans = (
+        DeliveryChallan.objects.filter(
+            company=company, customer=customer, status=DeliveryChallan.Status.COMPLETED
+        )
+        .exclude(sales_order_id__in=counted_order_ids)
+        .select_related("converted_invoice")
+    )
+    for challan in challans:
+        invoice = challan.converted_invoice
+        if invoice is not None and invoice.status in open_statuses:
+            continue
+        total += challan.grand_total or Decimal("0")
+    return total
 
 
 def _ledger_invoice_value(invoice) -> Decimal:
@@ -65,12 +94,20 @@ def _ledger_covered_by_order(company, orders, open_statuses, challan_model) -> d
         seen[order_id].add(invoice.pk)
         covered[order_id] += _ledger_invoice_value(invoice)
 
+    from sales.models import SalesInvoice
+
     order_ids = []
     for row in orders:
         order_ids.append(row.pk)
         add(row.pk, row.converted_invoice)
     if not order_ids:
         return covered
+    # A partly shipped order is billed in parts: every live invoice counts, not only the latest.
+    # (Invoices reached through a challan are added below with the challans.)
+    for invoice in SalesInvoice.objects.filter(company=company, source_order_id__in=order_ids).exclude(
+        status=SalesInvoice.Status.CANCELLED
+    ):
+        add(invoice.source_order_id, invoice)
     challans = challan_model.objects.filter(
         company=company,
         sales_order_id__in=order_ids,
@@ -258,8 +295,10 @@ def invoice_credit_override_covers(invoice) -> bool:
         return False
     from sales.models import DeliveryChallan, SalesOrder
 
-    order = SalesOrder.objects.filter(
-        company_id=invoice.company_id, converted_invoice_id=invoice.pk,
+    from django.db.models import Q
+
+    order = SalesOrder.objects.filter(company_id=invoice.company_id).filter(
+        Q(converted_invoice_id=invoice.pk) | Q(pk=getattr(invoice, "source_order_id", None))
     ).first()
     if order is None:
         challan = (

@@ -2,7 +2,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from rest_framework import status
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
@@ -31,7 +31,7 @@ def _truthy(value) -> bool:
 
 
 class LeadViewSet(CompanyScopedViewSet):
-    queryset = Lead.objects.all()
+    queryset = Lead.objects.select_related("customer", "campaign")
     serializer_class = LeadSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "Lead"
@@ -53,6 +53,13 @@ class LeadViewSet(CompanyScopedViewSet):
             qs = qs.filter(assigned_to_id=params.get("assigned_to"))
         if str(params.get("mine") or "").lower() in {"1", "true", "yes"}:
             qs = qs.filter(assigned_to=get_company_user(self.request))
+        if params.get("status") in Lead.Status.values:
+            qs = qs.filter(status=params.get("status"))
+        term = (params.get("q") or "").strip()
+        if term:
+            from django.db.models import Q
+
+            qs = qs.filter(Q(name__icontains=term) | Q(phone__icontains=term) | Q(email__icontains=term))
         return qs
 
     def create(self, request, *args, **kwargs):
@@ -415,8 +422,16 @@ class WhatsAppInboundView(APIView):
         return Response(_ingest_job_payload(job), status=status.HTTP_202_ACCEPTED)
 
 
+class IsOwnerOrManager(BasePermission):
+    message = "Owner or manager role required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        return cu is not None and cu.role in ("OWNER", "MANAGER")
+
+
 class OpportunityViewSet(CompanyScopedViewSet):
-    queryset = Opportunity.objects.select_related("lead")
+    queryset = Opportunity.objects.select_related("lead", "customer")
     serializer_class = OpportunitySerializer
     permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "Opportunity"
@@ -426,12 +441,123 @@ class OpportunityViewSet(CompanyScopedViewSet):
         assert_crm_enabled(get_company_user(request).company)
 
     def get_permissions(self):
+        # CRM review F-18: the old override rebuilt the list by hand and dropped
+        # SubscriptionWritesAllowed for every action except draft_invoice. The base
+        # class adds it; only the two special cases below swap the role check.
         action = getattr(self, "action", None)
-        if action == "draft_invoice":
-            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
         if action == "won_versus_invoices":
-            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
-        return [IsAuthenticated(), HasCompany(), CanCreateSales()]
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), SubscriptionWritesAllowed()]
+        if action == "reopen":
+            return [IsAuthenticated(), HasCompany(), IsOwnerOrManager(), SubscriptionWritesAllowed()]
+        return super().get_permissions()
+
+    @staticmethod
+    def _within_closed_window(qs, stage, days: int):
+        """WON/LOST deals are shown for the last ``days`` days; 0 means all of them."""
+        if stage not in Opportunity.CLOSED_STAGES or days <= 0:
+            return qs
+        from datetime import timedelta
+
+        from django.db.models import Q
+        from django.utils import timezone
+
+        cutoff = timezone.now() - timedelta(days=days)
+        # Rows closed before closed_at existed fall back to their last update.
+        return qs.filter(Q(closed_at__gte=cutoff) | Q(closed_at__isnull=True, updated_at__gte=cutoff))
+
+    @staticmethod
+    def _int_param(request, name, default, low, high):
+        try:
+            value = int(request.query_params.get(name, default))
+        except (TypeError, ValueError):
+            value = default
+        return max(low, min(high, value))
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        params = self.request.query_params
+        stage = (params.get("stage") or "").upper()
+        if stage in Opportunity.Stage.values:
+            qs = qs.filter(stage=stage)
+            qs = self._within_closed_window(qs, stage, self._int_param(self.request, "closed_days", 0, 0, 3650))
+        if params.get("customer"):
+            qs = qs.filter(customer_id=params.get("customer"))
+        if params.get("lead"):
+            qs = qs.filter(lead_id=params.get("lead"))
+        term = (params.get("q") or "").strip()
+        if term:
+            qs = qs.filter(title__icontains=term)
+        return qs.order_by("-updated_at", "-id") if stage else qs
+
+    @action(detail=False, methods=["get"])
+    def board(self, request):
+        """First page of every stage with counts and totals, so no open deal is ever pushed off the board.
+
+        Open stages are never windowed. WON/LOST show the last ``closed_days`` days (default 90);
+        ``older`` says how many more exist outside that window.
+        """
+        from django.db.models import Count, Sum
+
+        days = self._int_param(request, "closed_days", 90, 0, 3650)
+        limit = self._int_param(request, "limit", 25, 1, 100)
+        base = Opportunity.objects.filter(company=self.company)
+        out = {}
+        for stage in Opportunity.Stage.values:
+            all_rows = base.filter(stage=stage)
+            rows = self._within_closed_window(all_rows, stage, days)
+            totals = rows.aggregate(count=Count("id"), total=Sum("amount"))
+            page = rows.select_related("lead", "customer").order_by("-updated_at", "-id")[:limit]
+            out[stage] = {
+                "count": totals["count"] or 0,
+                "total_amount": str(totals["total"] or 0),
+                "older": (all_rows.count() - (totals["count"] or 0)) if stage in Opportunity.CLOSED_STAGES else 0,
+                "results": OpportunitySerializer(page, many=True, context={"request": request}).data,
+            }
+        return Response({"closed_days": days, "limit": limit, "stages": out})
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        """Owner or manager reopens a closed deal. A pending reward is rejected with it."""
+        from django.utils import timezone
+
+        from .models import ReferralReward
+
+        with transaction.atomic():
+            opportunity = Opportunity.objects.select_for_update().get(
+                pk=self.get_object().pk, company=self.company,
+            )
+            if opportunity.stage not in (Opportunity.Stage.WON, Opportunity.Stage.LOST):
+                return Response({"detail": "Only a won or lost deal can be reopened."}, status=400)
+            reward = ReferralReward.objects.filter(company=self.company, opportunity=opportunity).first()
+            if reward is not None and reward.reward_status in (
+                ReferralReward.Status.APPROVED, ReferralReward.Status.PAID,
+            ):
+                return Response(
+                    {"detail": "This deal has an approved or paid referral reward. Reverse the reward first."},
+                    status=400,
+                )
+            if reward is not None and reward.reward_status == ReferralReward.Status.PENDING:
+                reward.reward_status = ReferralReward.Status.REJECTED
+                reward.rejection_reason = "deal_reopened"
+                reward.updated_by = request.user
+                reward.save(update_fields=["reward_status", "rejection_reason", "updated_by", "updated_at"])
+            opportunity.probability = Opportunity.probability_after_move(
+                opportunity.probability, opportunity.stage, Opportunity.Stage.OPEN,
+            )
+            opportunity.stage = Opportunity.Stage.OPEN
+            opportunity.closed_at = None
+            opportunity.lost_reason = ""
+            opportunity.lost_reason_note = ""
+            opportunity.stage_move_count = (opportunity.stage_move_count or 0) + 1
+            opportunity.reopened_at = timezone.now()
+            opportunity.reopened_by = get_company_user(request)
+            opportunity.updated_by = request.user
+            opportunity.save(update_fields=[
+                "stage", "closed_at", "probability", "lost_reason", "lost_reason_note",
+                "stage_move_count", "reopened_at", "reopened_by", "updated_by", "updated_at",
+            ])
+        self._audit("UPDATE", opportunity)
+        return Response(OpportunitySerializer(opportunity, context={"request": request}).data)
 
     @action(detail=False, methods=["get"])
     def forecast(self, request):

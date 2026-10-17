@@ -12,6 +12,7 @@ from urllib.parse import quote
 from django.db.models import Sum
 from django.utils import timezone
 
+from core.services.due_dates import effective_due_date
 from ledgers.services import LedgerService
 from payments.models import PaymentAllocation
 from sales.models import SalesInvoice
@@ -61,7 +62,7 @@ def open_invoice_rows(company, as_of=None) -> list[dict]:
         owed = outstanding.get(invoice.id) or Decimal("0")
         if owed <= 0:
             continue
-        due = invoice.due_date or invoice.invoice_date
+        due = effective_due_date(invoice)
         days_overdue = (as_of - due).days if due and due < as_of else 0
         phone = (getattr(invoice.customer, "phone", "") or "").strip()
         digits = _wa_digits(phone)

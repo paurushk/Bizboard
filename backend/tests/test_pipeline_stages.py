@@ -106,7 +106,7 @@ def test_lead_conversion_starts_open_or_won_and_lost_cannot_reopen(tenant_a):
     assert negotiating.status_code == 200
     lost = tenant_a.client.patch(
         f"/api/v1/crm/opportunities/{opportunity['id']}/",
-        {"stage": "LOST"},
+        {"stage": "LOST", "lost_reason": "PRICE"},
         format="json",
     )
     assert lost.status_code == 200

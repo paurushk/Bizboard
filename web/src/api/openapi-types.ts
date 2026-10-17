@@ -354,6 +354,42 @@ export interface paths {
         patch: operations["accounting_cost_centers_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/expense-category-accounts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-15: which expense ledger each category posts to. One mapping per category. */
+        get: operations["accounting_expense_category_accounts_list"];
+        put?: never;
+        /** @description ACS-15: which expense ledger each category posts to. One mapping per category. */
+        post: operations["accounting_expense_category_accounts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/expense-category-accounts/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-15: which expense ledger each category posts to. One mapping per category. */
+        get: operations["accounting_expense_category_accounts_retrieve"];
+        put?: never;
+        post?: never;
+        /** @description ACS-15: which expense ledger each category posts to. One mapping per category. */
+        delete: operations["accounting_expense_category_accounts_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/expenses/": {
         parameters: {
             query?: never;
@@ -408,6 +444,61 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["accounting_expenses_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/accounting/expenses/{id}/void/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_expenses_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/expenses/duplicates/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-16: other active expenses with the same date, amount and party -- a likely double entry. */
+        get: operations["accounting_expenses_duplicates_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/expenses/post-pending/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-15: GET previews, POST posts, every active expense on/after the start date not yet in the books. */
+        get: operations["accounting_expenses_post_pending_retrieve"];
+        put?: never;
+        /** @description ACS-15: GET previews, POST posts, every active expense on/after the start date not yet in the books. */
+        post: operations["accounting_expenses_post_pending_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/accounting/fixed-assets/": {
@@ -2532,6 +2623,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/crm/opportunities/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Owner or manager reopens a closed deal. A pending reward is rejected with it. */
+        post: operations["crm_opportunities_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/crm/opportunities/board/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description First page of every stage with counts and totals, so no open deal is ever pushed off the board.
+         *
+         *     Open stages are never windowed. WON/LOST show the last ``closed_days`` days (default 90);
+         *     ``older`` says how many more exist outside that window.
+         */
+        get: operations["crm_opportunities_board_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/crm/opportunities/forecast/": {
         parameters: {
             query?: never;
@@ -4372,7 +4502,6 @@ export interface paths {
         };
         get: operations["inventory_alerts_expiry_retrieve"];
         put?: never;
-        /** @description Write off remaining qty of an expired/near-expiry lot as ADJUSTMENT / EXPIRED. */
         post: operations["inventory_alerts_expiry_create"];
         delete?: never;
         options?: never;
@@ -4404,6 +4533,28 @@ export interface paths {
             cookie?: never;
         };
         get: operations["inventory_balances_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/balances/by-product/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description One row per item (summed over godowns and lots), paged on the server (INV-IDR-10).
+         *
+         *     The Current stock page used to download every product x godown x lot row and add them up in
+         *     the browser. The same filters apply here; lots for one item come from ``?product=<id>``.
+         */
+        get: operations["inventory_balances_by_product_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4493,7 +4644,8 @@ export interface paths {
         };
         get: operations["inventory_labels.zpl_retrieve"];
         put?: never;
-        post?: never;
+        /** @description Several labels in one file: ``{"labels": [{"product", "copies", "batch"}], "size", "price"}``. */
+        post: operations["inventory_labels.zpl_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4507,6 +4659,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @description The item ledger: every movement, filterable, with a running balance for one item. */
         get: operations["inventory_movements_list"];
         put?: never;
         post?: never;
@@ -4679,6 +4832,23 @@ export interface paths {
         patch: operations["inventory_serials_partial_update"];
         trace?: never;
     };
+    "/api/v1/inventory/serials/{id}/document/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The sale (invoice or challan) a SOLD unit went out on, so the Serials page can link to it. */
+        get: operations["inventory_serials_document_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inventory/serials/{id}/transition/": {
         parameters: {
             query?: never;
@@ -4753,6 +4923,23 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         patch: operations["inventory_stock_counts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/inventory/stock-counts/{id}/add-line/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Count an item that is not on the sheet (found stock the system does not know about). */
+        post: operations["inventory_stock_counts_add_line_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/inventory/stock-counts/{id}/cancel/": {
@@ -4939,6 +5126,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/transfers/{id}/resolve-shortage/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Settle quantities found missing at receive: write off or return to the source godown. */
+        post: operations["inventory_transfers_resolve_shortage_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/inventory/valuation/": {
         parameters: {
             query?: never;
@@ -5069,6 +5273,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["ledgers_suppliers_retrieve_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ledgers/suppliers/{supplier_id}/pdf/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The supplier statement as a PDF, same rows as the screen. */
+        get: operations["ledgers_suppliers_pdf_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5650,6 +5871,57 @@ export interface paths {
         };
         /** @description BB-000753: minimal Prometheus-style text counters (request count). */
         get: operations["metrics_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/money/position/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Where the business stands on money in and money out today. */
+        get: operations["money_position_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/money/statutory/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Tax amounts and due dates, as estimates for the CA to confirm. */
+        get: operations["money_statutory_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/money/timeline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Money expected in and due out over the next days, by due date (not a forecast). */
+        get: operations["money_timeline_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6308,6 +6580,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/payments/receipts/{id}/tds-certificate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Record that the customer's TDS certificate (Form 16A) arrived, or undo that.
+         *
+         *     Bookkeeping only: it takes the receipt off the "awaiting certificate" list and posts
+         *     nothing to the ledger.
+         */
+        post: operations["payments_receipts_tds_certificate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/receipts/{id}/void/": {
         parameters: {
             query?: never;
@@ -6748,6 +7042,30 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["payments_supplier_payments_void_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/supplier-payments/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Totals for the same filters as the list, across every page.
+         *
+         *     Voided and bounced payments are not money out. Cheques still to clear are reported
+         *     apart. When the caller may see financial reports, what is owed and overdue to suppliers
+         *     today is added (company-wide, or for the one supplier filtered); it does not follow the
+         *     other list filters.
+         */
+        get: operations["payments_supplier_payments_summary_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7479,6 +7797,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/filter-options/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What the Items page can filter by: the categories, brands and GST slabs in use. */
+        get: operations["products_filter_options_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/generate-barcode/": {
         parameters: {
             query?: never;
@@ -7530,6 +7865,23 @@ export interface paths {
         put?: never;
         /** @description Clear the 'needs review' flag on products fixed after a bill import. */
         post: operations["products_mark_reviewed_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/products/missing-barcode/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Active items that have no barcode: how many, and a page of them (INV-IDR-11). */
+        get: operations["products_missing_barcode_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8115,6 +8467,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchases/credit-notes/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_credit_notes_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/purchases/credit-notes/number-series/": {
         parameters: {
             query?: never;
@@ -8229,6 +8601,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["purchases_debit_notes_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/purchases/debit-notes/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["purchases_debit_notes_export_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9481,6 +9873,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/gstr9/filing-date/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Record the date the annual return for a financial year was filed (Sec 34(2)). */
+        get: operations["reports_gstr9_filing_date_retrieve"];
+        /** @description Record the date the annual return for a financial year was filed (Sec 34(2)). */
+        put: operations["reports_gstr9_filing_date_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/inventory-summary/": {
         parameters: {
             query?: never;
@@ -9960,6 +10370,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/credit-notes/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        get: operations["sales_credit_notes_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/credit-notes/number-series/": {
         parameters: {
             query?: never;
@@ -10146,6 +10573,23 @@ export interface paths {
         put?: never;
         /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
         post: operations["sales_debit_notes_submit_einvoice_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/debit-notes/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description BB-000647: prepare/submit IRN for sales credit and debit notes. */
+        get: operations["sales_debit_notes_export_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10492,6 +10936,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/delivery-routes/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/delivery-routes/{id}/complete/": {
         parameters: {
             query?: never;
@@ -10532,6 +10996,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sales/delivery-routes/{id}/link-receipt/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["sales_delivery_routes_link_receipt_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sales/delivery-routes/{id}/manifest/": {
         parameters: {
             query?: never;
@@ -10544,6 +11028,23 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         get: operations["sales_delivery_routes_manifest_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/{id}/preflight/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Every stop's facts and risks as they stand now, and whether the route may start. */
+        get: operations["sales_delivery_routes_preflight_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10663,6 +11164,29 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["sales_delivery_routes_verify_handover_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sales/delivery-routes/candidates/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Orders a dispatcher can choose from, with what they need to know about each (paged).
+         *
+         *     By default only orders that can go out: confirmed, partly processed or shipped, and not
+         *     already on a live route or delivered. ``show_unavailable=1`` also lists those, as blocked
+         *     rows, and ``include_drafts=1`` adds unconfirmed orders (blocked unless an owner accepts them).
+         */
+        get: operations["sales_delivery_routes_candidates_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -12989,6 +13513,11 @@ export interface components {
         AccountingSettings: {
             accountingEnabled: boolean;
             readonly accountingBackfillNeeded: boolean;
+            /** Format: date */
+            expenseGlStartDate?: string | null;
+            readonly expenseGlPending: {
+                [key: string]: unknown;
+            };
         };
         /**
          * @description * `none` - None
@@ -13683,6 +14212,9 @@ export interface components {
             /** Format: decimal */
             tdsDeducted?: string;
             tdsSection?: string;
+            /** Format: date */
+            readonly tdsCertificateReceivedOn: string | null;
+            readonly tdsCertificateRef: string;
             readonly allocateOnClear: boolean;
             readonly intendedSalesInvoice: number | null;
             /** Format: decimal */
@@ -13947,6 +14479,8 @@ export interface components {
             readonly stops: components["schemas"]["DeliveryRouteStop"][];
             readonly rollup: string;
             readonly cashHandover: string;
+            readonly warnings: string;
+            readonly progress: string;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -13983,6 +14517,12 @@ export interface components {
             /** Format: decimal */
             collectedUpi?: string;
             upiReference?: string;
+            readonly activeInvoice: string;
+            readonly bill: string;
+            readonly customerPhone: string;
+            readonly customer: number;
+            readonly returnableLines: string;
+            readonly acknowledgements: string;
         };
         /**
          * @description * `PENDING` - Pending
@@ -14064,6 +14604,17 @@ export interface components {
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
+            readonly status: components["schemas"]["ExpenseStatusEnum"];
+            /** Format: date-time */
+            readonly voidedAt: string | null;
+            readonly voidReason: string;
+            paymentMode?: components["schemas"]["PaymentModeEnum"];
+            bankAccount?: number | null;
+            expenseAccount?: number | null;
+            readonly expenseAccountName: string;
+            readonly postedToBooks: string;
+            /** @default  */
+            readonly journalNumber: string;
         };
         ExpenseCategory: {
             readonly id: number;
@@ -14072,6 +14623,18 @@ export interface components {
             description?: string;
             isActive?: boolean;
         };
+        ExpenseCategoryAccount: {
+            readonly id: number;
+            category: number;
+            account: number;
+            readonly accountName: string;
+        };
+        /**
+         * @description * `ACTIVE` - Active
+         *     * `VOID` - Void
+         * @enum {string}
+         */
+        ExpenseStatusEnum: "ACTIVE" | "VOID";
         FileAsset: {
             readonly id: number;
             kind?: components["schemas"]["FileAssetKindEnum"];
@@ -14116,7 +14679,7 @@ export interface components {
             usefulLifeMonths: number;
             /** Format: decimal */
             readonly depreciatedAmount: string;
-            lastDepreciationError?: string;
+            readonly lastDepreciationError: string;
             readonly status: components["schemas"]["FixedAssetStatusEnum"];
             /** Format: date */
             readonly disposedAt: string | null;
@@ -14126,7 +14689,7 @@ export interface components {
             /** Format: decimal */
             wdvAnnualRate?: string;
             blockKey?: string;
-            depreciationCatchupMonths?: string;
+            readonly depreciationCatchupMonths: string;
             createdBy?: number | null;
             updatedBy?: number | null;
             readonly company: number;
@@ -14416,6 +14979,9 @@ export interface components {
             readonly postedAt: string | null;
             readonly reversedEntry: number | null;
             lines: components["schemas"]["JournalLine"][];
+            readonly sourceLabel: string;
+            readonly sourcePath: string;
+            readonly canReverse: string;
         };
         /**
          * @description * `DRAFT` - Draft
@@ -14456,7 +15022,9 @@ export interface components {
             readonly dedupeReview: string;
             readonly dedupeCandidates: unknown;
             customer?: number | null;
+            readonly customerName: string | null;
             campaign?: number | null;
+            readonly campaignName: string | null;
             readonly referralCode: number | null;
             /** Format: date-time */
             readonly lastTouchedAt: string | null;
@@ -14509,6 +15077,16 @@ export interface components {
          * @enum {string}
          */
         LineEnum: "MOTOR" | "HEALTH" | "LIFE" | "OTHER";
+        /**
+         * @description * `PRICE` - Price
+         *     * `COMPETITOR` - Competitor
+         *     * `NO_RESPONSE` - No response
+         *     * `NOT_A_FIT` - Not a fit
+         *     * `DUPLICATE` - Duplicate
+         *     * `OTHER` - Other
+         * @enum {string}
+         */
+        LostReasonEnum: "PRICE" | "COMPETITOR" | "NO_RESPONSE" | "NOT_A_FIT" | "DUPLICATE" | "OTHER";
         /**
          * @description * `exact` - Exact
          *     * `value_mismatch` - Value Mismatch
@@ -14580,7 +15158,9 @@ export interface components {
         Opportunity: {
             readonly id: number;
             lead?: number | null;
+            readonly leadName: string | null;
             customer?: number | null;
+            readonly customerName: string | null;
             title: string;
             /** Format: decimal */
             amount?: string;
@@ -14592,6 +15172,10 @@ export interface components {
             /** Format: date-time */
             readonly closedAt: string | null;
             readonly stageMoveCount: number;
+            lostReason?: components["schemas"]["LostReasonEnum"] | components["schemas"]["BlankEnum"];
+            lostReasonNote?: string;
+            /** Format: date-time */
+            readonly reopenedAt: string | null;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -14601,6 +15185,7 @@ export interface components {
             readonly id: number;
             readonly opportunity: number;
             product: number;
+            readonly productName: string;
             description?: string;
             /** Format: decimal */
             quantity: string;
@@ -15028,6 +15613,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Employee"][];
+        };
+        PaginatedExpenseCategoryAccountList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ExpenseCategoryAccount"][];
         };
         PaginatedExpenseCategoryList: {
             /** @example 123 */
@@ -15734,7 +16334,7 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["StockCountSession"][];
         };
-        PaginatedStockMovementList: {
+        PaginatedStockLedgerList: {
             /** @example 123 */
             count: number;
             /**
@@ -15747,7 +16347,7 @@ export interface components {
              * @example http://api.example.org/accounts/?page=2
              */
             previous?: string | null;
-            results: components["schemas"]["StockMovement"][];
+            results: components["schemas"]["StockLedger"][];
         };
         PaginatedStockTransferList: {
             /** @example 123 */
@@ -16323,6 +16923,9 @@ export interface components {
             /** Format: decimal */
             tdsDeducted?: string;
             tdsSection?: string;
+            /** Format: date */
+            readonly tdsCertificateReceivedOn?: string | null;
+            readonly tdsCertificateRef?: string;
             readonly allocateOnClear?: boolean;
             readonly intendedSalesInvoice?: number | null;
             /** Format: decimal */
@@ -16477,6 +17080,8 @@ export interface components {
             readonly stops?: components["schemas"]["DeliveryRouteStop"][];
             readonly rollup?: string;
             readonly cashHandover?: string;
+            readonly warnings?: string;
+            readonly progress?: string;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -16522,6 +17127,17 @@ export interface components {
             readonly createdAt?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+            readonly status?: components["schemas"]["ExpenseStatusEnum"];
+            /** Format: date-time */
+            readonly voidedAt?: string | null;
+            readonly voidReason?: string;
+            paymentMode?: components["schemas"]["PaymentModeEnum"];
+            bankAccount?: number | null;
+            expenseAccount?: number | null;
+            readonly expenseAccountName?: string;
+            readonly postedToBooks?: string;
+            /** @default  */
+            readonly journalNumber: string;
         };
         PatchedExpenseCategory: {
             readonly id?: number;
@@ -16552,7 +17168,7 @@ export interface components {
             usefulLifeMonths?: number;
             /** Format: decimal */
             readonly depreciatedAmount?: string;
-            lastDepreciationError?: string;
+            readonly lastDepreciationError?: string;
             readonly status?: components["schemas"]["FixedAssetStatusEnum"];
             /** Format: date */
             readonly disposedAt?: string | null;
@@ -16562,7 +17178,7 @@ export interface components {
             /** Format: decimal */
             wdvAnnualRate?: string;
             blockKey?: string;
-            depreciationCatchupMonths?: string;
+            readonly depreciationCatchupMonths?: string;
             createdBy?: number | null;
             updatedBy?: number | null;
             readonly company?: number;
@@ -16671,7 +17287,9 @@ export interface components {
             readonly dedupeReview?: string;
             readonly dedupeCandidates?: unknown;
             customer?: number | null;
+            readonly customerName?: string | null;
             campaign?: number | null;
+            readonly campaignName?: string | null;
             readonly referralCode?: number | null;
             /** Format: date-time */
             readonly lastTouchedAt?: string | null;
@@ -16683,7 +17301,9 @@ export interface components {
         PatchedOpportunity: {
             readonly id?: number;
             lead?: number | null;
+            readonly leadName?: string | null;
             customer?: number | null;
+            readonly customerName?: string | null;
             title?: string;
             /** Format: decimal */
             amount?: string;
@@ -16695,6 +17315,10 @@ export interface components {
             /** Format: date-time */
             readonly closedAt?: string | null;
             readonly stageMoveCount?: number;
+            lostReason?: components["schemas"]["LostReasonEnum"] | components["schemas"]["BlankEnum"];
+            lostReasonNote?: string;
+            /** Format: date-time */
+            readonly reopenedAt?: string | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -16704,6 +17328,7 @@ export interface components {
             readonly id?: number;
             readonly opportunity?: number;
             product?: number;
+            readonly productName?: string;
             description?: string;
             /** Format: decimal */
             quantity?: string;
@@ -16819,6 +17444,7 @@ export interface components {
             supplier?: number;
             readonly supplierName?: string;
             purchaseInvoice?: number | null;
+            readonly invoiceNumber?: string | null;
             supplierNoteNumber?: string;
             /** Format: date */
             noteDate?: string;
@@ -16866,6 +17492,7 @@ export interface components {
             supplier?: number;
             readonly supplierName?: string;
             purchaseInvoice?: number | null;
+            readonly invoiceNumber?: string | null;
             supplierNoteNumber?: string;
             /** Format: date */
             noteDate?: string;
@@ -17216,6 +17843,8 @@ export interface components {
             noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
             reasonDetail?: string;
+            readonly salesReturn?: number | null;
+            readonly peeledReceiptAllocations?: unknown;
             /** Format: decimal */
             invoiceDiscount?: string;
             invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
@@ -17516,6 +18145,7 @@ export interface components {
             readonly sourceQuotations?: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer?: boolean;
             readonly convertedInvoice?: number | null;
+            readonly fulfilmentState?: string;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -17624,6 +18254,8 @@ export interface components {
             notes?: string;
             lines?: components["schemas"]["StockTransferLine"][];
             /** Format: date-time */
+            readonly dispatchedAt?: string | null;
+            /** Format: date-time */
             readonly completedAt?: string | null;
             /** Format: date-time */
             readonly cancelledAt?: string | null;
@@ -17716,6 +18348,7 @@ export interface components {
             contactPhone?: string;
             isDefault?: boolean;
             isActive?: boolean;
+            readonly isSystem?: boolean;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -17870,6 +18503,12 @@ export interface components {
             code?: string;
             isActive?: boolean;
         };
+        /**
+         * @description * `CASH` - Cash
+         *     * `BANK` - Bank
+         * @enum {string}
+         */
+        PaymentModeEnum: "CASH" | "BANK";
         PaymentPromise: {
             readonly id: number;
             customer: number;
@@ -18093,6 +18732,7 @@ export interface components {
             supplier: number;
             readonly supplierName: string;
             purchaseInvoice?: number | null;
+            readonly invoiceNumber: string | null;
             supplierNoteNumber?: string;
             /** Format: date */
             noteDate?: string;
@@ -18174,6 +18814,7 @@ export interface components {
             supplier: number;
             readonly supplierName: string;
             purchaseInvoice?: number | null;
+            readonly invoiceNumber: string | null;
             supplierNoteNumber?: string;
             /** Format: date */
             noteDate?: string;
@@ -18986,6 +19627,8 @@ export interface components {
             noteDate?: string;
             reason?: components["schemas"]["Reason260Enum"];
             reasonDetail?: string;
+            readonly salesReturn: number | null;
+            readonly peeledReceiptAllocations: unknown;
             /** Format: decimal */
             invoiceDiscount?: string;
             invoiceDiscountMode?: components["schemas"]["InvoiceDiscountModeEnum"];
@@ -19408,6 +20051,7 @@ export interface components {
             readonly sourceQuotations: components["schemas"]["SourceQuotationRef"][];
             readonly sourceQuotationsDiffer: boolean;
             readonly convertedInvoice: number | null;
+            readonly fulfilmentState: string;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -19701,11 +20345,17 @@ export interface components {
             /** Format: decimal */
             readonly available: string;
             readonly reorderLevel: string;
+            readonly isWarehouseSpecific: string;
+            readonly hasReorderRule: string;
+            readonly stockStatus: string;
         };
         StockCountLine: {
             id?: number;
             product?: number;
             readonly productName: string;
+            readonly productSku: string;
+            /** @default  */
+            readonly productBarcode: string;
             batch?: number | null;
             readonly batchNo: string;
             /** Format: decimal */
@@ -19715,6 +20365,16 @@ export interface components {
             /** Format: decimal */
             readonly variance: string;
             readonly heldForReview: boolean;
+            skipped?: boolean;
+            readonly driftSkipped: boolean;
+            readonly varianceValueEstimate: string;
+            readonly needsRecheck: string;
+            version?: number;
+            /** Format: date-time */
+            readonly countedAt: string | null;
+            /** Format: date-time */
+            readonly snapshotAt: string | null;
+            filledFromSystem?: boolean;
         };
         StockCountSession: {
             readonly id: number;
@@ -19742,21 +20402,29 @@ export interface components {
          * @enum {string}
          */
         StockCountSessionStatusEnum: "DRAFT" | "COUNTED" | "POSTED" | "CANCELLED";
-        StockMovement: {
+        /** @description One line of the item ledger (INV-WP-13): what moved, where, why, and what it left behind. */
+        StockLedger: {
             readonly id: number;
+            /** Format: date */
+            movementDate?: string;
             product: number;
             readonly productName: string;
+            readonly sku: string;
+            warehouse: number;
+            readonly warehouseName: string;
+            batch?: number | null;
+            readonly batchNo: string;
             movementType: components["schemas"]["MovementTypeEnum"];
+            readonly movementTypeLabel: string;
             /** Format: decimal */
             quantity: string;
-            warehouse: number;
-            batch?: number | null;
-            /** Format: decimal */
-            unitCost?: string | null;
+            readonly runningBalance: string;
+            readonly unitCost: string;
+            reason?: string;
+            reasonCode?: string;
             referenceType?: string;
             referenceId?: string;
-            reason?: string;
-            createdBy?: number | null;
+            readonly createdByName: string;
             /** Format: date-time */
             readonly createdAt: string;
         };
@@ -19773,6 +20441,8 @@ export interface components {
             notes?: string;
             lines: components["schemas"]["StockTransferLine"][];
             /** Format: date-time */
+            readonly dispatchedAt: string | null;
+            /** Format: date-time */
             readonly completedAt: string | null;
             /** Format: date-time */
             readonly cancelledAt: string | null;
@@ -19784,10 +20454,16 @@ export interface components {
         StockTransferLine: {
             readonly id: number;
             product: number;
+            readonly productName: string;
             batch?: number | null;
+            readonly batchNo: string;
             /** Format: decimal */
             quantity: string;
             serialNumbers?: unknown;
+            /** Format: decimal */
+            readonly shortageQty: string;
+            readonly shortageReason: string;
+            readonly shortageResolution: string;
         };
         /**
          * @description * `DRAFT` - Draft
@@ -19888,6 +20564,35 @@ export interface components {
          * @enum {string}
          */
         SupplierPaymentStatusEnum: "POSTED" | "VOIDED";
+        /** @description Totals for the supplier payment list filters, across every page. */
+        SupplierPaymentSummary: {
+            /** @description Payments counted as money out. */
+            count: number;
+            /**
+             * Format: decimal
+             * @description Cleared money paid out.
+             */
+            paid: string;
+            /** Format: decimal */
+            chequesPending: string;
+            /**
+             * Format: decimal
+             * @description Paid to suppliers but not yet applied to a bill.
+             */
+            advance: string;
+            /** @description Matching payments left out: voided or bounced. */
+            excludedCount: number;
+            /**
+             * Format: decimal
+             * @description Owed to suppliers today. Null unless the caller may view financial reports.
+             */
+            payable: string | null;
+            /**
+             * Format: decimal
+             * @description Part of payable that is past due. Null unless the caller may view financial reports.
+             */
+            overdue: string | null;
+        };
         /**
          * @description * `TAXABLE` - Taxable
          *     * `NIL` - Nil rated
@@ -19937,6 +20642,13 @@ export interface components {
          * @enum {string}
          */
         TaxpayerTypeEnum: "REGULAR" | "SEZWP" | "SEZWOP" | "EXPWP" | "EXPWOP" | "DEXP" | "COMPOSITION" | "UNREGISTERED";
+        TdsCertificateRequest: {
+            /** @default true */
+            received: boolean;
+            /** Format: date */
+            receivedOn?: string;
+            reference?: string;
+        };
         Ticket: {
             readonly id: number;
             readonly number: string;
@@ -20015,6 +20727,7 @@ export interface components {
             contactPhone?: string;
             isDefault?: boolean;
             isActive?: boolean;
+            readonly isSystem: boolean;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -20902,6 +21615,98 @@ export interface operations {
             };
         };
     };
+    accounting_expense_category_accounts_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedExpenseCategoryAccountList"];
+                };
+            };
+        };
+    };
+    accounting_expense_category_accounts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpenseCategoryAccount"];
+                "multipart/form-data": components["schemas"]["ExpenseCategoryAccount"];
+                "application/x-www-form-urlencoded": components["schemas"]["ExpenseCategoryAccount"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategoryAccount"];
+                };
+            };
+        };
+    };
+    accounting_expense_category_accounts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category account. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExpenseCategoryAccount"];
+                };
+            };
+        };
+    };
+    accounting_expense_category_accounts_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense category account. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     accounting_expenses_list: {
         parameters: {
             query?: {
@@ -21037,6 +21842,97 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedExpense"];
                 "multipart/form-data": components["schemas"]["PatchedExpense"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedExpense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_void_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Expense"];
+                "multipart/form-data": components["schemas"]["Expense"];
+                "application/x-www-form-urlencoded": components["schemas"]["Expense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_duplicates_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_post_pending_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
+    accounting_expenses_post_pending_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Expense"];
+                "multipart/form-data": components["schemas"]["Expense"];
+                "application/x-www-form-urlencoded": components["schemas"]["Expense"];
             };
         };
         responses: {
@@ -24782,6 +25678,53 @@ export interface operations {
             };
         };
     };
+    crm_opportunities_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this opportunity. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Opportunity"];
+                "multipart/form-data": components["schemas"]["Opportunity"];
+                "application/x-www-form-urlencoded": components["schemas"]["Opportunity"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
+    crm_opportunities_board_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Opportunity"];
+                };
+            };
+        };
+    };
     crm_opportunities_forecast_retrieve: {
         parameters: {
             query?: never;
@@ -27657,6 +28600,25 @@ export interface operations {
             };
         };
     };
+    inventory_balances_by_product_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockBalance"];
+                };
+            };
+        };
+    };
     inventory_batches_list: {
         parameters: {
             query?: {
@@ -27841,6 +28803,24 @@ export interface operations {
             };
         };
     };
+    "inventory_labels.zpl_create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     inventory_movements_list: {
         parameters: {
             query?: {
@@ -27860,7 +28840,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedStockMovementList"];
+                    "application/json": components["schemas"]["PaginatedStockLedgerList"];
                 };
             };
         };
@@ -27879,7 +28859,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["StockMovement"];
+                    "application/json": components["schemas"]["StockLedger"];
                 };
             };
         };
@@ -28234,6 +29214,28 @@ export interface operations {
             };
         };
     };
+    inventory_serials_document_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this serial number. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SerialNumber"];
+                };
+            };
+        };
+    };
     inventory_serials_transition_create: {
         parameters: {
             query?: never;
@@ -28397,6 +29399,34 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedStockCountSession"];
                 "multipart/form-data": components["schemas"]["PatchedStockCountSession"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedStockCountSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockCountSession"];
+                };
+            };
+        };
+    };
+    inventory_stock_counts_add_line_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock count session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockCountSession"];
+                "multipart/form-data": components["schemas"]["StockCountSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockCountSession"];
             };
         };
         responses: {
@@ -28742,6 +29772,34 @@ export interface operations {
             };
         };
     };
+    inventory_transfers_resolve_shortage_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this stock transfer. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StockTransfer"];
+                "multipart/form-data": components["schemas"]["StockTransfer"];
+                "application/x-www-form-urlencoded": components["schemas"]["StockTransfer"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StockTransfer"];
+                };
+            };
+        };
+    };
     inventory_valuation_retrieve: {
         parameters: {
             query?: never;
@@ -28965,6 +30023,26 @@ export interface operations {
         };
     };
     ledgers_suppliers_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                supplier_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ledgers_suppliers_pdf_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -30418,6 +31496,72 @@ export interface operations {
             };
         };
     };
+    money_position_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    money_statutory_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    money_timeline_retrieve: {
+        parameters: {
+            query?: {
+                /** @description 1 to 90; default 30. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
     notifications_list: {
         parameters: {
             query?: {
@@ -31245,6 +32389,10 @@ export interface operations {
     payments_receipts_list: {
         parameters: {
             query?: {
+                /** @description true: live receipts with money not yet applied to a bill. */
+                advance?: boolean;
+                /** @description Cheque receipts in this state. */
+                cheque_status?: "BOUNCED" | "CLEARED" | "PENDING_CLEARANCE";
                 customer?: number;
                 /** @description Receipt date on or after. */
                 date_from?: string;
@@ -31262,6 +32410,8 @@ export interface operations {
                 /** @description true: matched to a bank line; false: not matched. */
                 reconciled?: boolean;
                 status?: "POSTED" | "REFUNDED" | "VOIDED";
+                /** @description Receipts with TDS deducted: certificate still awaited, or recorded. */
+                tds_certificate?: "pending" | "received";
             };
             header?: never;
             path?: never;
@@ -31472,6 +32622,34 @@ export interface operations {
             };
         };
     };
+    payments_receipts_tds_certificate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this customer receipt. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TdsCertificateRequest"];
+                "multipart/form-data": components["schemas"]["TdsCertificateRequest"];
+                "application/x-www-form-urlencoded": components["schemas"]["TdsCertificateRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerReceipt"];
+                };
+            };
+        };
+    };
     payments_receipts_void_create: {
         parameters: {
             query?: never;
@@ -31551,6 +32729,10 @@ export interface operations {
     payments_receipts_export_retrieve: {
         parameters: {
             query?: {
+                /** @description true: live receipts with money not yet applied to a bill. */
+                advance?: boolean;
+                /** @description Cheque receipts in this state. */
+                cheque_status?: "BOUNCED" | "CLEARED" | "PENDING_CLEARANCE";
                 customer?: number;
                 /** @description Receipt date on or after. */
                 date_from?: string;
@@ -31564,6 +32746,8 @@ export interface operations {
                 /** @description true: matched to a bank line; false: not matched. */
                 reconciled?: boolean;
                 status?: "POSTED" | "REFUNDED" | "VOIDED";
+                /** @description Receipts with TDS deducted: certificate still awaited, or recorded. */
+                tds_certificate?: "pending" | "received";
             };
             header?: never;
             path?: never;
@@ -31584,6 +32768,10 @@ export interface operations {
     payments_receipts_summary_retrieve: {
         parameters: {
             query?: {
+                /** @description true: live receipts with money not yet applied to a bill. */
+                advance?: boolean;
+                /** @description Cheque receipts in this state. */
+                cheque_status?: "BOUNCED" | "CLEARED" | "PENDING_CLEARANCE";
                 customer?: number;
                 /** @description Receipt date on or after. */
                 date_from?: string;
@@ -31597,6 +32785,8 @@ export interface operations {
                 /** @description true: matched to a bank line; false: not matched. */
                 reconciled?: boolean;
                 status?: "POSTED" | "REFUNDED" | "VOIDED";
+                /** @description Receipts with TDS deducted: certificate still awaited, or recorded. */
+                tds_certificate?: "pending" | "received";
             };
             header?: never;
             path?: never;
@@ -32033,6 +33223,34 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SupplierPayment"];
+                };
+            };
+        };
+    };
+    payments_supplier_payments_summary_retrieve: {
+        parameters: {
+            query?: {
+                /** @description true: live payments not yet applied to a bill. */
+                advance?: boolean;
+                cheque_status?: "BOUNCED" | "CLEARED" | "PENDING_CLEARANCE";
+                date_from?: string;
+                date_to?: string;
+                mode?: "BANK" | "CARD" | "CASH" | "CHEQUE" | "CREDIT" | "UPI";
+                status?: "POSTED" | "VOIDED";
+                supplier?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierPaymentSummary"];
                 };
             };
         };
@@ -33201,6 +34419,25 @@ export interface operations {
             };
         };
     };
+    products_filter_options_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
     products_generate_barcode_create: {
         parameters: {
             query?: never;
@@ -33259,6 +34496,25 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["Product"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
+    products_missing_barcode_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -34244,6 +35500,25 @@ export interface operations {
             };
         };
     };
+    purchases_credit_notes_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
     purchases_credit_notes_number_series_retrieve: {
         parameters: {
             query?: never;
@@ -34488,6 +35763,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PurchaseDebitNote"];
+                };
+            };
+        };
+    };
+    purchases_debit_notes_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -36514,6 +37808,42 @@ export interface operations {
             };
         };
     };
+    reports_gstr9_filing_date_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gstr9_filing_date_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_inventory_summary_retrieve: {
         parameters: {
             query?: never;
@@ -37303,6 +38633,25 @@ export interface operations {
             };
         };
     };
+    sales_credit_notes_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+        };
+    };
     sales_credit_notes_number_series_retrieve: {
         parameters: {
             query?: never;
@@ -37703,6 +39052,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SalesDebitNote"];
+                };
+            };
+        };
+    };
+    sales_debit_notes_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
                 };
             };
         };
@@ -38415,6 +39783,34 @@ export interface operations {
             };
         };
     };
+    sales_delivery_routes_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
     sales_delivery_routes_complete_create: {
         parameters: {
             query?: never;
@@ -38471,7 +39867,57 @@ export interface operations {
             };
         };
     };
+    sales_delivery_routes_link_receipt_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DeliveryRoute"];
+                "multipart/form-data": components["schemas"]["DeliveryRoute"];
+                "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
     sales_delivery_routes_manifest_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this delivery route. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_preflight_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -38643,6 +40089,25 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["DeliveryRoute"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryRoute"];
+                };
+            };
+        };
+    };
+    sales_delivery_routes_candidates_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { invalidatePurchaseNoteQueries } from '@/utils/noteQueries';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { flushSync } from 'react-dom';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
@@ -30,7 +32,7 @@ import {
   getPurchaseCreditNote,
   getPurchaseDebitNote,
   getSupplier,
-  listPurchases,
+  listPurchasesPage,
   updatePurchaseCreditNote,
   updatePurchaseDebitNote,
 } from '@/api/resources';
@@ -109,14 +111,20 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     enabled: Boolean(supplierId),
   });
   const supplierSearch = useSupplierSearch({ selected: selectedSupplierQuery.data ?? null });
+  // CN-09 / DN-08: search bills on the server, one small page, instead of loading all of them.
+  const [purchaseSearch, setPurchaseSearch] = useState('');
+  const [pickedPurchase, setPickedPurchase] = useState<PurchaseInvoice | null>(null);
+  const debouncedPurchaseSearch = useDebouncedValue(purchaseSearch.trim(), 300);
   const purchases = useQuery({
-    queryKey: ['purchases', 'note-source', kind],
+    queryKey: ['purchases', 'note-source', kind, debouncedPurchaseSearch],
     queryFn: async () => {
-      const completed = await listPurchases({ status: 'COMPLETED' });
-      if (isCredit) return completed;
-      const returned = await listPurchases({ status: 'RETURNED' });
-      return [...returned, ...completed];
+      const base = { page: 1, pageSize: 20, q: debouncedPurchaseSearch || undefined };
+      const completed = await listPurchasesPage({ ...base, status: 'COMPLETED' });
+      if (isCredit) return completed.results;
+      const returned = await listPurchasesPage({ ...base, status: 'RETURNED' });
+      return [...returned.results, ...completed.results];
     },
+    enabled: !isEdit,
   });
   const cf = useProductCfFilters();
   const productSearch = useProductSearch({ activeOnly: true, selected: pendingProduct, cf: cf.cfFilters });
@@ -205,6 +213,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
 
   const onPurchasePick = async (pur: PurchaseInvoice | null) => {
     setPurchaseInvoiceId(pur?.id ?? '');
+    setPickedPurchase(pur);
     if (!pur) return;
     setSupplierId(pur.supplier);
     const full = pur.items?.length ? pur : await getPurchase(pur.id);
@@ -351,7 +360,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
     },
     onSuccess: (doc) => {
       setMessage(t('phase1.saved'));
-      void qc.invalidateQueries({ queryKey: [queryKey] });
+      invalidatePurchaseNoteQueries(qc, kind);
       if (!isEdit) {
         flushSync(() => setSkipLeaveGuard(true));
         void navigate(`${listPath}/${doc.id}`, { replace: true });
@@ -456,8 +465,14 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
           <Autocomplete
             options={sourcePurchases}
             getOptionLabel={(o) => `${o.number ?? o.id} · ${o.supplierName ?? ''}`}
-            value={sourcePurchases.find((p) => p.id === Number(purchaseInvoiceId)) ?? null}
+            value={pickedPurchase}
             onChange={(_, v) => void onPurchasePick(v)}
+            onInputChange={(_, v, inputReason) => {
+              if (inputReason === 'input') setPurchaseSearch(v);
+            }}
+            filterOptions={(opts) => opts}
+            loading={purchases.isFetching}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
             disabled={readOnly}
             renderInput={(params) => <TextField {...params} label={t('phase1.optionalPurchaseInvoice')} />}
           />
@@ -465,7 +480,7 @@ export function PurchaseNoteEditorPage({ kind }: { kind: NoteKind }) {
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
           <TextField type="date" label={t('common.date')} value={noteDate} onChange={(e) => setNoteDate(e.target.value)} disabled={readOnly} InputLabelProps={{ shrink: true }} />
           <TextField label={t('phase1.supplierNoteNumber')} value={supplierNoteNumber} onChange={(e) => setSupplierNoteNumber(e.target.value)} disabled={readOnly} />
-          <NoteReasonSelect value={reason} onChange={setReason} disabled={readOnly} />
+          <NoteReasonSelect value={reason} onChange={setReason} disabled={readOnly} allowSalesReturn />
         </Stack>
         {reason === 'OTHERS' ? (
           <TextField label={t('phase1.reasonDetail')} value={reasonDetail} onChange={(e) => setReasonDetail(e.target.value)} disabled={readOnly} fullWidth />

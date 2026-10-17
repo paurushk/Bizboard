@@ -464,6 +464,14 @@ export async function listPurchaseCreditNotes(params?: Record<string, string>): 
   return withMocks(async () => fetchAllPagesMasters<PurchaseCreditNote>('/purchases/credit-notes/', params), []);
 }
 
+export async function exportPurchaseCreditNotesCsv(params?: Record<string, unknown>): Promise<Blob> {
+  return getBlob('/purchases/credit-notes/export/', params);
+}
+
+export async function exportPurchaseDebitNotesCsv(params?: Record<string, unknown>): Promise<Blob> {
+  return getBlob('/purchases/debit-notes/export/', params);
+}
+
 export async function listPurchaseCreditNotesPage(
   params?: PageParams,
 ): Promise<PageResult<PurchaseCreditNote>> {

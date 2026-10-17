@@ -17,6 +17,8 @@ type UseProductSearchOptions = {
   /** Keep a currently selected product in options even if outside the current page. */
   selected?: Product | null;
   cf?: Record<string, string[]>;
+  /** Pre-fill the search (e.g. the name printed on a bill) so matches show before typing. */
+  initialQuery?: string;
 };
 
 /**
@@ -26,7 +28,7 @@ type UseProductSearchOptions = {
 export function useProductSearch(opts: UseProductSearchOptions = {}) {
   const minChars = opts.minChars ?? PRODUCT_SEARCH_MIN_CHARS;
   const pageSize = opts.pageSize ?? PRODUCT_SEARCH_PAGE_SIZE;
-  const [productQuery, setProductQuery] = useState('');
+  const [productQuery, setProductQuery] = useState(opts.initialQuery ?? '');
   const debounced = useDebouncedValue(productQuery, 300);
   const q = debounced.trim();
   const usesTypedQuery = q.length >= minChars;

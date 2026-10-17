@@ -261,6 +261,9 @@ class Company(TimeStampedModel):
     # R3-017: effective date for opening-balance journals (opening stock, opening
     # AR/AP). Falls back to the current FY start when unset.
     books_start_date = models.DateField(null=True, blank=True)
+    # ACS-15: expenses dated on or after this day post to the ledger. Empty = expenses
+    # stay a register only (the pre-existing behaviour). Owner-set in Accounting settings.
+    expense_gl_start_date = models.DateField(null=True, blank=True)
     # R1-013: how document number series are partitioned. COMPANY = one series
     # per doc type (legacy default). GSTIN_FY = a separate series per filing
     # GSTIN and financial year (Rule 46 style). Decided once at company level so

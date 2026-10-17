@@ -8,3 +8,4 @@ export * from './legacy/payments';
 export * from './legacy/reports';
 export * from './legacy/inventory';
 export * from './legacy/misc';
+export * from './legacy/money';

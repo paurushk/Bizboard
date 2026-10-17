@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { PurchaseBillPreview } from '@/types/domain';
 import {
   billedFromPack,
+  clearEditedErrors,
+  searchTermFromBillName,
   errorFor,
   hasPackData,
   isBillPreview,
@@ -219,5 +221,25 @@ describe('plain-language row errors and cess', () => {
 
   it('includes cess in the line total', () => {
     expect(lineAmount(line({ cessRate: '12' }))).toBe(lineAmount(line({ gstRate: '30' })));
+  });
+});
+
+describe('clearEditedErrors', () => {
+  const errs = [
+    { field: 'gst_rate', code: 'GST_REQUIRED', message: 'x' },
+    { field: 'quantity', code: 'QTY_POSITIVE', message: 'y' },
+  ];
+  it('drops only the errors of the edited field', () => {
+    expect(clearEditedErrors(errs, ['gstRate']).map((e) => e.field)).toEqual(['quantity']);
+    expect(clearEditedErrors(errs, ['include'])).toHaveLength(2);
+    expect(clearEditedErrors(undefined, ['gstRate'])).toEqual([]);
+  });
+});
+
+describe('searchTermFromBillName', () => {
+  it('searches by the description, not the printed item code', () => {
+    expect(searchTermFromBillName('83918758/Pb 1095MR')).toBe('Pb 1095MR');
+    expect(searchTermFromBillName('Soap 100g')).toBe('Soap 100g');
+    expect(searchTermFromBillName(undefined)).toBe('');
   });
 });

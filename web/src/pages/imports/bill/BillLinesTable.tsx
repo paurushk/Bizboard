@@ -24,7 +24,7 @@ import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
 import type { BillLineError, Product } from '@/types/domain';
-import { errorFor, lineAmount, localLineErrors, type EditorLine } from './billLines';
+import { errorFor, lineAmount, localLineErrors, searchTermFromBillName, type EditorLine } from './billLines';
 
 type Props = {
   lines: EditorLine[];
@@ -54,12 +54,16 @@ function ProductPickerDialog({
   open,
   onClose,
   onPick,
+  initialQuery = '',
 }: {
+  initialQuery?: string;
   open: boolean;
   onClose: () => void;
   onPick: (product: Product) => void;
 }) {
-  const search = useProductSearch({ activeOnly: true });
+  // Start from what the bill says, so likely matches are listed before anything is typed.
+  const search = useProductSearch({ activeOnly: true, initialQuery });
+  const [input, setInput] = useState(initialQuery);
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="xs">
       <DialogTitle>{t('billUpload.productChoose')}</DialogTitle>
@@ -68,7 +72,11 @@ function ProductPickerDialog({
           options={search.options}
           getOptionLabel={(p: Product) => (p.sku ? `${p.name} (${p.sku})` : p.name)}
           filterOptions={(opts) => opts}
-          onInputChange={(_, v) => search.setProductQuery(v)}
+          inputValue={input}
+          onInputChange={(_, v) => {
+            setInput(v);
+            search.setProductQuery(v);
+          }}
           onChange={(_, product) => {
             if (product) {
               onPick(product);
@@ -101,6 +109,7 @@ function ProductMatchCell({
     <ProductPickerDialog
       open={picking}
       onClose={() => setPicking(false)}
+      initialQuery={searchTermFromBillName(line.name)}
       onPick={(product) =>
         onChange({
           productId: product.id,

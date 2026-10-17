@@ -50,6 +50,11 @@ export function documentStatusTone(status: DocumentStatus | string): ChipTone {
       return 'info';
     case 'DRAFT':
       return 'default';
+    case 'CONFIRMED':
+    case 'SHIPPED':
+      return 'info';
+    case 'PARTIALLY_CONVERTED':
+      return 'warning';
     case 'RETURNED':
       return 'warning';
     case 'UNPAID':
@@ -84,6 +89,13 @@ export function pdfStatusTone(status: PdfStatus | string): ChipTone {
     default:
       return 'default';
   }
+}
+
+/** What a sales order's chip says. A converted order that shipped but has no invoice yet reads "Shipped". */
+export function orderDisplayStatus(order: { status: string; fulfilmentState?: string | null }): string {
+  const status = String(order.status || '').toUpperCase();
+  if (status === 'CONVERTED' && order.fulfilmentState === 'shipped_not_invoiced') return 'SHIPPED';
+  return status;
 }
 
 export function statusLabelKey(status: string): string {

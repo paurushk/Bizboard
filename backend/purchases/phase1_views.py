@@ -8,7 +8,15 @@ from rest_framework.response import Response
 from billing.permissions import SubscriptionWritesAllowed
 from core.exceptions import BusinessRuleError
 from core.idempotency import wrap_idempotent
-from core.permissions import CanCancelDocuments, CanCreatePurchases, CanViewPurchaseSurfaces, HasCompany, IsOwner
+from core.note_register import NoteRegisterMixin
+from core.permissions import (
+    CanCancelDocuments,
+    CanCreatePurchases,
+    CanExport,
+    CanViewPurchaseSurfaces,
+    HasCompany,
+    IsOwner,
+)
 from core.services.document_numbers import DocumentNumberService
 from core.viewsets import CompanyScopedViewSet
 
@@ -23,7 +31,10 @@ from .phase1_serializers import (
 from .serializers import PurchaseInvoiceSerializer
 
 
-class PurchaseCreditNoteViewSet(CompanyScopedViewSet):
+class PurchaseCreditNoteViewSet(NoteRegisterMixin, CompanyScopedViewSet):
+    party_field = "supplier"
+    invoice_field = "purchase_invoice"
+    export_filename = "purchase-credit-notes.csv"
     queryset = PurchaseCreditNote.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseCreditNoteSerializer
 
@@ -36,6 +47,8 @@ class PurchaseCreditNoteViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces(), CanExport()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
@@ -93,7 +106,10 @@ class PurchaseCreditNoteViewSet(CompanyScopedViewSet):
         return Response(self.get_serializer(note).data)
 
 
-class PurchaseDebitNoteViewSet(CompanyScopedViewSet):
+class PurchaseDebitNoteViewSet(NoteRegisterMixin, CompanyScopedViewSet):
+    party_field = "supplier"
+    invoice_field = "purchase_invoice"
+    export_filename = "purchase-debit-notes.csv"
     queryset = PurchaseDebitNote.objects.select_related("supplier").prefetch_related("items__product")
     serializer_class = PurchaseDebitNoteSerializer
 
@@ -106,6 +122,8 @@ class PurchaseDebitNoteViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces(), CanExport()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
@@ -190,6 +208,8 @@ class PurchaseOrderViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "convert"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces(), CanExport()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()
@@ -265,6 +285,8 @@ class GoodsReceiptViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
         if action in ("create", "update", "partial_update", "destroy", "complete", "convert"):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePurchases()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces(), CanExport()]
         if action in ("list", "retrieve"):
             return [IsAuthenticated(), HasCompany(), CanViewPurchaseSurfaces()]
         return super().get_permissions()

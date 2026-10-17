@@ -158,7 +158,7 @@ def test_apply_sequence_accepts_minimal_stop_id_sequence_pairs(tenant_a):
 def test_apply_sequence_rejected_when_route_not_planned(tenant_a):
     _enable_optimizer(tenant_a)
     route, stops = _make_route_with_stops(tenant_a, ["560001", "560002"], "ROUTE-API-6")
-    route = RouteService.start_route(route, tenant_a.owner)
+    route = RouteService.start_route(route, tenant_a.owner, enforce_risks=False)
     assert route.status == DeliveryRoute.Status.IN_TRANSIT
 
     resp = tenant_a.client.post(
@@ -177,7 +177,8 @@ def test_apply_sequence_rejected_when_route_not_planned(tenant_a):
 def test_apply_sequence_rejected_on_completed_route(tenant_a):
     _enable_optimizer(tenant_a)
     route, stops = _make_route_with_stops(tenant_a, ["560001", "560002"], "ROUTE-API-7")
-    route = RouteService.start_route(route, tenant_a.owner)
+    route = RouteService.start_route(route, tenant_a.owner, enforce_risks=False)
+    route.stops.update(status="DELIVERED")  # a route closes only when every stop has an outcome
     route = RouteService.complete_route(route, tenant_a.owner)
     assert route.status == DeliveryRoute.Status.COMPLETED
 

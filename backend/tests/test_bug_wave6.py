@@ -145,7 +145,8 @@ def test_bug_sec_005_stock_movement_export_streams(tenant_a):
     assert response.status_code == 200
     assert "text/csv" in response["Content-Type"]
     body = b"".join(response.streaming_content)
-    assert body.startswith(b"id,product_id")
+    # INV-WP-13: the export now says what moved and why, not just ids.
+    assert body.startswith(b"Date,Item,SKU,Godown,Batch,Type,Quantity")
 
 
 def test_bug_perf_001_stock_balance_select_related():

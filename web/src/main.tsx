@@ -1,7 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
 import { CssBaseline, ThemeProvider } from '@mui/material';
 import { AuthProvider } from '@/auth/AuthContext';
 import { PrivacyMaskProvider } from '@/privacy/PrivacyMask';
@@ -9,6 +9,7 @@ import { fetchFeatureFlags } from '@/config/featureFlags';
 import { shouldUseMocks, getLastRequestId } from '@/api/client';
 import { hasStoredSession } from '@/auth/session';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { createQueryClient } from '@/lib/queryClient';
 import { theme } from '@/theme';
 import { App } from './App';
 import { registerPwa } from './pwa';
@@ -44,15 +45,7 @@ if (typeof sentryDsn === 'string' && sentryDsn.trim()) {
     });
 }
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-      staleTime: 30_000,
-    },
-  },
-});
+const queryClient = createQueryClient();
 
 // UXW2-006: skip the boot-time fetch on a truly anonymous device — the endpoint
 // requires auth, so firing it blind guarantees a 401 on every logged-out load.

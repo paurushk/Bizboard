@@ -5,10 +5,10 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { downloadGstr9, getGstr9 } from '@/api/resources';
+import { downloadGstr9, getGstr9, getGstr9FilingDate, setGstr9FilingDate } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
@@ -39,6 +39,23 @@ export function Gstr9ReportPage() {
   const query = useQuery({
     queryKey: ['gstr9', fy],
     queryFn: () => getGstr9({ fy }),
+  });
+  const queryClient = useQueryClient();
+  const filing = useQuery({
+    queryKey: ['gstr9-filing-date', fy],
+    queryFn: () => getGstr9FilingDate(fy),
+    enabled: /^\d{4}-\d{2}$/.test(fy),
+    retry: false,
+  });
+  const [draft, setDraft] = useState<{ fy: string; value: string } | null>(null);
+  const filedOn = draft && draft.fy === fy ? draft.value : (filing.data?.filedOn ?? '');
+  const setFiledOn = (value: string) => setDraft({ fy, value });
+  const filingMutation = useMutation({
+    mutationFn: () => setGstr9FilingDate(fy, filedOn || null),
+    onSuccess: () => {
+      setDraft(null);
+      void queryClient.invalidateQueries({ queryKey: ['gstr9-filing-date'] });
+    },
   });
   const exportMutation = useMutation({
     mutationFn: () => downloadGstr9({ fy, format: 'xlsx' }),
@@ -83,6 +100,33 @@ export function Gstr9ReportPage() {
       <GstHonestyHeader />
       <Alert severity="info">{t('reports.gstr9Disclaimer')}</Alert>
       <Alert severity="warning">{t('reports.gstr9Tables67Worksheet')}</Alert>
+      {filing.data ? (
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'flex-start' }}>
+            <TextField
+              size="small"
+              type="date"
+              label={t('reports.gstr9FiledOn')}
+              value={filedOn}
+              onChange={(e) => setFiledOn(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              helperText={t('reports.gstr9FiledOnHelp', { date: filing.data.noteDeadline })}
+              sx={{ minWidth: 220 }}
+            />
+            <Button
+              variant="outlined"
+              disabled={filingMutation.isPending || filedOn === (filing.data.filedOn ?? '')}
+              onClick={() => filingMutation.mutate()}
+              sx={{ minHeight: 44 }}
+            >
+              {t('common.save')}
+            </Button>
+          </Stack>
+          {filingMutation.isError ? (
+            <Alert severity="error" sx={{ mt: 1 }}>{getErrorMessage(filingMutation.error)}</Alert>
+          ) : null}
+        </Paper>
+      ) : null}
       {exportMutation.isError ? (
         <Alert severity="error">{getErrorMessage(exportMutation.error)}</Alert>
       ) : null}

@@ -1,3 +1,4 @@
+from django.db.models import Prefetch
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -7,11 +8,14 @@ from core.exceptions import BusinessRuleError
 from core.idempotency import IdempotentCreateMixin, wrap_idempotent
 from core.permissions import (
     CanCancelDocuments,
+    CanCreateOrCompleteNotes,
     CanCreateSales,
+    CanExport,
     CanViewSalesSurfaces,
     HasCompany,
     IsOwner,
 )
+from core.note_register import NoteRegisterMixin
 from core.services.document_numbers import DocumentNumberService
 from core.viewsets import CompanyScopedViewSet, client_source
 from ledgers.services import LedgerService
@@ -30,7 +34,27 @@ from .serializers import SalesInvoiceSerializer
 from .tasks import generate_challan_pdf, generate_credit_note_pdf, generate_debit_note_pdf
 
 
-class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet):
+
+def _audit_non_owner_completion(request, note, kind):
+    """NEW-07: record who completed a note when it is not the Owner."""
+    from core.permissions import get_company_user
+    from core.services.audit import AuditService
+
+    cu = get_company_user(request)
+    if cu is None or cu.role == "OWNER":
+        return
+    AuditService.log(
+        action="note_completed_by_non_owner",
+        company=note.company,
+        user=request.user,
+        entity_type=type(note).__name__,
+        entity_id=note.pk,
+        metadata={"role": cu.role, "kind": kind},
+    )
+
+
+class SalesCreditNoteViewSet(NoteRegisterMixin, NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet):
+    export_filename = "sales-credit-notes.csv"
     queryset = SalesCreditNote.objects.select_related(
         "customer", "sales_invoice"
     ).prefetch_related("items__product")
@@ -44,19 +68,15 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "complete"):
+        if action == "destroy":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action in ("create", "update", "partial_update", "complete"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateOrCompleteNotes()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces(), CanExport()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf", "adjustable_summary"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        if self.request.query_params.get("customer"):
-            qs = qs.filter(customer_id=self.request.query_params["customer"])
-        return qs
 
     def perform_destroy(self, instance):
         if instance.status != SalesCreditNote.Status.DRAFT:
@@ -95,6 +115,7 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
                 in (True, "true", "True", 1, "1"),
                 gst_guard_override_reason=request.data.get("gst_guard_override_reason") or None,
             )
+            _audit_non_owner_completion(request, note, "credit")
             data = self.get_serializer(note).data
             data["warnings"] = warnings
             data["gst_guard_warnings"] = getattr(note, "_gst_guard_warnings", [])
@@ -135,7 +156,8 @@ class SalesCreditNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, 
         })
 
 
-class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet):
+class SalesDebitNoteViewSet(NoteRegisterMixin, NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, CompanyScopedViewSet):
+    export_filename = "sales-debit-notes.csv"
     queryset = SalesDebitNote.objects.select_related(
         "customer", "sales_invoice"
     ).prefetch_related("items__product")
@@ -149,17 +171,15 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         if action == "cancel":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCancelDocuments()]
-        if action in ("create", "update", "partial_update", "destroy", "complete"):
+        if action == "destroy":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateSales()]
+        if action in ("create", "update", "partial_update", "complete"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreateOrCompleteNotes()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces(), CanExport()]
         if action in ("list", "retrieve", "pdf", "pdf_status", "regenerate_pdf"):
             return [IsAuthenticated(), HasCompany(), CanViewSalesSurfaces()]
         return super().get_permissions()
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        if self.request.query_params.get("status"):
-            qs = qs.filter(status=self.request.query_params["status"])
-        return qs
 
     def perform_destroy(self, instance):
         if instance.status != SalesDebitNote.Status.DRAFT:
@@ -195,7 +215,11 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
                 request.user,
                 confirm_additional_debit=confirm,
                 gst_guard_override_reason=request.data.get("gst_guard_override_reason") or None,
+                confirm_excessive_debit=request.data.get("confirm_excessive_debit")
+                in (True, "true", "True", 1, "1"),
+                excessive_debit_reason=request.data.get("excessive_debit_reason") or None,
             )
+            _audit_non_owner_completion(request, note, "debit")
             data = self.get_serializer(note).data
             data["warnings"] = warnings
             return Response(data)
@@ -214,7 +238,14 @@ class SalesDebitNoteViewSet(NoteEinvoiceActionsMixin, PdfDocumentActionsMixin, C
 
 
 class SalesOrderViewSet(IdempotentCreateMixin, CompanyScopedViewSet):
-    queryset = SalesOrder.objects.select_related("customer").prefetch_related("items__product")
+    queryset = (
+        SalesOrder.objects.select_related("customer", "converted_invoice")
+        .prefetch_related(
+            "items__product",
+            "split_invoices",
+            Prefetch("challans", queryset=DeliveryChallan.objects.select_related("converted_invoice")),
+        )
+    )
     serializer_class = SalesOrderSerializer
 
     def get_permissions(self):
@@ -247,7 +278,12 @@ class SalesOrderViewSet(IdempotentCreateMixin, CompanyScopedViewSet):
         qs = super().get_queryset()
         params = self.request.query_params
         if params.get("status"):
-            qs = qs.filter(status=params["status"])
+            # One value, or several separated by commas ("DRAFT,CONFIRMED,PARTIALLY_CONVERTED").
+            wanted = [part.strip().upper() for part in str(params["status"]).split(",") if part.strip()]
+            unknown = [part for part in wanted if part not in SalesOrder.Status.values]
+            if unknown:
+                raise BusinessRuleError(f"Unknown order status: {', '.join(unknown)}.")
+            qs = qs.filter(status__in=wanted)
         if params.get("customer"):
             try:
                 qs = qs.filter(customer_id=int(params["customer"]))
@@ -401,7 +437,15 @@ class DeliveryChallanViewSet(
     def perform_destroy(self, instance):
         if instance.status != DeliveryChallan.Status.DRAFT:
             raise BusinessRuleError("Only draft challans can be deleted.")
+        order = instance.sales_order
         super().perform_destroy(instance)
+        if order is not None:
+            # A deleted draft gives its quantity back to the order, and may let it close.
+            from .order_quantities import recompute_order_status, sync_order_counters
+
+            order.refresh_from_db()
+            sync_order_counters(order)
+            recompute_order_status(order, self.request.user)
 
     @action(detail=False, methods=["get", "patch"], url_path="number-series")
     def number_series(self, request):

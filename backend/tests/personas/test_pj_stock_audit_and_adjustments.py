@@ -109,7 +109,12 @@ def test_pj_custodian_physical_stock_count_and_adjustments():
     assert session.status == StockCountSession.Status.COUNTED
 
     # 4. Custodian posts the count session
-    post_resp = gc.post(f"/api/v1/inventory/stock-counts/{session_id}/post/")
+    # Large differences must be named as rechecked (server-enforced since INV-IDR-02).
+    review = gc.get(f"/api/v1/inventory/stock-counts/{session_id}/review/")
+    flagged = [row["id"] for row in review.data["lines"] if row.get("needs_recheck")]
+    post_resp = gc.post(
+        f"/api/v1/inventory/stock-counts/{session_id}/post/", {"rechecked_line_ids": flagged}, format="json",
+    )
     assert post_resp.status_code == 200, post_resp.data
     session.refresh_from_db()
     assert session.status == StockCountSession.Status.POSTED

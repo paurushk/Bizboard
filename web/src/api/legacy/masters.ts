@@ -192,8 +192,51 @@ export async function updateUnit(id: number, payload: Partial<Unit>): Promise<Un
   }, { id, name: payload.name ?? '', ...payload } as Unit);
 }
 
-export async function listProducts(params?: { q?: string; cf?: Record<string, string[]> }): Promise<Product[]> {
-  return withMocks(async () => fetchAllPagesMasters<Product>('/products/', params), () => filterProducts(params?.q, params?.cf));
+/** Item filters the server answers (INV-IDR-09): ids for category and brand, a rate, a stock status. */
+export interface ProductFilters {
+  category?: string;
+  brand?: string;
+  gstRate?: string;
+  stockStatus?: string;
+}
+
+function filterQuery(filters?: ProductFilters): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (filters?.category) out.category = filters.category;
+  if (filters?.brand) out.brand = filters.brand;
+  if (filters?.gstRate) out.gst_rate = filters.gstRate;
+  if (filters?.stockStatus) out.stock_status = filters.stockStatus;
+  return out;
+}
+
+export async function listProducts(
+  params?: { q?: string; cf?: Record<string, string[]> } & ProductFilters,
+): Promise<Product[]> {
+  const { category, brand, gstRate, stockStatus, ...rest } = params ?? {};
+  return withMocks(
+    async () =>
+      fetchAllPagesMasters<Product>('/products/', { ...rest, ...filterQuery({ category, brand, gstRate, stockStatus }) }),
+    () => filterProducts(params?.q, params?.cf),
+  );
+}
+
+export interface ProductFilterOptions {
+  categories: Array<{ id: number; name: string }>;
+  brands: Array<{ id: number; name: string }>;
+  gstRates: string[];
+}
+
+/** The categories, brands and GST slabs in use, for the filter menus. */
+export async function getProductFilterOptions(): Promise<ProductFilterOptions> {
+  const { data } = await apiClient.get('/products/filter-options/');
+  const body = unwrapData<Partial<ProductFilterOptions>>(data);
+  return { categories: body.categories ?? [], brands: body.brands ?? [], gstRates: body.gstRates ?? [] };
+}
+
+/** An item with exactly this name (any case), if there is one. */
+export async function findProductByName(name: string): Promise<Product | null> {
+  const page = await fetchPage<Product>('/products/', { name_exact: name, pageSize: 1 });
+  return page.results[0] ?? null;
 }
 
 export async function listProductsPage(params?: {
@@ -203,11 +246,15 @@ export async function listProductsPage(params?: {
   cf?: Record<string, string[]>;
   /** Only products a bill import created and nobody has reviewed yet. */
   needsReview?: boolean;
-}): Promise<PageResult<Product>> {
+} & ProductFilters): Promise<PageResult<Product>> {
   return withMocks(
     async () => {
-      const { needsReview, ...rest } = params ?? {};
-      return fetchPage<Product>('/products/', needsReview ? { ...rest, needs_review: 1 } : rest);
+      const { needsReview, category, brand, gstRate, stockStatus, ...rest } = params ?? {};
+      return fetchPage<Product>('/products/', {
+        ...rest,
+        ...filterQuery({ category, brand, gstRate, stockStatus }),
+        ...(needsReview ? { needs_review: 1 } : {}),
+      });
     },
     () => {
       const all = filterProducts(params?.q, params?.cf);
@@ -333,6 +380,12 @@ export async function deleteProduct(id: number): Promise<{ deactivated: boolean;
       return { deactivated: false };
     },
   );
+}
+
+/** Active items with no barcode: the total, and one page of them. */
+export async function listMissingBarcode(page = 1, pageSize = 100): Promise<{ count: number; results: Product[] }> {
+  const result = await fetchPage<Product>('/products/missing-barcode/', { page, pageSize });
+  return { count: result.count, results: result.results };
 }
 
 export async function generateBarcode(productId?: number): Promise<{ barcode: string; svg?: string }> {
@@ -536,8 +589,13 @@ export async function verifySupplierGstin(id: number) {
   }, { valid: true, status: 'ACTIVE', tradeName: 'Mock Supplier' });
 }
 
-export const listBatches = (product?: number) =>
-  fetchAllPagesMasters<import('@/types/domain').BatchLot>('/inventory/batches/', product ? { product: String(product) } : undefined);
+export const listBatches = (product?: number, warehouse?: number) =>
+  fetchAllPagesMasters<import('@/types/domain').BatchLot>(
+    '/inventory/batches/',
+    product || warehouse
+      ? { ...(product ? { product: String(product) } : {}), ...(warehouse ? { warehouse: String(warehouse) } : {}) }
+      : undefined,
+  );
 export const listPriceLists = () => fetchAllPagesMasters<import('@/utils/priceList').PriceListRow>('/masters/price-lists/');
 export const createPriceList = (payload: Record<string, unknown>) => apiClient.post('/masters/price-lists/', payload).then(({ data }) => unwrapData(data));
 export const updatePriceList = (id: number, payload: Record<string, unknown>) =>

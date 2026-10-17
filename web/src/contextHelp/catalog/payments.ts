@@ -2,6 +2,38 @@ import { helpPage } from '../buildPage';
 import type { ContextHelpPage } from '../types';
 
 export const PAYMENTS_HELP: ContextHelpPage[] = [
+  helpPage('money', {
+    title: ['Money overview', 'पैसा अवलोकन'],
+    summary: [
+      'One page for everything coming in and going out: what customers owe you, what you owe suppliers, cash and bank now, and what is stuck (cheques, unmatched bank lines, online payments not yet in your books). Each line opens the list it adds up.',
+      'आने और जाने वाला सारा पैसा एक पेज पर: ग्राहकों से लेना, सप्लायर को देना, अभी नकद-बैंक, और जो अटका है (चेक, मिलान न हुई बैंक पंक्तियाँ, खातों में न आए ऑनलाइन भुगतान)। हर पंक्ति वही सूची खोलती है जिससे वह बनी है।',
+    ],
+    howItWorks: [
+      ['Open a line, act on it (record a payment, clear a cheque, match a bank line), then come back: the figure has already changed. "Needs action" lists the biggest overdue bills, broken promises and cheques that have waited too long.', 'पंक्ति खोलें, कार्रवाई करें (भुगतान दर्ज, चेक क्लियर, बैंक मिलान), फिर लौटें: आँकड़ा बदल चुका होता है। "कार्रवाई ज़रूरी" सबसे बड़े देर वाले बिल, टूटे वादे और बहुत देर से पड़े चेक दिखाता है।'],
+      ['"What falls due next" places each open bill on its due date (or the date a customer promised). It is not a forecast. Tax dues are estimates for your CA to confirm.', '"आगे क्या देय है" हर खुले बिल को उसकी देय तारीख (या ग्राहक के वादे की तारीख) पर रखता है। यह पूर्वानुमान नहीं है। कर देय आपके CA के पक्का करने के अनुमान हैं।'],
+    ],
+    businessImpact: [
+      ['Reading only: this page changes nothing. Cash counts cleared money only; a cheque you have received or issued is shown apart until it clears. Customers owe you follows the books when they are on, otherwise your bills; the badge says which.', 'केवल देखना: यह पेज कुछ नहीं बदलता। नकद में केवल क्लियर पैसा गिना जाता है; प्राप्त या जारी चेक क्लियर होने तक अलग दिखता है। ग्राहकों से लेना खाते चालू हों तो खातों से, नहीं तो बिलों से; बैज बताता है।'],
+    ],
+    keyRules: [
+      ['Advances paid to suppliers are shown beside what you owe them, not taken off it.', 'सप्लायर को दिए एडवांस उनके देने के बगल में दिखते हैं, उसमें से घटाए नहीं जाते।'],
+      ['A figure that could not be worked out shows as unavailable, never as zero.', 'जो आँकड़ा निकल नहीं सका वह "उपलब्ध नहीं" दिखता है, शून्य कभी नहीं।'],
+    ],
+    commonMistakes: [
+      ['Reading the Receipts totals as what you are owed. They show money received, for the filters you chose.', 'रसीदों के कुल को लेना समझना। वे चुने फ़िल्टर के लिए मिला पैसा दिखाते हैं।'],
+    ],
+    relatedPages: [
+      { path: '/sales/receipts', labelKey: 'nav.receipts' },
+      { path: '/payments/collections', labelKey: 'nav.collections' },
+      { path: '/purchases/payments', labelKey: 'nav.supplierPayments' },
+      { path: '/payments/reconciliation', labelKey: 'nav.bankReconciliation' },
+      { path: '/reports/tds-receivable', labelKey: 'nav.tdsReceivable' },
+    ],
+    nextActions: [
+      ['Start with "Needs action", then clear stuck cheques and unmatched bank lines.', '"कार्रवाई ज़रूरी" से शुरू करें, फिर अटके चेक और मिलान न हुई बैंक पंक्तियाँ निपटाएँ।'],
+    ],
+  }),
+
   helpPage('payment-links', {
     title: ['Payment links', 'पेमेंट लिंक'],
     summary: [

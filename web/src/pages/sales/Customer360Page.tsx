@@ -21,6 +21,8 @@ import {
   listCustomerHistory,
   listPaymentPromises,
   listSalesInvoicesPage,
+  listSalesCreditNotesPage,
+  listSalesDebitNotesPage,
   repeatLastInvoice,
   resolvePaymentPromise,
 } from '@/api/resources';
@@ -33,6 +35,7 @@ import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { formatMoney } from '@/utils/money';
+import { statusLabelKey } from '@/utils/status';
 import { canCreateSales, canManagePaymentPromises, canViewFinancialReports } from '@/utils/permissions';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { CustomerFormDialog } from '@/pages/sales/CustomerFormDialog';
@@ -470,6 +473,7 @@ export function Customer360Page() {
           </Dialog>
         </Stack>
       ) : null}
+      {customerIdValid ? <CustomerNotesPanel customerId={customerId} /> : null}
       {customerIdValid && canSeeProfit ? <CustomerHistoryPanel customerId={customerId} /> : null}
       <ProfitDetailsDialog
         invoiceId={profitInvoiceId}
@@ -534,6 +538,45 @@ function CustomerHistoryPanel({ customerId }: { customerId: number }) {
                     )
                     .join('; ')
                 : row.description}
+            </Typography>
+          ))}
+        </Stack>
+      )}
+    </Paper>
+  );
+}
+
+/** DN-09 / DEP-10: credit and debit notes issued to this customer. */
+function CustomerNotesPanel({ customerId }: { customerId: number }) {
+  const notes = useQuery({
+    queryKey: ['customer-notes', customerId],
+    queryFn: async () => {
+      const [credits, debits] = await Promise.all([
+        listSalesCreditNotesPage({ customer: customerId, pageSize: 10 }),
+        listSalesDebitNotesPage({ customer: customerId, pageSize: 10 }),
+      ]);
+      return [
+        ...credits.results.map((note) => ({ kind: 'credit' as const, note })),
+        ...debits.results.map((note) => ({ kind: 'debit' as const, note })),
+      ].sort((a, b) => (a.note.noteDate < b.note.noteDate ? 1 : -1));
+    },
+    retry: false,
+  });
+  if (notes.isError || !notes.data) return null;
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }} data-testid="customer-notes-panel">
+      <Typography variant="subtitle2">{t('phase1.notesTab')}</Typography>
+      {notes.data.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">{t('phase1.notesTabEmpty')}</Typography>
+      ) : (
+        <Stack spacing={0.5} sx={{ mt: 1 }}>
+          {notes.data.map(({ kind, note }) => (
+            <Typography key={`${kind}-${note.id}`} variant="body2">
+              <RouterLink to={`/sales/${kind}-notes/${note.id}`}>
+                {note.number?.trim() ? note.number : `#${note.id}`}
+              </RouterLink>{' '}
+              · {t(kind === 'credit' ? 'phase1.noteKindCredit' : 'phase1.noteKindDebit')} · {note.noteDate} ·{' '}
+              {t(statusLabelKey(note.status))} · {formatMoney(note.grandTotal)}
             </Typography>
           ))}
         </Stack>

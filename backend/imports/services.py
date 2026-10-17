@@ -288,6 +288,7 @@ def _serials_from_item_rows(preview: list[dict]) -> list[dict]:
     return serials
 
 ALLOWED_GST = {Decimal(r) for r in ALLOWED_GST_RATES}
+_ALLOWED_GST_TEXT = ", ".join(str(r) for r in ALLOWED_GST_RATES)
 
 BULK_BATCH = 500
 
@@ -677,7 +678,7 @@ def _normalize_gst_rate(
             return snapped
         prefix = f"Row {row}: " if row is not None else ""
         raise BusinessRuleError(
-            f"{prefix}GST rate {rate} is not an allowed slab. Enter 0, 5, 12, 18, or 28."
+            f"{prefix}GST rate {rate} is not an allowed slab. Enter {_ALLOWED_GST_TEXT}."
         )
     return rate
 
@@ -691,13 +692,17 @@ def _preview_bill_line(raw_line: dict, *, index: int, rate_warnings: list[str]) 
     if gst_raw:
         try:
             gst_rate = str(_normalize_gst_rate(gst_raw, warnings=line_warnings, row=index))
-        except (BusinessRuleError, InvalidOperation):
+        except (BusinessRuleError, InvalidOperation) as exc:
             # B3-001: one bad GST cell must not abort the whole job — exclude
             # just this line, like every other unreadable field.
             gst_rate = ""
             gst_unparseable = True
+            if isinstance(exc, BusinessRuleError) and "not an allowed slab" in str(getattr(exc, "detail", exc)):
+                reason = f"is not a valid GST rate ({_ALLOWED_GST_TEXT})"
+            else:
+                reason = "is not a number"
             line_warnings.append(
-                f"Row {index}: GST rate {gst_raw!r} is not a number — line excluded."
+                f"Row {index}: GST rate {gst_raw!r} {reason} — line excluded; choose the rate."
             )
     else:
         gst_rate = ""

@@ -3,15 +3,21 @@ import { flushSync } from 'react-dom';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { prefillReturnLines } from '@/cognitive/loadHelpers';
 import { getErrorMessage } from '@/api/client';
 import { completeWithConfirms } from '@/utils/completeWithConfirms';
+import { useConfirmPrompt } from '@/hooks/useConfirmPrompt';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { invalidateNoteQueries } from '@/utils/noteQueries';
 import {
   cancelSalesCreditNote,
   cancelSalesDebitNote,
@@ -22,11 +28,12 @@ import {
   downloadSalesDocumentPdf,
   getCompany,
   getCustomer,
+  getGstr9FilingDate,
   getSalesCreditNote,
   getSalesCreditNoteAdjustableSummary,
   getSalesDebitNote,
   getSalesInvoice,
-  listSalesInvoices,
+  listSalesInvoicesPage,
   updateSalesCreditNote,
   updateSalesDebitNote,
 } from '@/api/resources';
@@ -56,7 +63,7 @@ import {
   previewAllowsComplete,
 } from '@/completeGates/completeBlockers';
 import { useAuth } from '@/auth/AuthContext';
-import { canCancelDocuments, canCreateSales, canOverrideGstGuard } from '@/utils/permissions';
+import { canCancelDocuments, canIssueNotes, canOverrideGstGuard, isOwner } from '@/utils/permissions';
 import type { NoteReason, SalesCreditNote, SalesDebitNote, SalesInvoice } from '@/types/domain';
 import { calculateInvoiceTotals, calculateLineTax, isIntraState } from '@/utils/tax';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
@@ -70,7 +77,8 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const queryKey = isCredit ? 'sales-credit-notes' : 'sales-debit-notes';
 
   const { user } = useAuth();
-  const canWrite = canCreateSales(user);
+  const canWrite = canIssueNotes(user);
+  const confirmPrompt = useConfirmPrompt();
   const canCancel = canCancelDocuments(user);
   const { id: editIdParam } = useParams();
   const editId = editIdParam ? Number(editIdParam) : null;
@@ -93,6 +101,13 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
   const [reason, setReason] = useState<NoteReason>('CORRECTION_OF_INVOICE');
   const [reasonDetail, setReasonDetail] = useState('');
   const [notes, setNotes] = useState('');
+  const [additionalCharges, setAdditionalCharges] = useState('');
+  const [chargesHsn, setChargesHsn] = useState('');
+  const [chargesGstRate, setChargesGstRate] = useState('');
+  // DN-07: Owner-only override of the 100%-of-invoice cap on a debit note.
+  const [allowExcessDebit, setAllowExcessDebit] = useState(false);
+  const [excessDebitReason, setExcessDebitReason] = useState('');
+  const [invoiceSearch, setInvoiceSearch] = useState('');
   const [lines, setLines] = useState<InvoiceSourceLine[]>([]);
   const [pool, setPool] = useState<InvoiceSourceLine[]>([]);
 
@@ -105,15 +120,19 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     queryFn: () => getCustomer(customerId as number),
     enabled: !!customerId,
   });
+  // CN-09 / DN-08: search on the server and fetch one small page, instead of
+  // loading every completed invoice into the browser.
+  const debouncedInvoiceSearch = useDebouncedValue(invoiceSearch.trim(), 300);
   const invoices = useQuery({
-    queryKey: ['note-source-invoices', kind],
+    queryKey: ['note-source-invoices', kind, debouncedInvoiceSearch],
     queryFn: async () => {
-      const completed = await listSalesInvoices({ status: 'COMPLETED' });
-      if (isCredit) return completed;
+      const base = { page: 1, pageSize: 20, q: debouncedInvoiceSearch || undefined };
+      const completed = await listSalesInvoicesPage({ ...base, status: 'COMPLETED' });
+      if (isCredit) return completed.results;
       // Residual debit notes after a full return attach to RETURNED invoices
       // (P5-T2 / ARCH-03). The list API takes one status, so join both.
-      const returned = await listSalesInvoices({ status: 'RETURNED' });
-      return [...returned, ...completed];
+      const returned = await listSalesInvoicesPage({ ...base, status: 'RETURNED' });
+      return [...returned.results, ...completed.results];
     },
     enabled: !isEdit,
   });
@@ -127,6 +146,18 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     queryKey: ['adjustable-summary', invoice?.id],
     queryFn: () => getSalesCreditNoteAdjustableSummary(invoice!.id),
     enabled: isCredit && Boolean(invoice?.id),
+  });
+
+  // CN-07 / QOS-0127: s.34(2) - the credit note limit is the earlier of 30 Nov after the invoice's FY
+  // (Apr-Mar) and the date that FY's annual return was filed; the server tells us the effective date.
+  const invoiceFyStart = /^\d{4}-\d{2}-\d{2}$/.test(invoice?.invoiceDate ?? '')
+    ? Number(invoice!.invoiceDate.slice(0, 4)) - (Number(invoice!.invoiceDate.slice(5, 7)) >= 4 ? 0 : 1)
+    : null;
+  const filingDate = useQuery({
+    queryKey: ['gstr9-filing-date', invoiceFyStart],
+    queryFn: () => getGstr9FilingDate(`${invoiceFyStart}-${String((invoiceFyStart! + 1) % 100).padStart(2, '0')}`),
+    enabled: isCredit && invoiceFyStart != null,
+    retry: false,
   });
 
   const readOnly = editingStatus != null && editingStatus !== 'DRAFT';
@@ -148,6 +179,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     setReason(doc.reason);
     setReasonDetail(doc.reasonDetail ?? '');
     setNotes(doc.notes ?? '');
+    setAdditionalCharges(Number(doc.additionalCharges ?? 0) ? String(doc.additionalCharges) : '');
+    setChargesHsn(doc.chargesHsn ?? '');
+    setChargesGstRate(Number(doc.chargesGstRate ?? 0) ? String(doc.chargesGstRate) : '');
     setHydratedDoc(doc);
     setLoaded(true);
   }
@@ -225,9 +259,16 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     [lines, intraState],
   );
 
+  const chargesAmount = Number(additionalCharges) || 0;
   const totals = useMemo(
-    () => calculateInvoiceTotals(lineTaxes.map((l) => ({ ...l, intraState })), { applyRoundOff: true }),
-    [lineTaxes, intraState],
+    () =>
+      calculateInvoiceTotals(lineTaxes.map((l) => ({ ...l, intraState })), {
+        applyRoundOff: true,
+        additionalCharges: chargesAmount,
+        chargesHsn,
+        chargesGstRate: Number(chargesGstRate) || 0,
+      }),
+    [lineTaxes, intraState, chargesAmount, chargesHsn, chargesGstRate],
   );
 
   const included = lines.filter((l) => l.included);
@@ -243,6 +284,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     reason,
     reasonDetail: reason === 'OTHERS' ? reasonDetail : '',
     notes,
+    additionalCharges: chargesAmount,
+    chargesHsn: chargesAmount > 0 ? chargesHsn : '',
+    chargesGstRate: chargesAmount > 0 ? Number(chargesGstRate) || 0 : 0,
     items: activeSourceLines(lines).map((l) => ({
       ...(l.lineId != null ? { id: l.lineId } : {}),
       product: l.product,
@@ -261,6 +305,9 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     previewOnline && invoice && activeSourceLines(lines).length > 0
       ? {
           customer: invoice.customer,
+          additionalCharges: chargesAmount,
+          chargesHsn: chargesAmount > 0 ? chargesHsn : '',
+          chargesGstRate: chargesAmount > 0 ? Number(chargesGstRate) || 0 : 0,
           items: activeSourceLines(lines).map((l) => ({
             product: l.product,
             quantity: l.quantity,
@@ -293,15 +340,27 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
         const extraOverride = gstGuardOverrideReason.trim()
           ? { gstGuardOverrideReason: gstGuardOverrideReason.trim() }
           : {};
+        const excessOverride =
+          !isCredit && allowExcessDebit && excessDebitReason.trim()
+            ? { confirmExcessiveDebit: true, excessiveDebitReason: excessDebitReason.trim() }
+            : {};
         doc = isCredit
-          ? await completeWithConfirms((extra) => completeSalesCreditNote(doc.id, { ...extra, ...extraOverride }))
-          : await completeWithConfirms((extra) => completeSalesDebitNote(doc.id, { ...extra, ...extraOverride }));
+          ? await completeWithConfirms(
+              (extra) => completeSalesCreditNote(doc.id, { ...extra, ...extraOverride }),
+              {},
+              confirmPrompt.ask,
+            )
+          : await completeWithConfirms(
+              (extra) => completeSalesDebitNote(doc.id, { ...extra, ...extraOverride, ...excessOverride }),
+              {},
+              confirmPrompt.ask,
+            );
       }
       return doc;
     },
     onSuccess: (doc) => {
       setMessage(t('phase1.saved'));
-      void qc.invalidateQueries({ queryKey: [queryKey] });
+      invalidateNoteQueries(qc, kind);
       if (!isEdit) {
         flushSync(() => setSkipLeaveGuard(true));
         void navigate(`${listPath}/${doc.id}`, { replace: true });
@@ -317,7 +376,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       isCredit ? cancelSalesCreditNote(editId as number) : cancelSalesDebitNote(editId as number),
     onSuccess: () => {
       setMessage(t('phase1.cancelled'));
-      void qc.invalidateQueries({ queryKey: [queryKey] });
+      invalidateNoteQueries(qc, kind);
       flushSync(() => setSkipLeaveGuard(true));
       void navigate(listPath);
     },
@@ -345,6 +404,37 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     );
   }
 
+  const invoiceDate = invoice?.invoiceDate ?? '';
+  let creditDeadline = '';
+  if (isCredit && /^\d{4}-\d{2}-\d{2}$/.test(invoiceDate)) {
+    const y = Number(invoiceDate.slice(0, 4));
+    const m = Number(invoiceDate.slice(5, 7));
+    creditDeadline = `${(m >= 4 ? y : y - 1) + 1}-11-30`;
+    const serverDeadline = filingDate.data?.noteDeadline;
+    if (serverDeadline && serverDeadline < creditDeadline) creditDeadline = serverDeadline;
+  }
+  const dateBeforeInvoice = Boolean(invoiceDate && noteDate && noteDate < invoiceDate);
+  const datePastDeadline = Boolean(creditDeadline && noteDate > creditDeadline);
+  const dateProblem = dateBeforeInvoice
+    ? t('phase1.dateBeforeInvoice')
+    : datePastDeadline
+      ? t('phase1.datePastDeadline', { date: creditDeadline })
+      : undefined;
+  // CN-05: payments that will be moved to the customer's advance when the credit note completes.
+  const noteTotalNow = Number(preview.totals?.grandTotal ?? totals.grandTotal) || 0;
+  const peeledAmount =
+    isCredit && summary.data && !readOnly
+      ? Math.max(0, noteTotalNow - Number(summary.data.outstanding || 0))
+      : 0;
+  const peeledReceiptIds = Array.from(
+    new Set(
+      ((existing.data as SalesCreditNote | undefined)?.peeledReceiptAllocations ?? [])
+        .map((slice) => Number(slice.receiptId ?? slice.receipt_id))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  );
+  const isAutoReturnNote = isCredit && Boolean((existing.data as SalesCreditNote | undefined)?.salesReturn);
+
   const infoBanner =
     isCredit && summary.data && invoice ? (
       <Alert severity="info">
@@ -354,6 +444,8 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
     ) : null;
 
   return (
+    <>
+      {confirmPrompt.dialog}
     <DocumentEditorShell
       title={t(isEdit ? (isCredit ? 'phase1.editCreditNote' : 'phase1.editDebitNote') : (isCredit ? 'phase1.newCreditNote' : 'phase1.newDebitNote'))}
       primarySave={primarySave}
@@ -377,6 +469,25 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
       infoBanner={
         <>
           {infoBanner}
+          {invoice ? (
+            <Alert severity="info" icon={false}>
+              {t('phase1.sourceInvoice')}:{' '}
+              <RouterLink to={`/sales/history/${invoice.id}`}>{invoice.number ?? invoice.id}</RouterLink>
+              {' · '}
+              {invoice.invoiceDate} · {invoice.customerName ?? ''} · {formatMoney(invoice.grandTotal)}
+            </Alert>
+          ) : null}
+          {isCredit && !readOnly ? (
+            <Alert severity="info">
+              {t('phase1.noStockRestore')}{' '}
+              <RouterLink to="/sales/returns">{t('phase1.goToSalesReturns')}</RouterLink>
+            </Alert>
+          ) : null}
+          {peeledAmount > 0.005 ? (
+            <Alert severity="warning">
+              {t('phase1.peelNotice', { amount: formatMoney(peeledAmount) })}
+            </Alert>
+          ) : null}
           {!readOnly && canOverrideGstGuard(user) ? (
             <TextField
               size="small"
@@ -408,7 +519,29 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
               {t('billing.print')}
             </Button>
           ) : null}
-          {readOnly && editingStatus === 'COMPLETED' && canCancel ? (
+          {readOnly && editingStatus === 'COMPLETED' && isCredit
+            ? peeledReceiptIds.length > 0
+              ? peeledReceiptIds.map((receiptId) => (
+                  <Button
+                    key={receiptId}
+                    size="small"
+                    component={RouterLink}
+                    to={`/sales/receipts?refund=${receiptId}`}
+                  >
+                    {t('phase1.refundAdvanceLink')}
+                  </Button>
+                ))
+              : (
+                  <Button size="small" component={RouterLink} to="/sales/receipts">
+                    {t('phase1.refundAdvanceLink')}
+                  </Button>
+                )
+            : null}
+          {readOnly && editingStatus === 'COMPLETED' && isAutoReturnNote ? (
+            <Button size="small" component={RouterLink} to="/sales/returns">
+              {t('phase1.cancelViaReturn')}
+            </Button>
+          ) : readOnly && editingStatus === 'COMPLETED' && canCancel ? (
             <Button color="warning" size="small" disabled={cancelMutation.isPending} onClick={() => cancelMutation.mutate()}>
               {t('phase1.cancelDocument')}
             </Button>
@@ -443,6 +576,12 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
             getOptionLabel={(o) => `${o.number ?? o.id} · ${o.customerName ?? ''}`}
             value={invoice}
             onChange={(_, v) => void onInvoicePick(v)}
+            onInputChange={(_, v, inputReason) => {
+              if (inputReason === 'input') setInvoiceSearch(v);
+            }}
+            filterOptions={(o) => o}
+            loading={invoices.isFetching}
+            isOptionEqualToValue={(a, b) => a.id === b.id}
             disabled={readOnly}
             renderInput={(params) => (
               <TextField {...params} label={t('phase1.sourceInvoice')} required />
@@ -467,9 +606,20 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
             onChange={(e) => setNoteDate(e.target.value)}
             disabled={readOnly}
             InputLabelProps={{ shrink: true }}
+            inputProps={{
+              ...(invoiceDate ? { min: invoiceDate } : {}),
+              ...(creditDeadline ? { max: creditDeadline } : {}),
+            }}
+            error={!readOnly && Boolean(dateProblem)}
+            helperText={!readOnly ? dateProblem : undefined}
             sx={{ minWidth: 180 }}
           />
-          <NoteReasonSelect value={reason} onChange={setReason} disabled={readOnly} />
+          <NoteReasonSelect
+            value={reason}
+            onChange={setReason}
+            disabled={readOnly || isAutoReturnNote}
+            allowSalesReturn={isAutoReturnNote}
+          />
         </Stack>
 
         {reason === 'OTHERS' ? (
@@ -495,7 +645,7 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
         <Typography variant="subtitle1">{t('billing.lines')}</Typography>
         {kind === 'credit' && !readOnly ? (
           <Button size="small" variant="outlined" onClick={() => setLines((prev) => prefillReturnLines(prev, true))}>
-            {t('cog.fullReturn')}
+            {t('phase1.creditFullInvoice')}
           </Button>
         ) : null}
         <InvoiceSourceLineTable
@@ -505,10 +655,76 @@ export function SalesInvoiceNoteEditor({ kind }: { kind: NoteKind }) {
           readOnly={readOnly}
           availableToAdd={pool}
           allowOverCap
+          showHsn
         />
+
+        {/* CN-04 / DN-05: freight, handling or interest that is not a product line. */}
+        {!readOnly || chargesAmount > 0 ? (
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+            <TextField
+              type="number"
+              label={t('phase1.additionalCharges')}
+              value={additionalCharges}
+              onChange={(e) => setAdditionalCharges(e.target.value)}
+              disabled={readOnly}
+              inputProps={{ min: 0, step: 'any' }}
+              InputLabelProps={{ shrink: true }}
+              sx={{ minWidth: 180 }}
+            />
+            {chargesAmount > 0 ? (
+              <>
+                <TextField
+                  label={t('phase1.chargesHsn')}
+                  value={chargesHsn}
+                  onChange={(e) => setChargesHsn(e.target.value)}
+                  disabled={readOnly}
+                  sx={{ minWidth: 160 }}
+                />
+                <TextField
+                  select
+                  label={t('phase1.chargesGstRate')}
+                  value={chargesGstRate || '0'}
+                  onChange={(e) => setChargesGstRate(e.target.value)}
+                  disabled={readOnly}
+                  sx={{ minWidth: 140 }}
+                >
+                  {['0', '5', '12', '18', '28'].map((r) => (
+                    <MenuItem key={r} value={r}>
+                      {r}%
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </>
+            ) : null}
+          </Stack>
+        ) : null}
+
+        {!isCredit && !readOnly && user && isOwner(user.role) ? (
+          <Stack spacing={1}>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={allowExcessDebit}
+                  onChange={(e) => setAllowExcessDebit(e.target.checked)}
+                />
+              }
+              label={t('phase1.allowExcessDebit')}
+            />
+            {allowExcessDebit ? (
+              <TextField
+                label={t('phase1.excessDebitReason')}
+                value={excessDebitReason}
+                onChange={(e) => setExcessDebitReason(e.target.value)}
+                required
+                fullWidth
+              />
+            ) : null}
+          </Stack>
+        ) : null}
 
         <SimpleTotalsPanel totals={preview.totals ?? totals} />
       </Stack>
     </DocumentEditorShell>
+    </>
   );
 }

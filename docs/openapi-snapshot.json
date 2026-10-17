@@ -1386,6 +1386,161 @@
                 }
             }
         },
+        "/api/v1/accounting/expense-category-accounts/": {
+            "get": {
+                "operationId": "accounting_expense_category_accounts_list",
+                "description": "ACS-15: which expense ledger each category posts to. One mapping per category.",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedExpenseCategoryAccountList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_expense_category_accounts_create",
+                "description": "ACS-15: which expense ledger each category posts to. One mapping per category.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExpenseCategoryAccount"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExpenseCategoryAccount"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ExpenseCategoryAccount"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExpenseCategoryAccount"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expense-category-accounts/{id}/": {
+            "get": {
+                "operationId": "accounting_expense_category_accounts_retrieve",
+                "description": "ACS-15: which expense ledger each category posts to. One mapping per category.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense category account.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ExpenseCategoryAccount"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "accounting_expense_category_accounts_destroy",
+                "description": "ACS-15: which expense ledger each category posts to. One mapping per category.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense category account.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/accounting/expenses/": {
             "get": {
                 "operationId": "accounting_expenses_list",
@@ -1646,6 +1801,159 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expenses/{id}/void/": {
+            "post": {
+                "operationId": "accounting_expenses_void_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expenses/duplicates/": {
+            "get": {
+                "operationId": "accounting_expenses_duplicates_retrieve",
+                "description": "ACS-16: other active expenses with the same date, amount and party -- a likely double entry.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expenses/post-pending/": {
+            "get": {
+                "operationId": "accounting_expenses_post_pending_retrieve",
+                "description": "ACS-15: GET previews, POST posts, every active expense on/after the start date not yet in the books.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_expenses_post_pending_create",
+                "description": "ACS-15: GET previews, POST posts, every active expense on/after the start date not yet in the books.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Expense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -7786,6 +8094,89 @@
                 }
             }
         },
+        "/api/v1/crm/opportunities/{id}/reopen/": {
+            "post": {
+                "operationId": "crm_opportunities_reopen_create",
+                "description": "Owner or manager reopens a closed deal. A pending reward is rejected with it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this opportunity.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "crm"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Opportunity"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Opportunity"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Opportunity"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Opportunity"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/crm/opportunities/board/": {
+            "get": {
+                "operationId": "crm_opportunities_board_retrieve",
+                "description": "First page of every stage with counts and totals, so no open deal is ever pushed off the board.\n\nOpen stages are never windowed. WON/LOST show the last ``closed_days`` days (default 90);\n``older`` says how many more exist outside that window.",
+                "tags": [
+                    "crm"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Opportunity"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/crm/opportunities/forecast/": {
             "get": {
                 "operationId": "crm_opportunities_forecast_retrieve",
@@ -12163,7 +12554,6 @@
             },
             "post": {
                 "operationId": "inventory_alerts_expiry_create",
-                "description": "Write off remaining qty of an expired/near-expiry lot as ADJUSTMENT / EXPIRED.",
                 "tags": [
                     "inventory"
                 ],
@@ -12238,6 +12628,32 @@
                         "required": true
                     }
                 ],
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockBalance"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/inventory/balances/by-product/": {
+            "get": {
+                "operationId": "inventory_balances_by_product_retrieve",
+                "description": "One row per item (summed over godowns and lots), paged on the server (INV-IDR-10).\n\nThe Current stock page used to download every product x godown x lot row and add them up in\nthe browser. The same filters apply here; lots for one item come from ``?product=<id>``.",
                 "tags": [
                     "inventory"
                 ],
@@ -12558,11 +12974,29 @@
                         "description": "No response body"
                     }
                 }
+            },
+            "post": {
+                "operationId": "inventory_labels.zpl_create",
+                "description": "Several labels in one file: ``{\"labels\": [{\"product\", \"copies\", \"batch\"}], \"size\", \"price\"}``.",
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
             }
         },
         "/api/v1/inventory/movements/": {
             "get": {
                 "operationId": "inventory_movements_list",
+                "description": "The item ledger: every movement, filterable, with a running balance for one item.",
                 "parameters": [
                     {
                         "name": "page",
@@ -12596,7 +13030,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/PaginatedStockMovementList"
+                                    "$ref": "#/components/schemas/PaginatedStockLedgerList"
                                 }
                             }
                         },
@@ -12622,7 +13056,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/StockMovement"
+                                    "$ref": "#/components/schemas/StockLedger"
                                 }
                             }
                         },
@@ -13213,6 +13647,43 @@
                 }
             }
         },
+        "/api/v1/inventory/serials/{id}/document/": {
+            "get": {
+                "operationId": "inventory_serials_document_retrieve",
+                "description": "The sale (invoice or challan) a SOLD unit went out on, so the Serials page can link to it.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this serial number.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SerialNumber"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/inventory/serials/{id}/transition/": {
             "post": {
                 "operationId": "inventory_serials_transition_create",
@@ -13530,6 +14001,63 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/inventory/stock-counts/{id}/add-line/": {
+            "post": {
+                "operationId": "inventory_stock_counts_add_line_create",
+                "description": "Count an item that is not on the sheet (found stock the system does not know about).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this stock count session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockCountSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockCountSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockCountSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockCountSession"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -14157,6 +14685,63 @@
                 }
             }
         },
+        "/api/v1/inventory/transfers/{id}/resolve-shortage/": {
+            "post": {
+                "operationId": "inventory_transfers_resolve_shortage_create",
+                "description": "Settle quantities found missing at receive: write off or return to the source godown.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this stock transfer.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "inventory"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/StockTransfer"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/StockTransfer"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/inventory/valuation/": {
             "get": {
                 "operationId": "inventory_valuation_retrieve",
@@ -14508,6 +15093,35 @@
         "/api/v1/ledgers/suppliers/{supplier_id}/": {
             "get": {
                 "operationId": "ledgers_suppliers_retrieve_2",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "supplier_id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "ledgers"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/ledgers/suppliers/{supplier_id}/pdf/": {
+            "get": {
+                "operationId": "ledgers_suppliers_pdf_retrieve",
+                "description": "The supplier statement as a PDF, same rows as the screen.",
                 "parameters": [
                     {
                         "in": "path",
@@ -17097,6 +17711,97 @@
                 }
             }
         },
+        "/api/v1/money/position/": {
+            "get": {
+                "operationId": "money_position_retrieve",
+                "description": "Where the business stands on money in and money out today.",
+                "tags": [
+                    "money"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/money/statutory/": {
+            "get": {
+                "operationId": "money_statutory_retrieve",
+                "description": "Tax amounts and due dates, as estimates for the CA to confirm.",
+                "tags": [
+                    "money"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/money/timeline/": {
+            "get": {
+                "operationId": "money_timeline_retrieve",
+                "description": "Money expected in and due out over the next days, by due date (not a forecast).",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "days",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "1 to 90; default 30."
+                    }
+                ],
+                "tags": [
+                    "money"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "additionalProperties": {}
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/notifications/": {
             "get": {
                 "operationId": "notifications_list",
@@ -18537,6 +19242,27 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "advance",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: live receipts with money not yet applied to a bill."
+                    },
+                    {
+                        "in": "query",
+                        "name": "cheque_status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BOUNCED",
+                                "CLEARED",
+                                "PENDING_CLEARANCE"
+                            ]
+                        },
+                        "description": "Cheque receipts in this state."
+                    },
+                    {
+                        "in": "query",
                         "name": "customer",
                         "schema": {
                             "type": "integer"
@@ -18628,6 +19354,18 @@
                                 "VOIDED"
                             ]
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "tds_certificate",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "received"
+                            ]
+                        },
+                        "description": "Receipts with TDS deducted: certificate still awaited, or recorded."
                     }
                 ],
                 "tags": [
@@ -18993,6 +19731,62 @@
                 }
             }
         },
+        "/api/v1/payments/receipts/{id}/tds-certificate/": {
+            "post": {
+                "operationId": "payments_receipts_tds_certificate_create",
+                "description": "Record that the customer's TDS certificate (Form 16A) arrived, or undo that.\n\nBookkeeping only: it takes the receipt off the \"awaiting certificate\" list and posts\nnothing to the ledger.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this customer receipt.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TdsCertificateRequest"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TdsCertificateRequest"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/TdsCertificateRequest"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CustomerReceipt"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/payments/receipts/{id}/void/": {
             "post": {
                 "operationId": "payments_receipts_void_create",
@@ -19146,6 +19940,27 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "advance",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: live receipts with money not yet applied to a bill."
+                    },
+                    {
+                        "in": "query",
+                        "name": "cheque_status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BOUNCED",
+                                "CLEARED",
+                                "PENDING_CLEARANCE"
+                            ]
+                        },
+                        "description": "Cheque receipts in this state."
+                    },
+                    {
+                        "in": "query",
                         "name": "customer",
                         "schema": {
                             "type": "integer"
@@ -19219,6 +20034,18 @@
                                 "VOIDED"
                             ]
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "tds_certificate",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "received"
+                            ]
+                        },
+                        "description": "Receipts with TDS deducted: certificate still awaited, or recorded."
                     }
                 ],
                 "tags": [
@@ -19251,6 +20078,27 @@
                 "parameters": [
                     {
                         "in": "query",
+                        "name": "advance",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: live receipts with money not yet applied to a bill."
+                    },
+                    {
+                        "in": "query",
+                        "name": "cheque_status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BOUNCED",
+                                "CLEARED",
+                                "PENDING_CLEARANCE"
+                            ]
+                        },
+                        "description": "Cheque receipts in this state."
+                    },
+                    {
+                        "in": "query",
                         "name": "customer",
                         "schema": {
                             "type": "integer"
@@ -19324,6 +20172,18 @@
                                 "VOIDED"
                             ]
                         }
+                    },
+                    {
+                        "in": "query",
+                        "name": "tds_certificate",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending",
+                                "received"
+                            ]
+                        },
+                        "description": "Receipts with TDS deducted: certificate still awaited, or recorded."
                     }
                 ],
                 "tags": [
@@ -20018,6 +20878,103 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SupplierPayment"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/payments/supplier-payments/summary/": {
+            "get": {
+                "operationId": "payments_supplier_payments_summary_retrieve",
+                "description": "Totals for the same filters as the list, across every page.\n\nVoided and bounced payments are not money out. Cheques still to clear are reported\napart. When the caller may see financial reports, what is owed and overdue to suppliers\ntoday is added (company-wide, or for the one supplier filtered); it does not follow the\nother list filters.",
+                "parameters": [
+                    {
+                        "in": "query",
+                        "name": "advance",
+                        "schema": {
+                            "type": "boolean"
+                        },
+                        "description": "true: live payments not yet applied to a bill."
+                    },
+                    {
+                        "in": "query",
+                        "name": "cheque_status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BOUNCED",
+                                "CLEARED",
+                                "PENDING_CLEARANCE"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_from",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "date_to",
+                        "schema": {
+                            "type": "string",
+                            "format": "date"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "mode",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "BANK",
+                                "CARD",
+                                "CASH",
+                                "CHEQUE",
+                                "CREDIT",
+                                "UPI"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "status",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "POSTED",
+                                "VOIDED"
+                            ]
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "supplier",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "payments"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SupplierPaymentSummary"
                                 }
                             }
                         },
@@ -21701,6 +22658,32 @@
                 }
             }
         },
+        "/api/v1/products/filter-options/": {
+            "get": {
+                "operationId": "products_filter_options_retrieve",
+                "description": "What the Items page can filter by: the categories, brands and GST slabs in use.",
+                "tags": [
+                    "products"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Product"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/products/generate-barcode/": {
             "post": {
                 "operationId": "products_generate_barcode_create",
@@ -21800,6 +22783,32 @@
                     },
                     "required": true
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Product"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/products/missing-barcode/": {
+            "get": {
+                "operationId": "products_missing_barcode_retrieve",
+                "description": "Active items that have no barcode: how many, and a page of them (INV-IDR-11).",
+                "tags": [
+                    "products"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -23556,6 +24565,32 @@
                 }
             }
         },
+        "/api/v1/purchases/credit-notes/export/": {
+            "get": {
+                "operationId": "purchases_credit_notes_export_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "purchases"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/purchases/credit-notes/number-series/": {
             "get": {
                 "operationId": "purchases_credit_notes_number_series_retrieve",
@@ -23995,6 +25030,32 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/PurchaseDebitNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/purchases/debit-notes/export/": {
+            "get": {
+                "operationId": "purchases_debit_notes_export_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "tags": [
+                    "purchases"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         },
@@ -27362,6 +28423,42 @@
                 }
             }
         },
+        "/api/v1/reports/gstr9/filing-date/": {
+            "get": {
+                "operationId": "reports_gstr9_filing_date_retrieve",
+                "description": "Record the date the annual return for a financial year was filed (Sec 34(2)).",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "put": {
+                "operationId": "reports_gstr9_filing_date_update",
+                "description": "Record the date the annual return for a financial year was filed (Sec 34(2)).",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/reports/inventory-summary/": {
             "get": {
                 "operationId": "reports_inventory_summary_retrieve",
@@ -28627,6 +29724,32 @@
                 }
             }
         },
+        "/api/v1/sales/credit-notes/export/": {
+            "get": {
+                "operationId": "sales_credit_notes_export_retrieve",
+                "description": "BB-000647: prepare/submit IRN for sales credit and debit notes.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/credit-notes/number-series/": {
             "get": {
                 "operationId": "sales_credit_notes_number_series_retrieve",
@@ -29368,6 +30491,32 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/SalesDebitNote"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/debit-notes/export/": {
+            "get": {
+                "operationId": "sales_debit_notes_export_retrieve",
+                "description": "BB-000647: prepare/submit IRN for sales credit and debit notes.",
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
                                 }
                             }
                         },
@@ -30682,6 +31831,62 @@
                 }
             }
         },
+        "/api/v1/sales/delivery-routes/{id}/cancel/": {
+            "post": {
+                "operationId": "sales_delivery_routes_cancel_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/delivery-routes/{id}/complete/": {
             "post": {
                 "operationId": "sales_delivery_routes_complete_create",
@@ -30794,10 +31999,103 @@
                 }
             }
         },
+        "/api/v1/sales/delivery-routes/{id}/link-receipt/": {
+            "post": {
+                "operationId": "sales_delivery_routes_link_receipt_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DeliveryRoute"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/sales/delivery-routes/{id}/manifest/": {
             "get": {
                 "operationId": "sales_delivery_routes_manifest_retrieve",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this delivery route.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "sales"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/{id}/preflight/": {
+            "get": {
+                "operationId": "sales_delivery_routes_preflight_retrieve",
+                "description": "Every stop's facts and risks as they stand now, and whether the route may start.",
                 "parameters": [
                     {
                         "in": "path",
@@ -31131,6 +32429,32 @@
                         }
                     }
                 },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DeliveryRoute"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/sales/delivery-routes/candidates/": {
+            "get": {
+                "operationId": "sales_delivery_routes_candidates_retrieve",
+                "description": "Orders a dispatcher can choose from, with what they need to know about each (paged).\n\nBy default only orders that can go out: confirmed, partly processed or shipped, and not\nalready on a live route or delivered. ``show_unavailable=1`` also lists those, as blocked\nrows, and ``include_drafts=1`` adds unconfirmed orders (blocked unless an owner accepts them).",
+                "tags": [
+                    "sales"
+                ],
                 "security": [
                     {
                         "jwtAuth": []
@@ -38043,11 +39367,22 @@
                     "accounting_backfill_needed": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "expense_gl_start_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "expense_gl_pending": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "accounting_backfill_needed",
-                    "accounting_enabled"
+                    "accounting_enabled",
+                    "expense_gl_pending"
                 ]
             },
             "AdvanceGstTreatmentEnum": {
@@ -40257,6 +41592,16 @@
                         "type": "string",
                         "maxLength": 16
                     },
+                    "tds_certificate_received_on": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "tds_certificate_ref": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "allocate_on_clear": {
                         "type": "boolean",
                         "readOnly": true
@@ -40395,6 +41740,8 @@
                     "shift",
                     "source",
                     "status",
+                    "tds_certificate_received_on",
+                    "tds_certificate_ref",
                     "tendered",
                     "unallocated",
                     "utr_warning",
@@ -41191,6 +42538,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "warnings": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "progress": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -41208,6 +42563,7 @@
                     "id",
                     "invoiced_stop_count",
                     "number",
+                    "progress",
                     "realized_cogs",
                     "realized_profit",
                     "realized_revenue",
@@ -41215,7 +42571,8 @@
                     "status",
                     "stop_count",
                     "stops",
-                    "updated_at"
+                    "updated_at",
+                    "warnings"
                 ]
             },
             "DeliveryRouteStatusEnum": {
@@ -41304,14 +42661,44 @@
                     "upi_reference": {
                         "type": "string",
                         "maxLength": 64
+                    },
+                    "active_invoice": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "bill": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer_phone": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "returnable_lines": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "acknowledgements": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "acknowledgements",
+                    "active_invoice",
+                    "bill",
+                    "customer",
                     "customer_name",
+                    "customer_phone",
                     "delivered_at",
                     "delivery_address",
                     "id",
                     "order_number",
+                    "returnable_lines",
                     "sales_order"
                 ]
             },
@@ -41486,6 +42873,48 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExpenseStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "voided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "void_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "payment_mode": {
+                        "$ref": "#/components/schemas/PaymentModeEnum"
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "posted_to_books": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "journal_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
                     }
                 },
                 "required": [
@@ -41493,9 +42922,15 @@
                     "category",
                     "category_name",
                     "created_at",
+                    "expense_account_name",
                     "id",
+                    "journal_number",
                     "number",
-                    "updated_at"
+                    "posted_to_books",
+                    "status",
+                    "updated_at",
+                    "void_reason",
+                    "voided_at"
                 ]
             },
             "ExpenseCategory": {
@@ -41524,6 +42959,39 @@
                     "id",
                     "name"
                 ]
+            },
+            "ExpenseCategoryAccount": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "account": {
+                        "type": "integer"
+                    },
+                    "account_name": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                },
+                "required": [
+                    "account",
+                    "account_name",
+                    "category",
+                    "id"
+                ]
+            },
+            "ExpenseStatusEnum": {
+                "enum": [
+                    "ACTIVE",
+                    "VOID"
+                ],
+                "type": "string",
+                "description": "* `ACTIVE` - Active\n* `VOID` - Void"
             },
             "FileAsset": {
                 "type": "object",
@@ -41647,7 +43115,8 @@
                         "readOnly": true
                     },
                     "last_depreciation_error": {
-                        "type": "string"
+                        "type": "string",
+                        "readOnly": true
                     },
                     "status": {
                         "allOf": [
@@ -41682,7 +43151,7 @@
                     },
                     "depreciation_catchup_months": {
                         "type": "string",
-                        "maxLength": 800
+                        "readOnly": true
                     },
                     "created_by": {
                         "type": "integer",
@@ -41703,8 +43172,10 @@
                     "company",
                     "created_at",
                     "depreciated_amount",
+                    "depreciation_catchup_months",
                     "disposed_at",
                     "id",
+                    "last_depreciation_error",
                     "monthly_depreciation",
                     "name",
                     "status",
@@ -42597,15 +44068,30 @@
                         "items": {
                             "$ref": "#/components/schemas/JournalLine"
                         }
+                    },
+                    "source_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "source_path": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "can_reverse": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "can_reverse",
                     "id",
                     "lines",
                     "posted_at",
                     "purpose",
                     "reversed_entry",
                     "source_id",
+                    "source_label",
+                    "source_path",
                     "source_type",
                     "status"
                 ]
@@ -42750,8 +44236,18 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "campaign": {
                         "type": "integer",
+                        "nullable": true
+                    },
+                    "campaign_name": {
+                        "type": "string",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "referral_code": {
@@ -42778,7 +44274,9 @@
                 },
                 "required": [
                     "assigned_to",
+                    "campaign_name",
                     "created_at",
+                    "customer_name",
                     "dedupe_candidates",
                     "dedupe_matched_customer",
                     "dedupe_matched_lead",
@@ -42872,6 +44370,18 @@
                 ],
                 "type": "string",
                 "description": "* `MOTOR` - Motor\n* `HEALTH` - Health\n* `LIFE` - Life\n* `OTHER` - Other"
+            },
+            "LostReasonEnum": {
+                "enum": [
+                    "PRICE",
+                    "COMPETITOR",
+                    "NO_RESPONSE",
+                    "NOT_A_FIT",
+                    "DUPLICATE",
+                    "OTHER"
+                ],
+                "type": "string",
+                "description": "* `PRICE` - Price\n* `COMPETITOR` - Competitor\n* `NO_RESPONSE` - No response\n* `NOT_A_FIT` - Not a fit\n* `DUPLICATE` - Duplicate\n* `OTHER` - Other"
             },
             "MatchClassEnum": {
                 "enum": [
@@ -42996,8 +44506,18 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "lead_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "customer": {
                         "type": "integer",
+                        "nullable": true
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "title": {
@@ -43036,6 +44556,26 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "lost_reason": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/LostReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "lost_reason_note": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "reopened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -43050,7 +44590,10 @@
                 "required": [
                     "closed_at",
                     "created_at",
+                    "customer_name",
                     "id",
+                    "lead_name",
+                    "reopened_at",
                     "stage_move_count",
                     "title",
                     "updated_at"
@@ -43069,6 +44612,10 @@
                     },
                     "product": {
                         "type": "integer"
+                    },
+                    "product_name": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "description": {
                         "type": "string",
@@ -43095,6 +44642,7 @@
                     "id",
                     "opportunity",
                     "product",
+                    "product_name",
                     "quantity",
                     "unit_price"
                 ]
@@ -43963,6 +45511,37 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/Employee"
+                        }
+                    }
+                }
+            },
+            "PaginatedExpenseCategoryAccountList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ExpenseCategoryAccount"
                         }
                     }
                 }
@@ -45424,7 +47003,7 @@
                     }
                 }
             },
-            "PaginatedStockMovementList": {
+            "PaginatedStockLedgerList": {
                 "type": "object",
                 "required": [
                     "count",
@@ -45450,7 +47029,7 @@
                     "results": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/StockMovement"
+                            "$ref": "#/components/schemas/StockLedger"
                         }
                     }
                 }
@@ -47123,6 +48702,16 @@
                         "type": "string",
                         "maxLength": 16
                     },
+                    "tds_certificate_received_on": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "tds_certificate_ref": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "allocate_on_clear": {
                         "type": "boolean",
                         "readOnly": true
@@ -47651,6 +49240,14 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "warnings": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "progress": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -47778,6 +49375,48 @@
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/ExpenseStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "voided_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "void_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "payment_mode": {
+                        "$ref": "#/components/schemas/PaymentModeEnum"
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "posted_to_books": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "journal_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
                     }
                 }
             },
@@ -47871,7 +49510,8 @@
                         "readOnly": true
                     },
                     "last_depreciation_error": {
-                        "type": "string"
+                        "type": "string",
+                        "readOnly": true
                     },
                     "status": {
                         "allOf": [
@@ -47906,7 +49546,7 @@
                     },
                     "depreciation_catchup_months": {
                         "type": "string",
-                        "maxLength": 800
+                        "readOnly": true
                     },
                     "created_by": {
                         "type": "integer",
@@ -48311,8 +49951,18 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "campaign": {
                         "type": "integer",
+                        "nullable": true
+                    },
+                    "campaign_name": {
+                        "type": "string",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "referral_code": {
@@ -48349,8 +49999,18 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "lead_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "customer": {
                         "type": "integer",
+                        "nullable": true
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "title": {
@@ -48389,6 +50049,26 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "lost_reason": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/LostReasonEnum"
+                            },
+                            {
+                                "$ref": "#/components/schemas/BlankEnum"
+                            }
+                        ]
+                    },
+                    "lost_reason_note": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "reopened_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -48414,6 +50094,10 @@
                     },
                     "product": {
                         "type": "integer"
+                    },
+                    "product_name": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "description": {
                         "type": "string",
@@ -48781,6 +50465,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "invoice_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "supplier_note_number": {
                         "type": "string",
                         "maxLength": 64
@@ -48927,6 +50616,11 @@
                     },
                     "purchase_invoice": {
                         "type": "integer",
+                        "nullable": true
+                    },
+                    "invoice_number": {
+                        "type": "string",
+                        "readOnly": true,
                         "nullable": true
                     },
                     "supplier_note_number": {
@@ -50009,6 +51703,14 @@
                         "type": "string",
                         "maxLength": 255
                     },
+                    "sales_return": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "peeled_receipt_allocations": {
+                        "readOnly": true
+                    },
                     "invoice_discount": {
                         "type": "string",
                         "format": "decimal",
@@ -50999,6 +52701,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "fulfilment_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -51343,6 +53049,12 @@
                             "$ref": "#/components/schemas/StockTransferLine"
                         }
                     },
+                    "dispatched_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "completed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -51665,6 +53377,10 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "is_system": {
+                        "type": "boolean",
+                        "readOnly": true
                     },
                     "created_at": {
                         "type": "string",
@@ -52138,6 +53854,14 @@
                     "id",
                     "name"
                 ]
+            },
+            "PaymentModeEnum": {
+                "enum": [
+                    "CASH",
+                    "BANK"
+                ],
+                "type": "string",
+                "description": "* `CASH` - Cash\n* `BANK` - Bank"
             },
             "PaymentPromise": {
                 "type": "object",
@@ -52850,6 +54574,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "invoice_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "supplier_note_number": {
                         "type": "string",
                         "maxLength": 64
@@ -52977,6 +54706,7 @@
                     "grand_total",
                     "id",
                     "igst_total",
+                    "invoice_number",
                     "items",
                     "number",
                     "round_off",
@@ -53135,6 +54865,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "invoice_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "supplier_note_number": {
                         "type": "string",
                         "maxLength": 64
@@ -53262,6 +54997,7 @@
                     "grand_total",
                     "id",
                     "igst_total",
+                    "invoice_number",
                     "items",
                     "number",
                     "round_off",
@@ -55686,6 +57422,14 @@
                         "type": "string",
                         "maxLength": 255
                     },
+                    "sales_return": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "peeled_receipt_allocations": {
+                        "readOnly": true
+                    },
                     "invoice_discount": {
                         "type": "string",
                         "format": "decimal",
@@ -55875,8 +57619,10 @@
                     "items",
                     "number",
                     "pdf_status",
+                    "peeled_receipt_allocations",
                     "round_off",
                     "sales_invoice",
+                    "sales_return",
                     "sgst_total",
                     "status",
                     "subtotal",
@@ -57213,6 +58959,10 @@
                         "readOnly": true,
                         "nullable": true
                     },
+                    "fulfilment_state": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -57287,6 +59037,7 @@
                     "customer_name",
                     "discount_total",
                     "expected_profit",
+                    "fulfilment_state",
                     "grand_total",
                     "id",
                     "igst_total",
@@ -58041,19 +59792,34 @@
                     "reorder_level": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "is_warehouse_specific": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "has_reorder_rule": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "stock_status": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "available",
                     "batch_no",
                     "custom_fields",
+                    "has_reorder_rule",
                     "id",
+                    "is_warehouse_specific",
                     "nearest_expiry",
                     "product",
                     "product_name",
                     "rack_code",
                     "reorder_level",
                     "sku",
+                    "stock_status",
                     "warehouse",
                     "warehouse_name"
                 ]
@@ -58070,6 +59836,15 @@
                     "product_name": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "product_sku": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "product_barcode": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
                     },
                     "batch": {
                         "type": "integer",
@@ -58100,14 +59875,55 @@
                     "held_for_review": {
                         "type": "boolean",
                         "readOnly": true
+                    },
+                    "skipped": {
+                        "type": "boolean"
+                    },
+                    "drift_skipped": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
+                    "variance_value_estimate": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "needs_recheck": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "version": {
+                        "type": "integer",
+                        "minimum": 0
+                    },
+                    "counted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "snapshot_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "filled_from_system": {
+                        "type": "boolean"
                     }
                 },
                 "required": [
                     "batch_no",
+                    "counted_at",
+                    "drift_skipped",
                     "held_for_review",
+                    "needs_recheck",
+                    "product_barcode",
                     "product_name",
+                    "product_sku",
+                    "snapshot_at",
                     "system_qty",
-                    "variance"
+                    "variance",
+                    "variance_value_estimate"
                 ]
             },
             "StockCountSession": {
@@ -58187,12 +60003,17 @@
                 "type": "string",
                 "description": "* `DRAFT` - Draft\n* `COUNTED` - Counted\n* `POSTED` - Posted\n* `CANCELLED` - Cancelled"
             },
-            "StockMovement": {
+            "StockLedger": {
                 "type": "object",
+                "description": "One line of the item ledger (INV-WP-13): what moved, where, why, and what it left behind.",
                 "properties": {
                     "id": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "movement_date": {
+                        "type": "string",
+                        "format": "date"
                     },
                     "product": {
                         "type": "integer"
@@ -58201,26 +60022,52 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "sku": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "warehouse": {
+                        "type": "integer"
+                    },
+                    "warehouse_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "batch": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "batch_no": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "movement_type": {
                         "$ref": "#/components/schemas/MovementTypeEnum"
+                    },
+                    "movement_type_label": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "quantity": {
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$"
                     },
-                    "warehouse": {
-                        "type": "integer"
-                    },
-                    "batch": {
-                        "type": "integer",
-                        "nullable": true
+                    "running_balance": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "unit_cost": {
                         "type": "string",
-                        "format": "decimal",
-                        "pattern": "^-?\\d{0,8}(?:\\.\\d{0,4})?$",
-                        "nullable": true
+                        "readOnly": true
+                    },
+                    "reason": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "reason_code": {
+                        "type": "string",
+                        "maxLength": 24
                     },
                     "reference_type": {
                         "type": "string",
@@ -58230,13 +60077,9 @@
                         "type": "string",
                         "maxLength": 64
                     },
-                    "reason": {
+                    "created_by_name": {
                         "type": "string",
-                        "maxLength": 255
-                    },
-                    "created_by": {
-                        "type": "integer",
-                        "nullable": true
+                        "readOnly": true
                     },
                     "created_at": {
                         "type": "string",
@@ -58245,13 +60088,20 @@
                     }
                 },
                 "required": [
+                    "batch_no",
                     "created_at",
+                    "created_by_name",
                     "id",
                     "movement_type",
+                    "movement_type_label",
                     "product",
                     "product_name",
                     "quantity",
-                    "warehouse"
+                    "running_balance",
+                    "sku",
+                    "unit_cost",
+                    "warehouse",
+                    "warehouse_name"
                 ]
             },
             "StockTransfer": {
@@ -58300,6 +60150,12 @@
                             "$ref": "#/components/schemas/StockTransferLine"
                         }
                     },
+                    "dispatched_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
                     "completed_at": {
                         "type": "string",
                         "format": "date-time",
@@ -58327,6 +60183,7 @@
                     "cancelled_at",
                     "completed_at",
                     "created_at",
+                    "dispatched_at",
                     "from_warehouse",
                     "from_warehouse_name",
                     "id",
@@ -58348,21 +60205,48 @@
                     "product": {
                         "type": "integer"
                     },
+                    "product_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "batch": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "batch_no": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "quantity": {
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$"
                     },
-                    "serial_numbers": {}
+                    "serial_numbers": {},
+                    "shortage_qty": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,9}(?:\\.\\d{0,3})?$",
+                        "readOnly": true
+                    },
+                    "shortage_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "shortage_resolution": {
+                        "type": "string",
+                        "readOnly": true
+                    }
                 },
                 "required": [
+                    "batch_no",
                     "id",
                     "product",
-                    "quantity"
+                    "product_name",
+                    "quantity",
+                    "shortage_qty",
+                    "shortage_reason",
+                    "shortage_resolution"
                 ]
             },
             "StockTransferStatusEnum": {
@@ -58711,6 +60595,60 @@
                 "type": "string",
                 "description": "* `POSTED` - Posted\n* `VOIDED` - Voided"
             },
+            "SupplierPaymentSummary": {
+                "type": "object",
+                "description": "Totals for the supplier payment list filters, across every page.",
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "description": "Payments counted as money out."
+                    },
+                    "paid": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "description": "Cleared money paid out."
+                    },
+                    "cheques_pending": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                    },
+                    "advance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "description": "Paid to suppliers but not yet applied to a bill."
+                    },
+                    "excluded_count": {
+                        "type": "integer",
+                        "description": "Matching payments left out: voided or bounced."
+                    },
+                    "payable": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "Owed to suppliers today. Null unless the caller may view financial reports."
+                    },
+                    "overdue": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true,
+                        "description": "Part of payable that is past due. Null unless the caller may view financial reports."
+                    }
+                },
+                "required": [
+                    "advance",
+                    "cheques_pending",
+                    "count",
+                    "excluded_count",
+                    "overdue",
+                    "paid",
+                    "payable"
+                ]
+            },
             "SupplyNatureEnum": {
                 "enum": [
                     "TAXABLE",
@@ -58786,6 +60724,23 @@
                 ],
                 "type": "string",
                 "description": "* `REGULAR` - Regular\n* `SEZWP` - SEZ with payment\n* `SEZWOP` - SEZ without payment\n* `EXPWP` - Export with payment\n* `EXPWOP` - Export without payment\n* `DEXP` - Deemed export\n* `COMPOSITION` - Composition\n* `UNREGISTERED` - Unregistered"
+            },
+            "TdsCertificateRequest": {
+                "type": "object",
+                "properties": {
+                    "received": {
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "received_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "reference": {
+                        "type": "string",
+                        "maxLength": 64
+                    }
+                }
             },
             "Ticket": {
                 "type": "object",
@@ -59036,6 +60991,10 @@
                     "is_active": {
                         "type": "boolean"
                     },
+                    "is_system": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -59051,6 +61010,7 @@
                     "code",
                     "created_at",
                     "id",
+                    "is_system",
                     "name",
                     "updated_at"
                 ]

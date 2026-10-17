@@ -217,7 +217,7 @@ def _match_debit(company, aa_txn, tol: Decimal) -> str | None:
         aa_txn, list(pay_window.filter(recon_matches__isnull=True))
     )
     not_taken_exp = ~Exists(AaTransaction.objects.filter(matched_expense_id=OuterRef("pk")))
-    expenses = Expense.objects.filter(company=company).filter(not_taken_exp)
+    expenses = Expense.objects.filter(company=company, status=Expense.Status.ACTIVE).filter(not_taken_exp)
     exp_window = _date_window(
         expenses.filter(amount__gte=low, amount__lte=high), aa_txn, "expense_date",
     )
