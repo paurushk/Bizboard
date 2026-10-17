@@ -55,21 +55,47 @@ def _credit_account(company, expense: Expense) -> Account:
     return PostingService._account(company, "1100")
 
 
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
 def expected_lines(company, expense: Expense) -> list[dict]:
-    amount = Decimal(str(expense.amount)).quantize(Decimal("0.01"))
-    return [
-        {"account": resolve_expense_account(company, expense), "debit": amount},
-        {"account": _credit_account(company, expense), "credit": amount},
-    ]
+    """Dr expense (and input tax when claimed) / Cr cash or bank (and TDS payable when deducted).
+
+    ``amount`` is what the expense cost in total. Tax is only split out when the expense is
+    marked ITC-eligible; otherwise it stays in the expense. TDS reduces the cash paid.
+    """
+    amount = _money(expense.amount)
+    cgst, sgst, igst = _money(expense.cgst_amount), _money(expense.sgst_amount), _money(expense.igst_amount)
+    tds = _money(expense.tds_amount)
+    claimed = (cgst + sgst + igst) if expense.itc_eligible else Decimal("0.00")
+    cost_center = expense.cost_center if expense.cost_center_id else None
+
+    def line(account, side, value):
+        row = {"account": account, side: value}
+        if cost_center is not None and side == "debit" and account.type == Account.Type.EXPENSE:
+            row["cost_center"] = cost_center
+        return row
+
+    lines = [line(resolve_expense_account(company, expense), "debit", amount - claimed)]
+    if expense.itc_eligible:
+        for code, part in (("1310", cgst), ("1320", sgst), ("1330", igst)):
+            if part > 0:
+                lines.append({"account": PostingService._account(company, code), "debit": part})
+    lines.append({"account": _credit_account(company, expense), "credit": amount - tds})
+    if tds > 0:
+        lines.append({"account": PostingService._account(company, "2265"), "credit": tds})
+    return lines
 
 
-def _signature(lines) -> set[tuple[int, Decimal, Decimal]]:
+def _signature(lines) -> set[tuple[int, Decimal, Decimal, int]]:
     sig = set()
     for line in lines:
         account = line["account"] if isinstance(line, dict) else line.account
         debit = Decimal(str((line.get("debit") if isinstance(line, dict) else line.debit) or 0)).quantize(Decimal("0.01"))
         credit = Decimal(str((line.get("credit") if isinstance(line, dict) else line.credit) or 0)).quantize(Decimal("0.01"))
-        sig.add((account.id, debit, credit))
+        cc = line.get("cost_center") if isinstance(line, dict) else line.cost_center
+        sig.add((account.id, debit, credit, getattr(cc, "pk", 0) or 0))
     return sig
 
 

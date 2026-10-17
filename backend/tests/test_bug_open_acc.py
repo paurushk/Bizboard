@@ -440,7 +440,7 @@ def test_bug_acc_011_gl_recon_compares_signed_amounts(books):
     )
     assert matched.status_code == 200, matched.data
     assert matched.data["match_kind"] == "gl_statement_line"
-    page = (ROOT / "web/src/pages/phase/AccountingExtraPages.tsx").read_text(encoding="utf-8")
+    page = (ROOT / "web/src/pages/accounting/BankReconWorkspacePage.tsx").read_text(encoding="utf-8")
     assert "Match them anyway" not in page
     assert "Math.abs(toNumber(gl.debit)" not in page
 
@@ -481,9 +481,10 @@ def test_bug_acc_016_books_close_control_is_company_ar(books):
     )
     health = BooksHealthService.control_balances(books.company)
     assert health["ar"]["gl"] == Decimal("150.00")
-    page = (ROOT / "web/src/pages/phase/BooksCloseSection.tsx").read_text(encoding="utf-8")
+    # ACS-31: the close control reads the server's close summary, never one customer's balance.
+    page = (ROOT / "web/src/pages/phase/PeriodsPage.tsx").read_text(encoding="utf-8")
     assert "customers[0]" not in page
-    assert "books-health" in page
+    assert "getCloseSummary" in page
 
 
 def test_bug_acc_012_year_close_ignores_work_orders_when_manufacturing_is_off(books):
@@ -537,7 +538,7 @@ def test_bug_acc_017_gl_recon_points_at_the_other_product(books):
     assert detail.status_code == 200, detail.data
     assert detail.data["match_kind"] == "gl_statement_line"
     assert detail.data["other_recon_path"] == "/payments/reconciliation"
-    page = (ROOT / "web/src/pages/phase/AccountingExtraPages.tsx").read_text(encoding="utf-8")
+    page = (ROOT / "web/src/pages/accounting/BankReconWorkspacePage.tsx").read_text(encoding="utf-8")
     assert 'to="/payments/reconciliation"' in page
 
 

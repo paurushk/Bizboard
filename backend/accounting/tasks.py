@@ -175,7 +175,7 @@ def _depreciate_company_assets(company_id) -> int:
                                 source_id=locked.id,
                                 purpose=purpose,
                                 entry_date=cm,
-                                narration=f"SLM depreciation: {locked.name}",
+                                narration=f"{'WDV' if locked.method == FixedAsset.Method.WDV else 'SLM'} depreciation: {locked.name}",
                                 lines=[
                                     {"account": locked.depreciation_expense_account, "debit": amount},
                                     {"account": locked.accumulated_depreciation_account, "credit": amount},
@@ -272,7 +272,7 @@ def backfill_depreciation_catchup(company_id) -> int:
                             source_id=locked.id,
                             purpose=purpose,
                             entry_date=cm,
-                            narration=f"SLM depreciation: {locked.name}",
+                            narration=f"{'WDV' if locked.method == FixedAsset.Method.WDV else 'SLM'} depreciation: {locked.name}",
                             lines=[
                                 {"account": locked.depreciation_expense_account, "debit": amount},
                                 {"account": locked.accumulated_depreciation_account, "credit": amount},

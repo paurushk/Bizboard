@@ -53,6 +53,15 @@ test.describe('Accessibility smoke (axe)', () => {
     { name: 'customer ledger', path: '/reports/customer-ledger' },
     { name: 'supplier ledger', path: '/reports/supplier-ledger' },
     { name: 'pilot limits', path: '/help/pilot-limits' },
+    // ACS-70: the eight accounting screens.
+    { name: 'chart of accounts', path: '/accounting/accounts' },
+    { name: 'journals', path: '/accounting/journals' },
+    { name: 'cost centres', path: '/accounting/cost-centers' },
+    { name: 'fixed assets', path: '/accounting/fixed-assets' },
+    { name: 'accounting periods', path: '/accounting/periods' },
+    { name: 'bank reconciliation', path: '/accounting/bank-reconciliation' },
+    { name: 'expenses', path: '/accounting/expenses' },
+    { name: 'day book', path: '/reports/day-book' },
   ]) {
     test(`${name} has no serious/critical axe violations`, async ({ page }) => {
       await loginAsOwner(page);

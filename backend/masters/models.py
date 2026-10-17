@@ -69,10 +69,13 @@ class ExpenseCategory(CompanyScopedModel):
     code = models.CharField(max_length=20, blank=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
+    # ACS-17: the order the owner wants categories listed in.
+    sort_order = models.PositiveIntegerField(default=0)
 
     class Meta:
         unique_together = [("company", "name")]
         verbose_name_plural = "expense categories"
+        ordering = ["sort_order", "name"]
 
     def __str__(self):
         return self.name

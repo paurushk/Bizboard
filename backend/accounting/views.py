@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 
@@ -26,12 +27,12 @@ from core.viewsets import CompanyScopedViewSet
 
 from .expense_posting import pending_summary, post_pending_expenses, sync_expense_posting
 from .journal_sources import source_label
-from .models import Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine
+from .models import Account, AccountingPeriod, BankReconSession, CashShiftRegister, CostCenter, Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine, RecurringExpense
 from .reports import balance_sheet, cash_flow, close_financial_year, profit_and_loss, trial_balance
 from .serializers import (
     AccountSerializer, AccountingPeriodSerializer, AccountingSettingsSerializer,
     BankReconSessionSerializer, CashShiftRegisterSerializer, CostCenterSerializer, ExpenseCategoryAccountSerializer,
-    ExpenseSerializer,
+    ExpenseSerializer, RecurringExpenseSerializer,
     FixedAssetSerializer, JournalEntrySerializer, UnreconciledGlLineSerializer,
 )
 from .services import BooksHealthService, PostingService, seed_chart_of_accounts
@@ -54,9 +55,133 @@ class AccountViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     serializer_class = AccountSerializer
 
     def get_permissions(self):
-        if getattr(self, "action", None) in _MUTATE_ACTIONS:
+        action_name = getattr(self, "action", None)
+        if action_name in (*_MUTATE_ACTIONS, "transfer_balance"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
+        if action_name == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), CanExport()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("parent")
+        if getattr(self, "action", None) not in ("list", "export"):
+            return qs
+        params = self.request.query_params
+        if params.get("type"):
+            qs = qs.filter(type=params["type"].upper())
+        active = (params.get("active") or "").lower()
+        if active in ("true", "1", "yes"):
+            qs = qs.filter(is_active=True)
+        elif active in ("false", "0", "no"):
+            qs = qs.filter(is_active=False)
+        if params.get("q"):
+            from django.db.models import Q
+
+            qs = qs.filter(Q(code__icontains=params["q"]) | Q(name__icontains=params["q"]))
+        return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if getattr(self, "action", None) in ("list", "export"):
+            used = set(
+                JournalLine.objects.filter(company=self.company).values_list("account_id", flat=True).distinct()
+            )
+            ctx["used_account_ids"] = used
+            if self.request.query_params.get("with_balance") in ("1", "true", "yes"):
+                from datetime import date as date_cls
+
+                from .reports import _balances
+
+                raw = self.request.query_params.get("as_of")
+                try:
+                    as_of = date_cls.fromisoformat(raw[:10]) if raw else None
+                except ValueError:
+                    raise BusinessRuleError("as_of must be YYYY-MM-DD.")
+                ctx["account_balances"] = {
+                    row["account_id"]: row["balance"] for row in _balances(self.company, as_of=as_of)
+                }
+        return ctx
+
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        """ACS-50: the chart (with balances when asked) as CSV or XLSX."""
+        rows = AccountSerializer(
+            self.filter_queryset(self.get_queryset()), many=True, context=self.get_serializer_context()
+        ).data
+        header = ["Code", "Name", "Type", "Parent", "Active", "Balance"]
+        data = [
+            [r["code"], r["name"], r["type"], r["parent_name"], "Yes" if r["is_active"] else "No", r["balance"] or ""]
+            for r in rows
+        ]
+        if request.query_params.get("file") == "xlsx":
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Chart of accounts"
+            ws.append(header)
+            for r in data:
+                ws.append(r)
+            out = BytesIO()
+            wb.save(out)
+            resp = HttpResponse(
+                out.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            resp["Content-Disposition"] = 'attachment; filename="chart-of-accounts.xlsx"'
+            return resp
+        import csv
+
+        resp = HttpResponse(content_type="text/csv")
+        resp["Content-Disposition"] = 'attachment; filename="chart-of-accounts.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(header)
+        for r in data:
+            writer.writerow([("'" + c) if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in r])
+        return resp
+
+    @action(detail=True, methods=["post"], url_path="transfer-balance")
+    @transaction.atomic
+    def transfer_balance(self, request, pk=None):
+        """ACS-50: draft a journal that moves this account's balance to another, so it can then be deactivated."""
+        from datetime import date as date_cls
+
+        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+
+        source = self.get_object()
+        if source.is_system:
+            raise BusinessRuleError("System accounts cannot be emptied here.")
+        target = Account.objects.filter(company=self.company, pk=request.data.get("to_account"), is_active=True).first()
+        if target is None or target.pk == source.pk:
+            raise BusinessRuleError("Choose a different active account to move the balance to.")
+        agg = source.journal_lines.filter(
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
+        balance = (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
+        if balance == 0:
+            raise BusinessRuleError("This account has no balance to move.")
+        raw = request.data.get("entry_date")
+        entry_date = date_cls.fromisoformat(str(raw)[:10]) if raw else timezone.localdate()
+        number = DocumentNumberService.next_number(
+            self.company, "JOURNAL_ENTRY", gstin=resolve_series_gstin(self.company), on_date=entry_date,
+        )
+        entry = JournalEntry.objects.create(
+            company=self.company, status=JournalEntry.Status.DRAFT, number=number, entry_date=entry_date,
+            narration=f"Move balance of {source.code} {source.name} to {target.code} {target.name}",
+            created_by=request.user, updated_by=request.user,
+        )
+        amount = abs(balance)
+        # Clearing a debit balance credits the source and debits the target, and the reverse.
+        if balance > 0:
+            lines = [(source, 0, amount), (target, amount, 0)]
+        else:
+            lines = [(source, amount, 0), (target, 0, amount)]
+        JournalLine.objects.bulk_create([
+            JournalLine(company=self.company, entry=entry, account=a, debit=Decimal(d), credit=Decimal(c))
+            for a, d, c in lines
+        ])
+        return Response(
+            {"journal_id": entry.pk, "number": entry.number, "amount": str(amount)}, status=status.HTTP_201_CREATED,
+        )
 
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
@@ -87,7 +212,7 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 
     def get_permissions(self):
         # BB-000453: period CLOSE / mutate is Owner-only (not Accountant CanPostJournals).
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "soft_close", "close", "close_period"):
+        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "soft_close", "close", "close_period", "reopen", "generate"):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
@@ -108,6 +233,40 @@ class PeriodViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             raise BusinessRuleError(
                 f"Close {earlier_open.name} first — periods must be closed in order."
             )
+
+    @action(detail=True, methods=["get"], url_path="close-readiness")
+    def close_readiness(self, request, pk=None):
+        """ACS-30: why this month can or cannot close, with a fix link for each blocker."""
+        from . import period_ops
+
+        return Response(period_ops.close_readiness(self.company, self.get_object()))
+
+    @action(detail=False, methods=["get"], url_path="close-summary")
+    def close_summary(self, request):
+        """ACS-31: one cheap row per month for the Periods table."""
+        from . import period_ops
+
+        return Response({"results": period_ops.close_summary(self.company)})
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        """ACS-32: step a closed month back (Closed to Soft-closed, Soft-closed to Open). Owner only, reason required."""
+        from . import period_ops
+
+        period = self.get_object()
+        reopened = period_ops.reopen_period(self.company, period.pk, request.user, request.data.get("reason", ""))
+        return Response(self.get_serializer(reopened).data)
+
+    @action(detail=False, methods=["post"])
+    def generate(self, request):
+        """ACS-33: create the twelve months of a financial year in one go."""
+        from . import period_ops
+
+        try:
+            year = int(request.data.get("fy_start_year") or request.data.get("fyStartYear"))
+        except (TypeError, ValueError):
+            raise BusinessRuleError("Choose the year the financial year starts in.")
+        return Response(period_ops.generate_year(self.company, year, request.user), status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="soft-close")
     @transaction.atomic
@@ -197,8 +356,96 @@ class CostCenterViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("parent")
+        if getattr(self, "action", None) == "list":
+            active = (self.request.query_params.get("active") or "").lower()
+            if active in ("true", "1"):
+                qs = qs.filter(is_active=True)
+            elif active in ("false", "0"):
+                qs = qs.filter(is_active=False)
+        return qs
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if getattr(self, "action", None) == "list":
+            from django.db.models import Count
+
+            from purchases.models import PurchaseInvoice
+            from sales.models import SalesInvoice
+
+            usage = {}
+
+            def bump(rows, key):
+                for row in rows:
+                    slot = usage.setdefault(row["cost_center_id"], {"journal_lines": 0, "invoices": 0, "expenses": 0})
+                    slot[key] += row["n"]
+
+            bump(JournalLine.objects.filter(company=self.company, cost_center__isnull=False).values("cost_center_id").annotate(n=Count("id")), "journal_lines")
+            bump(SalesInvoice.objects.filter(company=self.company, cost_center__isnull=False).values("cost_center_id").annotate(n=Count("id")), "invoices")
+            bump(PurchaseInvoice.objects.filter(company=self.company, cost_center__isnull=False).values("cost_center_id").annotate(n=Count("id")), "invoices")
+            bump(Expense.objects.filter(company=self.company, cost_center__isnull=False).values("cost_center_id").annotate(n=Count("id")), "expenses")
+            ctx["cost_center_usage"] = usage
+        return ctx
+
     def perform_create(self, serializer):
         serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
+        self._audit("CREATE", serializer.instance)
+
+    @action(detail=False, methods=["get"])
+    def report(self, request):
+        """ACS-51: income, expense and net by cost centre for a date range, with an unallocated bucket."""
+        from datetime import date as date_cls
+
+        def parse(name):
+            raw = request.query_params.get(name)
+            if not raw:
+                return None
+            try:
+                return date_cls.fromisoformat(raw[:10])
+            except ValueError:
+                raise BusinessRuleError(f"{name} must be YYYY-MM-DD.")
+
+        date_from, date_to = parse("date_from"), parse("date_to")
+        qs = JournalLine.objects.filter(
+            company=self.company,
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            account__type__in=(Account.Type.INCOME, Account.Type.EXPENSE),
+        ).exclude(entry__purpose="FY_CLOSE").exclude(entry__reversal_of__purpose="FY_CLOSE")
+        if date_from:
+            qs = qs.filter(entry__entry_date__gte=date_from)
+        if date_to:
+            qs = qs.filter(entry__entry_date__lte=date_to)
+        rows = qs.values("cost_center_id", "account__type").annotate(d=Sum("debit"), c=Sum("credit"))
+        buckets = {}
+        for row in rows:
+            slot = buckets.setdefault(row["cost_center_id"], {"income": Decimal("0"), "expense": Decimal("0")})
+            d, c = row["d"] or Decimal("0"), row["c"] or Decimal("0")
+            if row["account__type"] == Account.Type.INCOME:
+                slot["income"] += c - d
+            else:
+                slot["expense"] += d - c
+        names = {cc.pk: cc for cc in CostCenter.objects.filter(company=self.company)}
+        results = []
+        total_income = total_expense = Decimal("0")
+        for cc_id, vals in sorted(buckets.items(), key=lambda kv: (kv[0] is None, names[kv[0]].code if kv[0] in names else "")):
+            total_income += vals["income"]
+            total_expense += vals["expense"]
+            cc = names.get(cc_id)
+            results.append({
+                "cost_center": cc_id,
+                "code": cc.code if cc else "",
+                "name": cc.name if cc else "Unallocated",
+                "income": str(vals["income"]),
+                "expense": str(vals["expense"]),
+                "net": str(vals["income"] - vals["expense"]),
+            })
+        return Response({
+            "results": results,
+            "totals": {
+                "income": str(total_income), "expense": str(total_expense), "net": str(total_income - total_expense),
+            },
+        })
 
     def perform_destroy(self, instance):
         try:
@@ -216,18 +463,56 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 
     queryset = JournalEntry.objects.all()
     serializer_class = JournalEntrySerializer
-    http_method_names = ["get", "post", "head", "options"]
+    # ACS-20: PUT/PATCH/DELETE reach drafts only; the guard is in update()/destroy().
+    http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
 
     def get_permissions(self):
         # BB-000200/316: create / post / reverse journals requires Owner or
-        # can_post_journals. (B1-015: PUT/PATCH/DELETE are not routable here —
-        # see http_method_names — so they are not in the map.)
-        if getattr(self, "action", None) in ("create", "post", "reverse"):
+        # can_post_journals.
+        action_name = getattr(self, "action", None)
+        if action_name in ("create", "post", "reverse", "update", "partial_update", "destroy"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
+        if action_name == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), CanExport()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get_queryset(self):
-        return super().get_queryset().prefetch_related("lines")
+        qs = (
+            super().get_queryset()
+            .select_related("posted_by", "reversal_of")
+            .prefetch_related("lines__account", "lines__cost_center", "lines__customer", "lines__supplier")
+        )
+        if getattr(self, "action", None) not in ("list", "export"):
+            return qs
+        return self._filtered(qs)
+
+    def _filtered(self, qs):
+        """ACS-23: server-side register filters. Discarded drafts are hidden unless asked for."""
+        from django.db.models import Q
+
+        params = self.request.query_params
+        status_param = (params.get("status") or "").strip().upper()
+        if status_param:
+            qs = qs.filter(status__in=[v for v in status_param.split(",") if v])
+        else:
+            qs = qs.exclude(status=JournalEntry.Status.DISCARDED)
+        if params.get("date_from"):
+            qs = qs.filter(entry_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(entry_date__lte=params["date_to"])
+        if params.get("number"):
+            qs = qs.filter(number__icontains=params["number"].strip())
+        source = (params.get("source_type") or "").strip()
+        if source:
+            qs = qs.filter(source_type=source)
+        q = (params.get("q") or "").strip()
+        if q:
+            qs = qs.filter(
+                Q(narration__icontains=q) | Q(reference__icontains=q) | Q(lines__narration__icontains=q)
+            ).distinct()
+        if params.get("account"):
+            qs = qs.filter(lines__account_id=params["account"]).distinct()
+        return qs
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -235,6 +520,12 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         # select_for_update guard needs an open transaction to be effective.
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # ACS-24: a repeated create with the same token (double click, retry) returns the first draft.
+        token = (serializer.validated_data.get("client_token") or "").strip()
+        if token:
+            existing = JournalEntry.objects.filter(company=self.company, client_token=token).first()
+            if existing is not None:
+                return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
         lines = serializer.validated_data.pop("lines")
         # B1-031: cross-tenant account / cost_center / bank_statement_line checks
         # live in JournalLineSerializer (validate_account / validate_cost_center;
@@ -262,19 +553,116 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             )
         entry = JournalEntry.objects.create(company=self.company, status=JournalEntry.Status.DRAFT,
             number=number, entry_date=serializer.validated_data.get("entry_date"),
-            narration=serializer.validated_data.get("narration", ""), created_by=request.user, updated_by=request.user)
+            narration=serializer.validated_data.get("narration", ""),
+            reference=serializer.validated_data.get("reference", ""),
+            client_token=token,
+            created_by=request.user, updated_by=request.user)
         JournalLine.objects.bulk_create([
             JournalLine(company=entry.company, entry=entry, **line) for line in lines
         ])
         return Response(self.get_serializer(entry).data, status=status.HTTP_201_CREATED)
 
+    def _draft_for_change(self, pk):
+        from django.shortcuts import get_object_or_404
+
+        entry = get_object_or_404(JournalEntry.objects.select_for_update().filter(company=self.company), pk=pk)
+        if entry.status != JournalEntry.Status.DRAFT:
+            raise BusinessRuleError(
+                "Only a draft journal can be changed. Reverse a posted manual journal instead.",
+                code="journal_not_draft",
+            )
+        return entry
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        """ACS-20: edit a draft. Header and lines are replaced together; the number stays."""
+        entry = self._draft_for_change(kwargs.get("pk"))
+        serializer = self.get_serializer(entry, data=request.data, partial=bool(kwargs.get("partial")))
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        lines = data.pop("lines", None)
+        for field in ("entry_date", "narration", "reference"):
+            if field in data:
+                setattr(entry, field, data[field])
+        entry.updated_by = request.user
+        entry.save()
+        if lines is not None:
+            entry.lines.all().delete()
+            JournalLine.objects.bulk_create([JournalLine(company=entry.company, entry=entry, **line) for line in lines])
+        from core.services.audit import record_document_event
+
+        record_document_event(document=entry, user=request.user, event="journal.draft_edited", before={"status": "DRAFT"})
+        entry = self.get_queryset().get(pk=entry.pk)
+        return Response(self.get_serializer(entry).data)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        """ACS-20: discard a draft. The number is kept (status DISCARDED) so the series has no silent gap."""
+        entry = self._draft_for_change(kwargs.get("pk"))
+        entry.status = JournalEntry.Status.DISCARDED
+        entry.updated_by = request.user
+        entry.save(update_fields=["status", "updated_by", "updated_at"])
+        from core.services.audit import record_document_event
+
+        record_document_event(document=entry, user=request.user, event="journal.draft_discarded", before={"status": "DRAFT"})
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        """ACS-23: the filtered register as CSV (or XLSX with ?file=xlsx), one row per line."""
+        qs = self._filtered(self.get_queryset()).order_by("entry_date", "id")[:20000]
+        header = ["Number", "Date", "Status", "Source", "Narration", "Reference", "Account code", "Account",
+                  "Party", "Cost centre", "Line narration", "Debit", "Credit"]
+        rows = []
+        for entry in qs:
+            for line in entry.lines.all():
+                rows.append([
+                    entry.number, entry.entry_date.isoformat(), entry.status,
+                    source_label(entry.source_type) if entry.source_type else "Manual entry",
+                    entry.narration, entry.reference, line.account.code, line.account.name,
+                    (line.customer.name if line.customer_id else (line.supplier.name if line.supplier_id else "")),
+                    line.cost_center.name if line.cost_center_id else "", line.narration,
+                    str(line.debit), str(line.credit),
+                ])
+        if request.query_params.get("file") == "xlsx":
+            from openpyxl import Workbook
+
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Journals"
+            sheet.append(header)
+            for row in rows:
+                sheet.append(row)
+            output = BytesIO()
+            workbook.save(output)
+            response = HttpResponse(
+                output.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = 'attachment; filename="journals.xlsx"'
+            return response
+        import csv
+
+        response = HttpResponse(content_type="text/csv")
+        response["Content-Disposition"] = 'attachment; filename="journals.csv"'
+        writer = csv.writer(response)
+        writer.writerow(header)
+        for row in rows:
+            # A cell that starts like a formula would run in Excel; prefix it.
+            writer.writerow([("'" + c) if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in row])
+        return response
+
     @action(detail=True, methods=["post"])
     @transaction.atomic
     def post(self, request, pk=None):
         # CR-156: assert + status flip in one atomic so soft_close cannot race.
-        entry = self.get_object()
+        entry = JournalEntry.objects.select_for_update().filter(company=self.company, pk=pk).first()
+        if entry is None:
+            from django.http import Http404
+
+            raise Http404
         if entry.status != JournalEntry.Status.DRAFT:
-            raise BusinessRuleError("Only draft journals can be posted.")
+            raise BusinessRuleError("Only draft journals can be posted.", code="journal_not_draft")
         totals = entry.lines.aggregate(debit=Sum("debit"), credit=Sum("credit"))
         if not entry.lines.exists() or (totals["debit"] or 0) != (totals["credit"] or 0):
             raise BusinessRuleError("Journal lines must balance before posting.")
@@ -362,13 +750,41 @@ class JournalViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
 class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
     queryset = BankReconSession.objects.all()
     serializer_class = BankReconSessionSerializer
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    _WRITE_ACTIONS = (
+        "create", "partial_update", "match", "match_many", "unmatch", "accept_suggestions", "create_entry", "finalise",
+    )
 
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "match"):
+        action_name = getattr(self, "action", None)
+        if action_name == "reopen":
+            return [IsAuthenticated(), HasCompany(), IsOwner()]
+        if action_name in self._WRITE_ACTIONS:
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
+        if action_name == "report":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("account", "statement__bank_account", "finalised_by")
+        if getattr(self, "action", None) == "list":
+            params = self.request.query_params
+            if params.get("status"):
+                qs = qs.filter(status__in=[v for v in params["status"].upper().split(",") if v])
+            if params.get("account"):
+                qs = qs.filter(account_id=params["account"])
+        return qs.order_by("-id")
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if getattr(self, "action", None) in ("retrieve", "create", "finalise", "reopen"):
+            ctx["with_summary"] = True
+        return ctx
+
     def perform_create(self, serializer):
+        from . import bank_match
+
         account = serializer.validated_data["account"]
         statement = serializer.validated_data["statement"]
         if account.company_id != self.company.id or statement.company_id != self.company.id:
@@ -380,62 +796,228 @@ class BankReconSessionViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         ).aggregate(d=Sum("debit"), c=Sum("credit"))
         statement_balance = statement.lines.aggregate(total=Sum("amount"))["total"] or Decimal("0")
         gl_balance = (gl.get("d") or Decimal("0")) - (gl.get("c") or Decimal("0"))
-        serializer.save(
+        session = serializer.save(
             company=self.company,
             gl_balance=gl_balance,
             statement_balance=statement_balance,
             created_by=self.request.user,
             updated_by=self.request.user,
         )
+        if session.statement_date is None:
+            session.statement_date = bank_match.statement_date_for(session)
+            session.save(update_fields=["statement_date"])
+        bank_match.refresh_status(session)
 
-    @action(detail=True, methods=["post"])
-    @transaction.atomic
-    def match(self, request, pk=None):
-        from payments.models import BankStatementLine
+    def _session(self):
+        return self.get_object()
+
+    def partial_update(self, request, *args, **kwargs):
+        """ACS-41: set the statement date and the bank's closing balance. Nothing else changes here."""
+        from . import bank_match
 
         session = self.get_object()
-        line = (
-            JournalLine.objects.select_for_update()
-            .filter(
-                entry__company=self.company,
-                pk=request.data.get("journal_line"),
-                account=session.account,
-                bank_statement_line__isnull=True,
-            )
-            .first()
-        )
-        bank_line_id = request.data.get("bank_statement_line")
-        # BB-000203: scope bank statement line to this company (IDOR).
-        bank_line = (
-            BankStatementLine.objects.select_for_update()
-            .filter(company=self.company, pk=bank_line_id)
-            .first()
-            if bank_line_id
-            else None
-        )
-        if not line or not bank_line:
+        if session.status == BankReconSession.Status.FINALISED:
+            raise BusinessRuleError("This reconciliation is finalised. Reopen it to change it.", code="recon_finalised")
+        data = {k: request.data[k] for k in ("statement_date", "statement_closing_balance") if k in request.data}
+        serializer = self.get_serializer(session, data=data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        bank_match.refresh_status(session)
+        session.refresh_from_db()
+        return Response(self.get_serializer(session).data)
+
+    def _page(self, qs, rows):
+        page = self.paginate_queryset(qs)
+        target = page if page is not None else list(qs)
+        data = [rows(x) for x in target]
+        return self.get_paginated_response(data) if page is not None else Response(data)
+
+    @action(detail=True, methods=["post"])
+    def match(self, request, pk=None):
+        from . import bank_match
+
+        session = self._session()
+        jl, bl = request.data.get("journal_line"), request.data.get("bank_statement_line")
+        if not jl or not bl:
             raise BusinessRuleError("An unreconciled journal line and bank statement line are required.")
-        if session.statement_id and bank_line.statement_id != session.statement_id:
-            raise BusinessRuleError("Bank statement line must belong to this recon session's statement.")
-        je_amount = (line.debit or Decimal("0")) - (line.credit or Decimal("0"))
-        bank_amount = bank_line.amount or Decimal("0")
-        if abs(je_amount - bank_amount) > Decimal("0.01"):
-            raise BusinessRuleError("Journal line amount must match the bank statement line.")
-        if JournalLine.objects.filter(bank_statement_line=bank_line).exclude(pk=line.pk).exists():
-            raise BusinessRuleError("This bank statement line is already reconciled.")
-        line.bank_statement_line = bank_line
-        line.reconciled_at = timezone.now()
-        line.save(update_fields=["bank_statement_line", "reconciled_at"])
+        bank_match.match_gl(self.company, request.user, session, [jl], [bl])
+        return Response({"ok": True, "match_kind": "gl_statement_line", "other_recon_path": "/payments/reconciliation"})
+
+    @action(detail=True, methods=["post"], url_path="match-many")
+    def match_many(self, request, pk=None):
+        from . import bank_match
+
+        session = self._session()
+        result = bank_match.match_gl(
+            self.company, request.user, session,
+            request.data.get("journal_lines") or [], request.data.get("bank_lines") or [],
+        )
+        return Response({"ok": True, **result})
+
+    @action(detail=True, methods=["post"])
+    def unmatch(self, request, pk=None):
+        from payments.models import BankStatementLine
+
+        from . import bank_match
+
+        session = self._session()
+        line = BankStatementLine.objects.filter(
+            company=self.company, pk=request.data.get("bank_line"), statement=session.statement
+        ).first()
+        if line is None:
+            raise BusinessRuleError("Statement line not found on this reconciliation.")
+        if session.status == BankReconSession.Status.FINALISED:
+            raise BusinessRuleError("This reconciliation is finalised. Reopen it to change matches.", code="recon_finalised")
+        return Response({"ok": True, **bank_match.unmatch_line(self.company, request.user, line)})
+
+    @action(detail=True, methods=["get"], url_path="statement-lines")
+    def statement_lines(self, request, pk=None):
+        """ACS-42: the statement side of the workspace, filterable and paged."""
+        from django.db.models import Q
+
         from payments.models import BankLineMatchStatus
 
-        if bank_line.match_status != BankLineMatchStatus.MATCHED:
-            bank_line.match_status = BankLineMatchStatus.MATCHED
-            bank_line.save(update_fields=["match_status", "updated_at"])
-        return Response({
-            "ok": True,
-            "match_kind": "gl_statement_line",
-            "other_recon_path": "/payments/reconciliation",
+        session = self._session()
+        qs = session.statement.lines.all()
+        params = request.query_params
+        state = (params.get("status") or "open").lower()
+        if state == "open":
+            qs = qs.filter(match_status__in=[BankLineMatchStatus.UNMATCHED, BankLineMatchStatus.SUGGESTED])
+        elif state == "matched":
+            qs = qs.filter(match_status=BankLineMatchStatus.MATCHED)
+        elif state != "all":
+            qs = qs.filter(match_status=state.upper())
+        if params.get("q"):
+            qs = qs.filter(Q(narration__icontains=params["q"]) | Q(utr__icontains=params["q"]))
+        if params.get("amount"):
+            qs = qs.filter(amount=params["amount"])
+        if params.get("date_from"):
+            qs = qs.filter(txn_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(txn_date__lte=params["date_to"])
+        return self._page(qs.order_by("txn_date", "id"), lambda b: {
+            "id": b.pk, "txn_date": b.txn_date.isoformat(), "narration": b.narration, "utr": b.utr,
+            "amount": str(b.amount), "match_status": b.match_status,
         })
+
+    @action(detail=True, methods=["get"], url_path="ledger-lines")
+    def ledger_lines(self, request, pk=None):
+        """ACS-42: the ledger side of the workspace: this bank's unreconciled lines, filterable and paged."""
+        from django.db.models import Q
+
+        from . import bank_match
+
+        session = self._session()
+        as_at = bank_match.statement_date_for(session)
+        qs = JournalLine.objects.filter(
+            company=self.company, account=session.account, entry__status=JournalEntry.Status.POSTED,
+            bank_statement_line__isnull=True, reconciled_at__isnull=True,
+            entry__entry_date__lte=as_at,
+        ).select_related("entry")
+        params = request.query_params
+        if params.get("q"):
+            qs = qs.filter(Q(entry__narration__icontains=params["q"]) | Q(entry__number__icontains=params["q"]))
+        if params.get("date_from"):
+            qs = qs.filter(entry__entry_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(entry__entry_date__lte=params["date_to"])
+        if params.get("amount"):
+            amount = Decimal(params["amount"])
+            qs = qs.filter(Q(debit=amount) | Q(credit=abs(amount)))
+        return self._page(qs.order_by("entry__entry_date", "id"), lambda j: {
+            "id": j.pk, "entry_id": j.entry_id, "entry_number": j.entry.number,
+            "entry_date": j.entry.entry_date.isoformat(), "narration": j.entry.narration,
+            "signed_amount": str((j.debit or Decimal("0")) - (j.credit or Decimal("0"))),
+        })
+
+    @action(detail=True, methods=["get"])
+    def suggestions(self, request, pk=None):
+        from . import bank_match
+
+        session = self._session()
+        window = int(request.query_params.get("window") or 5)
+        return Response({"results": bank_match.suggestions(session, window_days=max(0, min(window, 30)))})
+
+    @action(detail=True, methods=["post"], url_path="accept-suggestions")
+    def accept_suggestions(self, request, pk=None):
+        from . import bank_match
+
+        session = self._session()
+        pairs = request.data.get("pairs")
+        if pairs is None:
+            wanted = (request.data.get("confidence") or "high").lower()
+            pairs = [
+                {"bank_line": r["bank_line"], "journal_line": r["journal_line"]}
+                for r in bank_match.suggestions(session)
+                if r["confidence"] == wanted
+            ]
+        if request.data.get("preview") in (True, "true", 1, "1"):
+            return Response({"preview": True, "pairs": pairs, "count": len(pairs)})
+        return Response(bank_match.accept_suggestions(self.company, request.user, session, pairs))
+
+    @action(detail=True, methods=["post"], url_path="create-entry")
+    def create_entry(self, request, pk=None):
+        from datetime import date as date_cls
+
+        from . import bank_match
+
+        session = self._session()
+        raw = request.data.get("entry_date")
+        try:
+            entry_date = date_cls.fromisoformat(str(raw)[:10]) if raw else None
+        except ValueError as exc:
+            raise BusinessRuleError("entry_date must be YYYY-MM-DD.") from exc
+        result = bank_match.create_entry_from_line(
+            self.company, request.user, session, request.data.get("bank_line"), request.data.get("account"),
+            narration=request.data.get("narration", ""), entry_date=entry_date,
+        )
+        return Response(result, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def finalise(self, request, pk=None):
+        from . import bank_match
+
+        cu = get_company_user(request)
+        session = bank_match.finalise(
+            self._session().pk, self.company, request.user,
+            write_off=request.data.get("write_off") in (True, "true", 1, "1"),
+            is_owner=bool(cu and cu.role == "OWNER"),
+        )
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["post"])
+    def reopen(self, request, pk=None):
+        from . import bank_match
+
+        session = bank_match.reopen(self._session().pk, self.company, request.user, request.data.get("reason", ""))
+        return Response(self.get_serializer(session).data)
+
+    @action(detail=True, methods=["get"])
+    def report(self, request, pk=None):
+        """ACS-46: the reconciliation statement as JSON (default), XLSX or PDF."""
+        from . import bank_match
+
+        session = self._session()
+        kind = (request.query_params.get("file") or "json").lower()
+        if kind == "json":
+            return Response(bank_match.reconciliation_report(session))
+        # A file leaves the product, so it needs the export right.
+        if not CanExport().has_permission(request, self):
+            from rest_framework.exceptions import PermissionDenied
+
+            raise PermissionDenied()
+        if kind == "xlsx":
+            resp = HttpResponse(
+                bank_match.report_xlsx(session),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            resp["Content-Disposition"] = f'attachment; filename="bank-reconciliation-{session.pk}.xlsx"'
+            return resp
+        if kind == "pdf":
+            resp = HttpResponse(bank_match.report_pdf(session), content_type="application/pdf")
+            resp["Content-Disposition"] = f'attachment; filename="bank-reconciliation-{session.pk}.pdf"'
+            return resp
+        raise BusinessRuleError("file must be json, xlsx or pdf.")
 
 
 class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
@@ -454,16 +1036,33 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
         super().initial(request, *args, **kwargs)
 
     def get_permissions(self):
-        if getattr(self, "action", None) in (*_MUTATE_ACTIONS, "dispose"):
+        action_name = getattr(self, "action", None)
+        if action_name in (*_MUTATE_ACTIONS, "dispose", "run_depreciation", "register_check_draft"):
             return [IsAuthenticated(), HasCompany(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        if getattr(self, "action", None) == "list":
+            last = {}
+            for e in JournalEntry.objects.filter(
+                company=self.company, source_type="FIXED_ASSET", status=JournalEntry.Status.POSTED,
+                purpose__startswith="DEPRECIATION-",
+            ).values("source_id", "entry_date"):
+                month = e["entry_date"].strftime("%Y-%m")
+                if month > last.get(e["source_id"], ""):
+                    last[e["source_id"]] = month
+            ctx["last_dep_month"] = last
+        return ctx
+
+    @transaction.atomic
     def perform_create(self, serializer):
         from .services import seed_chart_of_accounts
 
         accounts = seed_chart_of_accounts(self.company, self.request.user)
         validated = serializer.validated_data
-        serializer.save(
+        funding = validated.get("funding") or FixedAsset.Funding.ALREADY_BOOKED
+        asset = serializer.save(
             company=self.company,
             created_by=self.request.user,
             updated_by=self.request.user,
@@ -471,6 +1070,139 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             accumulated_depreciation_account=validated.get("accumulated_depreciation_account") or accounts["1650"],
             depreciation_expense_account=validated.get("depreciation_expense_account") or accounts["5300"],
         )
+        if funding == FixedAsset.Funding.ALREADY_BOOKED:
+            return
+        # ACS-53: book the purchase so the register and the ledger agree from day one.
+        if funding == FixedAsset.Funding.CASH:
+            credit = {"account": accounts["1100"]}
+        elif funding == FixedAsset.Funding.BANK:
+            credit = {"account": PostingService._bank_gl_account(self.company, asset.funding_bank_account, asset.acquisition_date)}
+        else:
+            credit = {"account": accounts["2100"], "supplier": asset.funding_supplier}
+        cost = asset.acquisition_cost
+        entry = PostingService.post(
+            company=self.company, source_type="FIXED_ASSET", source_id=asset.id, purpose="ACQUISITION",
+            entry_date=asset.acquisition_date, user=self.request.user,
+            narration=f"Acquisition: {asset.name}",
+            lines=[{"account": asset.asset_account, "debit": cost}, {**credit, "credit": cost}],
+        )
+        if entry is None:
+            raise BusinessRuleError(
+                "The acquisition date is before the books start date, so the purchase cannot be booked. "
+                "Register it as already booked, or use a later date.",
+                code="asset_acquisition_before_books",
+            )
+        asset.acquisition_journal = entry
+        asset.save(update_fields=["acquisition_journal", "updated_at"])
+
+    @action(detail=False, methods=["get"])
+    def presets(self, request):
+        """ACS-55: starting points for life and rates. These are suggestions; confirm the rates with your CA."""
+        return Response({"results": [
+            {"key": "computers", "name": "Computers and laptops", "useful_life_months": 36, "method": "SLM", "wdv_annual_rate": "40.00"},
+            {"key": "office_equipment", "name": "Office equipment", "useful_life_months": 60, "method": "SLM", "wdv_annual_rate": "15.00"},
+            {"key": "furniture", "name": "Furniture and fittings", "useful_life_months": 120, "method": "SLM", "wdv_annual_rate": "10.00"},
+            {"key": "vehicles", "name": "Vehicles", "useful_life_months": 96, "method": "SLM", "wdv_annual_rate": "15.00"},
+            {"key": "plant", "name": "Plant and machinery", "useful_life_months": 180, "method": "SLM", "wdv_annual_rate": "15.00"},
+            {"key": "buildings", "name": "Buildings", "useful_life_months": 360, "method": "SLM", "wdv_annual_rate": "10.00"},
+        ], "note": "Rates are suggestions. Check them with your CA before relying on them."})
+
+    @action(detail=False, methods=["get"])
+    def summary(self, request):
+        """ACS-52: totals for the cards, and the register against the ledger (ACS-53)."""
+        from . import depreciation
+
+        assets = list(FixedAsset.objects.filter(company=self.company, status=FixedAsset.Status.ACTIVE))
+        cost = sum((a.acquisition_cost for a in assets), Decimal("0"))
+        accum = sum((a.depreciated_amount for a in assets), Decimal("0"))
+        month_charge = sum((a.monthly_depreciation for a in assets), Decimal("0"))
+        gl = self._gl_totals()
+        return Response({
+            "count": len(assets), "total_cost": str(cost), "accumulated": str(accum), "net_book_value": str(cost - accum),
+            "this_month_charge": str(month_charge),
+            "register_vs_gl": {
+                "register_cost": str(cost), "gl_cost": str(gl["cost"]), "cost_difference": str(cost - gl["cost"]),
+                "register_accumulated": str(accum), "gl_accumulated": str(gl["accum"]),
+                "accumulated_difference": str(accum - gl["accum"]),
+            },
+            "errors": FixedAsset.objects.filter(company=self.company, status=FixedAsset.Status.ACTIVE).exclude(last_depreciation_error="").count(),
+            "last_completed_month": depreciation.last_completed_month_end().strftime("%Y-%m"),
+        })
+
+    def _gl_totals(self):
+        def balance(code):
+            agg = JournalLine.objects.filter(
+                company=self.company, account__code=code,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            ).aggregate(d=Sum("debit"), c=Sum("credit"))
+            return (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
+
+        return {"cost": balance("1600"), "accum": -balance("1650")}
+
+    @action(detail=False, methods=["post"], url_path="register-check/draft")
+    @transaction.atomic
+    def register_check_draft(self, request):
+        """ACS-53: draft (not post) the journal that brings 1600/1650 in line with the register."""
+        from core.services.document_numbers import DocumentNumberService, resolve_series_gstin
+
+        assets = list(FixedAsset.objects.filter(company=self.company, status=FixedAsset.Status.ACTIVE))
+        cost = sum((a.acquisition_cost for a in assets), Decimal("0"))
+        accum = sum((a.depreciated_amount for a in assets), Decimal("0"))
+        gl = self._gl_totals()
+        cost_diff, accum_diff = cost - gl["cost"], accum - gl["accum"]
+        if cost_diff == 0 and accum_diff == 0:
+            raise BusinessRuleError("The register already agrees with the ledger.")
+        accounts = seed_chart_of_accounts(self.company, request.user)
+        equity = accounts["3200"]
+        lines = []
+        if cost_diff > 0:
+            lines += [(accounts["1600"], cost_diff, 0), (equity, 0, cost_diff)]
+        elif cost_diff < 0:
+            lines += [(equity, -cost_diff, 0), (accounts["1600"], 0, -cost_diff)]
+        if accum_diff > 0:
+            lines += [(equity, accum_diff, 0), (accounts["1650"], 0, accum_diff)]
+        elif accum_diff < 0:
+            lines += [(accounts["1650"], -accum_diff, 0), (equity, 0, -accum_diff)]
+        entry_date = timezone.localdate()
+        number = DocumentNumberService.next_number(
+            self.company, "JOURNAL_ENTRY", gstin=resolve_series_gstin(self.company), on_date=entry_date,
+        )
+        entry = JournalEntry.objects.create(
+            company=self.company, status=JournalEntry.Status.DRAFT, number=number, entry_date=entry_date,
+            narration="Bring fixed asset ledgers in line with the asset register (review before posting)",
+            created_by=request.user, updated_by=request.user,
+        )
+        JournalLine.objects.bulk_create([
+            JournalLine(company=self.company, entry=entry, account=a, debit=Decimal(d), credit=Decimal(c)) for a, d, c in lines
+        ])
+        return Response({"journal_id": entry.pk, "number": entry.number}, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["get"])
+    def schedule(self, request, pk=None):
+        """ACS-52: every month of this asset: charged, missing, or still to come."""
+        from . import depreciation
+
+        return Response(depreciation.schedule(self.get_object()))
+
+    @action(detail=False, methods=["post"], url_path="run-depreciation")
+    def run_depreciation(self, request):
+        """ACS-54: preview (dry_run) or post depreciation for every missing month up to a chosen month."""
+        from datetime import date as date_cls
+
+        from . import depreciation
+
+        raw = request.data.get("month")
+        if raw:
+            try:
+                year, month = int(str(raw)[:4]), int(str(raw)[5:7])
+                through = date_cls(year, month, 1)
+            except (TypeError, ValueError):
+                raise BusinessRuleError("month must be YYYY-MM.")
+            through = (through.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        else:
+            through = depreciation.last_completed_month_end()
+        dry_run = str(request.data.get("dry_run", "")).lower() in ("1", "true", "yes")
+        return Response(depreciation.run_company(self.company, request.user, through, dry_run=dry_run))
 
     @action(detail=True, methods=["post"])
     def dispose(self, request, pk=None):
@@ -512,6 +1244,14 @@ class FixedAssetViewSet(AccountingEnabledMixin, CompanyScopedViewSet):
             if asset.acquisition_date and disposal_date < asset.acquisition_date:
                 raise BusinessRuleError("disposal_date cannot be before the acquisition date.")
 
+            # ACS-12 follow-up: the part-month up to the sale is charged first, so book value is right.
+            from . import depreciation
+
+            if str(request.data.get("charge_part_month", "")).lower() in ("1", "true", "yes"):
+                before = asset.depreciated_amount
+                depreciation.post_disposal_month(asset, disposal_date, request.user)
+                if asset.depreciated_amount != before:
+                    asset.save(update_fields=["depreciated_amount", "updated_at"])
             accounts = seed_chart_of_accounts(self.company, request.user)
             net_book_value = asset.acquisition_cost - asset.depreciated_amount
             lines = []
@@ -847,13 +1587,31 @@ class _NullStream:
 
 
 class FinancialYearCloseView(AccountingEnabledMixin, APIView):
-    """BB-000664: Owner-only FY close — POST {fyEnd, confirm: true}."""
+    """BB-000664: Owner-only FY close — POST {fyEnd, confirm: true}. GET previews; DELETE-style reverse via POST {reverse: true}."""
 
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
     @property
     def company(self):
         return get_company_user(self.request).company
+
+    @staticmethod
+    def _parse_end(raw):
+        from datetime import date as date_cls
+
+        if not raw:
+            raise BusinessRuleError("fyEnd is required (YYYY-MM-DD).")
+        try:
+            return date_cls.fromisoformat(str(raw)[:10])
+        except ValueError as exc:
+            raise BusinessRuleError("fyEnd must be YYYY-MM-DD.") from exc
+
+    def get(self, request):
+        """ACS-34: preview what closing the year would do."""
+        from . import period_ops
+
+        fy_end = self._parse_end(request.query_params.get("fy_end") or request.query_params.get("fyEnd"))
+        return Response(period_ops.fy_close_preview(self.company, fy_end))
 
     def post(self, request):
         from datetime import date as date_cls
@@ -862,6 +1620,13 @@ class FinancialYearCloseView(AccountingEnabledMixin, APIView):
             raise BusinessRuleError("Accounting is not enabled for this company.")
         data = request.data or {}
         raw_end = data.get("fyEnd") or data.get("fy_end")
+        if data.get("reverse") in (True, "true", "True", 1, "1"):
+            from . import period_ops
+
+            result = period_ops.reverse_fy_close(
+                self.company, self._parse_end(raw_end), request.user, data.get("reason", ""),
+            )
+            return Response({"ok": True, **result})
         confirm = data.get("confirm")
         if confirm not in (True, "true", "True", 1, "1"):
             raise BusinessRuleError("confirm must be true to close the financial year.")
@@ -1120,22 +1885,75 @@ class ExpenseViewSet(CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
         if action == "duplicates":
             return [IsAuthenticated(), HasCompany(), CanCreatePayments()]
+        if action == "export":
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), CanExport()]
         if action == "post_pending":
             return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanPostJournals()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get_queryset(self):
         qs = super().get_queryset()
+        params = self.request.query_params
         # ACS-14: voided expenses are hidden from the register unless asked for.
-        if self.action == "list" and self.request.query_params.get("include_void") not in ("1", "true", "True"):
+        if self.action in ("list", "export") and params.get("include_void") not in ("1", "true", "True"):
             qs = qs.filter(status=Expense.Status.ACTIVE)
-        if self.request.query_params.get("category"):
-            qs = qs.filter(category_id=self.request.query_params["category"])
-        if self.request.query_params.get("date_from"):
-            qs = qs.filter(expense_date__gte=self.request.query_params["date_from"])
-        if self.request.query_params.get("date_to"):
-            qs = qs.filter(expense_date__lte=self.request.query_params["date_to"])
+        if params.get("category"):
+            qs = qs.filter(category_id=params["category"])
+        if params.get("date_from"):
+            qs = qs.filter(expense_date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(expense_date__lte=params["date_to"])
+        if params.get("payment_mode"):
+            qs = qs.filter(payment_mode=params["payment_mode"].upper())
+        if params.get("q"):
+            from django.db.models import Q
+
+            term = params["q"].strip()
+            qs = qs.filter(Q(party_name__icontains=term) | Q(number__icontains=term) | Q(notes__icontains=term))
         return qs
+
+    def list(self, request, *args, **kwargs):
+        """ACS-17: the register also reports the total of everything the filters match, not just this page."""
+        response = super().list(request, *args, **kwargs)
+        total = self.filter_queryset(self.get_queryset()).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        if isinstance(response.data, dict):
+            response.data["filtered_total"] = str(total)
+        return response
+
+    @action(detail=False, methods=["get"])
+    def export(self, request):
+        """ACS-17: the filtered register as CSV or XLSX."""
+        qs = self.filter_queryset(self.get_queryset()).select_related("category", "cost_center").order_by("expense_date", "id")[:20000]
+        header = ["Number", "Date", "Category", "Party", "Amount", "GST", "TDS", "Mode", "Status", "Notes"]
+        rows = [
+            [e.number, e.expense_date.isoformat(), e.category.name, e.party_name, str(e.amount),
+             str((e.cgst_amount or 0) + (e.sgst_amount or 0) + (e.igst_amount or 0)), str(e.tds_amount or 0),
+             e.payment_mode, e.status, e.notes]
+            for e in qs
+        ]
+        if request.query_params.get("file") == "xlsx":
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Expenses"
+            ws.append(header)
+            for r in rows:
+                ws.append(r)
+            out = BytesIO()
+            wb.save(out)
+            resp = HttpResponse(out.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            resp["Content-Disposition"] = 'attachment; filename="expenses.xlsx"'
+            return resp
+        import csv
+
+        resp = HttpResponse(content_type="text/csv")
+        resp["Content-Disposition"] = 'attachment; filename="expenses.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(header)
+        for r in rows:
+            writer.writerow([("'" + c) if isinstance(c, str) and c[:1] in ("=", "+", "-", "@") else c for c in r])
+        return resp
 
     def _assert_period_open(self, on_date):
         # ACS-14: an expense is a money record; closed or GST-locked periods are off limits.
@@ -1237,8 +2055,36 @@ class ExpenseViewSet(CompanyScopedViewSet):
     @transaction.atomic
     def void(self, request, pk=None):
         instance = self.get_object()
+        # Lock the row and re-read it: two voids at once must not both see an active expense.
+        instance = Expense.objects.select_for_update().get(pk=instance.pk)
         self._void(instance, request.data.get("reason"))
         return Response(self.get_serializer(instance).data)
+
+
+class RecurringExpenseViewSet(CompanyScopedViewSet):
+    """ACS-17: templates for expenses that repeat, and the one-click "create what is due"."""
+
+    queryset = RecurringExpense.objects.select_related("category")
+    serializer_class = RecurringExpenseSerializer
+    audit_entity = "RecurringExpense"
+
+    def get_permissions(self):
+        if getattr(self, "action", None) in ("create", "update", "partial_update", "destroy", "create_due"):
+            return [IsAuthenticated(), HasCompany(), SubscriptionWritesAllowed(), CanCreatePayments()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    @action(detail=False, methods=["get"])
+    def due(self, request):
+        from . import recurring
+
+        rows = recurring.due_templates(self.company)
+        return Response({"count": rows.count(), "results": RecurringExpenseSerializer(rows, many=True, context=self.get_serializer_context()).data})
+
+    @action(detail=False, methods=["post"], url_path="create-due")
+    def create_due(self, request):
+        from . import recurring
+
+        return Response(recurring.create_due(self.company, request.user, ids=request.data.get("ids")))
 
 
 class ExpenseCategoryAccountViewSet(CompanyScopedViewSet):

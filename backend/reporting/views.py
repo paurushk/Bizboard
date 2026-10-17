@@ -512,11 +512,96 @@ class DayBookView(BaseReportView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request):
+        from django.utils import timezone
+
         from .transactions import day_book
 
         raw = request.query_params.get("date") or request.query_params.get("on_date")
-        on_date = _parse_date(raw) or date.today()
+        if raw and _parse_date(raw) is None:
+            # ACS-60: a typo in the date is an error, not a silent switch to today.
+            raise BusinessRuleError("date must be a date like 2026-04-01.", code="bad_date")
+        on_date = _parse_date(raw) or timezone.localdate()
         return Response(day_book(self.company, on_date))
+
+
+class LedgerDayBookView(BaseReportView):
+    """ACS-60: every ledger line posted in a date range, with a tie-out to the trial balance."""
+
+    throttle_classes = [CompanyRateThrottle]
+    throttle_scope = "heavy_reports"
+
+    def get_permissions(self):
+        if (self.request.query_params.get("file") or "").lower() in ("csv", "xlsx"):
+            return [IsAuthenticated(), HasCompany(), CanViewFinancialReports(), CanExport()]
+        return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
+
+    def get(self, request):
+        from django.utils import timezone
+
+        from core.pagination import DefaultPagination
+
+        from . import day_book as ledger
+
+        params = request.query_params
+        start, end = ledger.parse_range(
+            params.get("date_from") or params.get("date"), params.get("date_to") or params.get("date"), timezone.localdate(),
+        )
+        qs = ledger.base_queryset(self.company, start, end, params)
+        file_kind = (params.get("file") or "").lower()
+        if file_kind in ("csv", "xlsx"):
+            return self._export(qs[:20000], file_kind)
+        everything = ledger.base_queryset(self.company, start, end, {})
+        filtered = ledger.totals(qs)
+        whole = ledger.totals(everything)
+        paginator = DefaultPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        payload = {
+            "date_from": start.isoformat(),
+            "date_to": end.isoformat(),
+            "results": [ledger.row_of(line) for line in page],
+            "count": paginator.page.paginator.count,
+            "totals": filtered,
+            "day_totals": ledger.per_day_balance(everything),
+            "voucher_types": ledger.available_types(self.company, start, end),
+            "tie_out": ledger.tie_out(self.company, start, end, Decimal(whole["debit"]), Decimal(whole["credit"])),
+            **ledger.neighbours(start),
+        }
+        return Response(payload)
+
+    def _export(self, lines, kind):
+        from . import day_book as ledger
+
+        header = ["Date", "Voucher", "Type", "Account", "Party", "Cost centre", "Debit", "Credit", "Narration"]
+        rows = []
+        for line in lines:
+            r = ledger.row_of(line)
+            rows.append([
+                r["date"], r["voucher"], r["voucher_type_label"], f"{r['account_code']} {r['account_name']}",
+                r["party"], r["cost_center"], r["debit"], r["credit"], r["narration"],
+            ])
+        if kind == "xlsx":
+            from io import BytesIO
+
+            from openpyxl import Workbook
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Day book"
+            ws.append(header)
+            for r in rows:
+                ws.append(r)
+            buf = BytesIO()
+            wb.save(buf)
+            resp = HttpResponse(buf.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            resp["Content-Disposition"] = 'attachment; filename="day-book.xlsx"'
+            return resp
+        resp = HttpResponse(content_type="text/csv")
+        resp["Content-Disposition"] = 'attachment; filename="day-book.csv"'
+        writer = csv.writer(resp)
+        writer.writerow(header)
+        for r in rows:
+            writer.writerow([csv_safe(c) if isinstance(c, str) else c for c in r])
+        return resp
 
 
 class SalesSummaryView(BaseReportView):

@@ -1,0 +1,26 @@
+id: "QOS-0130"
+category: "RELIABILITY_TRUST"
+title: "Accounting screens: CA sign-off on expense posting and tax, asset acquisition, year-end close reversal and the reconciliation write-off rule"
+persona: ["P1"]
+journey: "Close a month and a year with books that are on"
+problem: "Four new accounting behaviours post to the ledger and have not been reviewed by a chartered accountant: expenses posting to the books (with GST input credit and TDS), fixed asset acquisition entries, reversing a year-end close, and writing off a small bank reconciliation difference to Bank Charges."
+evidence:
+  strength: "heuristic"
+  source: ["ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md"]
+  detail: "Built and tested by the engineers only. Expense posting stays off for every company until Accounting settings gets an expense start date; the GST input credit and TDS split in particular must be confirmed before a company turns it on. See the completion record in the plan."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Money posting with no professional sign-off; gated behind a start date, so no company is affected until an owner opts in."
+effort: "S"
+recommendation: "A CA reads the completion record in ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md, runs the posting examples on a demo company and signs off or returns changes. Do this before any company sets an expense start date."
+test_required: "backend/tests/test_acs_phase3_chart_expenses.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-17"
+closed: null

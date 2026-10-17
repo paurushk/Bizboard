@@ -89,11 +89,26 @@ export interface JournalEntry {
   sourceLabel?: string;
   sourcePath?: string | null;
   canReverse?: boolean;
+  canEdit?: boolean;
+  reference?: string;
+  totalDebit?: string | number;
+  postedAt?: string | null;
+  postedByName?: string;
+  reversedEntry?: number | null;
+  reversalOf?: number | null;
   lines: Array<{
     id?: number;
     account: number;
+    accountCode?: string;
+    accountName?: string;
     debit: string | number;
     credit: string | number;
+    narration?: string;
+    customer?: number | null;
+    customerName?: string;
+    supplier?: number | null;
+    supplierName?: string;
+    costCenterName?: string;
     costCenter?: number | null;
     bankStatementLine?: number | null;
     reconciledAt?: string | null;

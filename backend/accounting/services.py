@@ -669,6 +669,7 @@ class PostingService:
                             credit=line["credit"],
                             cost_center=line.get("cost_center"),
                             dimension=line.get("dimension", ""),
+                            narration=line.get("narration", ""),
                             customer=line.get("customer"),
                             supplier=line.get("supplier"),
                         )
@@ -2101,6 +2102,7 @@ class PostingService:
                 "credit": line.debit,
                 "cost_center": line.cost_center,
                 "dimension": line.dimension,
+                "narration": line.narration,
                 "customer": line.customer,
                 "supplier": line.supplier,
             } for line in entry.lines.all()])
@@ -2329,7 +2331,13 @@ class BooksHealthService:
         if not blockers:
             return
         codes = ", ".join(sorted({a["code"] for a in blockers}))
-        raise BusinessRuleError(f"Period close blocked due to health alerts: {codes}.")
+        # ACS-30: say what is wrong in words, not only codes.
+        details = " ".join(
+            sorted({str(a.get("message") or "").strip() for a in blockers if a.get("message")})
+        )
+        raise BusinessRuleError(
+            f"Period close blocked due to health alerts: {codes}." + (f" {details}" if details else ""),
+        )
 
     @staticmethod
     def missing_posting_cutoff(company):

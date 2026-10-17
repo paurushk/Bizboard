@@ -460,64 +460,9 @@
                     }
                 }
             },
-            "put": {
-                "operationId": "accounting_bank_recon_sessions_update",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "description": "A unique integer value identifying this bank recon session.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "accounting"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BankReconSession"
-                            }
-                        },
-                        "multipart/form-data": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BankReconSession"
-                            }
-                        },
-                        "application/x-www-form-urlencoded": {
-                            "schema": {
-                                "$ref": "#/components/schemas/BankReconSession"
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "security": [
-                    {
-                        "jwtAuth": []
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/BankReconSession"
-                                }
-                            }
-                        },
-                        "description": ""
-                    }
-                }
-            },
             "patch": {
                 "operationId": "accounting_bank_recon_sessions_partial_update",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "ACS-41: set the statement date and the bank's closing balance. Nothing else changes here.",
                 "parameters": [
                     {
                         "in": "path",
@@ -566,34 +511,6 @@
                             }
                         },
                         "description": ""
-                    }
-                }
-            },
-            "delete": {
-                "operationId": "accounting_bank_recon_sessions_destroy",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
-                "parameters": [
-                    {
-                        "in": "path",
-                        "name": "id",
-                        "schema": {
-                            "type": "integer"
-                        },
-                        "description": "A unique integer value identifying this bank recon session.",
-                        "required": true
-                    }
-                ],
-                "tags": [
-                    "accounting"
-                ],
-                "security": [
-                    {
-                        "jwtAuth": []
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "No response body"
                     }
                 }
             }
@@ -1544,7 +1461,7 @@
         "/api/v1/accounting/expenses/": {
             "get": {
                 "operationId": "accounting_expenses_list",
-                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "description": "ACS-17: the register also reports the total of everything the filters match, not just this page.",
                 "parameters": [
                     {
                         "name": "page",
@@ -2280,9 +2197,26 @@
             }
         },
         "/api/v1/accounting/fy-close/": {
+            "get": {
+                "operationId": "accounting_fy_close_retrieve",
+                "description": "ACS-34: preview what closing the year would do.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
             "post": {
                 "operationId": "accounting_fy_close_create",
-                "description": "BB-000664: Owner-only FY close — POST {fyEnd, confirm: true}.",
+                "description": "BB-000664: Owner-only FY close — POST {fyEnd, confirm: true}. GET previews; DELETE-style reverse via POST {reverse: true}.",
                 "tags": [
                     "accounting"
                 ],
@@ -2421,6 +2355,143 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "accounting_journals_update",
+                "description": "ACS-20: edit a draft. Header and lines are replaced together; the number stays.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this journal entry.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JournalEntry"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JournalEntry"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/JournalEntry"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JournalEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "accounting_journals_partial_update",
+                "description": "BB-000085: company-scoped journals (was bare ModelViewSet).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this journal entry.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedJournalEntry"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedJournalEntry"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedJournalEntry"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JournalEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "accounting_journals_destroy",
+                "description": "ACS-20: discard a draft. The number is kept (status DISCARDED) so the series has no silent gap.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this journal entry.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -7227,10 +7298,47 @@
                 }
             }
         },
+        "/api/v1/crm/leads/{id}/dedupe-candidates/": {
+            "get": {
+                "operationId": "crm_leads_dedupe_candidates_retrieve",
+                "description": "Details of each recorded match for a lead waiting on review.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this lead.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "crm"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Lead"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/crm/leads/{id}/resolve-dedupe/": {
             "post": {
                 "operationId": "crm_leads_resolve_dedupe_create",
-                "description": "The only path that can clear PENDING_REVIEW — it had none before.",
+                "description": "The only path that clears PENDING_REVIEW.\n\ndecision: ``different`` (a new person), ``same_customer`` (an existing customer),\n``same_lead`` (an earlier lead: this one is closed as a duplicate). The older\n``new`` and ``match`` values still work.",
                 "parameters": [
                     {
                         "in": "path",
@@ -7400,6 +7508,52 @@
                 "responses": {
                     "200": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/crm/leads/whatsapp-secret/": {
+            "post": {
+                "operationId": "crm_leads_whatsapp_secret_create",
+                "description": "Store this company's Meta app secret. It is sealed and never returned.",
+                "tags": [
+                    "crm"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Lead"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Lead"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Lead"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Lead"
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -8230,6 +8384,28 @@
             }
         },
         "/api/v1/crm/public/lead-form/{token}/": {
+            "get": {
+                "operationId": "crm_public_lead_form_retrieve",
+                "description": "What the visitor sees above the form: the company name and the consent line.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "token",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "crm"
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
             "post": {
                 "operationId": "crm_public_lead_form_create",
                 "parameters": [
@@ -8404,6 +8580,62 @@
                 "tags": [
                     "crm"
                 ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReferralCode"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/crm/referrals/codes/{id}/deactivate/": {
+            "post": {
+                "operationId": "crm_referrals_codes_deactivate_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this referral code.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "crm"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralCode"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralCode"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralCode"
+                            }
+                        }
+                    }
+                },
                 "security": [
                     {
                         "jwtAuth": []
@@ -8736,6 +8968,62 @@
             "post": {
                 "operationId": "crm_referrals_rewards_reject_create",
                 "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this referral reward.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "crm"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralReward"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralReward"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReferralReward"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReferralReward"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/crm/referrals/rewards/{id}/reverse/": {
+            "post": {
+                "operationId": "crm_referrals_rewards_reverse_create",
+                "description": "Take back an approved reward, e.g. so its deal can be reopened. Nothing was paid yet.",
                 "parameters": [
                     {
                         "in": "path",
@@ -39247,6 +39535,1359 @@
                     }
                 }
             }
+        },
+        "/api/v1/accounting/accounts/{id}/transfer-balance/": {
+            "post": {
+                "operationId": "accounting_accounts_transfer_balance_create",
+                "description": "ACS-50: draft a journal that moves this account's balance to another, so it can then be deactivated.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this account.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Account"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Account"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Account"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Account"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/accounts/export/": {
+            "get": {
+                "operationId": "accounting_accounts_export_retrieve",
+                "description": "ACS-50: the chart (with balances when asked) as CSV or XLSX.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Account"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/accept-suggestions/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_accept_suggestions_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/create-entry/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_create_entry_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/finalise/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_finalise_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/ledger-lines/": {
+            "get": {
+                "operationId": "accounting_bank_recon_sessions_ledger_lines_retrieve",
+                "description": "ACS-42: the ledger side of the workspace: this bank's unreconciled lines, filterable and paged.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/match-many/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_match_many_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/reopen/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_reopen_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/report/": {
+            "get": {
+                "operationId": "accounting_bank_recon_sessions_report_retrieve",
+                "description": "ACS-46: the reconciliation statement as JSON (default), XLSX or PDF.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/statement-lines/": {
+            "get": {
+                "operationId": "accounting_bank_recon_sessions_statement_lines_retrieve",
+                "description": "ACS-42: the statement side of the workspace, filterable and paged.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/suggestions/": {
+            "get": {
+                "operationId": "accounting_bank_recon_sessions_suggestions_retrieve",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/bank-recon-sessions/{id}/unmatch/": {
+            "post": {
+                "operationId": "accounting_bank_recon_sessions_unmatch_create",
+                "description": "Base viewset enforcing tenant isolation: querysets filtered by the\nrequesting user's company; created rows stamped with company + audit fields.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this bank recon session.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BankReconSession"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BankReconSession"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/cost-centers/report/": {
+            "get": {
+                "operationId": "accounting_cost_centers_report_retrieve",
+                "description": "ACS-51: income, expense and net by cost centre for a date range, with an unallocated bucket.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CostCenter"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/expenses/export/": {
+            "get": {
+                "operationId": "accounting_expenses_export_retrieve",
+                "description": "ACS-17: the filtered register as CSV or XLSX.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Expense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/fixed-assets/{id}/schedule/": {
+            "get": {
+                "operationId": "accounting_fixed_assets_schedule_retrieve",
+                "description": "ACS-52: every month of this asset: charged, missing, or still to come.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this fixed asset.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixedAsset"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/fixed-assets/presets/": {
+            "get": {
+                "operationId": "accounting_fixed_assets_presets_retrieve",
+                "description": "ACS-55: starting points for life and rates. These are suggestions; confirm the rates with your CA.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixedAsset"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/fixed-assets/register-check/draft/": {
+            "post": {
+                "operationId": "accounting_fixed_assets_register_check_draft_create",
+                "description": "ACS-53: draft (not post) the journal that brings 1600/1650 in line with the register.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixedAsset"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/fixed-assets/run-depreciation/": {
+            "post": {
+                "operationId": "accounting_fixed_assets_run_depreciation_create",
+                "description": "ACS-54: preview (dry_run) or post depreciation for every missing month up to a chosen month.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FixedAsset"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixedAsset"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/fixed-assets/summary/": {
+            "get": {
+                "operationId": "accounting_fixed_assets_summary_retrieve",
+                "description": "ACS-52: totals for the cards, and the register against the ledger (ACS-53).",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FixedAsset"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/journals/export/": {
+            "get": {
+                "operationId": "accounting_journals_export_retrieve",
+                "description": "ACS-23: the filtered register as CSV (or XLSX with ?file=xlsx), one row per line.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/JournalEntry"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/periods/{id}/close-readiness/": {
+            "get": {
+                "operationId": "accounting_periods_close_readiness_retrieve",
+                "description": "ACS-30: why this month can or cannot close, with a fix link for each blocker.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this accounting period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/periods/{id}/reopen/": {
+            "post": {
+                "operationId": "accounting_periods_reopen_create",
+                "description": "ACS-32: step a closed month back (Closed to Soft-closed, Soft-closed to Open). Owner only, reason required.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this accounting period.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/periods/close-summary/": {
+            "get": {
+                "operationId": "accounting_periods_close_summary_retrieve",
+                "description": "ACS-31: one cheap row per month for the Periods table.",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/periods/generate/": {
+            "post": {
+                "operationId": "accounting_periods_generate_create",
+                "description": "ACS-33: create the twelve months of a financial year in one go.",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AccountingPeriod"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AccountingPeriod"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/recurring-expenses/": {
+            "get": {
+                "operationId": "accounting_recurring_expenses_list",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "parameters": [
+                    {
+                        "name": "page",
+                        "required": false,
+                        "in": "query",
+                        "description": "A page number within the paginated result set.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    },
+                    {
+                        "name": "page_size",
+                        "required": false,
+                        "in": "query",
+                        "description": "Number of results to return per page.",
+                        "schema": {
+                            "type": "integer"
+                        }
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PaginatedRecurringExpenseList"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "post": {
+                "operationId": "accounting_recurring_expenses_create",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/recurring-expenses/{id}/": {
+            "get": {
+                "operationId": "accounting_recurring_expenses_retrieve",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this recurring expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "put": {
+                "operationId": "accounting_recurring_expenses_update",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this recurring expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "patch": {
+                "operationId": "accounting_recurring_expenses_partial_update",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this recurring expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRecurringExpense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRecurringExpense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/PatchedRecurringExpense"
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            },
+            "delete": {
+                "operationId": "accounting_recurring_expenses_destroy",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "description": "A unique integer value identifying this recurring expense.",
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/recurring-expenses/create-due/": {
+            "post": {
+                "operationId": "accounting_recurring_expenses_create_due_create",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "tags": [
+                    "accounting"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RecurringExpense"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/accounting/recurring-expenses/due/": {
+            "get": {
+                "operationId": "accounting_recurring_expenses_due_retrieve",
+                "description": "ACS-17: templates for expenses that repeat, and the one-click \"create what is due\".",
+                "tags": [
+                    "accounting"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/RecurringExpense"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/reports/day-book/ledger/": {
+            "get": {
+                "operationId": "reports_day_book_ledger_retrieve",
+                "description": "ACS-60: every ledger line posted in a date range, with a tie-out to the trial balance.",
+                "tags": [
+                    "reports"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -39273,6 +40914,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "parent_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "is_system": {
                         "type": "boolean",
                         "readOnly": true
@@ -39287,14 +40933,25 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "has_postings": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "balance": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "balance",
                     "code",
+                    "has_postings",
                     "id",
                     "is_control",
                     "is_system",
                     "name",
+                    "parent_name",
                     "type"
                 ]
             },
@@ -39677,21 +41334,76 @@
                     "account": {
                         "type": "integer"
                     },
+                    "account_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "statement": {
                         "type": "integer"
                     },
+                    "statement_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "status": {
-                        "$ref": "#/components/schemas/StatusAa5Enum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/BankReconSessionStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
                     },
                     "gl_balance": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
                     },
                     "statement_balance": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "statement_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "statement_closing_balance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "difference": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "finalised_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finalised_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reopen_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "summary": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "match_kind": {
                         "type": "string",
@@ -39704,10 +41416,21 @@
                 },
                 "required": [
                     "account",
+                    "account_name",
+                    "created_at",
+                    "difference",
+                    "finalised_at",
+                    "finalised_by_name",
+                    "gl_balance",
                     "id",
                     "match_kind",
                     "other_recon_path",
-                    "statement"
+                    "reopen_reason",
+                    "statement",
+                    "statement_balance",
+                    "statement_name",
+                    "status",
+                    "summary"
                 ]
             },
             "BankStatement": {
@@ -39847,6 +41570,14 @@
                 ],
                 "type": "string",
                 "description": "* `PREVIEW` - Preview\n* `COMMITTED` - Committed\n* `VOID` - Void"
+            },
+            "BasisEnum": {
+                "enum": [
+                    "FLAT",
+                    "PERCENT"
+                ],
+                "type": "string",
+                "description": "* `FLAT` - Flat\n* `PERCENT` - Percent"
             },
             "BatchLot": {
                 "type": "object",
@@ -40377,7 +42108,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusAa5Enum"
+                                "$ref": "#/components/schemas/CashShiftRegisterStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -41118,14 +42849,25 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "parent_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "usage": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "code",
                     "id",
-                    "name"
+                    "name",
+                    "parent_name",
+                    "usage"
                 ]
             },
             "Customer": {
@@ -42915,18 +44657,75 @@
                         "type": "string",
                         "readOnly": true,
                         "default": ""
+                    },
+                    "attachment_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
+                    "cost_center": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "gst_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$"
+                    },
+                    "cgst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "sgst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "igst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "gst_amount": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "itc_eligible": {
+                        "type": "boolean"
+                    },
+                    "supplier_gstin": {
+                        "type": "string",
+                        "maxLength": 15
+                    },
+                    "tds_section": {
+                        "type": "string",
+                        "maxLength": 10
+                    },
+                    "tds_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "recurring_template": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "amount",
+                    "attachment_name",
                     "category",
                     "category_name",
                     "created_at",
                     "expense_account_name",
+                    "gst_amount",
                     "id",
                     "journal_number",
                     "number",
                     "posted_to_books",
+                    "recurring_template",
                     "status",
                     "updated_at",
                     "void_reason",
@@ -42953,6 +44752,12 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "sort_order": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64"
                     }
                 },
                 "required": [
@@ -43079,6 +44884,35 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "funding_bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "funding_supplier": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "net_book_value": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "last_depreciation_month": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "depreciation_errors": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "catchup_months": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "acquisition_journal_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -43153,6 +44987,13 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "funding": {
+                        "$ref": "#/components/schemas/FundingEnum"
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
                     "created_by": {
                         "type": "integer",
                         "nullable": true
@@ -43164,20 +45005,31 @@
                     "company": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "acquisition_journal": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 },
                 "required": [
                     "acquisition_cost",
                     "acquisition_date",
+                    "acquisition_journal",
+                    "acquisition_journal_number",
+                    "catchup_months",
                     "company",
                     "created_at",
                     "depreciated_amount",
                     "depreciation_catchup_months",
+                    "depreciation_errors",
                     "disposed_at",
                     "id",
                     "last_depreciation_error",
+                    "last_depreciation_month",
                     "monthly_depreciation",
                     "name",
+                    "net_book_value",
                     "status",
                     "updated_at",
                     "useful_life_months",
@@ -44052,16 +45904,33 @@
                     "narration": {
                         "type": "string"
                     },
+                    "reference": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "client_token": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "maxLength": 64
+                    },
                     "posted_at": {
                         "type": "string",
                         "format": "date-time",
                         "readOnly": true,
                         "nullable": true
                     },
+                    "posted_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "reversed_entry": {
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "reversal_of": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "lines": {
                         "type": "array",
@@ -44080,30 +45949,43 @@
                     "can_reverse": {
                         "type": "string",
                         "readOnly": true
+                    },
+                    "can_edit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "total_debit": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
+                    "can_edit",
                     "can_reverse",
                     "id",
                     "lines",
                     "posted_at",
+                    "posted_by_name",
                     "purpose",
+                    "reversal_of",
                     "reversed_entry",
                     "source_id",
                     "source_label",
                     "source_path",
                     "source_type",
-                    "status"
+                    "status",
+                    "total_debit"
                 ]
             },
             "JournalEntryStatusEnum": {
                 "enum": [
                     "DRAFT",
                     "POSTED",
-                    "REVERSED"
+                    "REVERSED",
+                    "DISCARDED"
                 ],
                 "type": "string",
-                "description": "* `DRAFT` - Draft\n* `POSTED` - Posted\n* `REVERSED` - Reversed"
+                "description": "* `DRAFT` - Draft\n* `POSTED` - Posted\n* `REVERSED` - Reversed\n* `DISCARDED` - Discarded"
             },
             "JournalLine": {
                 "type": "object",
@@ -44114,6 +45996,14 @@
                     },
                     "account": {
                         "type": "integer"
+                    },
+                    "account_code": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "account_name": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "debit": {
                         "type": "string",
@@ -44129,17 +46019,36 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "cost_center_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "dimension": {
                         "type": "string",
                         "maxLength": 64
+                    },
+                    "narration": {
+                        "type": "string",
+                        "maxLength": 255
                     },
                     "customer": {
                         "type": "integer",
                         "nullable": true
                     },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "supplier": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "supplier_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
                     },
                     "bank_statement_line": {
                         "type": "integer",
@@ -44155,9 +46064,14 @@
                 },
                 "required": [
                     "account",
+                    "account_code",
+                    "account_name",
                     "bank_statement_line",
+                    "cost_center_name",
+                    "customer_name",
                     "id",
-                    "reconciled_at"
+                    "reconciled_at",
+                    "supplier_name"
                 ]
             },
             "Lead": {
@@ -44201,6 +46115,23 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/LeadStatusEnum"
+                    },
+                    "lost_reason": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "lost_reason_note": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "duplicate_of": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "dedupe_decision": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "source": {
                         "type": "string",
@@ -44278,9 +46209,11 @@
                     "created_at",
                     "customer_name",
                     "dedupe_candidates",
+                    "dedupe_decision",
                     "dedupe_matched_customer",
                     "dedupe_matched_lead",
                     "dedupe_review",
+                    "duplicate_of",
                     "id",
                     "last_touched_at",
                     "name",
@@ -44321,12 +46254,17 @@
                         "type": "integer",
                         "readOnly": true,
                         "nullable": true
+                    },
+                    "created_by_name": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 },
                 "required": [
                     "body",
                     "created_at",
                     "created_by",
+                    "created_by_name",
                     "id",
                     "reminded_at"
                 ]
@@ -47397,6 +49335,11 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "parent_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "is_system": {
                         "type": "boolean",
                         "readOnly": true
@@ -47411,6 +49354,14 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "has_postings": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "balance": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 }
             },
@@ -47502,21 +49453,76 @@
                     "account": {
                         "type": "integer"
                     },
+                    "account_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "statement": {
                         "type": "integer"
                     },
+                    "statement_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "status": {
-                        "$ref": "#/components/schemas/StatusAa5Enum"
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/BankReconSessionStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
                     },
                     "gl_balance": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
                     },
                     "statement_balance": {
                         "type": "string",
                         "format": "decimal",
-                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$"
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "statement_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "statement_closing_balance": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "nullable": true
+                    },
+                    "difference": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,14}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "finalised_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "finalised_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reopen_reason": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true
+                    },
+                    "summary": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "match_kind": {
                         "type": "string",
@@ -47828,7 +49834,7 @@
                     "status": {
                         "allOf": [
                             {
-                                "$ref": "#/components/schemas/StatusAa5Enum"
+                                "$ref": "#/components/schemas/CashShiftRegisterStatusEnum"
                             }
                         ],
                         "readOnly": true
@@ -48405,8 +50411,17 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "parent_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "usage": {
+                        "type": "string",
+                        "readOnly": true
                     }
                 }
             },
@@ -49417,6 +51432,60 @@
                         "type": "string",
                         "readOnly": true,
                         "default": ""
+                    },
+                    "attachment_name": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
+                    },
+                    "cost_center": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "gst_rate": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,3}(?:\\.\\d{0,2})?$"
+                    },
+                    "cgst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "sgst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "igst_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "gst_amount": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "itc_eligible": {
+                        "type": "boolean"
+                    },
+                    "supplier_gstin": {
+                        "type": "string",
+                        "maxLength": 15
+                    },
+                    "tds_section": {
+                        "type": "string",
+                        "maxLength": 10
+                    },
+                    "tds_amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "recurring_template": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 }
             },
@@ -49440,6 +51509,12 @@
                     },
                     "is_active": {
                         "type": "boolean"
+                    },
+                    "sort_order": {
+                        "type": "integer",
+                        "maximum": 9223372036854775807,
+                        "minimum": 0,
+                        "format": "int64"
                     }
                 }
             },
@@ -49473,6 +51548,35 @@
                     "depreciation_expense_account": {
                         "type": "integer",
                         "nullable": true
+                    },
+                    "funding_bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "funding_supplier": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "net_book_value": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "last_depreciation_month": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "depreciation_errors": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "catchup_months": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "acquisition_journal_number": {
+                        "type": "string",
+                        "readOnly": true,
+                        "default": ""
                     },
                     "created_at": {
                         "type": "string",
@@ -49548,6 +51652,13 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "funding": {
+                        "$ref": "#/components/schemas/FundingEnum"
+                    },
+                    "category": {
+                        "type": "string",
+                        "maxLength": 32
+                    },
                     "created_by": {
                         "type": "integer",
                         "nullable": true
@@ -49559,6 +51670,11 @@
                     "company": {
                         "type": "integer",
                         "readOnly": true
+                    },
+                    "acquisition_journal": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
                     }
                 }
             },
@@ -49916,6 +52032,23 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/LeadStatusEnum"
+                    },
+                    "lost_reason": {
+                        "type": "string",
+                        "maxLength": 16
+                    },
+                    "lost_reason_note": {
+                        "type": "string",
+                        "maxLength": 200
+                    },
+                    "duplicate_of": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "dedupe_decision": {
+                        "type": "string",
+                        "readOnly": true
                     },
                     "source": {
                         "type": "string",
@@ -57178,6 +59311,10 @@
                         "type": "integer",
                         "nullable": true
                     },
+                    "referrer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "code": {
                         "type": "string",
                         "readOnly": true
@@ -57193,6 +59330,22 @@
                     "active": {
                         "type": "boolean"
                     },
+                    "deactivated_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "uses": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
+                    "rewards_earned": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "default": 0
+                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time",
@@ -57202,7 +59355,11 @@
                 "required": [
                     "code",
                     "created_at",
-                    "id"
+                    "deactivated_at",
+                    "id",
+                    "referrer_name",
+                    "rewards_earned",
+                    "uses"
                 ]
             },
             "ReferralReward": {
@@ -57216,18 +59373,50 @@
                         "type": "integer",
                         "readOnly": true
                     },
+                    "code": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "lead": {
                         "type": "integer",
+                        "readOnly": true
+                    },
+                    "lead_name": {
+                        "type": "string",
                         "readOnly": true
                     },
                     "opportunity": {
                         "type": "integer",
                         "readOnly": true
                     },
+                    "opportunity_title": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "customer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "referrer_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "reward_amount": {
                         "type": "string",
                         "format": "decimal",
                         "pattern": "^-?\\d{0,8}(?:\\.\\d{0,2})?$",
+                        "readOnly": true
+                    },
+                    "basis": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/BasisEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "review_note": {
+                        "type": "string",
                         "readOnly": true
                     },
                     "reward_status": {
@@ -57260,14 +59449,21 @@
                     }
                 },
                 "required": [
+                    "basis",
+                    "code",
                     "created_at",
                     "credit_note",
+                    "customer_name",
                     "id",
                     "lead",
+                    "lead_name",
                     "opportunity",
+                    "opportunity_title",
                     "paid_at",
                     "referral_code",
+                    "referrer_name",
                     "rejection_reason",
+                    "review_note",
                     "reward_amount",
                     "reward_status"
                 ]
@@ -61249,6 +63445,306 @@
                 ],
                 "type": "string",
                 "description": "* `not_completed` - not_completed\n* `unavailable` - unavailable"
+            },
+            "BankReconSessionStatusEnum": {
+                "enum": [
+                    "OPEN",
+                    "IN_PROGRESS",
+                    "RECONCILED",
+                    "FINALISED",
+                    "CLOSED"
+                ],
+                "type": "string",
+                "description": "* `OPEN` - Open\n* `IN_PROGRESS` - In Progress\n* `RECONCILED` - Reconciled\n* `FINALISED` - Finalised\n* `CLOSED` - Closed"
+            },
+            "CashShiftRegisterStatusEnum": {
+                "enum": [
+                    "OPEN",
+                    "CLOSED"
+                ],
+                "type": "string",
+                "description": "* `OPEN` - Open\n* `CLOSED` - Closed"
+            },
+            "FrequencyEnum": {
+                "enum": [
+                    "MONTHLY",
+                    "QUARTERLY",
+                    "YEARLY"
+                ],
+                "type": "string",
+                "description": "* `MONTHLY` - Monthly\n* `QUARTERLY` - Quarterly\n* `YEARLY` - Yearly"
+            },
+            "FundingEnum": {
+                "enum": [
+                    "ALREADY_BOOKED",
+                    "CASH",
+                    "BANK",
+                    "SUPPLIER"
+                ],
+                "type": "string",
+                "description": "* `ALREADY_BOOKED` - Already booked\n* `CASH` - Paid from cash\n* `BANK` - Paid from bank\n* `SUPPLIER` - On credit from a supplier"
+            },
+            "PaginatedRecurringExpenseList": {
+                "type": "object",
+                "required": [
+                    "count",
+                    "results"
+                ],
+                "properties": {
+                    "count": {
+                        "type": "integer",
+                        "example": 123
+                    },
+                    "next": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=4"
+                    },
+                    "previous": {
+                        "type": "string",
+                        "nullable": true,
+                        "format": "uri",
+                        "example": "http://api.example.org/accounts/?page=2"
+                    },
+                    "results": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RecurringExpense"
+                        }
+                    }
+                }
+            },
+            "PatchedJournalEntry": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "number": {
+                        "type": "string",
+                        "maxLength": 64
+                    },
+                    "entry_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/JournalEntryStatusEnum"
+                            }
+                        ],
+                        "readOnly": true
+                    },
+                    "source_type": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "source_id": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "narration": {
+                        "type": "string"
+                    },
+                    "reference": {
+                        "type": "string",
+                        "maxLength": 120
+                    },
+                    "client_token": {
+                        "type": "string",
+                        "writeOnly": true,
+                        "maxLength": 64
+                    },
+                    "posted_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "posted_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "reversed_entry": {
+                        "type": "integer",
+                        "readOnly": true,
+                        "nullable": true
+                    },
+                    "reversal_of": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/JournalLine"
+                        }
+                    },
+                    "source_label": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "source_path": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "can_reverse": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "can_edit": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "total_debit": {
+                        "type": "string",
+                        "readOnly": true
+                    }
+                }
+            },
+            "PatchedRecurringExpense": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "category_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "party_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "payment_mode": {
+                        "$ref": "#/components/schemas/PaymentModeEnum"
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "cost_center": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "frequency": {
+                        "$ref": "#/components/schemas/FrequencyEnum"
+                    },
+                    "next_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_created_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                }
+            },
+            "RecurringExpense": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "readOnly": true
+                    },
+                    "category": {
+                        "type": "integer"
+                    },
+                    "category_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
+                    "party_name": {
+                        "type": "string",
+                        "maxLength": 255
+                    },
+                    "amount": {
+                        "type": "string",
+                        "format": "decimal",
+                        "pattern": "^-?\\d{0,12}(?:\\.\\d{0,2})?$"
+                    },
+                    "notes": {
+                        "type": "string"
+                    },
+                    "payment_mode": {
+                        "$ref": "#/components/schemas/PaymentModeEnum"
+                    },
+                    "bank_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "expense_account": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "cost_center": {
+                        "type": "integer",
+                        "nullable": true
+                    },
+                    "frequency": {
+                        "$ref": "#/components/schemas/FrequencyEnum"
+                    },
+                    "next_date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "format": "date",
+                        "nullable": true
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "last_created_date": {
+                        "type": "string",
+                        "format": "date",
+                        "readOnly": true,
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "amount",
+                    "category",
+                    "category_name",
+                    "id",
+                    "last_created_date",
+                    "next_date"
+                ]
             }
         },
         "securitySchemes": {

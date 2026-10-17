@@ -412,6 +412,43 @@ export async function getDayBook(params?: { date?: string }) {
   return unwrapData<Record<string, unknown>>(data);
 }
 
+export type LedgerDayBookRow = {
+  id: number;
+  date: string;
+  voucher: string;
+  entryId: number;
+  voucherType: string;
+  voucherTypeLabel: string;
+  accountCode: string;
+  accountName: string;
+  party: string;
+  costCenter: string;
+  debit: string;
+  credit: string;
+  narration: string;
+  status: string;
+  sourceLabel: string;
+  sourcePath: string | null;
+};
+export type LedgerDayBook = {
+  dateFrom: string;
+  dateTo: string;
+  count: number;
+  results: LedgerDayBookRow[];
+  totals: { debit: string; credit: string; balanced: boolean };
+  dayTotals: Array<{ date: string; debit: string; credit: string; balanced: boolean }>;
+  voucherTypes: Array<{ key: string; label: string }>;
+  tieOut: { trialBalanceDebit: string; trialBalanceCredit: string; ties: boolean };
+  previous: string;
+  next: string;
+};
+export async function getLedgerDayBook(params: Record<string, string | number | undefined>) {
+  const { data } = await apiClient.get('/reports/day-book/ledger/', { params });
+  return unwrapData<LedgerDayBook>(data);
+}
+export const exportLedgerDayBook = (params: Record<string, string | undefined>, file: 'csv' | 'xlsx') =>
+  getBlob('/reports/day-book/ledger/', { ...params, file });
+
 export async function getSalesSummary(params?: { date_from?: string; date_to?: string }) {
   const { data } = await apiClient.get('/reports/sales-summary/', { params });
   return unwrapData<Record<string, unknown>>(data);

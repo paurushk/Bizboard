@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { BoolChip, StatusChip } from '@/pages/phase/phaseShared';
+import { BoolChip, DataTable, StatusChip } from '@/pages/phase/phaseShared';
 
 describe('phase StatusChip (ACS-00)', () => {
   it.each([
@@ -35,5 +35,19 @@ describe('BoolChip', () => {
     expect(screen.getByText('Yes')).toBeTruthy();
     rerender(<BoolChip value={false} />);
     expect(screen.getByText('No')).toBeTruthy();
+  });
+});
+
+describe('DataTable (ACS-00)', () => {
+  it('right-aligns money columns in the header and the body', () => {
+    render(<DataTable rows={[{ id: 1, name: 'A', amount: '1500' }]} empty="none" columns={[{ key: 'name', label: 'Name' }, { key: 'amount', label: 'Amount', money: true }]} />);
+    expect(screen.getByRole('columnheader', { name: 'Amount' }).className).toMatch(/alignRight/);
+    expect(screen.getByRole('columnheader', { name: 'Name' }).className).not.toMatch(/alignRight/);
+    expect(screen.getByText(/1,500/).closest('td')?.className).toMatch(/alignRight/);
+  });
+
+  it('names each row action group', () => {
+    render(<DataTable rows={[{ id: 1, number: 'JV-1' }]} empty="none" columns={[{ key: 'number', label: 'No.' }]} rowLabel={(r) => String(r.number)} actions={() => <button type="button">Post</button>} />);
+    expect(screen.getByRole('group', { name: 'JV-1' })).toBeTruthy();
   });
 });

@@ -1,1 +1,1 @@
-export { AccountingBankReconPage } from '@/pages/phase/PhasePages';
+export { AccountingBankReconPage } from '@/pages/accounting/BankReconWorkspacePage';

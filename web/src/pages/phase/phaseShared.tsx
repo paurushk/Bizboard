@@ -102,12 +102,29 @@ function dataTableCell(row: Row, c: { key: string; money?: boolean; status?: boo
   return cell;
 }
 
+/** Below 600 px: hide the header, show each row as a card, label each cell, keep touch targets 44 px tall. */
+export const stackedTableSx = {
+  '@media (max-width:599.95px)': {
+    '& thead': { display: 'none' },
+    '& tbody, & tr, & td': { display: 'block' },
+    '& tr': { borderBottom: '1px solid', borderColor: 'divider', py: 1 },
+    '& td': { border: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, py: 0.5, textAlign: 'right' },
+    '& td::before': { content: 'attr(data-label)', fontWeight: 600, textAlign: 'left', flexShrink: 0 },
+    '& td[data-label=""]::before': { content: 'none' },
+    '& td[data-label=""]': { justifyContent: 'flex-end' },
+    '& .MuiButton-root, & .MuiCheckbox-root': { minHeight: 44, minWidth: 44 },
+  },
+};
+
 export function DataTable({
   columns,
   rows,
   empty,
   emptyAction,
   actions,
+  // ACS-00: names the action group of each row for assistive tech, e.g. the voucher number.
+  rowLabel,
+  stackOnMobile = false,
   // F3-016: opt-in windowing for phase pages whose row count isn't bounded
   // by pagination (e.g. a whole ledger/journal/stock-count pulled by date
   // range) — off by default so naturally small tables (a handful of GL
@@ -121,6 +138,9 @@ export function DataTable({
   empty: string;
   emptyAction?: ReactNode;
   actions?: (row: Row) => ReactNode;
+  rowLabel?: (row: Row) => string;
+  /** ACS-70: below 600 px each row becomes a labelled card instead of a sideways-scrolling line. */
+  stackOnMobile?: boolean;
   virtualized?: boolean;
   maxHeight?: number;
   rowHeight?: number;
@@ -139,7 +159,7 @@ export function DataTable({
               <TableHead>
                 <TableRow>
                   {columns.map((c) => (
-                    <TableCell key={c.key}>{c.label}</TableCell>
+                    <TableCell key={c.key} align={c.money ? 'right' : undefined}>{c.label}</TableCell>
                   ))}
                   {actions ? <TableCell align="right">{t('sweep2.actions')}</TableCell> : null}
                 </TableRow>
@@ -155,9 +175,9 @@ export function DataTable({
                   return (
                     <TableRow hover key={String(row.id ?? vRow.index)} data-index={vRow.index} ref={measureElement}>
                       {columns.map((c) => (
-                        <TableCell key={c.key}>{dataTableCell(row, c)}</TableCell>
+                        <TableCell key={c.key} align={c.money ? 'right' : undefined} data-label={c.label}>{dataTableCell(row, c)}</TableCell>
                       ))}
-                      {actions ? <TableCell align="right">{actions(row)}</TableCell> : null}
+                      {actions ? <TableCell align="right" data-label="">{rowLabel ? <span role="group" aria-label={rowLabel(row)}>{actions(row)}</span> : actions(row)}</TableCell> : null}
                     </TableRow>
                   );
                 })}
@@ -197,11 +217,11 @@ export function DataTable({
         borderRadius: 1,
       }}
     >
-      <Table size="small" sx={{ minWidth: { xs: 480, sm: 'auto' } }}>
+      <Table size="small" sx={stackOnMobile ? stackedTableSx : { minWidth: { xs: 480, sm: 'auto' } }}>
         <TableHead>
           <TableRow>
             {columns.map((c) => (
-              <TableCell key={c.key}>{c.label}</TableCell>
+              <TableCell key={c.key} align={c.money ? 'right' : undefined}>{c.label}</TableCell>
             ))}
             {actions ? <TableCell align="right">{t('sweep2.actions')}</TableCell> : null}
           </TableRow>
@@ -210,9 +230,9 @@ export function DataTable({
           {rows.map((row, idx) => (
             <TableRow hover key={String(row.id ?? idx)}>
               {columns.map((c) => (
-                <TableCell key={c.key}>{dataTableCell(row, c)}</TableCell>
+                <TableCell key={c.key} align={c.money ? 'right' : undefined} data-label={c.label}>{dataTableCell(row, c)}</TableCell>
               ))}
-              {actions ? <TableCell align="right">{actions(row)}</TableCell> : null}
+              {actions ? <TableCell align="right" data-label="">{rowLabel ? <span role="group" aria-label={rowLabel(row)}>{actions(row)}</span> : actions(row)}</TableCell> : null}
             </TableRow>
           ))}
         </TableBody>

@@ -2,11 +2,29 @@
 
 **Document:** `ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md`
 **Date:** 2026-10-16 · **Revision:** 1
-**Status:** 🟡 **IN PROGRESS.** D1–D9 accepted as recommended (2026-10-16). Built, uncommitted: ACS-00 (partly), ACS-01, ACS-10 to 16. See the completion records below. Not started: ACS-20 onwards.
+**Status:** 🟢 **BUILT, UNCOMMITTED (2026-10-17).** D1–D9 accepted as recommended. ACS-00 to ACS-73 are built and tested in an isolated copy of the backend (the real tree had another session's unresolved merge markers). Still open and needing people: CA sign-off, native Hindi review, real-device and screen-reader pass, Postgres lane in CI (QOS-0130 to 0133). See the completion records below.
 **Source review:** [docs/reviews/ACCOUNTING_SCREENS_DEEP_REVIEW_2026-10-16.md](docs/reviews/ACCOUNTING_SCREENS_DEEP_REVIEW_2026-10-16.md). Every work package (WP) cites the review finding it closes (`R#` = row in the review's problem register).
 
 Screens in scope: Chart of Accounts, Journals, Cost Centers, Fixed Assets, Accounting Periods, Bank Reconciliation, Expenses, Day Book.
 
+
+## Completion record: Phases 2 to 4, ACS-20 to ACS-73 (2026-10-17, uncommitted)
+
+| Area | What was built | Where |
+|---|---|---|
+| Journals | Draft lifecycle (save, edit, discard, post), duplicate-safe create (client token), reference and per-line narration, party tag on receivable and payable lines, filters, paging, export, detail drawer; reverse only for manual journals. | `accounting/views.py`, `models.py` (0019), `phase/JournalsPage.tsx` |
+| Periods | Close readiness and summary with reasons and fix links, ordered close, owner reopen with reason, generate a financial year, year-end close preview and reversal (reversal excluded from P&L and the next close). | `accounting/period_ops.py`, `phase/PeriodsPage.tsx` |
+| Bank reconciliation | One match service (one-to-one and one-to-many), session closing balance and difference, suggestions that are never auto-applied, create an entry from a statement line, finalise and owner reopen, small-difference write-off, report (xlsx, pdf), repair command. | `accounting/bank_match.py`, `BankReconWorkspacePage.tsx`, 0020 |
+| Chart of Accounts | Tree, parent placement, code and type locked once posted, deactivate only at zero balance, transfer balance, export. | `ChartOfAccountsPage.tsx`, `chartTree.ts` |
+| Cost centres | Usage counts and per-centre report. | `CostCentersPage.tsx` |
+| Fixed assets | Presets, summary, depreciation preview and run, schedule, register-to-ledger check with draft correcting journal, acquisition posting, funding fields, opt-in part-month charge on disposal. | `accounting/depreciation.py`, `FixedAssetsPage.tsx`, 0021 |
+| Day book | Ledger day book with filters, export and a trial-balance match check; old cash view kept as a tab. | `reporting/day_book.py`, `reports/DayBookPage.tsx` |
+| Expenses | GST, ITC and TDS lines, cost centre, recurring templates, categories (rename, reorder), void with reason, filtered total, export. | `expense_posting.py`, `recurring.py`, `ExpensesPage.tsx`, 0021, 0022 |
+| Hardening | Labelled-card layout below 600 px, axe routes for the eight screens, query-count budgets, help text, English and Hindi strings. | `phaseShared.tsx`, `e2e/a11y.spec.ts`, `test_acs_performance_budgets.py` |
+
+**Open items resolved.** (3) The statement stores a per-line `balance_after` but no closing balance, so the closing balance is entered on the session. (4) The only callers of `journals/{id}/reverse/` are the Journals page and tests that reverse manual journals; no outside integration was found, so there is no release note beyond the manual-only rule. (5) The Day Book route is kept under Reports.
+
+**Not verified / left to people.** CA sign-off on expense posting, GST/TDS, asset acquisition, year-end reversal and the write-off rule; native Hindi review; real-device and screen-reader pass; Postgres concurrency lane and browser smoke in CI. Tracked as QOS-0130 to QOS-0133.
 
 ## Completion record: ACS-15 and ACS-16 (2026-10-17, uncommitted)
 

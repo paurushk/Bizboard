@@ -13,6 +13,8 @@ const duplicates = vi.hoisted(() => ({ results: [] as Array<{ id: number; number
 const settings = vi.hoisted(() => ({ expenseGlStartDate: null as string | null }));
 const setMapping = vi.hoisted(() => vi.fn(async () => ({})));
 const auth = vi.hoisted(() => ({ role: 'OWNER', canCreatePayments: true }));
+const deleteFileAsset = vi.hoisted(() => vi.fn(async () => undefined));
+const updateCategory = vi.hoisted(() => vi.fn(async () => ({})));
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({
@@ -21,7 +23,7 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  listExpensesPage: async () => ({
+  listExpensesRegister: async () => ({
     results: [
       {
         id: 1,
@@ -32,14 +34,25 @@ vi.mock('@/api/resources', () => ({
         categoryName: 'Fuel',
         amount: '500',
         notes: 'Diesel',
+        attachment: 55,
+        attachmentName: 'bill.pdf',
       },
     ],
     count: 1,
-    next: null,
-    previous: null,
+    filteredTotal: '500.00',
   }),
+  exportExpenses: vi.fn(async () => new Blob(['x'])),
+  downloadFileAsset: vi.fn(async () => new Blob(['x'])),
+  deleteFileAsset: (...args: unknown[]) => deleteFileAsset(...(args as [number])),
+  listCostCenters: async () => [{ id: 41, code: 'S1', name: 'Shop', isActive: true }],
+  updateExpenseCategory: (...args: unknown[]) => updateCategory(...(args as [number, Record<string, unknown>])),
+  listRecurringExpenses: async () => [],
+  createRecurringExpense: vi.fn(),
+  updateRecurringExpense: vi.fn(),
+  deleteRecurringExpense: vi.fn(),
+  createDueRecurringExpenses: vi.fn(),
   listExpenseCategoriesPage: async () => ({
-    results: [{ id: 9, name: 'Fuel' }],
+    results: [{ id: 9, name: 'Fuel', isActive: true, sortOrder: 1 }, { id: 10, name: 'Rent', isActive: true, sortOrder: 2 }],
     count: 1,
     next: null,
     previous: null,
@@ -178,9 +191,101 @@ describe('ExpensesPage void (ACS-14)', () => {
     wrap(<ExpensesPage />);
     await userEvent.click(await screen.findByRole('button', { name: /add \/ manage category/i }));
     const dialog = await screen.findByRole('dialog');
-    const picker = await within(dialog).findByLabelText(/^posts to$/i);
+    const picker = (await within(dialog).findAllByLabelText(/^posts to$/i))[0];
     await userEvent.click(picker);
     await userEvent.click(await screen.findByRole('option', { name: /5000 — Expenses/ }));
     expect(setMapping).toHaveBeenCalledWith({ category: 9, account: 20 });
+  });
+});
+
+describe('ExpensesPage register and extras (ACS-17)', () => {
+  beforeEach(() => {
+    auth.role = 'OWNER';
+    auth.canCreatePayments = true;
+    createExpense.mockClear();
+    updateCategory.mockClear();
+    deleteFileAsset.mockClear();
+    duplicates.results = [];
+    settings.expenseGlStartDate = null;
+  });
+
+  it('shows how many expenses match and the filtered total', async () => {
+    wrap(<ExpensesPage />);
+    expect((await screen.findByTestId('expense-register-total')).textContent).toMatch(/1 expense\(s\) match\. Total .*500/);
+    expect(screen.getByRole('button', { name: 'bill.pdf' })).toBeTruthy();
+  });
+
+  it('sends GST, ITC, TDS and the cost centre with the expense', async () => {
+    wrap(<ExpensesPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /create expense/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByLabelText(/^category$/i));
+    await userEvent.click(await screen.findByRole('option', { name: 'Fuel' }));
+    await userEvent.type(within(dialog).getByLabelText(/^total$/i), '1180');
+    await userEvent.click(within(dialog).getByLabelText(/^cost centre$/i));
+    await userEvent.click(await screen.findByRole('option', { name: /S1 · Shop/ }));
+    await userEvent.click(within(dialog).getByText('GST and TDS (optional)'));
+    await userEvent.click(within(dialog).getByLabelText(/^GST on this bill$/i));
+    await userEvent.click(await screen.findByRole('option', { name: /Same state/ }));
+    await userEvent.type(within(dialog).getByLabelText(/^CGST amount$/i), '90');
+    await userEvent.type(within(dialog).getByLabelText(/^Supplier GSTIN$/i), '27aapfu0939f1zv');
+    await userEvent.click(within(dialog).getByLabelText(/Claim input tax credit/));
+    await userEvent.type(within(dialog).getByLabelText(/^TDS section$/i), '194c');
+    await userEvent.type(within(dialog).getByLabelText(/^TDS deducted$/i), '100');
+    await userEvent.click(within(dialog).getByRole('button', { name: /^save$/i }));
+    expect(createExpense).toHaveBeenCalledWith(
+      expect.objectContaining({
+        costCenter: 41, cgstAmount: 90, sgstAmount: 90, igstAmount: 0, itcEligible: true,
+        supplierGstin: '27AAPFU0939F1ZV', tdsSection: '194C', tdsAmount: 100,
+      }),
+    );
+  });
+
+  it('blocks saving when ITC is claimed without a GSTIN', async () => {
+    wrap(<ExpensesPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /create expense/i }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByLabelText(/^category$/i));
+    await userEvent.click(await screen.findByRole('option', { name: 'Fuel' }));
+    await userEvent.type(within(dialog).getByLabelText(/^total$/i), '118');
+    await userEvent.click(within(dialog).getByText('GST and TDS (optional)'));
+    await userEvent.click(within(dialog).getByLabelText(/^GST on this bill$/i));
+    await userEvent.click(await screen.findByRole('option', { name: /Other state/ }));
+    await userEvent.type(within(dialog).getByLabelText(/^IGST amount$/i), '18');
+    await userEvent.click(within(dialog).getByLabelText(/Claim input tax credit/));
+    expect(within(dialog).getByText('Input tax credit needs the supplier GSTIN.')).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /^save$/i })).toBeDisabled();
+  });
+
+  it('removes an uploaded file again when the dialog is cancelled without saving', async () => {
+    wrap(<ExpensesPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /create expense/i }));
+    const dialog = await screen.findByRole('dialog');
+    const input = dialog.querySelector('input[type="file"]') as HTMLInputElement;
+    await userEvent.upload(input, new File(['x'], 'bill.png', { type: 'image/png' }));
+    await within(dialog).findByText(/#77/);
+    await userEvent.click(within(dialog).getByRole('button', { name: /^cancel$/i }));
+    expect(deleteFileAsset).toHaveBeenCalledWith(77);
+  });
+
+  it('lets an owner rename and reorder categories', async () => {
+    wrap(<ExpensesPage />);
+    await userEvent.click(await screen.findByRole('button', { name: /add \/ manage category/i }));
+    const dialog = await screen.findByRole('dialog');
+    const name = await within(dialog).findByLabelText('Category name Fuel');
+    await userEvent.clear(name);
+    await userEvent.type(name, 'Diesel');
+    await userEvent.click(within(dialog).getAllByRole('button', { name: /^save$/i })[0]);
+    expect(updateCategory).toHaveBeenCalledWith(9, { name: 'Diesel' });
+    updateCategory.mockClear();
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Move down Fuel' }));
+    expect(updateCategory).toHaveBeenCalledWith(10, { sortOrder: 1 });
+    expect(updateCategory).toHaveBeenCalledWith(9, { sortOrder: 2 });
+  });
+
+  it('opens the recurring expenses dialog', async () => {
+    wrap(<ExpensesPage />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Recurring expenses' }));
+    expect(await screen.findByText('No recurring expenses yet.')).toBeTruthy();
   });
 });

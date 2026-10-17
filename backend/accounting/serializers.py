@@ -3,13 +3,14 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from core.permissions import get_company_user
+from core.models import FileAsset
 from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer, ExpenseCategory, Supplier
 from payments.models import BankAccount
 
 from .models import (
     Account, AccountingPeriod, BankReconSession, CashShiftAdjustment, CashShiftRegister, CostCenter,
-    Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine,
+    Expense, ExpenseCategoryAccount, FixedAsset, JournalEntry, JournalLine, RecurringExpense,
 )
 
 
@@ -75,6 +76,12 @@ class ExpenseSerializer(serializers.ModelSerializer):
     expense_account_name = serializers.SerializerMethodField()
     posted_to_books = serializers.SerializerMethodField()
     journal_number = serializers.CharField(source="journal_entry.number", read_only=True, default="")
+    # R28: ids from another company must not resolve.
+    category = CompanyPrimaryKeyRelatedField(queryset=ExpenseCategory.objects.all())
+    attachment = CompanyPrimaryKeyRelatedField(queryset=FileAsset.objects.all(), required=False, allow_null=True)
+    cost_center = CompanyPrimaryKeyRelatedField(queryset=CostCenter.objects.all(), required=False, allow_null=True)
+    gst_amount = serializers.SerializerMethodField()
+    attachment_name = serializers.CharField(source="attachment.original_name", read_only=True, default="")
 
     class Meta:
         model = Expense
@@ -84,8 +91,13 @@ class ExpenseSerializer(serializers.ModelSerializer):
             "status", "voided_at", "void_reason",
             "payment_mode", "bank_account", "expense_account", "expense_account_name",
             "posted_to_books", "journal_number",
+            "attachment_name", "cost_center", "gst_rate", "cgst_amount", "sgst_amount", "igst_amount", "gst_amount",
+            "itc_eligible", "supplier_gstin", "tds_section", "tds_amount", "recurring_template",
         ]
-        read_only_fields = ["number", "status", "voided_at", "void_reason"]
+        read_only_fields = ["number", "status", "voided_at", "void_reason", "recurring_template"]
+
+    def get_gst_amount(self, obj):
+        return str((obj.cgst_amount or 0) + (obj.sgst_amount or 0) + (obj.igst_amount or 0))
 
     def get_posted_to_books(self, obj):
         return obj.journal_entry_id is not None
@@ -112,6 +124,76 @@ class ExpenseSerializer(serializers.ModelSerializer):
         if mode == Expense.PaymentMode.CASH and bank is not None:
             # Cash expenses carry no bank; clear it rather than keep a misleading link.
             attrs["bank_account"] = None
+        self._validate_tax(attrs, inst)
+        return attrs
+
+    def _validate_tax(self, attrs, inst):
+        def val(name):
+            return attrs[name] if name in attrs else (getattr(inst, name, None) or Decimal("0"))
+
+        amount = val("amount")
+        cgst, sgst, igst, tds = val("cgst_amount"), val("sgst_amount"), val("igst_amount"), val("tds_amount")
+        errors = {}
+        for name, v in (("cgst_amount", cgst), ("sgst_amount", sgst), ("igst_amount", igst), ("tds_amount", tds)):
+            if v < 0:
+                errors[name] = "Cannot be negative."
+        if igst > 0 and (cgst > 0 or sgst > 0):
+            errors["igst_amount"] = "Use either CGST and SGST, or IGST, not both."
+        if cgst != sgst and (cgst > 0 or sgst > 0):
+            errors["sgst_amount"] = "CGST and SGST are charged in equal amounts."
+        if cgst + sgst + igst > amount:
+            errors["cgst_amount"] = "The GST cannot be more than the amount."
+        if tds > amount:
+            errors["tds_amount"] = "TDS cannot be more than the amount."
+        section = attrs["tds_section"] if "tds_section" in attrs else getattr(inst, "tds_section", "")
+        if tds > 0 and not (section or "").strip():
+            errors["tds_section"] = "Enter the TDS section (for example 194C)."
+        eligible = attrs["itc_eligible"] if "itc_eligible" in attrs else getattr(inst, "itc_eligible", False)
+        gstin = attrs["supplier_gstin"] if "supplier_gstin" in attrs else getattr(inst, "supplier_gstin", "")
+        if eligible and cgst + sgst + igst > 0 and not gstin:
+            errors["supplier_gstin"] = "Input tax credit needs the supplier GSTIN."
+        if gstin:
+            try:
+                from core.validators import validate_gstin
+
+                validate_gstin(gstin)
+            except Exception:  # noqa: BLE001 - any validator failure is a bad GSTIN
+                errors["supplier_gstin"] = "That GSTIN is not valid."
+        if errors:
+            raise serializers.ValidationError(errors)
+
+
+class RecurringExpenseSerializer(serializers.ModelSerializer):
+    category = CompanyPrimaryKeyRelatedField(queryset=ExpenseCategory.objects.all())
+    bank_account = CompanyPrimaryKeyRelatedField(queryset=BankAccount.objects.all(), required=False, allow_null=True)
+    expense_account = CompanyPrimaryKeyRelatedField(queryset=Account.objects.all(), required=False, allow_null=True)
+    cost_center = CompanyPrimaryKeyRelatedField(queryset=CostCenter.objects.all(), required=False, allow_null=True)
+    amount = serializers.DecimalField(max_digits=14, decimal_places=2, min_value=Decimal("0.01"))
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = RecurringExpense
+        fields = [
+            "id", "category", "category_name", "party_name", "amount", "notes", "payment_mode", "bank_account",
+            "expense_account", "cost_center", "frequency", "next_date", "end_date", "is_active", "last_created_date",
+        ]
+        read_only_fields = ["last_created_date"]
+
+    def validate(self, attrs):
+        inst = self.instance
+        mode = attrs.get("payment_mode", getattr(inst, "payment_mode", Expense.PaymentMode.CASH))
+        bank = attrs["bank_account"] if "bank_account" in attrs else getattr(inst, "bank_account", None)
+        if mode == Expense.PaymentMode.BANK and bank is None:
+            raise serializers.ValidationError({"bank_account": "Choose the bank account this is paid from."})
+        if mode == Expense.PaymentMode.CASH and bank is not None:
+            attrs["bank_account"] = None
+        start = attrs.get("next_date", getattr(inst, "next_date", None))
+        end = attrs.get("end_date", getattr(inst, "end_date", None))
+        if start and end and end < start:
+            raise serializers.ValidationError({"end_date": "The end date cannot be before the next date."})
+        acct = attrs.get("expense_account")
+        if acct is not None and acct.type != Account.Type.EXPENSE:
+            raise serializers.ValidationError({"expense_account": "Choose an expense account."})
         return attrs
 
 
@@ -143,10 +225,87 @@ class AccountSerializer(serializers.ModelSerializer):
         queryset=BankAccount.objects.all(), required=False, allow_null=True
     )
 
+    # ACS-50: what the chart screen needs to show and guard each row.
+    has_postings = serializers.SerializerMethodField()
+    balance = serializers.SerializerMethodField()
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default="")
+
     class Meta:
         model = Account
-        fields = ["id", "code", "name", "type", "parent", "is_system", "is_control", "bank_account", "is_active"]
-        read_only_fields = ["is_system", "is_control"]
+        fields = [
+            "id", "code", "name", "type", "parent", "parent_name", "is_system", "is_control",
+            "bank_account", "is_active", "has_postings", "balance",
+        ]
+        read_only_fields = ["is_system", "is_control", "has_postings", "balance", "parent_name"]
+
+    def get_has_postings(self, obj):
+        used = self.context.get("used_account_ids")
+        if used is not None:
+            return obj.pk in used
+        return obj.journal_lines.exists()
+
+    def get_balance(self, obj):
+        balances = self.context.get("account_balances")
+        if balances is None:
+            return None
+        return str(Decimal(str(balances.get(obj.pk, 0) or 0)).quantize(Decimal("0.01")))
+
+    def _company(self):
+        request = self.context.get("request")
+        cu = get_company_user(request) if request else None
+        return cu.company if cu else None
+
+    def validate_code(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Enter an account code.")
+        company = self._company() or getattr(self.instance, "company", None)
+        if company is not None:
+            clash = Account.objects.filter(company=company, code__iexact=value)
+            if self.instance is not None:
+                clash = clash.exclude(pk=self.instance.pk)
+            other = clash.first()
+            if other is not None:
+                raise serializers.ValidationError(f"Code {value} is already used by {other.name}. Choose another code.")
+        return value
+
+    def validate(self, attrs):
+        inst = self.instance
+        if inst is not None:
+            # A ledger with postings keeps its code and type: reports and filings are keyed on them.
+            for field in ("code", "type"):
+                if field in attrs and attrs[field] != getattr(inst, field) and inst.journal_lines.exists():
+                    raise serializers.ValidationError(
+                        {field: f"The {field} cannot change because this account already has postings. Create a new account instead."}
+                    )
+            if attrs.get("is_active") is False and inst.is_active:
+                from django.db.models import Sum
+
+                from .models import JournalEntry
+
+                agg = inst.journal_lines.filter(
+                    entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED]
+                ).aggregate(d=Sum("debit"), c=Sum("credit"))
+                balance = (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
+                if balance != 0:
+                    raise serializers.ValidationError(
+                        {"is_active": f"This account still has a balance of {balance}. Move it to another account first, then deactivate."}
+                    )
+                if inst.children.filter(is_active=True).exists():
+                    raise serializers.ValidationError({"is_active": "Deactivate or move its sub-accounts first."})
+        parent = attrs.get("parent")
+        if parent is not None:
+            if inst is not None and parent.pk == inst.pk:
+                raise serializers.ValidationError({"parent": "An account cannot be its own parent."})
+            node = parent
+            while node is not None and inst is not None:
+                if node.pk == inst.pk:
+                    raise serializers.ValidationError({"parent": "That parent would make a loop in the chart."})
+                node = node.parent
+            acct_type = attrs.get("type") or (inst.type if inst else None)
+            if acct_type and parent.type != acct_type:
+                raise serializers.ValidationError({"parent": "A sub-account must be the same type as its parent."})
+        return attrs
 
 
 class AccountingPeriodSerializer(serializers.ModelSerializer):
@@ -211,10 +370,54 @@ class CostCenterSerializer(serializers.ModelSerializer):
     parent = CompanyPrimaryKeyRelatedField(
         queryset=CostCenter.objects.all(), required=False, allow_null=True
     )
+    # ACS-51: how much history hangs off this cost centre, so deleting is a clear choice.
+    usage = serializers.SerializerMethodField()
+    parent_name = serializers.CharField(source="parent.name", read_only=True, default="")
 
     class Meta:
         model = CostCenter
-        fields = ["id", "code", "name", "parent", "is_active"]
+        fields = ["id", "code", "name", "parent", "parent_name", "is_active", "usage"]
+        read_only_fields = ["usage", "parent_name"]
+
+    def get_usage(self, obj):
+        counts = self.context.get("cost_center_usage")
+        if counts is not None:
+            return counts.get(obj.pk, {"journal_lines": 0, "invoices": 0, "expenses": 0})
+        return {
+            "journal_lines": obj.journal_lines.count(),
+            "invoices": obj.sales_invoices.count() + obj.purchase_invoices.count(),
+            "expenses": obj.expenses.count(),
+        }
+
+    def validate_code(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Enter a code.")
+        request = self.context.get("request")
+        cu = get_company_user(request) if request else None
+        company = cu.company if cu else getattr(self.instance, "company", None)
+        if company is not None:
+            clash = CostCenter.objects.filter(company=company, code__iexact=value)
+            if self.instance is not None:
+                clash = clash.exclude(pk=self.instance.pk)
+            other = clash.first()
+            if other is not None:
+                raise serializers.ValidationError(f"Code {value} is already used by {other.name}. Choose another code.")
+        return value
+
+    def validate(self, attrs):
+        inst = self.instance
+        parent = attrs.get("parent")
+        if parent is not None and inst is not None:
+            node = parent
+            while node is not None:
+                if node.pk == inst.pk:
+                    raise serializers.ValidationError({"parent": "That parent would make a loop."})
+                node = node.parent
+        if inst is not None and attrs.get("is_active") is False and inst.is_active:
+            if inst.children.filter(is_active=True).exists():
+                raise serializers.ValidationError({"is_active": "Deactivate its sub-centres first."})
+        return attrs
 
 
 class JournalLineSerializer(serializers.ModelSerializer):
@@ -235,10 +438,21 @@ class JournalLineSerializer(serializers.ModelSerializer):
         # by the client — an un-scoped writable FK here was a cross-tenant IDOR.
         # CR-161: customer and supplier exposed for party-tagged manual journals.
         fields = [
-            "id", "account", "debit", "credit", "cost_center", "dimension",
-            "customer", "supplier", "bank_statement_line", "reconciled_at",
+            "id", "account", "account_code", "account_name", "debit", "credit", "cost_center",
+            "cost_center_name", "dimension", "narration",
+            "customer", "customer_name", "supplier", "supplier_name",
+            "bank_statement_line", "reconciled_at",
         ]
-        read_only_fields = ["reconciled_at", "bank_statement_line"]
+        read_only_fields = [
+            "reconciled_at", "bank_statement_line", "account_code", "account_name",
+            "cost_center_name", "customer_name", "supplier_name",
+        ]
+
+    account_code = serializers.CharField(source="account.code", read_only=True)
+    account_name = serializers.CharField(source="account.name", read_only=True)
+    cost_center_name = serializers.CharField(source="cost_center.name", read_only=True, default="")
+    customer_name = serializers.CharField(source="customer.name", read_only=True, default="")
+    supplier_name = serializers.CharField(source="supplier.name", read_only=True, default="")
 
     def _company(self):
         request = self.context.get("request")
@@ -321,14 +535,41 @@ class JournalEntrySerializer(serializers.ModelSerializer):
     source_label = serializers.SerializerMethodField()
     source_path = serializers.SerializerMethodField()
     can_reverse = serializers.SerializerMethodField()
+    # ACS-20/21/23: what the register and the detail drawer show.
+    can_edit = serializers.SerializerMethodField()
+    total_debit = serializers.SerializerMethodField()
+    posted_by_name = serializers.SerializerMethodField()
+    reversal_of = serializers.SerializerMethodField()
 
     class Meta:
         model = JournalEntry
         fields = ["id", "number", "entry_date", "status", "source_type", "source_id", "purpose",
-                  "narration", "posted_at", "reversed_entry", "lines",
-                  "source_label", "source_path", "can_reverse"]
+                  "narration", "reference", "client_token", "posted_at", "posted_by_name",
+                  "reversed_entry", "reversal_of", "lines",
+                  "source_label", "source_path", "can_reverse", "can_edit", "total_debit"]
         read_only_fields = ["status", "source_type", "source_id", "purpose", "posted_at", "reversed_entry",
-                            "source_label", "source_path", "can_reverse"]
+                            "source_label", "source_path", "can_reverse", "can_edit", "total_debit",
+                            "posted_by_name", "reversal_of"]
+        extra_kwargs = {"client_token": {"write_only": True, "required": False}}
+
+    def get_can_edit(self, obj):
+        return obj.status == JournalEntry.Status.DRAFT
+
+    def get_total_debit(self, obj):
+        return sum((line.debit or Decimal("0")) for line in obj.lines.all())
+
+    def get_posted_by_name(self, obj):
+        user = obj.posted_by
+        if user is None:
+            return ""
+        return (getattr(user, "get_full_name", lambda: "")() or getattr(user, "email", "") or "")
+
+    def get_reversal_of(self, obj):
+        # The entry this one reverses, if any (reverse side of the one-to-one).
+        try:
+            return obj.reversal_of.id
+        except JournalEntry.reversal_of.RelatedObjectDoesNotExist:
+            return None
 
     def get_source_label(self, obj):
         from .journal_sources import source_label
@@ -418,13 +659,41 @@ class BankReconSessionSerializer(serializers.ModelSerializer):
     # GL recon matches a journal line to a statement line. Receipt matching is separate.
     match_kind = serializers.SerializerMethodField()
     other_recon_path = serializers.SerializerMethodField()
+    # ACS-45: enough context to pick a session out of a list.
+    account_name = serializers.CharField(source="account.name", read_only=True)
+    statement_name = serializers.SerializerMethodField()
+    difference = serializers.DecimalField(source="last_difference", max_digits=16, decimal_places=2, read_only=True)
+    finalised_by_name = serializers.SerializerMethodField()
+    summary = serializers.SerializerMethodField()
 
     class Meta:
         model = BankReconSession
         fields = [
-            "id", "account", "statement", "status", "gl_balance", "statement_balance",
+            "id", "account", "account_name", "statement", "statement_name", "status", "gl_balance",
+            "statement_balance", "statement_date", "statement_closing_balance", "difference",
+            "finalised_at", "finalised_by_name", "reopen_reason", "created_at", "summary",
             "match_kind", "other_recon_path",
         ]
+        read_only_fields = [
+            "status", "gl_balance", "statement_balance", "finalised_at", "reopen_reason", "created_at",
+        ]
+
+    def get_statement_name(self, obj):
+        st = obj.statement
+        span = f"{st.period_start or ''} to {st.period_end or ''}".strip() if (st.period_start or st.period_end) else ""
+        return " ".join(p for p in (st.bank_account.name, st.source_filename, span) if p)
+
+    def get_finalised_by_name(self, obj):
+        u = obj.finalised_by
+        return (getattr(u, "email", "") or "") if u is not None else ""
+
+    def get_summary(self, obj):
+        # Only on a single session: the figures cost several queries.
+        if not self.context.get("with_summary"):
+            return None
+        from .bank_match import session_summary
+
+        return session_summary(obj)
 
     def get_match_kind(self, obj):
         return "gl_statement_line"
@@ -445,6 +714,15 @@ class FixedAssetSerializer(serializers.ModelSerializer):
     depreciation_expense_account = CompanyPrimaryKeyRelatedField(
         queryset=Account.objects.all(), required=False, allow_null=True
     )
+    # ACS-53: who paid for it. Both must belong to this company.
+    funding_bank_account = CompanyPrimaryKeyRelatedField(queryset=BankAccount.objects.all(), required=False, allow_null=True)
+    funding_supplier = CompanyPrimaryKeyRelatedField(queryset=Supplier.objects.all(), required=False, allow_null=True)
+    # ACS-52: what the register screen shows without a second call.
+    net_book_value = serializers.SerializerMethodField()
+    last_depreciation_month = serializers.SerializerMethodField()
+    depreciation_errors = serializers.SerializerMethodField()
+    catchup_months = serializers.SerializerMethodField()
+    acquisition_journal_number = serializers.CharField(source="acquisition_journal.number", read_only=True, default="")
 
     class Meta:
         model = FixedAsset
@@ -452,8 +730,39 @@ class FixedAssetSerializer(serializers.ModelSerializer):
         # BB-000084: company must never be client-writable.
         read_only_fields = [
             "company", "depreciated_amount", "status", "disposed_at",
-            "last_depreciation_error", "depreciation_catchup_months",
+            "last_depreciation_error", "depreciation_catchup_months", "acquisition_journal",
         ]
+
+    def get_net_book_value(self, obj):
+        return str(obj.written_down_value)
+
+    def get_last_depreciation_month(self, obj):
+        months = self.context.get("last_dep_month")
+        if months is not None:
+            return months.get(obj.pk, "")
+        entry = (
+            JournalEntry.objects.filter(
+                company_id=obj.company_id, source_type="FIXED_ASSET", source_id=obj.pk,
+                status=JournalEntry.Status.POSTED, purpose__startswith="DEPRECIATION-",
+            ).order_by("-entry_date").first()
+        )
+        return entry.entry_date.strftime("%Y-%m") if entry else ""
+
+    def get_depreciation_errors(self, obj):
+        out = []
+        for part in (obj.last_depreciation_error or "").split("; "):
+            part = part.strip()
+            if not part:
+                continue
+            month, _sep, reason = part.partition(": ")
+            if len(month) == 7 and month[4] == "-":
+                out.append({"month": month, "reason": reason})
+            else:
+                out.append({"month": "", "reason": part})
+        return out
+
+    def get_catchup_months(self, obj):
+        return [m for m in (obj.depreciation_catchup_months or "").split(",") if m]
         extra_kwargs = {
             "company": {"read_only": True},
             "asset_account": {"required": False},
@@ -486,6 +795,17 @@ class FixedAssetSerializer(serializers.ModelSerializer):
             errors["salvage_value"] = "Salvage value must be less than the cost."
         if rate < 0 or rate > 100:
             errors["wdv_annual_rate"] = "Rate must be between 0 and 100."
+        funding = attrs.get("funding", getattr(inst, "funding", FixedAsset.Funding.ALREADY_BOOKED))
+        bank = attrs["funding_bank_account"] if "funding_bank_account" in attrs else getattr(inst, "funding_bank_account", None)
+        supplier = attrs["funding_supplier"] if "funding_supplier" in attrs else getattr(inst, "funding_supplier", None)
+        if funding == FixedAsset.Funding.BANK and bank is None:
+            errors["funding_bank_account"] = "Choose the bank account it was paid from."
+        if funding == FixedAsset.Funding.SUPPLIER and supplier is None:
+            errors["funding_supplier"] = "Choose the supplier it was bought from."
+        if inst is not None:
+            for name in ("funding", "funding_bank_account", "funding_supplier"):
+                if name in attrs and attrs[name] != getattr(inst, name):
+                    errors[name] = "How the asset was paid for cannot change after it is registered."
         if errors:
             raise serializers.ValidationError(errors)
         if inst is not None:

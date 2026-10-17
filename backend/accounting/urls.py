@@ -4,7 +4,7 @@ from core.routers import DefaultRouter
 from .views import (
     AccountViewSet, AccountingBackfillView, AccountingReportView, AccountingSettingsView, BankReconSessionViewSet,
     CashShiftRegisterViewSet, CostCenterViewSet, ExpenseCategoryAccountViewSet, ExpenseViewSet, FinancialYearCloseView, FixedAssetViewSet,
-    JournalViewSet, PeriodViewSet,
+    JournalViewSet, PeriodViewSet, RecurringExpenseViewSet,
 )
 
 router = DefaultRouter()
@@ -15,6 +15,7 @@ router.register("journals", JournalViewSet, basename="accounting-journal")
 router.register("bank-recon-sessions", BankReconSessionViewSet, basename="accounting-bank-recon")
 router.register("fixed-assets", FixedAssetViewSet, basename="accounting-fixed-asset")
 router.register("expenses", ExpenseViewSet, basename="accounting-expense")
+router.register("recurring-expenses", RecurringExpenseViewSet, basename="accounting-recurring-expense")
 router.register("expense-category-accounts", ExpenseCategoryAccountViewSet, basename="accounting-expense-category-account")
 router.register("cash-shifts", CashShiftRegisterViewSet, basename="accounting-cash-shift")
 

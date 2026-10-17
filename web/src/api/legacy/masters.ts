@@ -605,6 +605,11 @@ export async function listExpenseCategoriesPage(params?: PageParams) {
   return fetchPage<Record<string, unknown>>('/masters/expense-categories/', params);
 }
 
+export async function updateExpenseCategory(id: number, payload: { name?: string; isActive?: boolean; sortOrder?: number }) {
+  const { data } = await apiClient.patch(`/masters/expense-categories/${id}/`, payload);
+  return unwrapData<Record<string, unknown>>(data);
+}
+
 export async function createExpenseCategory(payload: { name: string; code?: string; description?: string }) {
   const { data } = await apiClient.post('/masters/expense-categories/', payload);
   return unwrapData<Record<string, unknown>>(data);

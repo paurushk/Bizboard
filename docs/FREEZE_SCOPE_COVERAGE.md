@@ -788,3 +788,18 @@ Sales credit notes (`/sales/credit-notes`) and debit notes (`/sales/debit-notes`
 | The beat keeps a tenth of the plan's monthly completions free for manual billing | ✅ | `backend/tests/test_recurring_followups.py::test_the_beat_keeps_a_tenth_*` |
 | Invoice detail links back to the schedule that made it | ✅ | `backend/tests/test_recurring_followups.py::test_a_generated_invoice_shows_*`, web `pages/sales/InvoiceDetailPage.test.tsx` |
 | Server-side active/paused filter and paging; phone layout (cards and action menu); no accessibility violations in the page and edit panel | ✅ | `backend/tests/test_recurring_followups.py::test_list_filters_*`, web `RecurringInvoicesPage.test.tsx`, checked in Chrome with axe at desktop and 390px width |
+
+## Accounting screens (2026-10-17)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Journals: draft, edit, discard, post; duplicate-safe create; reverse only manual journals | ✅ | `backend/tests/test_acs_journals_phase2.py`, web `phase/JournalsPage.test.tsx` |
+| Periods: close readiness, ordered close, owner reopen, generate year, year-end close preview and reversal | ✅ | `backend/tests/test_acs_periods_phase2.py`, web `phase/PeriodsPage.test.tsx` |
+| Bank reconciliation: one match service, finalise and reopen, suggestions, entry from statement line, write-off rule | ✅ | `backend/tests/test_acs_bank_recon_phase2.py`, web `BankReconWorkspacePage.test.tsx` |
+| Chart of Accounts, Cost Centres, Expense tax and recurring | ✅ | `backend/tests/test_acs_phase3_chart_expenses.py`, web `ChartAndCostCenters.test.tsx`, `ExpensesPage.test.tsx` |
+| Fixed assets: depreciation plan and run, register check, acquisition, disposal | ✅ | `backend/tests/test_acs_assets_phase3.py`, web `phase/FixedAssetsPage.test.tsx` |
+| Day book (ledger) matches the trial balance | ✅ | `backend/tests/test_acs_day_book_phase3.py`, web `reports/DayBookPage.test.tsx` |
+| List screens do not query per row | ✅ | `backend/tests/test_acs_performance_budgets.py` |
+| Concurrency: double post, dispose, void, match; close racing a post | ✅ | `backend/tests/test_acs_concurrency_postgres.py` (Postgres-only, 6 pass on Postgres 17 locally; the double-void race it found is fixed); running it in CI is open: QOS-0133 |
+| CA sign-off on expense posting, GST/TDS, acquisition, year-end reversal, write-off | 🟡 | open: QOS-0130 |
+| Hindi wording; real-device and screen-reader pass | 🟡 | open: QOS-0131, QOS-0132 |

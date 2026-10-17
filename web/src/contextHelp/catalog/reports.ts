@@ -167,17 +167,17 @@ export const REPORTS_HELP: ContextHelpPage[] = [
   helpPage('day-book', {
     title: ['Day book', 'डे बुक'],
     summary: [
-      'One company-wide list of the day’s sales-side documents, receipts, returns, notes and expenses. It is not a Cash Book relabel: uncleared cheques do not count as cash until they clear.',
-      'कंपनी की उस दिन की बिक्री दस्तावेज़, रसीदें, रिटर्न, नोट और खर्च की एक सूची। यह कैश बुक का दूसरा नाम नहीं: अनक्लियर्ड चेक क्लियर होने तक नकद नहीं गिने जाते।',
+      'The Day book lists every ledger line posted in a date range, with voucher, account, party, debit and credit. Its totals must match the trial balance for the same dates; the page says when they do not. The Daily cash summary tab keeps the old cash-position view.',
+      'डे बुक चुनी अवधि में पोस्ट हर बही पंक्ति दिखाती है: वाउचर, खाता, पार्टी, डेबिट, क्रेडिट। इसके कुल उन्हीं तारीखों के ट्रायल बैलेंस से मिलने चाहिए, नहीं मिलें तो पेज बताता है। दैनिक नकद सार टैब में पुराना नकद-स्थिति व्यू है।',
     ],
     howItWorks: [
-      ['Pick a date. Rows come from the same transaction union used by the customer ledger, scoped to that day.', 'तारीख चुनें। पंक्तियाँ ग्राहक लेजर वाले लेन-देन संघ से, उसी दिन तक सीमित।'],
+      ['Pick a day (or a range up to a month), then filter by voucher type, account, party or text. Use Previous and Next day to walk through. Export gives the filtered lines as CSV or Excel.', 'दिन (या एक महीने तक की अवधि) चुनें, फिर वाउचर प्रकार, खाता, पार्टी या शब्द से छानें। पिछला/अगला दिन से आगे बढ़ें। निर्यात छनी पंक्तियाँ CSV या Excel में देता है।'],
     ],
     businessImpact: [
       ['Use this for day-end control. Bank and GST worksheets stay separate.', 'दिन के अंत नियंत्रण के लिए। बैंक और GST वर्कशीट अलग रहती हैं।'],
     ],
     keyRules: [
-      ['Cheque receipts appear in cash-position only with status CLEARED. A bounced cheque is un-marked paid.', 'चेक रसीद नकद स्थिति में केवल CLEARED पर। बाउंस चेक unpaid हो जाता है।'],
+      ['In the cash summary, cheques count only when CLEARED, and returns, credit notes and debit notes are shown apart from cash. An expense appears in the Day book only once it is posted to the books.', 'नकद सार में चेक केवल CLEARED पर गिने जाते हैं, और रिटर्न/क्रेडिट/डेबिट नोट नकद से अलग दिखते हैं। खर्च डे बुक में तभी दिखता है जब वह बही में पोस्ट हो।'],
     ],
     commonMistakes: [
       ['Expecting uncleared cheques or supplier payments in this sales-side day view.', 'अनक्लियर्ड चेक या सप्लायर भुगतान को इस बिक्री-पक्ष डे व्यू में ढूँढना।'],
@@ -729,7 +729,7 @@ export const SETTINGS_HELP: ContextHelpPage[] = [
       'किताबें चालू हों तो मैनुअल GL। बैलेंस होना चाहिए। पूर्ण बिल का GST ठीक करने का शॉर्टकट नहीं — क्रेडिट/डेबिट नोट।',
     ],
     howItWorks: [
-      ['Post when allowed. Closed period blocks money journals.', 'अनुमति पर पोस्ट। बंद पीरियड पैसे के जर्नल रोकता है।'],
+      ['Save a draft, edit or discard it, then post. Tag a customer or supplier on receivable and payable lines. Only a manual journal can be reversed here; one made by a bill or receipt is reversed by cancelling that document. A closed period blocks money journals.', 'ड्राफ्ट सहेजें, संपादित या हटाएँ, फिर पोस्ट करें। प्राप्य/देय पंक्तियों पर ग्राहक या आपूर्तिकर्ता चुनें। यहाँ केवल मैनुअल जर्नल उलटा जा सकता है; बिल या रसीद का जर्नल उस दस्तावेज़ को रद्द करके उलटता है। बंद पीरियड पैसे के जर्नल रोकता है।'],
     ],
     businessImpact: [
       ['Posted journals move trial balance, P&L and balance sheet immediately.', 'पोस्टेड जर्नल ट्रायल बैलेंस/P&L/बैलेंस शीट तुरंत चलाते हैं।'],
@@ -752,14 +752,14 @@ export const SETTINGS_HELP: ContextHelpPage[] = [
   helpPage('expenses', {
     title: ['Expenses', 'खर्च प्रविष्टियाँ'],
     summary: [
-      'Record a dated expense with category, amount, optional party and notes. This is not a purchase bill and does not post item stock or ITC.',
-      'तारीख, श्रेणी, राशि, वैकल्पिक पार्टी और नोट के साथ खर्च दर्ज करें। यह खरीद बिल नहीं है और आइटम स्टॉक या ITC नहीं लगाता।',
+      'Record a dated expense with category, amount, how it was paid, and optional party, cost centre, GST and TDS. It is not a purchase bill and does not post item stock. Once your start date is set in Accounting settings, each expense posts to the books.',
+      'तारीख, श्रेणी, राशि, भुगतान का तरीका और वैकल्पिक पार्टी, लागत केंद्र, GST व TDS के साथ खर्च दर्ज करें। यह खरीद बिल नहीं है, स्टॉक नहीं लगता। लेखा सेटिंग में शुरुआत की तारीख तय होने पर हर खर्च बही में पोस्ट होता है।',
     ],
     howItWorks: [
-      ['Create from this list. Filter by category. Day Book includes these rows for the selected date.', 'इसी सूची से बनाएँ। श्रेणी से फ़िल्टर। डे बुक चुनी तारीख पर ये पंक्तियाँ दिखाता है।'],
+      ['Create from this list; search, filter by date, category or payment mode, and export. A wrong expense is voided with a reason, never deleted. Recurring expenses (rent, subscriptions) are made from a template, and you confirm what is due.', 'इसी सूची से बनाएँ; खोजें, तारीख/श्रेणी/भुगतान से छानें, निर्यात करें। गलत खर्च कारण के साथ रद्द होता है, मिटता नहीं। आवर्ती खर्च (किराया, सदस्यता) टेम्पलेट से बनते हैं और देय की पुष्टि आप करते हैं।'],
     ],
     businessImpact: [
-      ['Expenses reduce cash-position on Day Book when paid in cash/cleared instruments. GST purchase ITC still needs a purchase bill.', 'नकद/क्लियर्ड साधन पर खर्च डे बुक की नकद स्थिति घटाते हैं। GST ITC के लिए खरीद बिल चाहिए।'],
+      ['Posted expenses move the profit and loss and the cash or bank balance. Input tax credit is claimed only when you tick it and give the supplier GSTIN; TDS you deducted goes to TDS payable. Have your CA confirm these before you rely on them.', 'पोस्ट खर्च लाभ-हानि और नकद/बैंक शेष बदलते हैं। इनपुट टैक्स क्रेडिट तभी लगता है जब आप टिक करें और आपूर्तिकर्ता GSTIN दें; काटा गया TDS देय TDS में जाता है। भरोसा करने से पहले CA से पुष्टि करवाएँ।'],
     ],
     keyRules: [
       ['Need create-sales-equivalent accounting write permission via this screen’s gate. Categories can be added inline.', 'इस स्क्रीन की लेखन अनुमति चाहिए। श्रेणियाँ इनलाइन जोड़ सकते हैं।'],
@@ -779,11 +779,11 @@ export const SETTINGS_HELP: ContextHelpPage[] = [
   helpPage('accounting-periods', {
     title: ['Accounting periods', 'लेखांकन पीरियड'],
     summary: [
-      'Hard-closed GST or accounting periods block new money documents. Soft-close of a GST period warns on Complete but still hard-blocks later money amends.',
-      'हार्ड-क्लोज GST/खाता पीरियड नए पैसे के दस्तावेज़ रोकते हैं। GST सॉफ्ट-क्लोज Complete पर चेतावनी, बाद के पैसे संशोधन फिर भी हार्ड-ब्लॉक।',
+      'Each month shows its books status, its GST status and whether it is ready to close. A month that cannot close tells you why, with a link to fix it. Closed months block new money documents.',
+      'हर महीना बहियों की स्थिति, GST स्थिति और बंद करने की तैयारी दिखाता है। जो महीना बंद नहीं हो सकता, वह कारण और ठीक करने का लिंक बताता है। बंद महीने नए पैसे के दस्तावेज़ रोकते हैं।',
     ],
     howItWorks: [
-      ['Owner reopens or posts into an open month. Completing into a closed month fails on purpose.', 'ओनर खोलें या खुले महीने में पोस्ट। बंद महीने में Complete जानबूझकर फेल।'],
+      ['Months close in order. Soft-close stops back-dated postings; Close stops all posting; Close period closes the books and soft-closes the GST month together. An owner can reopen the latest closed month with a reason, unless its GST month is closed or the year is closed. Create financial year makes all twelve months at once. Year-end close shows what it will do first and can be reversed by an owner.', 'महीने क्रम से बंद होते हैं। सॉफ्ट-क्लोज पिछली तारीख की पोस्टिंग रोकता है; क्लोज सारी पोस्टिंग रोकता है; अवधि बंद करें बहियाँ बंद कर GST माह सॉफ्ट-क्लोज करता है। ओनर कारण के साथ सबसे ताज़ा बंद महीना फिर खोल सकता है, जब तक उसका GST माह या वर्ष बंद न हो। वित्त वर्ष बनाएँ बारह महीने एक साथ बनाता है। वर्ष-अंत समापन पहले दिखाता है कि क्या होगा और ओनर उसे उलट सकता है।'],
     ],
     businessImpact: [
       ['Protects filed GST and signed books. Credit notes in an open month are the usual correction path.', 'फाइल GST और दस्तखत किताबें बचाता है। सुधार अक्सर खुले महीने के क्रेडिट नोट से।'],
@@ -810,7 +810,7 @@ export const SETTINGS_HELP: ContextHelpPage[] = [
       'किताबें चालू हों तो GL खाते। बिल Complete वाले सिस्टम खाते लापरवाही से न मिटाएँ।',
     ],
     howItWorks: [
-      ['Add accounts your CA asked for. Posting still happens from documents and journals.', 'CA वाले खाते जोड़ें। पोस्टिंग दस्तावेज़ और जर्नल से ही।'],
+      ['Add accounts your CA asked for and place them under a parent. Once an account has entries its code and type are fixed (you can still rename it), and an account with a balance can be deactivated only after the balance is moved. Posting still happens from documents and journals.', 'CA वाले खाते जोड़ें और मूल खाते के नीचे रखें। प्रविष्टि आने पर कोड और प्रकार तय हो जाते हैं (नाम बदल सकते हैं), और शेष वाला खाता शेष हटाने के बाद ही निष्क्रिय होता है। पोस्टिंग दस्तावेज़ और जर्नल से ही।'],
     ],
     businessImpact: [
       ['Wrong mapping here misfiles every later Complete into P&L vs balance sheet.', 'गलत मैपिंग बाद के हर Complete को P&L बनाम बैलेंस शीट में गलत डालती है।'],

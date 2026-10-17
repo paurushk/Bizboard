@@ -1,0 +1,26 @@
+id: "QOS-0131"
+category: "RELIABILITY_TRUST"
+title: "Accounting screens: a native-speaker review of the new Hindi strings"
+persona: ["P1"]
+journey: "Run the accounting screens in Hindi"
+problem: "Several hundred new Hindi strings for Journals, Periods, Bank Reconciliation, Chart of Accounts, Cost Centres, Fixed Assets, Day Book and Expenses were written without a native-speaker review."
+evidence:
+  strength: "heuristic"
+  source: ["ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md"]
+  detail: "Keys are under phase, chart, costCentres, assets, dayBook, expx, acctSettings and the status labels in web/src/i18n/hi.ts. The catalog parity test proves the keys exist, not that the wording is natural."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Heuristic. Needs a Hindi speaker, not code."
+effort: "S"
+recommendation: "A Hindi speaker reads those namespaces in web/src/i18n/hi.ts and returns corrections."
+test_required: "web/src/i18n/fullParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-17"
+closed: null

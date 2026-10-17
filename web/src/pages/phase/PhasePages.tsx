@@ -2,7 +2,6 @@ export { JournalsPage } from '@/pages/phase/JournalsPage';
 export { FixedAssetsPage } from '@/pages/phase/FixedAssetsPage';
 export { PeriodsPage } from '@/pages/phase/PeriodsPage';
 export {
-  ChartOfAccountsPage,
   TrialBalancePage,
   ProfitAndLossPage,
   BalanceSheetPage,
@@ -21,6 +20,4 @@ export {
 } from '@/pages/phase/InventoryPhasePages';
 export {
   AccountingSettingsPage,
-  AccountingBankReconPage,
-  CostCentersPage,
 } from '@/pages/phase/AccountingExtraPages';

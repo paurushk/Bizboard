@@ -373,35 +373,46 @@ def day_book(company, on_date: date) -> dict:
     )
     inflow = Decimal("0")
     outflow = Decimal("0")
+    # ACS-60: returns and notes change what is owed, not what moved through the till or the bank,
+    # so they are listed on their own and never counted in inflow, outflow or net.
+    adjustments = {"sales_returns": Decimal("0"), "credit_notes": Decimal("0"), "debit_notes": Decimal("0")}
     out_rows = []
     for row in rows:
         kind = row["txn_type"]
         amount = _money(row["amount"])
         direction = row.get("direction")
-        if kind in ("PAYMENT_IN",):
+        in_cash = Decimal("0")
+        out_cash = Decimal("0")
+        if kind == "PAYMENT_IN":
             inflow += amount
-            signed = amount
-        elif kind in ("PAYMENT_OUT", "EXPENSE") or direction == "OUT":
+            in_cash = amount
+        elif kind in ("PAYMENT_OUT", "EXPENSE"):
             outflow += amount
-            signed = -amount
-        elif kind in ("SALES_RETURN", "CREDIT_NOTE"):
+            out_cash = amount
+        elif kind == "SALES_RETURN":
+            adjustments["sales_returns"] += amount
+        elif kind == "CREDIT_NOTE":
+            adjustments["credit_notes"] += amount
+        elif kind == "DEBIT_NOTE":
+            adjustments["debit_notes"] += amount
+        elif direction == "OUT":
             outflow += amount
-            signed = -amount
-        else:
-            signed = amount
-        out_rows.append({**row, "inflow": amount if signed > 0 and kind == "PAYMENT_IN" else Decimal("0"),
-                         "outflow": amount if signed < 0 else Decimal("0")})
+            out_cash = amount
+        out_rows.append({**row, "inflow": in_cash, "outflow": out_cash,
+                         "is_adjustment": kind in ("SALES_RETURN", "CREDIT_NOTE", "DEBIT_NOTE")})
     return {
         "date": on_date,
         "inflow": inflow,
         "outflow": outflow,
         "net": inflow - outflow,
+        "adjustments": adjustments,
         "rows": out_rows,
         "kind": "day_book",
-        "label": "Day book",
+        "label": "Daily cash summary",
         "disclaimer": (
-            "Company-wide day book. Cheque receipts and payments count only when CLEARED. "
-            "Sales invoices appear as documents; cash-position uses posted receipts/payments/expenses."
+            "Daily cash summary. Inflow is receipts and cash sales; outflow is payments and expenses. "
+            "Cheque receipts and payments count only when CLEARED. Returns, credit notes and debit notes are "
+            "shown as adjustments and are not part of inflow, outflow or net."
         ),
     }
 

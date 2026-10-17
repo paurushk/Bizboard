@@ -647,11 +647,11 @@ export const SCREEN_VARIANTS: ContextHelpPage[] = [
   helpVariant(bankRecon, 'accounting-bank-reconciliation', {
     title: ['Accounting bank reconciliation', 'लेखांकन बैंक मिलान'],
     summary: [
-      'Clears GL bank lines when accounting is on. Statement upload still lives under Payments. Ambiguous matches are never auto-applied.',
-      'खाते चालू हों तो GL बैंक पंक्तियाँ। स्टेटमेंट अपलोड पेमेंट्स में। ऑटो-मैच नहीं।',
+      'Match your bank statement to your books for one bank ledger, see the difference, and finalise when it is zero. Statement upload still lives under Payments. Suggestions are only proposals and are never applied on their own.',
+      'एक बैंक खाते के लिए बैंक विवरण को बही से मिलाएँ, अंतर देखें और शून्य होने पर अंतिम करें। विवरण अपलोड पेमेंट्स में है। सुझाव केवल प्रस्ताव हैं, अपने आप लागू नहीं होते।',
     ],
     howItWorks: [
-      ['Confirm a match only after party and amount check. This does not file GST or change invoice tax.', 'पार्टी/राशि जाँचकर मैच। GST फाइल या बिल टैक्स नहीं।'],
+      ['Enter the closing balance from the statement. Tick one line on each side whose amounts are equal (or one line against many) and match. A bank charge or interest with no entry can be booked from the statement line. Finalising locks the matches; only an owner can reopen with a reason, and only a small difference can be written off by an owner.', 'विवरण का अंतिम शेष भरें। दोनों तरफ़ बराबर राशि की एक पंक्ति (या एक के सामने कई) चुनकर मिलाएँ। बिना प्रविष्टि का बैंक शुल्क या ब्याज विवरण पंक्ति से दर्ज हो सकता है। अंतिम करने पर मिलान लॉक होते हैं; केवल ओनर कारण के साथ फिर खोल सकता है, और छोटा अंतर ही ओनर बट्टे खाते डाल सकता है।'],
     ],
     relatedPages: [
       { path: '/payments/reconciliation', labelKey: 'nav.bankReconciliation' },

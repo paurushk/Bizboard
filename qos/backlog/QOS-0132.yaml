@@ -1,0 +1,26 @@
+id: "QOS-0132"
+category: "RELIABILITY_TRUST"
+title: "Accounting screens: a real-device and screen-reader pass"
+persona: ["P1"]
+journey: "Use the accounting screens on a phone and with a screen reader"
+problem: "The accounting screens have automated accessibility checks and a stacked phone layout, but nobody has used them on a real phone or with a screen reader."
+evidence:
+  strength: "heuristic"
+  source: ["ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md"]
+  detail: "Axe checks for the eight routes are in web/e2e/a11y.spec.ts and need the app running. The tables turn into labelled cards below 600 px; this was checked in tests, not on a device."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Heuristic. Needs a person with a device and a screen reader."
+effort: "S"
+recommendation: "Walk the eight accounting screens at 375 px and with NVDA or TalkBack, and record what fails."
+test_required: "web/e2e/a11y.spec.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-17"
+closed: null

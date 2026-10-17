@@ -68,7 +68,7 @@ class PaymentModeSerializer(serializers.ModelSerializer):
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
-        fields = ["id", "name", "code", "description", "is_active"]
+        fields = ["id", "name", "code", "description", "is_active", "sort_order"]
 
 
 class CustomerShippingAddressSerializer(serializers.ModelSerializer):

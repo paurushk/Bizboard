@@ -16,32 +16,10 @@ import { t } from '@/i18n';
 import { triggerBlobDownload } from '@/utils/blob';
 import { AccountingBackfillBanner, useBooksState } from '@/components/AccountingBackfillBanner';
 import {
-  asRows,
   DataTable,
   PageShell,
   type Row,
 } from '@/pages/phase/phaseShared';
-
-export function ChartOfAccountsPage() {
-  const query = useQuery({ queryKey: ['accounts'], queryFn: api.listAccounts });
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  return (
-    <PageShell title={t('phase.chartOfAccounts')} subtitle={t('phase.chartOfAccountsSubtitle')}>
-      <AccountingBackfillBanner suppressNoChart />
-      <DataTable
-        rows={asRows(query.data)}
-        empty={t('phase.chartEmpty')}
-        columns={[
-          { key: 'code', label: 'Code' },
-          { key: 'name', label: 'Name' },
-          { key: 'type', label: 'Type' },
-          { key: 'isSystem', label: 'System', bool: true },
-        ]}
-      />
-    </PageShell>
-  );
-}
 
 function AccountingReportPage({
   title,

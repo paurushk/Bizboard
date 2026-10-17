@@ -11,7 +11,7 @@ import {
 } from '@/mocks/data';
 import type { BillValidationReport, ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
 import { mockBillImageUrl, mockBillJob } from '@/mocks/billImport';
-import { withMocks, fetchPage, fetchAllPagesMasters, type PageResult, type PageParams } from './common';
+import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, getBlob, type PageResult, type PageParams } from './common';
 
 /** Master import validate/commit can run long for multi-thousand-row CSVs. */
 const IMPORT_TIMEOUT_MS = 120_000;
@@ -532,11 +532,74 @@ export const getAccountingBackfillStatus = () =>
 export const updateAccountingSettings = (payload: Record<string, unknown>) => apiClient.post('/accounting/settings/', payload).then(({ data }) => unwrapData(data));
 export const closeFinancialYear = (payload: { fyEnd: string; confirm: boolean }) =>
   apiClient.post('/accounting/fy-close/', payload).then(({ data }) => unwrapData(data));
+export const previewFinancialYearClose = (fyEnd: string) =>
+  apiClient.get('/accounting/fy-close/', { params: { fy_end: fyEnd } }).then(({ data }) => unwrapData<FyClosePreview>(data));
+export const reverseFinancialYearClose = (payload: { fyEnd: string; reason: string }) =>
+  apiClient.post('/accounting/fy-close/', { ...payload, reverse: true }).then(({ data }) => unwrapData(data));
+export type FyClosePreview = {
+  fyStart: string;
+  fyEnd: string;
+  income: string;
+  expense: string;
+  netProfit: string;
+  movesToAccount: string;
+  draftInvoices: number;
+  periods: Array<{ id: number; name: string; status: string }>;
+  blockers: string[];
+  canClose: boolean;
+  alreadyClosed: boolean;
+  journalId: number | null;
+};
+export type CloseBlocker = { code: string; severity: string; message: string; title: string; fixPath: string; count?: number };
+export type CloseReadiness = {
+  period: number;
+  name: string;
+  status: string;
+  gstStatus: string;
+  earlierOpenPeriod: { id: number; name: string } | null;
+  blockers: CloseBlocker[];
+  advisory: CloseBlocker[];
+  canSoftClose: boolean;
+  canClose: boolean;
+  canReopen: boolean;
+};
+export type CloseSummaryRow = {
+  id: number;
+  name: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  gstStatus: string;
+  blockerCount: number | null;
+  blockedByEarlier: boolean;
+};
 export const listAccounts = () =>
   withMocks(
     () => fetchAllPagesMasters<import('@/types/domain').AccountingAccount>('/accounting/accounts/'),
     mockAccountingAccounts,
   );
+export type ChartAccount = {
+  id: number;
+  code: string;
+  name: string;
+  type: string;
+  parent: number | null;
+  parentName: string;
+  isSystem: boolean;
+  isControl: boolean;
+  bankAccount: number | null;
+  isActive: boolean;
+  hasPostings: boolean;
+  balance: string | null;
+};
+export const listChartAccounts = (params?: Record<string, string>) =>
+  fetchAllPagesMasters<ChartAccount>('/accounting/accounts/', { with_balance: '1', ...params });
+export const updateAccount = (id: number, payload: Record<string, unknown>) =>
+  apiClient.patch(`/accounting/accounts/${id}/`, payload).then(({ data }) => unwrapData(data));
+export const transferAccountBalance = (id: number, payload: { toAccount: number; entryDate?: string }) =>
+  apiClient.post(`/accounting/accounts/${id}/transfer-balance/`, payload).then(({ data }) => unwrapData<{ journalId: number; number: string; amount: string }>(data));
+export const exportChartAccounts = (params: Record<string, string>, file: 'csv' | 'xlsx') =>
+  getBlob('/accounting/accounts/export/', { ...params, file });
 export const createAccount = (payload: Record<string, unknown>) => apiClient.post('/accounting/accounts/', payload).then(({ data }) => unwrapData(data));
 
 export async function listJournals(params?: Record<string, string>): Promise<import('@/types/domain').JournalEntry[]> {
@@ -572,15 +635,81 @@ export async function listUnreconciledGlLines(accountId: number | string): Promi
 }
 
 export const createJournal = (payload: Record<string, unknown>) => apiClient.post('/accounting/journals/', payload).then(({ data }) => unwrapData(data));
+export const getJournal = (id: number) => apiClient.get(`/accounting/journals/${id}/`).then(({ data }) => unwrapData<import('@/types/domain').JournalEntry>(data));
+export const updateJournal = (id: number, payload: Record<string, unknown>) => apiClient.put(`/accounting/journals/${id}/`, payload).then(({ data }) => unwrapData(data));
+export const discardJournal = (id: number) => apiClient.delete(`/accounting/journals/${id}/`).then(() => undefined);
+/** ACS-23: the filtered register as a CSV/XLSX blob. */
+export const exportJournals = (params: Record<string, string>, file: 'csv' | 'xlsx' = 'csv') =>
+  getBlob('/accounting/journals/export/', { ...params, file });
 export const postJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/post/`).then(({ data }) => unwrapData(data));
 export const reverseJournal = (id: number) => apiClient.post(`/accounting/journals/${id}/reverse/`).then(({ data }) => unwrapData(data));
 export const listCostCenters = () =>
   withMocks(() => fetchAllPagesMasters<Record<string, unknown>>('/accounting/cost-centers/'), mockCostCenters);
+export type CostCenterRow = {
+  id: number;
+  code: string;
+  name: string;
+  parent: number | null;
+  parentName: string;
+  isActive: boolean;
+  usage: { journalLines: number; invoices: number; expenses: number };
+};
+export const listCostCentersFull = () => fetchAllPagesMasters<CostCenterRow>('/accounting/cost-centers/');
+export const updateCostCenter = (id: number, payload: Record<string, unknown>) =>
+  apiClient.patch(`/accounting/cost-centers/${id}/`, payload).then(({ data }) => unwrapData(data));
+export const deleteCostCenter = (id: number) => apiClient.delete(`/accounting/cost-centers/${id}/`).then(() => undefined);
+export type CostCenterReport = {
+  results: Array<{ costCenter: number | null; code: string; name: string; income: string; expense: string; net: string }>;
+  totals: { income: string; expense: string; net: string };
+};
+export const getCostCenterReport = (params: { dateFrom?: string; dateTo?: string }) =>
+  apiClient
+    .get('/accounting/cost-centers/report/', { params: { date_from: params.dateFrom || undefined, date_to: params.dateTo || undefined } })
+    .then(({ data }) => unwrapData<CostCenterReport>(data));
 export const createCostCenter = (payload: Record<string, unknown>) => apiClient.post('/accounting/cost-centers/', payload).then(({ data }) => unwrapData(data));
 
 export async function listExpensesPage(params?: PageParams) {
   return fetchPage<Record<string, unknown>>('/accounting/expenses/', params);
 }
+
+/** The register page: rows plus the total of everything the filters match (not just this page). */
+export async function listExpensesRegister(params?: PageParams) {
+  const { data } = await apiClient.get('/accounting/expenses/', { params: flattenQueryParams(params) });
+  const body = unwrapData<{ results: Record<string, unknown>[]; count: number; filteredTotal?: string }>(data);
+  return { results: body.results ?? [], count: body.count ?? 0, filteredTotal: body.filteredTotal ?? '0' };
+}
+export const exportExpenses = (params: Record<string, string | undefined>, file: 'csv' | 'xlsx') =>
+  getBlob('/accounting/expenses/export/', { ...params, file });
+export type RecurringExpense = {
+  id: number;
+  category: number;
+  categoryName: string;
+  partyName: string;
+  amount: string;
+  notes: string;
+  paymentMode: 'CASH' | 'BANK';
+  bankAccount: number | null;
+  expenseAccount: number | null;
+  costCenter: number | null;
+  frequency: 'MONTHLY' | 'QUARTERLY' | 'YEARLY';
+  nextDate: string;
+  endDate: string | null;
+  isActive: boolean;
+  lastCreatedDate: string | null;
+};
+export const listRecurringExpenses = () => fetchAllPagesMasters<RecurringExpense>('/accounting/recurring-expenses/');
+export const createRecurringExpense = (payload: Record<string, unknown>) =>
+  apiClient.post('/accounting/recurring-expenses/', payload).then(({ data }) => unwrapData<RecurringExpense>(data));
+export const updateRecurringExpense = (id: number, payload: Record<string, unknown>) =>
+  apiClient.patch(`/accounting/recurring-expenses/${id}/`, payload).then(({ data }) => unwrapData<RecurringExpense>(data));
+export const deleteRecurringExpense = (id: number) =>
+  apiClient.delete(`/accounting/recurring-expenses/${id}/`).then(() => undefined);
+export const createDueRecurringExpenses = (ids?: number[]) =>
+  apiClient.post('/accounting/recurring-expenses/create-due/', { ids }).then(({ data }) =>
+    unwrapData<{ created: Array<{ template: number; expense: number; date: string }>; skipped: Array<{ template: number; date: string; reason: string }> }>(data));
+/** An attachment is fetched with the user's session, then handed to the browser. */
+export const downloadFileAsset = (id: number) => getBlob(`/files/${id}/download/`);
+export const deleteFileAsset = (id: number) => apiClient.delete(`/files/${id}/`).then(() => undefined);
 
 export async function createExpense(payload: Record<string, unknown>) {
   const { data } = await apiClient.post('/accounting/expenses/', payload);
@@ -649,6 +778,43 @@ export async function listFixedAssetsPage(params?: PageParams): Promise<PageResu
     { results: mockFixedAssets, count: mockFixedAssets.length, next: null, previous: null },
   );
 }
+export type AssetSummary = {
+  count: number;
+  totalCost: string;
+  accumulated: string;
+  netBookValue: string;
+  thisMonthCharge: string;
+  errors: number;
+  lastCompletedMonth: string;
+  registerVsGl: {
+    registerCost: string;
+    glCost: string;
+    costDifference: string;
+    registerAccumulated: string;
+    glAccumulated: string;
+    accumulatedDifference: string;
+  };
+};
+export type AssetPreset = { key: string; name: string; usefulLifeMonths: number; method: string; wdvAnnualRate: string };
+export type ScheduleRow = { month: string; amount: string; status: 'posted' | 'missing' | 'projected'; journalId: number | null; number: string; accumulated: string };
+export type DepreciationRun = {
+  through: string;
+  dryRun: boolean;
+  posted: number;
+  total: string;
+  assets: Array<{ asset: number; name: string; errors: string[]; months: Array<{ month: string; amount: string; status: string }> }>;
+};
+export const getFixedAssetSummary = () =>
+  apiClient.get('/accounting/fixed-assets/summary/').then(({ data }) => unwrapData<AssetSummary>(data));
+export const getFixedAssetSchedule = (id: number) =>
+  apiClient.get(`/accounting/fixed-assets/${id}/schedule/`).then(({ data }) =>
+    unwrapData<{ asset: number; rows: ScheduleRow[]; disposal: { journalId: number; number: string; date: string } | null }>(data));
+export const listFixedAssetPresets = () =>
+  apiClient.get('/accounting/fixed-assets/presets/').then(({ data }) => unwrapData<{ results: AssetPreset[]; note: string }>(data));
+export const runFixedAssetDepreciation = (payload: { month?: string; dryRun?: boolean }) =>
+  apiClient.post('/accounting/fixed-assets/run-depreciation/', payload).then(({ data }) => unwrapData<DepreciationRun>(data));
+export const draftAssetRegisterFix = () =>
+  apiClient.post('/accounting/fixed-assets/register-check/draft/', {}).then(({ data }) => unwrapData<{ journalId: number; number: string }>(data));
 export const createFixedAsset = (payload: Record<string, unknown>) => apiClient.post('/accounting/fixed-assets/', payload).then(({ data }) => unwrapData(data));
 // F3-024: correct a wrong useful-life/acquisition-date entered at create time.
 export const updateFixedAsset = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/fixed-assets/${id}/`, payload).then(({ data }) => unwrapData(data));
@@ -667,6 +833,14 @@ export async function listAccountingPeriodsPage(params?: PageParams): Promise<Pa
     { results: mockAccountingPeriods, count: mockAccountingPeriods.length, next: null, previous: null },
   );
 }
+export const getCloseSummary = () =>
+  apiClient.get('/accounting/periods/close-summary/').then(({ data }) => unwrapData<{ results: CloseSummaryRow[] }>(data).results);
+export const getCloseReadiness = (id: number) =>
+  apiClient.get(`/accounting/periods/${id}/close-readiness/`).then(({ data }) => unwrapData<CloseReadiness>(data));
+export const reopenAccountingPeriod = (id: number, reason: string) =>
+  apiClient.post(`/accounting/periods/${id}/reopen/`, { reason }).then(({ data }) => unwrapData(data));
+export const generateAccountingYear = (fyStartYear: number) =>
+  apiClient.post('/accounting/periods/generate/', { fyStartYear }).then(({ data }) => unwrapData<{ created: string[]; skipped: string[] }>(data));
 export const createAccountingPeriod = (payload: Record<string, unknown>) => apiClient.post('/accounting/periods/', payload).then(({ data }) => unwrapData(data));
 export const updateAccountingPeriod = (id: number, payload: Record<string, unknown>) => apiClient.patch(`/accounting/periods/${id}/`, payload).then(({ data }) => unwrapData(data));
 export const softCloseAccountingPeriod = (id: number) => apiClient.post(`/accounting/periods/${id}/soft-close/`).then(({ data }) => unwrapData(data));

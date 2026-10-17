@@ -38,10 +38,13 @@ def _balances(company, *, as_of=None, date_from=None, date_to=None, cost_center=
         qs = qs.filter(cost_center__isnull=True)
     elif cost_center:
         qs = qs.filter(cost_center_id=cost_center)
+    # ACS-34: the reversal of a year-end close is part of the close, so it leaves the P&L with it.
     if exclude_fy_close:
-        qs = qs.exclude(entry__purpose="FY_CLOSE")
+        qs = qs.exclude(entry__purpose="FY_CLOSE").exclude(entry__reversal_of__purpose="FY_CLOSE")
     elif exclude_fy_close_after:
-        qs = qs.exclude(entry__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after)
+        qs = qs.exclude(entry__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after).exclude(
+            entry__reversal_of__purpose="FY_CLOSE", entry__entry_date__gte=exclude_fy_close_after,
+        )
     # BB-000529 / UXW2B-018: alias the account__* FK lookups to clean single-underscore
     # names. djangorestframework_camel_case's camelize() only converts "_x" -> "X" when a
     # single underscore is followed directly by a lowercase letter; "account__code" (double
@@ -826,7 +829,7 @@ def close_financial_year(company, fy_end, user=None):
         entry__entry_date__gte=fy_start,
         entry__entry_date__lte=fy_end,
         account__type__in=(Account.Type.INCOME, Account.Type.EXPENSE),
-    ).exclude(entry__purpose="FY_CLOSE")
+    ).exclude(entry__purpose="FY_CLOSE").exclude(entry__reversal_of__purpose="FY_CLOSE")
 
     lines = []
     re_debit = Decimal("0")

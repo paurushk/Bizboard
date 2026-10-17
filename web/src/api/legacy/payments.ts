@@ -511,4 +511,71 @@ export const listAccountingBankReconSessions = () =>
     mockAccountingBankReconSessions,
   );
 export const createAccountingBankReconSession = (payload: Record<string, unknown>) => apiClient.post('/accounting/bank-recon-sessions/', payload).then(({ data }) => unwrapData(data));
+export type ReconSummary = {
+  statementDate: string;
+  statementClosingBalance: string | null;
+  glBalanceAsAt: string;
+  reconciledTotal: string;
+  outstandingDeposits: string;
+  outstandingPayments: string;
+  unrecordedBankItems: string;
+  adjustedBankBalance: string | null;
+  adjustedBookBalance: string;
+  difference: string | null;
+  statementLines: number;
+  matchedLines: number;
+  openLines: number;
+};
+export type ReconSession = {
+  id: number;
+  account: number;
+  accountName: string;
+  statement: number;
+  statementName: string;
+  status: string;
+  statementDate: string | null;
+  statementClosingBalance: string | null;
+  difference: string | null;
+  finalisedAt: string | null;
+  finalisedByName: string;
+  createdAt: string;
+  summary: ReconSummary | null;
+};
+export type ReconStatementLine = { id: number; txnDate: string; narration: string; utr: string; amount: string; matchStatus: string };
+export type ReconLedgerLine = { id: number; entryId: number; entryNumber: string; entryDate: string; narration: string; signedAmount: string };
+export type ReconSuggestion = {
+  bankLine: number;
+  journalLine: number;
+  score: number;
+  dateGap: number;
+  sharedWords: string[];
+  amount: string;
+  confidence: 'high' | 'medium' | 'low';
+};
+export const listBankReconSessions = (params?: Record<string, string>) =>
+  fetchPage<ReconSession>('/accounting/bank-recon-sessions/', { pageSize: 100, ...params });
+export const getBankReconSession = (id: number) =>
+  apiClient.get(`/accounting/bank-recon-sessions/${id}/`).then(({ data }) => unwrapData<ReconSession>(data));
+export const patchBankReconSession = (id: number, payload: Record<string, unknown>) =>
+  apiClient.patch(`/accounting/bank-recon-sessions/${id}/`, payload).then(({ data }) => unwrapData<ReconSession>(data));
+export const listReconStatementLines = (id: number, params?: PageParams) =>
+  fetchPage<ReconStatementLine>(`/accounting/bank-recon-sessions/${id}/statement-lines/`, params);
+export const listReconLedgerLines = (id: number, params?: PageParams) =>
+  fetchPage<ReconLedgerLine>(`/accounting/bank-recon-sessions/${id}/ledger-lines/`, params);
+export const matchManyRecon = (id: number, payload: { journalLines: number[]; bankLines: number[] }) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/match-many/`, payload).then(({ data }) => unwrapData(data));
+export const unmatchGlRecon = (id: number, bankLine: number) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/unmatch/`, { bankLine }).then(({ data }) => unwrapData(data));
+export const getReconSuggestions = (id: number) =>
+  apiClient.get(`/accounting/bank-recon-sessions/${id}/suggestions/`).then(({ data }) => unwrapData<{ results: ReconSuggestion[] }>(data).results);
+export const acceptReconSuggestions = (id: number, payload: { confidence?: string; pairs?: Array<{ bankLine: number; journalLine: number }>; preview?: boolean }) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/accept-suggestions/`, payload).then(({ data }) => unwrapData<{ matched?: number; count?: number; failed?: unknown[] }>(data));
+export const createReconEntry = (id: number, payload: { bankLine: number; account: number; narration?: string; entryDate?: string }) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/create-entry/`, payload).then(({ data }) => unwrapData(data));
+export const finaliseRecon = (id: number, writeOff: boolean) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/finalise/`, { writeOff }).then(({ data }) => unwrapData<ReconSession>(data));
+export const reopenRecon = (id: number, reason: string) =>
+  apiClient.post(`/accounting/bank-recon-sessions/${id}/reopen/`, { reason }).then(({ data }) => unwrapData<ReconSession>(data));
+export const reconReportFile = (id: number, file: 'xlsx' | 'pdf') =>
+  getBlob(`/accounting/bank-recon-sessions/${id}/report/`, { file });
 export const matchAccountingBankRecon = (id: number, payload: Record<string, unknown>) => apiClient.post(`/accounting/bank-recon-sessions/${id}/match/`, payload).then(({ data }) => unwrapData(data));

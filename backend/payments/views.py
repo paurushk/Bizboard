@@ -1881,8 +1881,13 @@ class BankStatementViewSet(CompanyScopedViewSet):
             notes = (notes or "") + " | amount_mismatch_override"
         with transaction.atomic():
             line = BankStatementLine.objects.select_for_update().get(pk=line.pk)
-            if line.match_status == BankLineMatchStatus.MATCHED:
-                return line.recon_match
+            # ACS-40: a line matched in the ledger reconciliation is not free for a receipt.
+            from accounting import bank_match
+
+            existing = ReconMatch.objects.filter(line=line).first()
+            if existing is not None:
+                return existing
+            bank_match.assert_line_free(line, engine="payments")
             if receipt and ReconMatch.objects.select_for_update().filter(receipt=receipt).exists():
                 raise BusinessRuleError("This receipt is already matched to a bank line.")
             if payment and ReconMatch.objects.select_for_update().filter(
@@ -1902,6 +1907,8 @@ class BankStatementViewSet(CompanyScopedViewSet):
             )
             line.match_status = BankLineMatchStatus.MATCHED
             line.save(update_fields=["match_status", "updated_at"])
+            if self.company.accounting_enabled:
+                bank_match.link_document_gl_line(self.company, match)
             # QOS-0043: learn this payee's narration pattern for future suggestions.
             from .recon import remember_payee
 
@@ -2243,16 +2250,15 @@ class ReconViewSet(viewsets.ViewSet):
         line = BankStatementLine.objects.filter(company=self.company, pk=line_id).first()
         if not line:
             raise BusinessRuleError("Statement line not found.")
+        from accounting import bank_match
+
         with transaction.atomic():
             line = BankStatementLine.objects.select_for_update().get(pk=line.pk)
             match = ReconMatch.objects.filter(company=self.company, line=line).first()
-            if match is None:
-                raise BusinessRuleError("This line is not matched.")
-            match_id = match.id
-            match.delete()
-            line.match_status = BankLineMatchStatus.UNMATCHED
-            line.updated_by = request.user
-            line.save(update_fields=["match_status", "updated_by", "updated_at"])
+            match_id = match.id if match is not None else None
+            # ACS-40: one unmatch clears the payments match and any ledger link on the line.
+            bank_match.unmatch_line(self.company, request.user, line)
+            line.refresh_from_db()
         AuditService.log(
             company=self.company,
             user=request.user,

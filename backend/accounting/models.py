@@ -84,6 +84,8 @@ class JournalEntry(CompanyScopedModel):
         DRAFT = "DRAFT"
         POSTED = "POSTED"
         REVERSED = "REVERSED"
+        # ACS-20: a draft thrown away keeps its number, so the series has no silent gap.
+        DISCARDED = "DISCARDED"
 
     # BB-000363: wide enough for JV-{source_type}-{purpose}-{id} without truncation collisions.
     number = models.CharField(max_length=64, blank=True)
@@ -93,6 +95,10 @@ class JournalEntry(CompanyScopedModel):
     source_id = models.PositiveBigIntegerField(null=True, blank=True)
     purpose = models.CharField(max_length=64, blank=True)
     narration = models.TextField(blank=True)
+    # ACS-22: free-text voucher / document reference shown on the register.
+    reference = models.CharField(max_length=120, blank=True)
+    # ACS-24: client-generated token; a repeated create with the same token returns the first draft.
+    client_token = models.CharField(max_length=64, blank=True)
     posted_at = models.DateTimeField(null=True, blank=True)
     posted_by = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     reversed_entry = models.OneToOneField("self", null=True, blank=True, on_delete=models.PROTECT, related_name="reversal_of")
@@ -110,6 +116,11 @@ class JournalEntry(CompanyScopedModel):
                 fields=["company", "number"],
                 condition=~Q(number=""),
                 name="uniq_journal_number_per_company",
+            ),
+            models.UniqueConstraint(
+                fields=["company", "client_token"],
+                condition=~Q(client_token=""),
+                name="uniq_journal_client_token",
             ),
         ]
         indexes = [models.Index(fields=["company", "entry_date", "status"])]
@@ -144,6 +155,8 @@ class JournalLine(models.Model):
     credit = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
     cost_center = models.ForeignKey(CostCenter, null=True, blank=True, on_delete=models.PROTECT, related_name="journal_lines")
     dimension = models.CharField(max_length=64, blank=True)
+    # ACS-22: what this line is for, when it differs from the voucher narration.
+    narration = models.CharField(max_length=255, blank=True)
     # Wave 16B: GL-first party sub-ledger tags on control / advance accounts.
     customer = models.ForeignKey(
         "masters.Customer", null=True, blank=True, on_delete=models.PROTECT, related_name="journal_lines"
@@ -179,13 +192,37 @@ class JournalLine(models.Model):
 class BankReconSession(CompanyScopedModel):
     class Status(models.TextChoices):
         OPEN = "OPEN"
-        CLOSED = "CLOSED"
+        # ACS-41: OPEN -> IN_PROGRESS (first match) -> RECONCILED (difference 0) -> FINALISED (locked).
+        IN_PROGRESS = "IN_PROGRESS"
+        RECONCILED = "RECONCILED"
+        FINALISED = "FINALISED"
+        CLOSED = "CLOSED"  # legacy value kept for old rows
 
     account = models.ForeignKey(Account, on_delete=models.PROTECT, related_name="recon_sessions")
     statement = models.ForeignKey("payments.BankStatement", on_delete=models.PROTECT, related_name="gl_recon_sessions")
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
     gl_balance = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
     statement_balance = models.DecimalField(max_digits=16, decimal_places=2, default=Decimal("0"))
+    # ACS-41: the bank's own closing figure and the date it is struck at.
+    statement_date = models.DateField(null=True, blank=True)
+    statement_closing_balance = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+    finalised_at = models.DateTimeField(null=True, blank=True)
+    finalised_by = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    write_off_entry = models.ForeignKey(JournalEntry, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    reopen_reason = models.CharField(max_length=255, blank=True)
+    # The last computed difference, so the session list can show it without recomputing every row.
+    last_difference = models.DecimalField(max_digits=16, decimal_places=2, null=True, blank=True)
+
+
+class JournalLineBankLink(models.Model):
+    """ACS-42: an extra statement line tied to one ledger line (one GL line settled in several bank lines).
+
+    The first statement line stays on ``JournalLine.bank_statement_line``; the rest live here.
+    """
+
+    company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="+", db_index=True)
+    journal_line = models.ForeignKey(JournalLine, on_delete=models.CASCADE, related_name="extra_bank_links")
+    bank_line = models.OneToOneField("payments.BankStatementLine", on_delete=models.CASCADE, related_name="gl_extra_link")
 
 
 class FixedAsset(CompanyScopedModel):
@@ -220,6 +257,26 @@ class FixedAsset(CompanyScopedModel):
     # Months older than the automatic catch-up window that still need a charge.
     # Comma-separated YYYY-MM. Cleared as an explicit backfill posts them.
     depreciation_catchup_months = models.CharField(max_length=800, blank=True, default="")
+
+    # ACS-53: how the purchase was paid, and the entry that booked it.
+    class Funding(models.TextChoices):
+        ALREADY_BOOKED = "ALREADY_BOOKED", "Already booked"
+        CASH = "CASH", "Paid from cash"
+        BANK = "BANK", "Paid from bank"
+        SUPPLIER = "SUPPLIER", "On credit from a supplier"
+
+    funding = models.CharField(max_length=16, choices=Funding.choices, default=Funding.ALREADY_BOOKED)
+    funding_bank_account = models.ForeignKey(
+        "payments.BankAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )
+    funding_supplier = models.ForeignKey(
+        "masters.Supplier", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )
+    acquisition_journal = models.ForeignKey(
+        "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    # ACS-55: the preset the asset was created from (computers, vehicles...), kept for reporting.
+    category = models.CharField(max_length=32, blank=True, default="")
 
     @property
     def depreciable_base(self) -> Decimal:
@@ -362,10 +419,32 @@ class Expense(CompanyScopedModel):
     journal_entry = models.ForeignKey(
         "accounting.JournalEntry", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
     )
+    # ACS-51: which cost centre the expense belongs to; it rides through to the ledger line.
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="expenses",
+    )
+    # ACS-17: GST included in `amount`, split by head. ITC is only claimed when the box is ticked.
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0"))
+    cgst_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    sgst_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    igst_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    itc_eligible = models.BooleanField(default=False)
+    supplier_gstin = models.CharField(max_length=15, blank=True)
+    # Tax the company deducted from what it paid out; it owes this to the government.
+    tds_section = models.CharField(max_length=10, blank=True)
+    tds_amount = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal("0"))
+    # ACS-17: set when a recurring template created this expense (one per template and date).
+    recurring_template = models.ForeignKey(
+        "accounting.RecurringExpense", null=True, blank=True, on_delete=models.SET_NULL, related_name="created_expenses",
+    )
 
     class Meta:
         ordering = ["-expense_date", "-id"]
-        indexes = [models.Index(fields=["company", "expense_date"])]
+        # ACS-71: the register filters on company, status and date together.
+        indexes = [
+            models.Index(fields=["company", "expense_date"]),
+            models.Index(fields=["company", "status", "expense_date"], name="exp_company_status_date_idx"),
+        ]
         constraints = [
             models.UniqueConstraint(
                 fields=["company", "number"],
@@ -376,6 +455,32 @@ class Expense(CompanyScopedModel):
 
     def __str__(self):
         return self.number or f"Expense #{self.pk}"
+
+
+class RecurringExpense(CompanyScopedModel):
+    """ACS-17: a template for an expense that repeats (rent, a subscription)."""
+
+    class Frequency(models.TextChoices):
+        MONTHLY = "MONTHLY"
+        QUARTERLY = "QUARTERLY"
+        YEARLY = "YEARLY"
+
+    category = models.ForeignKey("masters.ExpenseCategory", on_delete=models.PROTECT, related_name="recurring_expenses")
+    party_name = models.CharField(max_length=255, blank=True)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    notes = models.TextField(blank=True)
+    payment_mode = models.CharField(max_length=8, choices=Expense.PaymentMode.choices, default=Expense.PaymentMode.CASH)
+    bank_account = models.ForeignKey("payments.BankAccount", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    expense_account = models.ForeignKey("accounting.Account", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    cost_center = models.ForeignKey("accounting.CostCenter", null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    frequency = models.CharField(max_length=10, choices=Frequency.choices, default=Frequency.MONTHLY)
+    next_date = models.DateField()
+    end_date = models.DateField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    last_created_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["next_date", "id"]
 
 
 class ExpenseCategoryAccount(CompanyScopedModel):
