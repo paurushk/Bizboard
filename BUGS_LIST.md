@@ -1497,6 +1497,7 @@ Total Identified Defects & Quality Gaps: 212   (19 closed at triage, 193 open)
 ---
 
 ### BUG-CRM-001: Mark Referral Paid Says It Drafts a Credit Note. The Service Only Flips Status.
+- **Update (2026-10-17)**: FIXED (CRM review WP-4): mark-paid now creates and completes the credit note; copy is neutral and the shortcut is gone.
 - **Severity**: **P1 (Operators Believe AR Was Reduced)**
 - **Triage (2026-10-04)**: PARTIAL. Service docstring now says it does not draft a credit note; UI copy not re-checked.
 - **File & Lines**:
@@ -1509,6 +1510,7 @@ Total Identified Defects & Quality Gaps: 212   (19 closed at triage, 193 open)
 ---
 
 ### BUG-CRM-002: Percent Referral Rewards Use the Opportunity Amount, Not Invoiced Revenue
+- **Update (2026-10-17)**: FIXED (CRM review F-01/WP-4/WP-5): PERCENT reward is worked out at mark-paid from the deal's own invoices.
 - **Severity**: **P1 (A Reward Can Be Paid on a Forecast)**
 - **Triage (2026-10-04)**: CONFIRMED. crm/referrals.py:277 uses opportunity.amount.
 - **File & Lines**: [`backend/crm/referrals.py`](file:///e:/Bizboard/backend/crm/referrals.py) reward amount uses `opportunity.amount`. Campaign ROI in [`backend/crm/campaigns.py`](file:///e:/Bizboard/backend/crm/campaigns.py) uses completed invoice taxable value.
@@ -1519,6 +1521,7 @@ Total Identified Defects & Quality Gaps: 212   (19 closed at triage, 193 open)
 ---
 
 ### BUG-CRM-003: A Pipeline Deal Can Be Marked Won With No Customer
+- **Update (2026-10-17)**: FIXED (CRM review WP-6): a won deal needs a customer (server rule) and the board card can set one inline.
 - **Severity**: **P1 (Won Is Terminal and Billing Is Then Refused)**
 - **Triage (2026-10-04)**: CONFIRMED. OpportunityPipelinePage.tsx allows OPEN/QUALIFIED/NEGOTIATION -> WON with no customer check.
 - **File & Lines**:
@@ -1531,6 +1534,7 @@ Total Identified Defects & Quality Gaps: 212   (19 closed at triage, 193 open)
 ---
 
 ### BUG-CRM-004: Campaigns Cannot Be Edited, and the Funnel Mis-Labels Revenue
+- **Update (2026-10-17)**: FIXED (CRM review WP-5/WP-8): funnel labels the invoice basis and shows deal names.
 - **Severity**: **P2 (Budget and Status Freeze After Create)**
 - **Triage (2026-10-04)**: PARTIAL. CampaignsPage now edits (`editing` state, updateCampaign); revenue label still maps only quotation_total vs opportunity amount (line 184).
 - **File & Lines**: [`web/src/pages/crm/CampaignsPage.tsx`](file:///e:/Bizboard/web/src/pages/crm/CampaignsPage.tsx). Delete-without-confirm is **BUG-UI-012**.
@@ -1541,6 +1545,7 @@ Total Identified Defects & Quality Gaps: 212   (19 closed at triage, 193 open)
 ---
 
 ### BUG-CRM-005: Won Opportunity Can Draft a Quotation in the UI and Not an Invoice
+- **Update (2026-10-17)**: FIXED: Opportunities and Pipeline call draft-invoice with a stable key.
 - **Severity**: **P2 (Billing API Exists and the Web Client Never Calls It)**
 - **Triage (2026-10-04)**: CONFIRMED. web/src/api/crm.ts has no draft-invoice call.
 - **File & Lines**: [`backend/crm/views.py`](file:///e:/Bizboard/backend/crm/views.py) `draft-invoice`. [`web/src/api/crm.ts`](file:///e:/Bizboard/web/src/api/crm.ts) only wires `createQuotationFromOpportunity`.

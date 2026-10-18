@@ -295,12 +295,19 @@ def test_owner_issues_whatsapp_token_and_meta_can_verify_before_the_flag(tenant_
     token = _body(issued)["token"]
     again = tenant_a.client.post("/api/v1/crm/leads/whatsapp-token/", {}, format="json")
     assert _body(again)["token"] == token
+    verify = _body(issued)["verify_token"]
+    assert verify and verify != token
     challenge = tenant_a.client.get(
         f"/api/v1/crm/public/whatsapp/{token}/",
-        {"hub.mode": "subscribe", "hub.verify_token": token, "hub.challenge": "chal-1"},
+        {"hub.mode": "subscribe", "hub.verify_token": verify, "hub.challenge": "chal-1"},
     )
     assert challenge.status_code == 200
     assert challenge.content == b"chal-1"
+    # The URL token is not the handshake token any more.
+    assert tenant_a.client.get(
+        f"/api/v1/crm/public/whatsapp/{token}/",
+        {"hub.mode": "subscribe", "hub.verify_token": token, "hub.challenge": "chal-1"},
+    ).status_code == 403
     wrong = tenant_a.client.get(
         f"/api/v1/crm/public/whatsapp/{token}/",
         {"hub.mode": "subscribe", "hub.verify_token": "other", "hub.challenge": "chal-1"},
@@ -322,7 +329,7 @@ def test_owner_issues_whatsapp_token_and_meta_can_verify_before_the_flag(tenant_
     assert stale.status_code == 404
     fresh = tenant_a.client.get(
         f"/api/v1/crm/public/whatsapp/{new_token}/",
-        {"hub.mode": "subscribe", "hub.verify_token": new_token, "hub.challenge": "chal-2"},
+        {"hub.mode": "subscribe", "hub.verify_token": verify, "hub.challenge": "chal-2"},
     )
     assert fresh.status_code == 200
     assert fresh.content == b"chal-2"

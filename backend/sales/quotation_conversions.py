@@ -178,6 +178,14 @@ class QuotationConversionService:
                 row.release_reason = reason
             type(rows[0]).objects.bulk_update(rows, ["released_at", "released_by", "release_reason"])
             released = len(rows)
+            # An undone conversion no longer counts as that deal's revenue (CRM revenue link).
+            from .models import SalesInvoice
+
+            opportunity_of = {quote.pk: quote.opportunity_id for quote in quotes}
+            for row in rows:
+                deal = opportunity_of.get(row.quotation_id)
+                if deal and getattr(row, "sales_invoice_id", None):
+                    SalesInvoice.objects.filter(pk=row.sales_invoice_id, opportunity_id=deal).update(opportunity=None)
             for quotation in quotes:
                 quantity = sum(
                     (row.quantity for row in rows if row.quotation_id == quotation.pk), Decimal("0")

@@ -1,3 +1,4 @@
+from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import action
@@ -14,7 +15,12 @@ from masters.models import Customer
 from .forecast import sync_opportunity_amount
 from .models import Campaign, Opportunity, OpportunityLine, ReferralCode, ReferralReward
 from .permissions import assert_crm_enabled
-from .referrals import issue_referral_code, mark_reward_paid, referral_leaderboard
+from .referrals import (
+    deactivate_referral_code,
+    issue_referral_code,
+    mark_reward_paid,
+    referral_leaderboard,
+)
 from .serializers import (
     CampaignSerializer,
     OpportunityLineSerializer,
@@ -52,6 +58,23 @@ class CampaignViewSet(CompanyScopedViewSet):
     def initial(self, request, *args, **kwargs):
         super().initial(request, *args, **kwargs)
         assert_crm_enabled(get_company_user(request).company)
+
+    def perform_destroy(self, instance):
+        from rest_framework.exceptions import ValidationError
+
+        leads = instance.leads.count()
+        children = instance.children.count()
+        if leads or children:
+            parts = []
+            if leads:
+                parts.append(f"{leads} lead{'s' if leads != 1 else ''}")
+            if children:
+                parts.append(f"{children} sub-campaign{'s' if children != 1 else ''}")
+            raise ValidationError({
+                "detail": f"This campaign has {' and '.join(parts)} attached, so it cannot be deleted. "
+                "Set it to Completed instead to keep its results.",
+            })
+        super().perform_destroy(instance)
 
     @action(detail=True, methods=["get"])
     def funnel(self, request, pk=None):
@@ -109,8 +132,16 @@ class OpportunityLineViewSet(CompanyScopedViewSet):
         sync_opportunity_amount(self.opportunity)
 
 
+def _owner_or_manager(request):
+    return get_company_user(request).role in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER)
+
+
 class ReferralCodeViewSet(CompanyScopedViewSet):
-    queryset = ReferralCode.objects.all()
+    queryset = ReferralCode.objects.select_related(
+        "referrer_customer", "referrer_user__user",
+    ).annotate(
+        lead_count=Count("leads", distinct=True), reward_count=Count("rewards", distinct=True),
+    )
     serializer_class = ReferralCodeSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "ReferralCode"
@@ -123,8 +154,18 @@ class ReferralCodeViewSet(CompanyScopedViewSet):
     def create(self, request, *args, **kwargs):
         return Response({"detail": "Use the issue action."}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None):
+        if not _owner_or_manager(request):
+            return Response({"detail": "Owner or manager role required."}, status=status.HTTP_403_FORBIDDEN)
+        row = deactivate_referral_code(self.get_object(), request.user, get_company_user(request))
+        self._audit("UPDATE", row)
+        return Response(ReferralCodeSerializer(self.get_queryset().get(pk=row.pk), context={"request": request}).data)
+
     @action(detail=False, methods=["post"])
     def issue(self, request):
+        if not _owner_or_manager(request):
+            return Response({"detail": "Owner or manager role required."}, status=status.HTTP_403_FORBIDDEN)
         company = self.company
         customer_id = request.data.get("referrer_customer")
         user_id = request.data.get("referrer_user")
@@ -141,6 +182,7 @@ class ReferralCodeViewSet(CompanyScopedViewSet):
             referrer_user=member,
             reward_type=request.data.get("reward_type") or "FLAT",
             reward_value=request.data.get("reward_value") or 0,
+            allow_above_cap=get_company_user(request).role == CompanyUser.Role.OWNER,
         )
         return Response(ReferralCodeSerializer(row, context={"request": request}).data, status=201)
 
@@ -150,7 +192,9 @@ class ReferralCodeViewSet(CompanyScopedViewSet):
 
 
 class ReferralRewardViewSet(CompanyScopedViewSet):
-    queryset = ReferralReward.objects.all()
+    queryset = ReferralReward.objects.select_related(
+        "lead", "opportunity__customer", "referral_code__referrer_customer", "referral_code__referrer_user__user",
+    )
     serializer_class = ReferralRewardSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
     audit_entity = "ReferralReward"
@@ -187,6 +231,25 @@ class ReferralRewardViewSet(CompanyScopedViewSet):
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
         return self._decide(request, ReferralReward.Status.REJECTED)
+
+    @action(detail=True, methods=["post"])
+    def reverse(self, request, pk=None):
+        """Take back an approved reward, e.g. so its deal can be reopened. Nothing was paid yet."""
+        if not _owner_or_manager(request):
+            return Response({"detail": "Owner or manager role required."}, status=status.HTTP_403_FORBIDDEN)
+        reward = self.get_object()
+        if reward.reward_status == ReferralReward.Status.PAID:
+            return Response(
+                {"detail": "This reward is already paid. Cancel its credit note in Sales first."}, status=400,
+            )
+        if reward.reward_status != ReferralReward.Status.APPROVED:
+            return Response({"detail": "Only an approved reward can be reversed."}, status=400)
+        reward.reward_status = ReferralReward.Status.REJECTED
+        reward.rejection_reason = "reversed"
+        reward.updated_by = request.user
+        reward.save(update_fields=["reward_status", "rejection_reason", "updated_by", "updated_at"])
+        self._audit("UPDATE", reward)
+        return Response(ReferralRewardSerializer(reward).data)
 
     @action(detail=True, methods=["post"], url_path="mark-paid")
     def mark_paid(self, request, pk=None):

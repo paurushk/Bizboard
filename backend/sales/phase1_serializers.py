@@ -98,7 +98,25 @@ class SalesCreditNoteSerializer(CompanyScopedSerializerMixin, serializers.ModelS
             raise serializers.ValidationError(
                 {"customer": "Customer must match the linked sales invoice."}
             )
+        self._reject_referral_reward_duplicate(attrs)
         return attrs
+
+    def _reject_referral_reward_duplicate(self, attrs):
+        """A referral reward is paid from the Referrals screen; a hand-made note would pay it twice."""
+        import re
+
+        match = re.fullmatch(r"\s*Referral reward (\d+)\s*", attrs.get("reason_detail") or "")
+        if self.instance is not None or not match:
+            return
+        from core.permissions import get_company_user
+        from crm.models import ReferralReward
+
+        membership = get_company_user(self.context["request"])
+        if membership and ReferralReward.objects.filter(company=membership.company, pk=int(match.group(1))).exists():
+            raise serializers.ValidationError({
+                "reason_detail": "That reward is paid from the Referrals page, which creates its own credit note. "
+                "Use a different reason text for a separate credit note.",
+            })
 
     def create(self, validated_data):
         items_data = validated_data.pop("items")

@@ -126,10 +126,16 @@ def customer_360(company, customer, company_user=None) -> dict | None:
     if flag_enabled(company, "ENABLE_CRM"):
         from crm.models import Opportunity
 
-        total = Opportunity.objects.filter(company=company, customer=customer).aggregate(
-            total=Sum(Coalesce("amount", Decimal("0"))),
-        )["total"] or Decimal("0")
-        body["opportunity_total"] = str(
-            Decimal(total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        )
+        def _sum(stages):
+            total = Opportunity.objects.filter(
+                company=company, customer=customer, stage__in=stages,
+            ).aggregate(total=Sum(Coalesce("amount", Decimal("0"))))["total"] or Decimal("0")
+            return Decimal(total).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+        open_total = _sum(Opportunity.OPEN_STAGES)
+        won_total = _sum([Opportunity.Stage.WON])
+        body["open_pipeline_total"] = str(open_total)
+        body["won_total"] = str(won_total)
+        # Kept for one release: open plus won. Lost deals are no longer counted.
+        body["opportunity_total"] = str(open_total + won_total)
     return body

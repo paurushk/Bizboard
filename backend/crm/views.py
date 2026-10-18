@@ -1,3 +1,5 @@
+import hmac
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from rest_framework import status
@@ -17,7 +19,7 @@ from core.viewsets import CompanyScopedViewSet
 
 from .models import Lead, LeadActivity, Opportunity
 from .permissions import assert_crm_enabled
-from .pipeline import PENDING_REVIEW, DedupePrompt, capture_lead, next_assignee
+from .pipeline import PENDING_REVIEW, DedupePrompt, capture_lead, describe_candidates, next_assignee
 from .serializers import LeadActivitySerializer, LeadSerializer, OpportunitySerializer
 from .services import convert_lead
 
@@ -64,47 +66,49 @@ class LeadViewSet(CompanyScopedViewSet):
 
     def create(self, request, *args, **kwargs):
         company = get_company_user(request).company
+        # Validate everything the form can send before anything is saved, so a bad status or GSTIN
+        # cannot leave a half-made lead behind.
+        extras = LeadSerializer(data=request.data, context={"request": request})
+        extras.is_valid(raise_exception=True)
+        fields = extras.validated_data
         try:
-            lead = capture_lead(
-                company,
-                request.user,
-                name=request.data.get("name") or "",
-                phone=request.data.get("phone") or "",
-                email=request.data.get("email") or "",
-                message=request.data.get("message") or "",
-                source=request.data.get("source") or None,
-                manual=True,
-                dedupe_decision=request.data.get("dedupe_decision") or "",
-                campaign=request.data.get("campaign") or None,
-                referral_code=request.data.get("referral_code") or "",
-            )
+            with transaction.atomic():
+                lead = capture_lead(
+                    company,
+                    request.user,
+                    name=request.data.get("name") or "",
+                    phone=request.data.get("phone") or "",
+                    email=request.data.get("email") or "",
+                    message=request.data.get("message") or "",
+                    source=request.data.get("source") or None,
+                    manual=True,
+                    dedupe_decision=request.data.get("dedupe_decision") or "",
+                    campaign=request.data.get("campaign") or None,
+                    referral_code=request.data.get("referral_code") or "",
+                )
+                changed = False
+                for field in ("state", "gstin", "address", "status", "lost_reason", "lost_reason_note"):
+                    if fields.get(field):
+                        setattr(lead, field, fields[field])
+                        changed = True
+                if fields.get("customer") is not None:
+                    # A lead created already pointing at an existing Customer must not be silently
+                    # dropped (convert_lead() would otherwise create a duplicate Customer later).
+                    lead.customer = fields["customer"]
+                    changed = True
+                if changed:
+                    lead.save()
         except DedupePrompt as exc:
             return Response(
-                {"code": "dedupe_match", "candidates": exc.candidates},
+                {
+                    "code": "dedupe_match",
+                    "candidates": exc.candidates,
+                    "details": describe_candidates(company, exc.candidates),
+                },
                 status=status.HTTP_409_CONFLICT,
             )
         except ValidationError as exc:
             return Response({"detail": exc.messages if hasattr(exc, "messages") else str(exc)}, status=400)
-        for field in ("state", "gstin", "address", "status"):
-            value = request.data.get(field)
-            if value:
-                setattr(lead, field, value)
-        changed = any(request.data.get(field) for field in ("state", "gstin", "address", "status"))
-        customer_id = request.data.get("customer")
-        if customer_id:
-            # capture_lead() and the loop above never touch `customer` — a
-            # lead created already pointing at an existing Customer must not
-            # be silently dropped (convert_lead() would otherwise create a
-            # duplicate Customer for it later).
-            from masters.models import Customer as CustomerModel
-
-            customer = CustomerModel.objects.filter(company=company, pk=customer_id).first()
-            if customer is None:
-                return Response({"detail": "customer must belong to this company."}, status=400)
-            lead.customer = customer
-            changed = True
-        if changed:
-            lead.save()
         return Response(LeadSerializer(lead, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -112,90 +116,155 @@ class LeadViewSet(CompanyScopedViewSet):
         from accounts.models import CompanyUser
 
         lead = self.get_object()
+        membership = get_company_user(request)
+        is_manager = membership.role in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER)
+        # D14: owner/manager reassign anything; the current assignee may hand their own lead on.
+        if not is_manager and lead.assigned_to_id != membership.id:
+            return Response(
+                {"detail": "Only an owner, a manager or the person it is assigned to can reassign this lead."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         assignee_id = request.data.get("assigned_to")
         if assignee_id in (None, "", 0):
+            if not is_manager:
+                return Response({"detail": "Owner or manager role required to unassign."}, status=403)
             lead.assigned_to = None
         else:
             assignee = CompanyUser.objects.filter(
-                company=lead.company, pk=assignee_id, user__is_active=True
+                company=lead.company, pk=assignee_id, user__is_active=True, is_active=True,
             ).first()
             if assignee is None:
                 return Response({"detail": "Assignee must be an active company member."}, status=400)
             lead.assigned_to = assignee
         lead.updated_by = request.user
         lead.save(update_fields=["assigned_to", "updated_by", "updated_at"])
+        lead.touch()
         return Response(LeadSerializer(lead, context={"request": request}).data)
+
+    @action(detail=True, methods=["get"], url_path="dedupe-candidates")
+    def dedupe_candidates(self, request, pk=None):
+        """Details of each recorded match for a lead waiting on review."""
+        lead = self.get_object()
+        return Response(describe_candidates(lead.company, lead.dedupe_candidates))
 
     @action(detail=True, methods=["post"], url_path="resolve-dedupe")
     def resolve_dedupe(self, request, pk=None):
-        """The only path that can clear PENDING_REVIEW — it had none before."""
+        """The only path that clears PENDING_REVIEW.
+
+        decision: ``different`` (a new person), ``same_customer`` (an existing customer),
+        ``same_lead`` (an earlier lead: this one is closed as a duplicate). The older
+        ``new`` and ``match`` values still work.
+        """
         lead = self.get_object()
         if lead.dedupe_review != PENDING_REVIEW:
             return Response({"detail": "This lead is not pending dedupe review."}, status=400)
         decision = (request.data.get("decision") or "").strip().lower()
+        decision = {"new": "different"}.get(decision, decision)
         candidates = lead.dedupe_candidates or {}
-        if decision == "match":
-            try:
-                raw_customer = request.data.get("customer_id")
-                raw_lead = request.data.get("lead_id")
-                customer_id = int(raw_customer) if raw_customer not in (None, "") else None
-                lead_id = int(raw_lead) if raw_lead not in (None, "") else None
-            except (TypeError, ValueError):
-                return Response({"detail": "customer_id and lead_id must be integers."}, status=400)
-            if customer_id and customer_id not in (candidates.get("customers") or []):
-                return Response({"detail": "customer_id must be one of the recorded candidates."}, status=400)
-            if lead_id and lead_id not in (candidates.get("leads") or []):
-                return Response({"detail": "lead_id must be one of the recorded candidates."}, status=400)
-            lead.dedupe_matched_customer_id = customer_id
-            lead.dedupe_matched_lead_id = lead_id
-            if customer_id:
-                lead.customer_id = customer_id
-        elif decision == "new":
-            # Confirmed distinct — clear the recorded match so the lead
-            # doesn't keep pointing at a party staff just rejected.
+        try:
+            raw_customer = request.data.get("customer_id")
+            raw_lead = request.data.get("lead_id")
+            customer_id = int(raw_customer) if raw_customer not in (None, "") else None
+            lead_id = int(raw_lead) if raw_lead not in (None, "") else None
+        except (TypeError, ValueError):
+            return Response({"detail": "customer_id and lead_id must be integers."}, status=400)
+        known_customers = candidates.get("customers") or []
+        known_leads = candidates.get("leads") or []
+        if decision == "same_customer" and customer_id is None and len(known_customers) == 1:
+            customer_id = known_customers[0]
+        if decision == "same_lead" and lead_id is None and len(known_leads) == 1:
+            lead_id = known_leads[0]
+        if customer_id and customer_id not in known_customers:
+            return Response({"detail": "customer_id must be one of the recorded candidates."}, status=400)
+        if lead_id and lead_id not in known_leads:
+            return Response({"detail": "lead_id must be one of the recorded candidates."}, status=400)
+        if decision == "different":
+            # Confirmed a different person: clear the recorded match and remember the answer so
+            # convert does not link the lead to that customer again.
             lead.dedupe_matched_customer_id = None
             lead.dedupe_matched_lead_id = None
+            lead.dedupe_decision = "different"
+        elif decision == "same_customer":
+            if not customer_id:
+                return Response({"detail": "Choose which customer this is."}, status=400)
+            lead.dedupe_matched_customer_id = customer_id
+            lead.dedupe_matched_lead_id = None
+            lead.customer_id = customer_id
+            lead.dedupe_decision = "same"
+        elif decision == "same_lead":
+            if not lead_id:
+                return Response({"detail": "Choose which earlier lead this repeats."}, status=400)
+            return self._close_as_duplicate(request, lead, lead_id)
+        elif decision == "match":
+            if customer_id:
+                lead.customer_id = customer_id
+            lead.dedupe_matched_customer_id = customer_id
+            lead.dedupe_matched_lead_id = lead_id
+            lead.dedupe_decision = "same"
         else:
-            return Response({"detail": "decision must be 'new' or 'match'."}, status=400)
+            return Response(
+                {"detail": "decision must be 'different', 'same_customer' or 'same_lead'."}, status=400,
+            )
         lead.dedupe_review = ""
         with transaction.atomic():
-            # next_assignee() takes its own row lock internally and must not
-            # release it before this save persists assigned_to — otherwise
-            # two resolve-dedupe calls racing on different leads can both
-            # read the same "least loaded" snapshot and double-assign, the
-            # exact bug the round-robin lock exists to prevent.
+            # next_assignee() takes its own row lock internally and must not release it before
+            # this save persists assigned_to, or two racing resolutions can double-assign.
             if lead.assigned_to_id is None:
                 lead.assigned_to = next_assignee(lead.company)
             lead.updated_by = request.user
             lead.save(update_fields=[
-                "dedupe_matched_customer", "dedupe_matched_lead", "dedupe_review",
+                "dedupe_matched_customer", "dedupe_matched_lead", "dedupe_review", "dedupe_decision",
                 "customer", "assigned_to", "updated_by", "updated_at",
             ])
+            lead.touch()
+        return Response(LeadSerializer(lead, context={"request": request}).data)
+
+    def _close_as_duplicate(self, request, lead, original_id):
+        """D7: close the new lead as LOST/duplicate of the original and carry its notes over."""
+        original = Lead.objects.filter(company=lead.company, pk=original_id).first()
+        if original is None or original.pk == lead.pk:
+            return Response({"detail": "Choose an earlier lead."}, status=400)
+        with transaction.atomic():
+            if (lead.message or "").strip():
+                LeadActivity.objects.create(
+                    company=lead.company, lead=original, kind=LeadActivity.Kind.NOTE,
+                    body=f"Moved from duplicate lead #{lead.pk} ({lead.name}): {lead.message.strip()}",
+                    created_by=request.user, updated_by=request.user,
+                )
+            for activity in LeadActivity.objects.filter(company=lead.company, lead=lead).order_by("created_at"):
+                LeadActivity.objects.create(
+                    company=lead.company, lead=original, kind=activity.kind,
+                    body=f"Moved from duplicate lead #{lead.pk}: {activity.body}",
+                    due_at=activity.due_at, created_by=request.user, updated_by=request.user,
+                )
+            lead.status = Lead.Status.LOST
+            lead.lost_reason = Opportunity.LostReason.DUPLICATE
+            lead.duplicate_of = original
+            lead.dedupe_decision = "same"
+            lead.dedupe_review = ""
+            lead.dedupe_matched_lead = original
+            lead.assigned_to = None
+            lead.updated_by = request.user
+            lead.save(update_fields=[
+                "status", "lost_reason", "duplicate_of", "dedupe_decision", "dedupe_review",
+                "dedupe_matched_lead", "assigned_to", "updated_by", "updated_at",
+            ])
+            original.touch()
         return Response(LeadSerializer(lead, context={"request": request}).data)
 
     @action(detail=False, methods=["post"], url_path="import-csv")
     def import_csv(self, request):
-        import csv
-        import io
+        from crm.models import LeadIngestJob
+        from crm.pipeline import parse_lead_csv
+        from crm.tasks import process_lead_ingest
 
         upload = request.FILES.get("file")
         if upload is None:
             return Response({"detail": "file is required."}, status=400)
-        text = upload.read().decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(text))
-        rows = []
-        for raw in reader:
-            rows.append({
-                "name": raw.get("name") or raw.get("Name") or "",
-                "phone": raw.get("phone") or raw.get("Phone") or "",
-                "email": raw.get("email") or raw.get("Email") or "",
-                "message": raw.get("message") or raw.get("Message") or "",
-                "campaign": raw.get("campaign") or raw.get("Campaign") or "",
-                "referral_code": raw.get("referral_code") or raw.get("Referral Code") or "",
-            })
-        from crm.models import LeadIngestJob
-        from crm.tasks import process_lead_ingest
-
+        try:
+            rows = parse_lead_csv(upload.read(2 * 1024 * 1024 + 1))
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=400)
         cu = get_company_user(request)
         job = LeadIngestJob.objects.create(
             company=cu.company,
@@ -210,21 +279,61 @@ class LeadViewSet(CompanyScopedViewSet):
 
     @action(detail=False, methods=["post"], url_path="form-token")
     def form_token(self, request):
-        from crm.pipeline import ensure_lead_form_token
+        from accounts.models import CompanyUser
+        from crm.models import Campaign
+        from crm.pipeline import ensure_lead_form_token, ensure_lead_form_token_rotated, sign_campaign
 
-        company = get_company_user(request).company
-        return Response({"token": ensure_lead_form_token(company)})
+        membership = get_company_user(request)
+        company = membership.company
+        rotate = request.data.get("rotate") in (True, "true", "1", 1)
+        if rotate:
+            if membership.role not in (CompanyUser.Role.OWNER, CompanyUser.Role.MANAGER):
+                return Response({"detail": "Owner or manager role required."}, status=status.HTTP_403_FORBIDDEN)
+            token = ensure_lead_form_token_rotated(company)
+        else:
+            token = ensure_lead_form_token(company)
+        body = {"token": token}
+        campaign_id = request.data.get("campaign")
+        if campaign_id:
+            campaign = Campaign.objects.filter(company=company, pk=campaign_id).first()
+            if campaign is None:
+                return Response({"detail": "Campaign was not found."}, status=400)
+            body["campaign_param"] = sign_campaign(campaign.id)
+        return Response(body)
 
     @action(detail=False, methods=["post"], url_path="whatsapp-token")
     def whatsapp_token(self, request):
         from accounts.models import CompanyUser
-        from crm.pipeline import ensure_whatsapp_webhook_token
+        from crm.pipeline import ensure_whatsapp_verify_token, ensure_whatsapp_webhook_token
 
         membership = get_company_user(request)
         if membership.role != CompanyUser.Role.OWNER:
             return Response({"detail": "Owner role required."}, status=status.HTTP_403_FORBIDDEN)
         rotate = request.data.get("rotate") in (True, "true", "1", 1)
-        return Response({"token": ensure_whatsapp_webhook_token(membership.company, rotate=rotate)})
+        rotate_verify = request.data.get("rotate_verify") in (True, "true", "1", 1)
+        company = membership.company
+        token = ensure_whatsapp_webhook_token(company, rotate=rotate)
+        verify = ensure_whatsapp_verify_token(company, rotate=rotate_verify)
+        return Response({
+            "token": token,
+            "verify_token": verify,
+            "secret_configured": bool(company.whatsapp_app_secret),
+        })
+
+    @action(detail=False, methods=["post"], url_path="whatsapp-secret")
+    def whatsapp_secret(self, request):
+        """Store this company's Meta app secret. It is sealed and never returned."""
+        from accounts.models import CompanyUser
+        from crm.pipeline import set_company_whatsapp_secret
+
+        membership = get_company_user(request)
+        if membership.role != CompanyUser.Role.OWNER:
+            return Response({"detail": "Owner role required."}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            set_company_whatsapp_secret(membership.company, request.data.get("app_secret") or "")
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=400)
+        return Response({"secret_configured": True})
 
     @action(detail=True, methods=["post"])
     def convert(self, request, pk=None):
@@ -253,15 +362,26 @@ class LeadViewSet(CompanyScopedViewSet):
     def activities(self, request, pk=None):
         lead = self.get_object()
         if request.method.lower() == "get":
-            qs = LeadActivity.objects.filter(company=self.company, lead=lead).order_by("-created_at")
+            qs = LeadActivity.objects.filter(company=self.company, lead=lead).select_related(
+                "created_by",
+            ).order_by("-created_at")
             return Response(LeadActivitySerializer(qs, many=True).data)
         serializer = LeadActivitySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(
-            lead=lead,
-            company=lead.company,
-            created_by=request.user,
-        )
+        with transaction.atomic():
+            serializer.save(
+                lead=lead,
+                company=lead.company,
+                created_by=request.user,
+            )
+            # The first call or email is the first contact; any note or follow-up counts as activity.
+            if lead.status == Lead.Status.NEW and serializer.validated_data.get("kind") in (
+                LeadActivity.Kind.CALL, LeadActivity.Kind.EMAIL,
+            ):
+                lead.status = Lead.Status.CONTACTED
+                lead.updated_by = request.user
+                lead.save(update_fields=["status", "updated_by", "updated_at"])
+            lead.touch()
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
@@ -306,20 +426,45 @@ class PublicLeadFormView(APIView):
     throttle_classes = [LeadFormThrottle]
     throttle_scope = "lead_form"
 
-    def post(self, request, token):
+    def get(self, request, token):
+        """What the visitor sees above the form: the company name and the consent line."""
+        from django.conf import settings
+
         from accounts.models import Company
         from core.services.feature_flags import flag_enabled
-
-        if (request.data.get("website") or "").strip():
-            return Response({"ok": True})
-        from core.rls import set_rls_company
 
         company = Company.objects.filter(lead_form_token=token).first()
         if company is None or not flag_enabled(company, "ENABLE_CRM"):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
-        set_rls_company(company.id)
-        from django.core.exceptions import ValidationError
+        name = (company.name or "").strip()
+        consent = getattr(settings, "LEAD_FORM_CONSENT_TEXT", "").replace("{company}", name or "this business")
+        return Response({"company_name": name, "consent_text": consent})
 
+    def post(self, request, token):
+        from django.conf import settings
+        from django.core.exceptions import ValidationError
+        from django.utils import timezone
+
+        from accounts.models import Company
+        from core.rls import set_rls_company
+        from core.services.feature_flags import flag_enabled
+        from crm.pipeline import unsign_campaign
+
+        if (request.data.get("website") or "").strip():
+            return Response({"ok": True})
+        company = Company.objects.filter(lead_form_token=token).first()
+        if company is None or not flag_enabled(company, "ENABLE_CRM"):
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        set_rls_company(company.id)
+        start_of_day = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+        taken_today = Lead.objects.filter(company=company, source="website", created_at__gte=start_of_day).count()
+        if taken_today >= getattr(settings, "LEAD_FORM_DAILY_CAP", 500):
+            return Response(
+                {"detail": "This form is not taking more enquiries today. Please try again tomorrow."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        # A visitor cannot pick a campaign by number; only a link signed by the company carries one.
+        campaign_id = unsign_campaign(request.data.get("campaign"))
         try:
             capture_lead(
                 company,
@@ -330,11 +475,13 @@ class PublicLeadFormView(APIView):
                 message=request.data.get("message") or "",
                 source="website",
                 manual=False,
-                campaign=request.data.get("campaign") or None,
+                campaign=campaign_id,
                 referral_code=request.data.get("referral_code") or "",
                 attribution_quiet=True,
             )
-        except (BusinessRuleError, ValidationError) as exc:
+        except ValidationError as exc:
+            return Response({"detail": " ".join(exc.messages)}, status=status.HTTP_400_BAD_REQUEST)
+        except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response({"ok": True}, status=status.HTTP_202_ACCEPTED)
 
@@ -371,18 +518,20 @@ class WhatsAppInboundView(APIView):
         mode = request.query_params.get("hub.mode") or ""
         verify = request.query_params.get("hub.verify_token") or ""
         challenge = request.query_params.get("hub.challenge") or ""
-        if mode != "subscribe" or verify != token or not challenge:
+        # The handshake has its own token. Companies set up before it existed still verify with the
+        # URL token until they open the WhatsApp settings and a verify token is minted.
+        expected = company.whatsapp_verify_token or token
+        if mode != "subscribe" or not hmac.compare_digest(verify, expected) or not challenge:
             return Response({"detail": "Invalid verification."}, status=status.HTTP_403_FORBIDDEN)
         return HttpResponse(challenge, content_type="text/plain")
 
     def post(self, request, token):
-        from django.conf import settings
-
         from accounts.models import Company
-        from core.services.feature_flags import flag_enabled
-        from crm.pipeline import verify_whatsapp_signature
-
         from core.rls import set_rls_company
+        from core.services.feature_flags import flag_enabled
+        from crm.models import LeadIngestJob
+        from crm.pipeline import company_whatsapp_secret, parse_whatsapp_payload, verify_whatsapp_signature
+        from crm.tasks import process_lead_ingest
 
         company = Company.objects.filter(whatsapp_webhook_token=token).first()
         enabled = (
@@ -393,33 +542,36 @@ class WhatsAppInboundView(APIView):
         if not enabled:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         set_rls_company(company.id)
-        secret = getattr(settings, "WHATSAPP_APP_SECRET", "") or ""
         signature = request.headers.get("X-Hub-Signature-256", "")
-        if not verify_whatsapp_signature(request.body, signature, secret):
+        if not verify_whatsapp_signature(request.body, signature, company_whatsapp_secret(company)):
             return Response({"detail": "Invalid signature."}, status=status.HTTP_403_FORBIDDEN)
         payload = request.data if isinstance(request.data, dict) else {}
-        message_id = str(payload.get("message_id") or payload.get("id") or "")
-        sender = str(payload.get("from") or payload.get("sender") or "")
-        text = str(payload.get("text") or "")
-        sent_at = str(payload.get("timestamp") or "")
-        if not message_id or not sender:
+        is_meta = "entry" in payload
+        messages = parse_whatsapp_payload(payload)
+        if not is_meta and (not messages or not messages[0]["message_id"] or not messages[0]["sender"]):
             return Response({"detail": "message id and sender are required."}, status=status.HTTP_400_BAD_REQUEST)
-        from crm.models import LeadIngestJob
-        from crm.tasks import process_lead_ingest
-
-        job = LeadIngestJob.objects.create(
-            company=company,
-            kind=LeadIngestJob.Kind.WHATSAPP,
-            payload={
-                "message_id": message_id,
-                "sender": sender,
-                "text": text,
-                "sent_at": sent_at,
-            },
-        )
-        process_lead_ingest.delay(job.id, company_id=job.company_id)
-        job.refresh_from_db()
-        return Response(_ingest_job_payload(job), status=status.HTTP_202_ACCEPTED)
+        jobs = []
+        for message in messages:
+            if not message["message_id"] or not message["sender"]:
+                continue
+            job = LeadIngestJob.objects.create(
+                company=company,
+                kind=LeadIngestJob.Kind.WHATSAPP,
+                payload={
+                    "message_id": message["message_id"],
+                    "sender": message["sender"],
+                    "name": message["name"],
+                    "text": message["text"],
+                    "sent_at": message["sent_at"],
+                },
+            )
+            process_lead_ingest.delay(job.id, company_id=job.company_id)
+            job.refresh_from_db()
+            jobs.append(job)
+        if is_meta:
+            # Meta only needs a quick 200; status-only events (delivery receipts) have no messages.
+            return Response({"ok": True, "received": len(jobs)}, status=status.HTTP_200_OK)
+        return Response(_ingest_job_payload(jobs[0]), status=status.HTTP_202_ACCEPTED)
 
 
 class IsOwnerOrManager(BasePermission):
@@ -616,6 +768,7 @@ class OpportunityViewSet(CompanyScopedViewSet):
             serializer.is_valid(raise_exception=True)
             invoice = serializer.save(
                 company=opportunity.company,
+                opportunity=opportunity,
                 created_by=request.user,
                 updated_by=request.user,
             )

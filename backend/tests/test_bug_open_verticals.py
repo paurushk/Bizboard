@@ -503,13 +503,18 @@ def test_bug_crm_001_002_percent_uses_invoices_and_paid_drafts_a_note(tenant_a):
     )
     assert marked.status_code == 200, marked.data
     reward = ReferralReward.objects.get(opportunity=opportunity)
-    assert reward.reward_amount == Decimal("40.00")
+    # CRM review D1: a percentage reward is worked out when it is paid, from the deal's own invoices.
+    assert reward.reward_amount == Decimal("0.00") and reward.basis == "PERCENT"
+    from sales.models import SalesInvoice
+
+    SalesInvoice.objects.filter(company=tenant_a.company, customer=buyer).update(opportunity=opportunity)
     approved = tenant_a.client.post(f"/api/v1/crm/referrals/rewards/{reward.id}/approve/")
     assert approved.status_code == 200, approved.data
     paid = tenant_a.client.post(f"/api/v1/crm/referrals/rewards/{reward.id}/mark-paid/")
     assert paid.status_code == 200, paid.data
     reward.refresh_from_db()
     assert reward.reward_status == ReferralReward.Status.PAID
+    assert reward.reward_amount == Decimal("40.00")
     note = SalesCreditNote.objects.get(pk=reward.credit_note_id)
     # Credit/debit note plan (Q4): mark-paid completes the reward's credit note.
     assert note.status == SalesCreditNote.Status.COMPLETED

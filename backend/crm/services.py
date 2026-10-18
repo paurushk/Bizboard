@@ -63,6 +63,11 @@ def convert_lead(
         .order_by("id")
         .first()
     )
+    # CRM review F-04: a lead waiting on a duplicate review is not yet known to be a new person.
+    if lead.dedupe_review == "PENDING_REVIEW":
+        raise BusinessRuleError(
+            "Resolve the duplicate review for this lead before converting it.", code="dedupe_pending",
+        )
     # B9-014: a lost lead must not be silently resurrected into a customer +
     # opportunity. Re-open it first if it really is live again.
     if existing is None and lead.status == Lead.Status.LOST:
@@ -109,10 +114,12 @@ def convert_lead(
         customer = lead.customer
     else:
         existing_cust = None
-        if lead.phone:
-            existing_cust = _unique_customer_by_phone(lead.company, lead.phone)
-        if existing_cust is None and lead.email:
-            existing_cust = _unique_customer_by_email(lead.company, lead.email)
+        # F-05: staff already answered "different person"; do not link by phone or email again.
+        if lead.dedupe_decision != "different":
+            if lead.phone:
+                existing_cust = _unique_customer_by_phone(lead.company, lead.phone)
+            if existing_cust is None and lead.email:
+                existing_cust = _unique_customer_by_email(lead.company, lead.email)
         if existing_cust is not None:
             customer = existing_cust
             updates = []
@@ -172,6 +179,7 @@ def convert_lead(
     lead.status = Lead.Status.QUALIFIED
     lead.updated_by = user
     lead.save(update_fields=["customer", "status", "updated_by", "updated_at"])
+    lead.touch()
     opportunity = Opportunity.objects.create(
         company=lead.company,
         lead=lead,

@@ -11,6 +11,7 @@ export type EnumGroup =
   | 'campaignType'
   | 'campaignStatus'
   | 'rewardType'
+  | 'rewardStatus'
   | 'insuranceLine'
   | 'opportunityStage'
   | 'leadSource'

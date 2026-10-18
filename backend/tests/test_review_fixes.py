@@ -393,11 +393,13 @@ def test_percent_reward_ignores_invoices_from_before_the_deal_opened(tenant_a):
         stage=Opportunity.Stage.OPEN, created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
     today = timezone.localdate()
-    for days_ago, taxable in ((400, "9000.00"), (0, "400.00")):
+    # Only the invoice that belongs to this deal counts; the customer's older business does not.
+    for days_ago, taxable, linked in ((400, "9000.00", False), (0, "400.00", True)):
         SalesInvoice.objects.create(
             company=tenant_a.company, customer=buyer, status=SalesInvoice.Status.COMPLETED,
             invoice_date=today - timedelta(days=days_ago), taxable_total=Decimal(taxable),
             grand_total=Decimal(taxable), created_by=tenant_a.owner, updated_by=tenant_a.owner,
+            opportunity=opportunity if linked else None,
         )
     assert invoiced_taxable_for_opportunity(opportunity) == Decimal("400.00")
 

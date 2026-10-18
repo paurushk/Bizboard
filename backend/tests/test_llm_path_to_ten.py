@@ -434,6 +434,10 @@ def test_won_amount_sits_next_to_invoices(tenant_a, tenant_b):
         tenant_a, customer,
         [{"product": product.id, "quantity": "1", "unit_price": "80", "gst_rate": "0"}],
     )
+    # Revenue follows the deal the invoice belongs to, not the customer's whole history.
+    from sales.models import SalesInvoice
+
+    SalesInvoice.objects.filter(pk=draft["id"]).update(opportunity_id=won.data["opportunity"]["id"])
     assert tenant_a.client.post(f"/api/v1/sales/invoices/{draft['id']}/complete/").status_code == 200
     other_lead = tenant_b.client.post(
         "/api/v1/crm/leads/", {"name": "Other", "phone": "9000003313", "state": "Karnataka"}, format="json",

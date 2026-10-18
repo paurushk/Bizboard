@@ -131,11 +131,11 @@ def test_crm_lead_opportunity_crud(tenant_a):
 
     patch = tenant_a.client.patch(
         f"/api/v1/crm/leads/{lead_id}/",
-        {"status": "QUALIFIED"},
+        {"status": "CONTACTED"},
         format="json",
     )
     assert patch.status_code == 200, patch.data
-    assert Lead.objects.get(pk=lead_id).status == Lead.Status.QUALIFIED
+    assert Lead.objects.get(pk=lead_id).status == Lead.Status.CONTACTED
 
     from tests.conftest import make_customer
 

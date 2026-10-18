@@ -26,13 +26,13 @@ def _body(resp):
     return data
 
 
-def _completed_invoice(tenant, customer, amount):
+def _completed_invoice(tenant, customer, amount, opportunity_id=None):
     from sales.models import SalesInvoice
     from sales.services import SalesService
 
     product = make_product(
         tenant.company,
-        sku=f"CRM-REPRO-{customer.id}",
+        sku=f"CRM-REPRO-{customer.id}-{amount}",
         product_type=Product.ProductType.SERVICE,
     )
     inv = create_draft_invoice(
@@ -42,6 +42,9 @@ def _completed_invoice(tenant, customer, amount):
         invoice_type="NON_GST",
     )
     invoice = SalesInvoice.objects.get(pk=inv["id"])
+    if opportunity_id:
+        SalesInvoice.objects.filter(pk=invoice.pk).update(opportunity_id=opportunity_id)
+        invoice.refresh_from_db()
     SalesService.complete(invoice, tenant.owner)
     return invoice
 
@@ -163,7 +166,7 @@ def test_f01_percent_reward_is_payable_after_the_deal_is_invoiced(tenant_a):
     assert converted.status_code == 200, converted.data
     opp_id = converted.data["opportunity"]["id"]
     customer = Opportunity.objects.get(pk=opp_id).customer
-    _completed_invoice(tenant_a, customer, "1000")
+    _completed_invoice(tenant_a, customer, "1000", opportunity_id=opp_id)
 
     reward = ReferralReward.objects.get(opportunity_id=opp_id)
     assert tenant_a.client.post(f"/api/v1/crm/referrals/rewards/{reward.id}/approve/").status_code == 200

@@ -14,9 +14,12 @@ export type Campaign = {
   endDate: string | null;
 };
 
-export type FunnelRow = { opportunity: number; revenueSource: string; revenue: string };
+export type FunnelRow = { opportunity: number; title?: string; revenueSource: string; revenue: string };
 
 export type Funnel = {
+  campaignId?: number;
+  campaignName?: string;
+  roiBasis?: string;
   leads: number;
   opportunities: number;
   wonOpportunities: number;
@@ -145,11 +148,33 @@ export type AttachmentRow = { id: number; file: number; createdAt?: string };
 export type ReferralReward = {
   id: number;
   referralCode: number;
+  code?: string;
+  lead?: number;
+  leadName?: string;
   opportunity: number;
+  opportunityTitle?: string;
+  customerName?: string;
+  referrerName?: string;
   rewardAmount: string;
+  basis?: string;
+  reviewNote?: string;
   rewardStatus: string;
   rejectionReason?: string;
   paidAt?: string | null;
+};
+
+export type ReferralCodeRow = {
+  id: number;
+  code: string;
+  referrerCustomer: number | null;
+  referrerUser: number | null;
+  referrerName: string;
+  rewardType: string;
+  rewardValue: string;
+  active: boolean;
+  deactivatedAt: string | null;
+  uses: number;
+  rewardsEarned: number;
 };
 
 export function listCampaignsPage(params?: { page?: number; pageSize?: number; q?: string; status?: string }) {
@@ -452,14 +477,23 @@ export async function issueReferralCode(payload: { referrer_customer?: number; r
 
 export async function referralLeaderboard() {
   const { data } = await apiClient.get('/crm/referrals/codes/leaderboard/');
-  return unwrapData<{ code: string; referrerType: string; approvedTotal: string }[]>(data);
+  return unwrapData<{ code: string; referrerType: string; referrerName?: string; approvedTotal: string }[]>(data);
+}
+
+export function listReferralCodes() {
+  return fetchPage<ReferralCodeRow>('/crm/referrals/codes/', { pageSize: 100 });
+}
+
+export async function deactivateReferralCode(id: number) {
+  const { data } = await apiClient.post(`/crm/referrals/codes/${id}/deactivate/`, {});
+  return unwrapData<ReferralCodeRow>(data);
 }
 
 export function listReferralRewards() {
   return fetchPage<ReferralReward>('/crm/referrals/rewards/', { pageSize: 100 });
 }
 
-export async function decideReferralReward(id: number, decision: 'approve' | 'reject' | 'mark-paid') {
+export async function decideReferralReward(id: number, decision: 'approve' | 'reject' | 'mark-paid' | 'reverse') {
   const headers = decision === 'mark-paid' ? idempotencyHeaders(`referral-reward-${id}`) : undefined;
   const { data } = await apiClient.post(`/crm/referrals/rewards/${id}/${decision}/`, {}, { headers });
   return unwrapData<ReferralReward>(data);

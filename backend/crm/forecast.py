@@ -20,15 +20,15 @@ def sync_opportunity_amount(opportunity: Opportunity) -> None:
 
 
 def won_versus_invoices(company, month) -> dict:
-    """Won opportunity amounts in a month, next to completed invoices for those customers.
+    """Deals won in a month: what they were worth next to what has been invoiced for them.
 
-    These are two sums. They are not a forecast and not a model score.
+    Both figures are before GST and for the same deals. They are two sums, not a forecast.
     """
     from datetime import date, datetime
 
     from django.utils import timezone
 
-    from sales.models import SalesInvoice
+    from .revenue import BASIS_LABEL, revenue_by_opportunity
 
     if isinstance(month, str):
         year_text, month_text = month.split("-", 1)
@@ -42,28 +42,23 @@ def won_versus_invoices(company, month) -> dict:
     tz = timezone.get_current_timezone()
     start_dt = timezone.make_aware(datetime(start.year, start.month, start.day), tz)
     end_dt = timezone.make_aware(datetime(end.year, end.month, end.day), tz)
-    won = Opportunity.objects.filter(
-        company=company,
-        stage=Opportunity.Stage.WON,
-        closed_at__gte=start_dt,
-        closed_at__lt=end_dt,
-    )
-    won_amount = sum((Decimal(row.amount or 0) for row in won), Decimal("0"))
-    customer_ids = [row.customer_id for row in won if row.customer_id]
-    invoiced = Decimal("0")
-    if customer_ids:
-        invoices = SalesInvoice.objects.filter(
+    won = list(
+        Opportunity.objects.filter(
             company=company,
-            customer_id__in=customer_ids,
-            status=SalesInvoice.Status.COMPLETED,
-            invoice_date__gte=start,
-            invoice_date__lt=end,
-        )
-        invoiced = sum((Decimal(row.grand_total or 0) for row in invoices), Decimal("0"))
+            stage=Opportunity.Stage.WON,
+            closed_at__gte=start_dt,
+            closed_at__lt=end_dt,
+        ).values("id", "amount")
+    )
+    won_amount = sum((Decimal(row["amount"] or 0) for row in won), Decimal("0"))
+    figures = revenue_by_opportunity(company.id, [row["id"] for row in won])
+    invoiced = sum((max(amount, Decimal("0")) for amount, _ in figures.values()), Decimal("0"))
     return {
         "month": f"{start.year:04d}-{start.month:02d}",
+        "won_count": len(won),
         "won_amount": str(won_amount.quantize(Decimal("0.01"))),
         "invoiced_amount": str(invoiced.quantize(Decimal("0.01"))),
+        "basis": BASIS_LABEL,
     }
 
 

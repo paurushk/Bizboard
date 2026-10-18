@@ -13,7 +13,10 @@ vi.mock('@/api/osPlan', () => ({
     if (state.mode === 'slow') return new Promise(() => {});
     if (state.mode === 'fail') throw new Error('Onboarding service unavailable');
     if (state.mode === 'empty') return { steps: [] };
-    return { steps: [{ id: 'lead', title: 'Capture your first lead', done: true }] };
+    return { steps: [
+      { id: 'lead', title: 'Capture your first lead', done: true },
+      { id: 'stage', title: 'Move a deal once', done: false },
+    ] };
   },
 }));
 
@@ -35,6 +38,14 @@ describe('CrmOnboardingPage states', () => {
     state.mode = 'steps';
     wrap();
     expect(await screen.findByText(/Capture your first lead/)).toBeTruthy();
+  });
+
+  it('shows progress, a Done mark on finished steps and Next only on open ones', async () => {
+    state.mode = 'steps';
+    wrap();
+    expect(await screen.findByText('1 of 2 steps done')).toBeTruthy();
+    expect(screen.getByText('Done')).toBeTruthy();
+    expect(screen.getAllByRole('link', { name: 'Next' })).toHaveLength(1);
   });
 
   it('shows a loading indicator while the checklist loads', async () => {

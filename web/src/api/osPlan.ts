@@ -253,8 +253,14 @@ export async function submitPublicLead(token: string, payload: {
   email: string;
   message: string;
   website?: string;
-  campaign?: number | '';
+  /** The signed value from the shared link. A visitor never types a campaign number. */
+  campaign?: string;
   referral_code?: string;
 }): Promise<void> {
   await apiClient.post(`/crm/public/lead-form/${token}/`, payload);
+}
+
+export async function getPublicLeadFormMeta(token: string): Promise<{ companyName: string; consentText: string }> {
+  const { data } = await apiClient.get(`/crm/public/lead-form/${token}/`);
+  return unwrapData(data);
 }

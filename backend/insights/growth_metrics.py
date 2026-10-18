@@ -15,7 +15,8 @@ def growth_metrics(company) -> dict:
     now = timezone.now()
     leads = Lead.objects.filter(company=company)
     lead_count = leads.count()
-    converted = leads.filter(customer__isnull=False).count()
+    with_customer = leads.filter(customer__isnull=False).count()
+    converted = leads.filter(opportunities__isnull=False).distinct().count()
     open_statuses = [Ticket.Status.OPEN, Ticket.Status.IN_PROGRESS, Ticket.Status.WAITING]
     open_tickets = Ticket.objects.filter(company=company, status__in=open_statuses)
     renewals = Contract.objects.filter(
@@ -30,7 +31,8 @@ def growth_metrics(company) -> dict:
     ).count()
     return {
         "leads": lead_count,
-        "leads_with_customer": converted,
+        "leads_with_customer": with_customer,
+        "leads_converted": converted,
         "open_tickets": open_tickets.count(),
         "tickets_past_sla": open_tickets.filter(tickets_past_sla_q(now)).count(),
         "contracts_still_open": renewals.count(),

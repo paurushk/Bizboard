@@ -102,7 +102,15 @@ def _assert_issuance_rate_limit(company, *, referrer_customer, referrer_user):
     )
 
 
-def issue_referral_code(company, user, *, referrer_customer=None, referrer_user=None, reward_type="FLAT", reward_value=0):
+# A flat reward above this needs the owner (review D14): one slip in the value field should not
+# commit the company to an unbounded payout.
+MAX_FLAT_REWARD = Decimal("10000")
+
+
+def issue_referral_code(
+    company, user, *, referrer_customer=None, referrer_user=None, reward_type="FLAT", reward_value=0,
+    allow_above_cap=False,
+):
     if (referrer_customer is None) == (referrer_user is None):
         raise BusinessRuleError("Set exactly one referrer.")
     # Defense in depth: `ReferralCodeViewSet.issue` already resolves
@@ -129,6 +137,11 @@ def issue_referral_code(company, user, *, referrer_customer=None, referrer_user=
         raise BusinessRuleError("Reward value cannot be negative.")
     if reward_type == ReferralCode.RewardType.PERCENT and value > Decimal("100"):
         raise BusinessRuleError("A percent reward cannot be above 100.")
+    if reward_type == ReferralCode.RewardType.FLAT and value > MAX_FLAT_REWARD and not allow_above_cap:
+        raise BusinessRuleError(
+            f"A flat reward above {MAX_FLAT_REWARD:,.0f} needs the owner to set it.",
+            code="referral_reward_above_cap",
+        )
     for _ in range(5):
         code = "".join(secrets.choice(_ALPHABET) for _ in range(8))
         try:
@@ -177,6 +190,14 @@ def resolve_campaign(company, raw, *, quiet: bool):
             logger.info("campaign_ignored tenant_id=%s", getattr(company, "id", None))
             return None
         raise BusinessRuleError("Campaign was not found.")
+    if campaign.status not in (Campaign.Status.DRAFT, Campaign.Status.ACTIVE):
+        # Paused and completed campaigns keep reporting but stop collecting new leads (D15).
+        if quiet:
+            logger.info("campaign_not_accepting_leads tenant_id=%s", getattr(company, "id", None))
+            return None
+        raise BusinessRuleError(
+            f"Campaign {campaign.name} is {campaign.get_status_display().lower()} and is not accepting new leads."
+        )
     return campaign
 
 
@@ -265,34 +286,18 @@ def reward_amount_for(reward_type, reward_value, base) -> Decimal:
 
 
 def invoiced_taxable_for_opportunity(opportunity) -> Decimal:
-    """Completed-invoice taxable value for the deal's customer, net of completed credit notes."""
-    from django.db.models import Sum
+    """Net taxable invoiced value of the deal (one revenue definition, see ``crm.revenue``)."""
+    from .revenue import opportunity_revenue
 
-    from sales.models import SalesCreditNote, SalesInvoice
+    return opportunity_revenue(opportunity)
 
-    if not opportunity.customer_id:
-        return Decimal("0")
-    invoices = SalesInvoice.objects.filter(
-        company_id=opportunity.company_id,
-        customer_id=opportunity.customer_id,
-        status=SalesInvoice.Status.COMPLETED,
-    )
-    # Only business done since the deal opened. Revenue the customer gave before the
-    # referral is not the referrer's doing and must not earn them a percentage.
-    opened = getattr(opportunity, "created_at", None)
-    if opened is not None:
-        invoices = invoices.filter(invoice_date__gte=opened.date())
-    taxable = invoices.aggregate(total=Sum("taxable_total"))["total"] or Decimal("0")
-    credits = (
-        SalesCreditNote.objects.filter(
-            company_id=opportunity.company_id,
-            sales_invoice_id__in=invoices.values("id"),
-            status=SalesCreditNote.Status.COMPLETED,
-        ).aggregate(total=Sum("taxable_total"))["total"]
-        or Decimal("0")
-    )
-    net = Decimal(taxable) - Decimal(credits)
-    return net if net > 0 else Decimal("0")
+
+def _was_already_a_customer(opportunity, lead) -> bool:
+    """True when the referred person was a customer before this lead arrived (review D2)."""
+    if lead.dedupe_matched_customer_id:
+        return True
+    customer = opportunity.customer
+    return bool(customer is not None and customer.created_at < lead.created_at)
 
 
 def evaluate_referral_reward(opportunity):
@@ -305,10 +310,12 @@ def evaluate_referral_reward(opportunity):
     if existing is not None:
         return existing
     code = lead.referral_code
-    base = opportunity.amount
+    # PERCENT is worked out when the reward is paid, from the deal's completed invoices (D1).
+    # At WON there is usually no invoice yet, so any figure here would be a guess.
     if code.reward_type == ReferralCode.RewardType.PERCENT:
-        base = invoiced_taxable_for_opportunity(opportunity)
-    amount = reward_amount_for(code.reward_type, code.reward_value, base)
+        amount = Decimal("0.00")
+    else:
+        amount = reward_amount_for(code.reward_type, code.reward_value, opportunity.amount)
     is_self_referral = _referral_self_check(code, opportunity.customer, lead=lead)
     status = ReferralReward.Status.REJECTED if is_self_referral else ReferralReward.Status.PENDING
     try:
@@ -319,8 +326,12 @@ def evaluate_referral_reward(opportunity):
                 lead=lead,
                 opportunity=opportunity,
                 reward_amount=amount,
+                basis=code.reward_type,
                 reward_status=status,
                 rejection_reason="self_referral" if is_self_referral else "",
+                review_note="existing_customer" if (
+                    not is_self_referral and _was_already_a_customer(opportunity, lead)
+                ) else "",
                 created_by=opportunity.updated_by,
                 updated_by=opportunity.updated_by,
             )
@@ -427,7 +438,7 @@ def mark_reward_paid(reward, user):
     with transaction.atomic():
         # of=("self",): the referrer join is nullable, which PostgreSQL refuses to lock.
         reward = ReferralReward.objects.select_for_update(of=("self",)).select_related(
-            "referral_code__referrer_customer",
+            "referral_code__referrer_customer", "opportunity",
         ).get(pk=reward.pk)
         if reward.reward_status == ReferralReward.Status.PAID:
             return reward
@@ -435,6 +446,15 @@ def mark_reward_paid(reward, user):
             raise BusinessRuleError("A rejected reward cannot be marked paid.")
         if reward.reward_status != ReferralReward.Status.APPROVED:
             raise BusinessRuleError("Only an approved reward can be marked paid.")
+        if reward.basis == ReferralCode.RewardType.PERCENT and not reward.credit_note_id:
+            base = invoiced_taxable_for_opportunity(reward.opportunity)
+            if base <= 0:
+                raise BusinessRuleError(
+                    "No completed invoice yet for this deal, so there is nothing to pay a percentage on.",
+                    code="referral_no_invoice_yet",
+                )
+            reward.reward_amount = reward_amount_for(reward.basis, reward.referral_code.reward_value, base)
+            reward.save(update_fields=["reward_amount", "updated_at"])
         note = reward.credit_note if reward.credit_note_id else _draft_reward_credit_note(reward, user)
         from sales.models import SalesCreditNote
         from sales.notes_services import SalesNotesService
@@ -463,6 +483,26 @@ def mark_reward_paid(reward, user):
     return reward
 
 
+def deactivate_referral_code(code, user, membership=None):
+    """Switch a code off. Idempotent. Leads already attributed keep their link."""
+    if not code.active:
+        return code
+    code.active = False
+    code.deactivated_at = timezone.now()
+    code.deactivated_by = membership
+    code.updated_by = user
+    code.save(update_fields=["active", "deactivated_at", "deactivated_by", "updated_by", "updated_at"])
+    AuditService.log(
+        action="referral_code_deactivated",
+        company=code.company,
+        user=user,
+        entity_type="ReferralCode",
+        entity_id=code.pk,
+        metadata={"code": code.code},
+    )
+    return code
+
+
 def referral_leaderboard(company) -> list[dict]:
     rows = (
         ReferralReward.objects.filter(
@@ -474,6 +514,8 @@ def referral_leaderboard(company) -> list[dict]:
             "referral_code__referrer_customer_id",
             "referral_code__referrer_user_id",
             "referral_code__code",
+            "referral_code__referrer_customer__name",
+            "referral_code__referrer_user__user__email",
         )
         .annotate(total=Sum("reward_amount"))
         .order_by("-total", "referral_code_id")
@@ -491,6 +533,11 @@ def referral_leaderboard(company) -> list[dict]:
             "code": row["referral_code__code"],
             "referrer_type": referrer_type,
             "referrer_id": referrer_id,
+            "referrer_name": (
+                row["referral_code__referrer_customer__name"]
+                or row["referral_code__referrer_user__user__email"]
+                or ""
+            ),
             "approved_total": str(row["total"] or 0),
         })
     return out

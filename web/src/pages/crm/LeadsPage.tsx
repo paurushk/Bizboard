@@ -21,7 +21,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { listCampaignsPage } from '@/api/growth';
+import { LOST_REASONS, listCampaignsPage } from '@/api/growth';
 import {
   assignLead,
   convertLead,
@@ -35,9 +35,12 @@ import {
   listLeadActivities,
   listLeadsPage,
   updateLead,
+  type DedupeDetails,
+  type ImportResult,
   type Lead,
 } from '@/api/crm';
 import { listCompanyUsers, listCustomersPage } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { PageTitle } from '@/contextHelp';
@@ -53,6 +56,9 @@ import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { isPastIso } from '@/utils/clock';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { CandidateList, DedupeReviewDialog } from '@/pages/crm/DedupeReviewDialog';
+import { WhatsappSettingsDialog } from '@/pages/crm/WhatsappSettingsDialog';
 
 const PAGE_SIZE = 50;
 const LEAD_STATUSES = ['NEW', 'CONTACTED', 'QUALIFIED', 'LOST'] as const;
@@ -69,6 +75,8 @@ const emptyForm = {
   customer: '' as number | '',
   campaign: '' as number | '',
   referralCode: '',
+  lostReason: '',
+  lostReasonNote: '',
 };
 
 export function LeadsPage() {
@@ -90,6 +98,7 @@ function LeadsPageInner() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isOwner = user?.role === 'OWNER';
+  const isManager = isOwner || user?.role === 'MANAGER';
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
@@ -107,19 +116,22 @@ function LeadsPageInner() {
   const [campaignFilter, setCampaignFilter] = useState('');
   const [reviewOnly, setReviewOnly] = useState(false);
   const [mineOnly, setMineOnly] = useState(false);
-  const [dedupe, setDedupe] = useState<{ customers?: number[]; leads?: number[] } | null>(null);
+  const [dedupe, setDedupe] = useState<DedupeDetails | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<{
-    created: number;
-    pendingReview: number;
-    errors: Array<{ row: number; detail: string }>;
-  } | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [assigneeFilter, setAssigneeFilter] = useState('');
+  const [reviewLead, setReviewLead] = useState<Lead | null>(null);
+  const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [replaceFormOpen, setReplaceFormOpen] = useState(false);
+  const term = useDebouncedValue(search, 300).trim();
   const [captureAnchor, setCaptureAnchor] = useState<HTMLElement | null>(null);
   const [customerPick, setCustomerPick] = useState<Customer | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const query = useQuery({
-    queryKey: ['leads', page, sourceFilter, campaignFilter, reviewOnly, mineOnly],
+    queryKey: ['leads', page, sourceFilter, campaignFilter, reviewOnly, mineOnly, term, statusFilter, assigneeFilter],
     queryFn: () => listLeadsPage({
       page,
       pageSize: PAGE_SIZE,
@@ -127,6 +139,9 @@ function LeadsPageInner() {
       campaign: campaignFilter || undefined,
       dedupe_review: reviewOnly ? 'PENDING_REVIEW' : undefined,
       mine: mineOnly || undefined,
+      q: term || undefined,
+      status: statusFilter || undefined,
+      assigned_to: assigneeFilter || undefined,
     }),
   });
   const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
@@ -174,6 +189,9 @@ function LeadsPageInner() {
         source: form.source || null,
         customer: form.customer ? Number(form.customer) : null,
         campaign: form.campaign ? Number(form.campaign) : null,
+        ...(form.status === 'LOST' && editing?.status !== 'LOST'
+          ? { lostReason: form.lostReason, lostReasonNote: form.lostReasonNote }
+          : {}),
       };
       if (editing) return updateLead(editing.id, payload);
       const code = form.referralCode.trim();
@@ -188,8 +206,8 @@ function LeadsPageInner() {
     },
     onError: (err) => {
       if (axios.isAxiosError(err) && err.response?.status === 409) {
-        const body = err.response.data as { candidates?: { customers?: number[]; leads?: number[] }; data?: { candidates?: { customers?: number[]; leads?: number[] } } };
-        setDedupe(body.candidates ?? body.data?.candidates ?? { customers: [], leads: [] });
+        const body = err.response.data as { details?: DedupeDetails; data?: { details?: DedupeDetails } };
+        setDedupe(body.details ?? body.data?.details ?? { customers: [], leads: [] });
         return;
       }
       setError(getErrorMessage(err));
@@ -203,11 +221,7 @@ function LeadsPageInner() {
         setNotice(t('osPlan.importStillRunning'));
       } else {
         setNotice(null);
-        setImportResult({
-          created: result.created,
-          pendingReview: result.pendingReview,
-          errors: result.errors ?? [],
-        });
+        setImportResult({ ...result, errors: result.errors ?? [] });
       }
       void qc.invalidateQueries({ queryKey: ['leads'] });
     },
@@ -219,6 +233,17 @@ function LeadsPageInner() {
       await copyLink(`${window.location.origin}/lead-form/${result.token}`, 'osPlan.formLinkCopied');
     },
     onError: (err) => setError(getErrorMessage(err)),
+  });
+  const formReplace = useMutation({
+    mutationFn: () => issueLeadFormToken({ rotate: true }),
+    onSuccess: async (result) => {
+      setReplaceFormOpen(false);
+      await copyLink(`${window.location.origin}/lead-form/${result.token}`, 'osPlan.formLinkReplaced');
+    },
+    onError: (err) => {
+      setReplaceFormOpen(false);
+      setError(getErrorMessage(err));
+    },
   });
   const whatsappLink = useMutation({
     mutationFn: () => issueWhatsappWebhookToken(false),
@@ -290,6 +315,8 @@ function LeadsPageInner() {
       customer: lead.customer ?? '',
       campaign: lead.campaign ?? '',
       referralCode: '',
+      lostReason: lead.lostReason ?? '',
+      lostReasonNote: lead.lostReasonNote ?? '',
     });
     setCustomerPick(
       lead.customer ? ({ id: lead.customer, name: lead.customerName ?? `#${lead.customer}` } as Customer) : null,
@@ -315,6 +342,16 @@ function LeadsPageInner() {
             <MenuItem disabled={writesBlocked || formLink.isPending} onClick={() => { setCaptureAnchor(null); formLink.mutate(); }}>
               {t('osPlan.formLink')}
             </MenuItem>
+            {isManager ? (
+              <MenuItem disabled={writesBlocked || formReplace.isPending} onClick={() => { setCaptureAnchor(null); setReplaceFormOpen(true); }}>
+                {t('osPlan.formLinkReplace')}
+              </MenuItem>
+            ) : null}
+            {isOwner ? (
+              <MenuItem onClick={() => { setCaptureAnchor(null); setWhatsappOpen(true); }}>
+                {t('osPlan.whatsappSettings')}
+              </MenuItem>
+            ) : null}
             {isOwner ? (
               <MenuItem disabled={writesBlocked || whatsappLink.isPending} onClick={() => { setCaptureAnchor(null); whatsappLink.mutate(); }}>
                 {t('osPlan.whatsappLink')}
@@ -353,18 +390,49 @@ function LeadsPageInner() {
       {importResult ? (
         <Stack spacing={0.5}>
           <Typography variant="body2">
-            {t('osPlan.importResult', {
+            {t('osPlan.importResultFull', {
               created: String(importResult.created),
-              pending: String(importResult.pendingReview),
+              total: String(importResult.total ?? importResult.created),
+              pending: String(importResult.pendingReview ?? 0),
+              failed: String(importResult.errorCount ?? importResult.errors.length),
             })}
           </Typography>
-          {importResult.errors.map((err) => (
+          {importResult.errors.slice(0, 10).map((err) => (
             <Typography key={`${err.row}-${err.detail}`} variant="body2" color="error">
               {t('osPlan.importRowError', { row: String(err.row), detail: err.detail })}
             </Typography>
           ))}
+          {importResult.errors.length > 0 ? (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption">
+                {t('osPlan.importErrorsShown', {
+                  shown: String(importResult.errors.length),
+                  failed: String(importResult.errorCount ?? importResult.errors.length),
+                })}
+              </Typography>
+              <Button size="small" onClick={() => downloadImportErrors(importResult)}>{t('osPlan.importDownloadErrors')}</Button>
+            </Stack>
+          ) : null}
         </Stack>
       ) : null}
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <TextField
+          label={t('osPlan.searchLeads')}
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          sx={{ minWidth: 220 }}
+        />
+        <TextField select label={t('common.status')} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} sx={{ minWidth: 150 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {LEAD_STATUSES.map((value) => <MenuItem key={value} value={value}>{t(statusLabelKey(value))}</MenuItem>)}
+        </TextField>
+        <TextField select label={t('osPlan.assignee')} value={assigneeFilter} onChange={(e) => { setAssigneeFilter(e.target.value); setPage(1); }} sx={{ minWidth: 180 }}>
+          <MenuItem value="">{t('common.all')}</MenuItem>
+          {(members.data ?? []).map((member) => (
+            <MenuItem key={member.id} value={String(member.id)}>{member.fullName || member.email}</MenuItem>
+          ))}
+        </TextField>
+      </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
         <TextField select label={t('osPlan.source')} value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} sx={{ minWidth: 160 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
@@ -431,7 +499,12 @@ function LeadsPageInner() {
                       ))}
                     </TextField>
                     {lead.dedupeReview === 'PENDING_REVIEW' ? (
-                      <Typography variant="caption" display="block">{t('osPlan.pendingReview')}</Typography>
+                      <>
+                        <Typography variant="caption" display="block">{t('osPlan.pendingReview')}</Typography>
+                        <Button size="small" disabled={writesBlocked} onClick={() => { setError(null); setReviewLead(lead); }}>
+                          {t('osPlan.reviewDuplicate')}
+                        </Button>
+                      </>
                     ) : null}
                   </TableCell>
                   <TableCell>
@@ -439,6 +512,9 @@ function LeadsPageInner() {
                       tone={documentStatusTone(lead.status ?? 'NEW')}
                       labelKey={statusLabelKey(lead.status ?? 'NEW')}
                     />
+                    {lead.status === 'LOST' && lead.lostReason ? (
+                      <Typography variant="caption" display="block">{t(`growth.lostReason${lead.lostReason}`)}</Typography>
+                    ) : null}
                   </TableCell>
                   <TableCell align="right">
                     <Button size="small" onClick={() => openEdit(lead)} disabled={writesBlocked}>
@@ -449,7 +525,7 @@ function LeadsPageInner() {
                     </Button>
                     <Button
                       size="small"
-                      disabled={writesBlocked || convertMutation.isPending}
+                      disabled={writesBlocked || convertMutation.isPending || lead.dedupeReview === 'PENDING_REVIEW' || lead.status === 'LOST'}
                       onClick={() => {
                         setError(null);
                         setConvertLeadRow(lead);
@@ -528,6 +604,30 @@ function LeadsPageInner() {
                 </MenuItem>
               ))}
             </TextField>
+            {form.status === 'LOST' && editing?.status !== 'LOST' ? (
+              <>
+                <TextField
+                  select
+                  required
+                  label={t('growth.lostReason')}
+                  value={form.lostReason}
+                  onChange={(e) => setForm((f) => ({ ...f, lostReason: e.target.value }))}
+                >
+                  {LOST_REASONS.map((reason) => (
+                    <MenuItem key={reason} value={reason}>{t(`growth.lostReason${reason}`)}</MenuItem>
+                  ))}
+                </TextField>
+                {form.lostReason === 'OTHER' ? (
+                  <TextField
+                    required
+                    label={t('growth.lostReasonNote')}
+                    value={form.lostReasonNote}
+                    inputProps={{ maxLength: 200 }}
+                    onChange={(e) => setForm((f) => ({ ...f, lostReasonNote: e.target.value }))}
+                  />
+                ) : null}
+              </>
+            ) : null}
             <TextField
               select
               label={t('nav.campaigns')}
@@ -564,7 +664,11 @@ function LeadsPageInner() {
           <Button onClick={() => { setError(null); setOpen(false); }}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            disabled={!form.name || writesBlocked || saveMutation.isPending}
+            disabled={
+              !form.name || writesBlocked || saveMutation.isPending
+              || (form.status === 'LOST' && editing?.status !== 'LOST'
+                && (!form.lostReason || (form.lostReason === 'OTHER' && !form.lostReasonNote.trim())))
+            }
             onClick={() => saveMutation.mutate(undefined)}
           >
             {t('common.save')}
@@ -594,6 +698,7 @@ function LeadsPageInner() {
               <Paper key={activity.id} variant="outlined" sx={{ p: 1.5 }}>
                 <Typography variant="caption" color="text.secondary">
                   {activityKindLabel(activity.kind)} · {formatDateTime(activity.createdAt)}
+                  {activity.createdByName ? ` · ${t('osPlan.activityBy', { name: activity.createdByName })}` : ''}
                   {activity.dueAt
                     ? ` · ${isPastIso(activity.dueAt) ? t('osPlan.overdue') : t('osPlan.activityDue')} ${formatDateTime(activity.dueAt)}`
                     : ''}
@@ -687,12 +792,7 @@ function LeadsPageInner() {
         <DialogTitle>{t('osPlan.dedupeTitle')}</DialogTitle>
         <DialogContent>
           <Stack spacing={1} sx={{ mt: 1 }}>
-            {(dedupe?.customers ?? []).map((id) => (
-              <Typography key={`c-${id}`} variant="body2">{customerMap.get(id) ?? id}</Typography>
-            ))}
-            {(dedupe?.leads ?? []).map((id) => (
-              <Typography key={`l-${id}`} variant="body2">{rows.find((lead) => lead.id === id)?.name ?? id}</Typography>
-            ))}
+            {dedupe ? <CandidateList details={dedupe} /> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -701,6 +801,40 @@ function LeadsPageInner() {
           <Button variant="contained" onClick={() => saveMutation.mutate('create')}>{t('osPlan.dedupeCreate')}</Button>
         </DialogActions>
       </Dialog>
+      <DedupeReviewDialog
+        lead={reviewLead}
+        onClose={() => setReviewLead(null)}
+        onResolved={() => {
+          setReviewLead(null);
+          setNotice(t('osPlan.dedupeResolved'));
+          void qc.invalidateQueries({ queryKey: ['leads'] });
+        }}
+      />
+      <WhatsappSettingsDialog open={whatsappOpen} onClose={() => setWhatsappOpen(false)} />
+      <ConfirmDialog
+        open={replaceFormOpen}
+        title={t('osPlan.formLinkReplaceTitle')}
+        body={t('osPlan.formLinkReplaceBody')}
+        confirmColor="warning"
+        confirming={formReplace.isPending}
+        onClose={() => setReplaceFormOpen(false)}
+        onConfirm={() => formReplace.mutate()}
+      />
     </Stack>
   );
+}
+
+/** Rows that could not be imported, as a file the person can fix and upload again. */
+function downloadImportErrors(result: ImportResult) {
+  const quote = (value: string | number | undefined) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const lines = [
+    ['row', 'name', 'phone', 'email', 'problem'].join(','),
+    ...result.errors.map((e) => [e.row, quote(e.name), quote(e.phone), quote(e.email), quote(e.detail)].join(',')),
+  ];
+  const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'lead-import-problems.csv';
+  link.click();
+  URL.revokeObjectURL(url);
 }

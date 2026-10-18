@@ -3,7 +3,7 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { convertLead, listLeadsPage } from '@/api/crm';
+import { convertLead, getDedupeCandidates, listLeadsPage, resolveDedupe } from '@/api/crm';
 import { LeadsPage } from '@/pages/crm/LeadsPage';
 
 vi.mock('@/pages/erp/erpShared', () => ({
@@ -38,8 +38,14 @@ vi.mock('@/api/crm', () => ({
   assignLead: vi.fn(),
   createLeadActivity: vi.fn(),
   issueLeadFormToken: vi.fn(),
-  issueWhatsappWebhookToken: vi.fn(),
+  issueWhatsappWebhookToken: vi.fn(async () => ({ token: 'wa', verifyToken: 'vt', secretConfigured: false })),
+  saveWhatsappAppSecret: vi.fn(),
   whatsappWebhookUrl: () => '',
+  getDedupeCandidates: vi.fn(async () => ({
+    customers: [{ id: 4, name: 'Known Buyer', phone: '+919000000001', email: '', gstin: '' }],
+    leads: [{ id: 8, name: 'Earlier Lead', phone: '+919000000001', email: '', status: 'NEW', lastTouchedAt: null }],
+  })),
+  resolveDedupe: vi.fn(async () => ({})),
 }));
 
 vi.mock('@/api/resources', () => ({
@@ -54,8 +60,10 @@ vi.mock('@/api/growth', () => ({
 describe('LeadsPage CSV import result', () => {
   it('shows created, pending review, and the bad row', async () => {
     importLeadsCsv.mockResolvedValueOnce({
+      total: 3,
       created: 2,
       pendingReview: 1,
+      errorCount: 1,
       errors: [{ row: 3, detail: 'Phone is required' }],
     });
     const user = userEvent.setup();
@@ -70,9 +78,49 @@ describe('LeadsPage CSV import result', () => {
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['name,phone\n,\n'], 'leads.csv', { type: 'text/csv' });
     await user.upload(input, file);
-    expect(await screen.findByText('Imported 2. 1 need review.')).toBeInTheDocument();
+    expect(await screen.findByText('Imported 2 of 3. 1 need review. 1 could not be imported.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download the rows that failed' })).toBeInTheDocument();
     expect(screen.getByText('Row 3: Phone is required')).toBeInTheDocument();
     await waitFor(() => expect(importLeadsCsv).toHaveBeenCalled());
+  });
+});
+
+describe('LeadsPage duplicate review and filters', () => {
+  const pendingLead = {
+    id: 21, name: 'Maybe Known', phone: '+919000000001', email: '', status: 'NEW', customer: null,
+    dedupeReview: 'PENDING_REVIEW', createdAt: '', updatedAt: '',
+  };
+
+  function renderPage() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LeadsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('resolves a pending lead from the review dialog and blocks convert meanwhile', async () => {
+    vi.mocked(listLeadsPage).mockResolvedValue({ results: [pendingLead as never], count: 1, next: null, previous: null });
+    const user = userEvent.setup();
+    renderPage();
+    expect(await screen.findByRole('button', { name: 'Convert lead' })).toBeDisabled();
+    await user.click(await screen.findByRole('button', { name: 'Review' }));
+    expect(await screen.findByText('Known Buyer')).toBeInTheDocument();
+    expect(screen.getByText('Earlier Lead')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Same customer' }));
+    await waitFor(() => expect(resolveDedupe).toHaveBeenCalledWith(21, { decision: 'same_customer', customer_id: 4 }));
+    expect(getDedupeCandidates).toHaveBeenCalledWith(21);
+  });
+
+  it('sends search and status filters to the server', async () => {
+    vi.mocked(listLeadsPage).mockResolvedValue({ results: [], count: 0, next: null, previous: null });
+    const user = userEvent.setup();
+    renderPage();
+    await user.type(await screen.findByLabelText('Search name, phone or email'), 'meera');
+    await waitFor(() => expect(listLeadsPage).toHaveBeenLastCalledWith(expect.objectContaining({ q: 'meera' })));
   });
 });
 

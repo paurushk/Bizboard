@@ -7,6 +7,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
+import { issueLeadFormToken } from '@/api/crm';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import {
   createCampaign,
@@ -58,6 +59,7 @@ function CampaignsInner() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState('');
   const [pendingDelete, setPendingDelete] = useState<Campaign | null>(null);
+  const [notice, setNotice] = useState('');
   const [more, setMore] = useState(false);
   const [funnel, setFunnel] = useState<{ id: number; data: Funnel } | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
@@ -129,6 +131,23 @@ function CampaignsInner() {
     showFunnel(row);
   };
 
+  // The campaign rides in a signed parameter, so a visitor to the public form cannot pick another one.
+  const copyFormLink = async (row: Campaign) => {
+    setError('');
+    try {
+      const result = await issueLeadFormToken({ campaign: row.id });
+      const url = `${window.location.origin}/lead-form/${result.token}?campaign=${encodeURIComponent(result.campaignParam ?? '')}`;
+      try {
+        await navigator.clipboard.writeText(url);
+        setNotice(t('osPlan.formLinkCopied'));
+      } catch {
+        setNotice(t('growth.copyFailed', { url }));
+      }
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
+
   const showFunnel = (row: Campaign) => {
     setError('');
     void getCampaignFunnel(row.id)
@@ -184,6 +203,7 @@ function CampaignsInner() {
           </>
         ) : null}
         {error ? <Typography color="error">{error}</Typography> : null}
+        {notice ? <Typography variant="body2">{notice}</Typography> : null}
       </CreateDialog>
       {list.isLoading ? <LoadingState /> : null}
       {list.isError ? <ErrorState message={getErrorMessage(list.error)} error={list.error} onRetry={() => void list.refetch()} /> : null}
@@ -203,6 +223,7 @@ function CampaignsInner() {
               </Typography>
               <Button size="small" disabled={writesBlocked} onClick={() => { load(row); setCreateOpen(true); }}>{t('common.edit')}</Button>
               <Button size="small" onClick={() => showFunnel(row)}>{t('growth.funnel')}</Button>
+              <Button size="small" disabled={writesBlocked} onClick={() => void copyFormLink(row)}>{t('growth.campaignFormLink')}</Button>
               <Button size="small" color="warning" disabled={writesBlocked} onClick={() => setPendingDelete(row)}>{t('growth.remove')}</Button>
             </Stack>
             {funnel?.id === row.id ? (
@@ -246,15 +267,16 @@ function FunnelBlock({ title, funnel }: { title: string; funnel: Funnel }) {
         {funnel.roiRatio != null ? ` · ${t('growth.roi')} ${funnel.roiRatio}` : ''}
         {funnel.targetRevenue != null ? ` · ${t('growth.target')} ${funnel.targetRevenue}` : ''}
       </Typography>
+      <Typography variant="caption" color="text.secondary" display="block">{t('growth.roiBasisNote')}</Typography>
       {(funnel.rows ?? []).map((row) => (
         <Typography key={`${row.opportunity}-${row.revenueSource}`} variant="caption" display="block">
-          #{row.opportunity} · {row.revenueSource === 'quotation_total'
+          {row.title || `#${row.opportunity}`} · {row.revenueSource === 'quotation_total'
             ? t('growth.quotationTotal')
             : row.revenueSource === 'completed_invoice_taxable_net'
               ? t('growth.completedInvoiceNet')
               : row.revenueSource === 'no_completed_invoice'
                 ? t('growth.noCompletedInvoice')
-                : t('growth.opportunityAmount')} · {row.revenue}
+                : t('growth.opportunityAmount')} · {formatMoney(row.revenue)}
         </Typography>
       ))}
     </Paper>

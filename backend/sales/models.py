@@ -35,6 +35,12 @@ class SalesInvoice(DocumentTotalsModel):
         FAILED = "FAILED"
 
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="sales_invoices")
+    # CRM review D3: the won deal this invoice bills. Set when a deal drafts its invoice or a quote /
+    # order / challan that belongs to a deal is converted. Revenue for referral, campaign ROI and
+    # won-vs-invoiced is read through this link (crm.revenue).
+    opportunity = models.ForeignKey(
+        "crm.Opportunity", null=True, blank=True, on_delete=models.SET_NULL, related_name="invoices",
+    )
     source_order = models.ForeignKey(
         "SalesOrder", null=True, blank=True, on_delete=models.SET_NULL, related_name="split_invoices",
     )

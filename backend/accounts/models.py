@@ -143,6 +143,10 @@ class Company(TimeStampedModel):
     email = models.EmailField(blank=True)
     lead_form_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
     whatsapp_webhook_token = models.CharField(max_length=64, null=True, blank=True, unique=True)
+    # CRM review D10: Meta's handshake uses its own token, and each company signs with its own app
+    # secret (sealed at rest) instead of one secret for the whole server.
+    whatsapp_verify_token = models.CharField(max_length=64, blank=True, default="")
+    whatsapp_app_secret = models.TextField(blank=True, default="")
     upi_id = models.CharField(max_length=100, blank=True)
     bank_name = models.CharField(max_length=100, blank=True)
     bank_account = models.TextField(blank=True)

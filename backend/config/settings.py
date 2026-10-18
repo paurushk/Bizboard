@@ -629,6 +629,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "crm.tasks.remind_due_lead_activities",
         "schedule": crontab(minute=40),
     },
+    "crm-reap-stale-lead-ingest": {
+        "task": "crm.tasks.reap_stale_lead_ingest_jobs",
+        "schedule": crontab(minute="*/10"),
+    },
     "celery-beat-heartbeat": {
         "task": "core.tasks.celery_beat_heartbeat",
         "schedule": crontab(minute="*/2"),
@@ -1196,6 +1200,12 @@ ENABLE_INSURANCE = _env_bool("ENABLE_INSURANCE", "0")
 VENDOR_COMPANY_ID = (os.environ.get("VENDOR_COMPANY_ID") or "").strip()
 # Meta Cloud API app secret. Inbound webhooks are rejected when this is empty.
 WHATSAPP_APP_SECRET = _env_value("WHATSAPP_APP_SECRET")
+# Public lead form: most enquiries one company's form accepts in a day (a flood guard, not a quota).
+LEAD_FORM_DAILY_CAP = int(os.environ.get("LEAD_FORM_DAILY_CAP") or 500)
+# Shown under the public lead form. Wording needs sign-off from whoever owns privacy text.
+LEAD_FORM_CONSENT_TEXT = os.environ.get("LEAD_FORM_CONSENT_TEXT") or (
+    "By sending this form you agree that {company} may contact you about your enquiry."
+)
 ENABLE_WHATSAPP_CLOUD = _env_bool("ENABLE_WHATSAPP_CLOUD")
 ENABLE_TELEGRAM = _env_bool("ENABLE_TELEGRAM")
 ENABLE_ACCOUNT_AGGREGATOR = _env_bool("ENABLE_ACCOUNT_AGGREGATOR")

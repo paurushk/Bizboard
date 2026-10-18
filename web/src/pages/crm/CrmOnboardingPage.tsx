@@ -27,6 +27,14 @@ export function CrmOnboardingPage() {
     <Stack spacing={2}>
       <PageTitle>{t('nav.crmOnboarding')}</PageTitle>
       <Typography variant="body2" color="text.secondary">{t('osPlan.onboardingHelp')}</Typography>
+      {checklist.data && (checklist.data.steps ?? []).length > 0 ? (
+        <Typography variant="subtitle2">
+          {t('osPlan.onboardingProgress', {
+            done: String((checklist.data.steps ?? []).filter((step) => step.done).length),
+            total: String((checklist.data.steps ?? []).length),
+          })}
+        </Typography>
+      ) : null}
       {checklist.isLoading ? <LoadingState /> : null}
       {checklist.isError ? (
         <ErrorState message={getErrorMessage(checklist.error)} error={checklist.error} onRetry={() => void checklist.refetch()} />
@@ -40,7 +48,11 @@ export function CrmOnboardingPage() {
             <Typography>
               {step.done ? '✓' : '○'} {step.title}
             </Typography>
-            <Button size="small" component={RouterLink} to={onboardingHref(step.id)}>{t('common.next')}</Button>
+            {step.done ? (
+              <Typography variant="body2" color="success.main">{t('osPlan.stepDone')}</Typography>
+            ) : (
+              <Button size="small" component={RouterLink} to={onboardingHref(step.id)}>{t('common.next')}</Button>
+            )}
           </Stack>
         </Paper>
       ))}

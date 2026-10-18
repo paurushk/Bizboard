@@ -123,7 +123,7 @@ def test_lists_carry_names_and_support_search_and_status_filters(tenant_a):
     customer = make_customer(tenant_a.company, name="Named Buyer")
     campaign = Campaign.objects.create(
         company=tenant_a.company, name="Spring push", campaign_type=Campaign.Type.DIGITAL,
-        status=Campaign.Status.PAUSED, created_by=tenant_a.owner,
+        status=Campaign.Status.ACTIVE, created_by=tenant_a.owner,
     )
     Campaign.objects.create(
         company=tenant_a.company, name="Autumn push", campaign_type=Campaign.Type.DIGITAL,
@@ -131,6 +131,7 @@ def test_lists_carry_names_and_support_search_and_status_filters(tenant_a):
     )
     lead = capture_lead(tenant_a.company, tenant_a.owner, name="Zainab Khan", phone="9000000611", campaign=campaign.id)
     Lead.objects.filter(pk=lead.pk).update(customer=customer, status=Lead.Status.CONTACTED)
+    Campaign.objects.filter(pk=campaign.pk).update(status=Campaign.Status.PAUSED)
     capture_lead(tenant_a.company, tenant_a.owner, name="Other Person", phone="9000000612")
 
     found = tenant_a.client.get("/api/v1/crm/leads/?q=zainab")

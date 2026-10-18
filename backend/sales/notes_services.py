@@ -942,9 +942,12 @@ class SalesNotesService:
             )
         # CR-020: keep SO reservation until the invoice Completes (mirrors challan path).
         # Do not release here — release in SalesService.complete when converting SALE.
+        from crm.revenue import opportunity_for_order
+
         invoice = SalesInvoice.objects.create(
             company=order.company,
             customer=order.customer,
+            opportunity=opportunity_for_order(order),
             warehouse=order.warehouse or InventoryService.default_warehouse(order.company),
             invoice_type=order.invoice_type,
             company_gstin=getattr(order, "company_gstin", None) or _single_active_company_gstin(order.company),
@@ -1530,9 +1533,12 @@ class SalesNotesService:
         if order is not None and order.invoice_type == SalesInvoice.InvoiceType.NON_GST:
             invoice_type = SalesInvoice.InvoiceType.NON_GST
         order = challan.sales_order
+        from crm.revenue import opportunity_for_order
+
         invoice = SalesInvoice.objects.create(
             company=challan.company,
             customer=challan.customer,
+            opportunity=opportunity_for_order(order) if order is not None else None,
             warehouse=challan.warehouse or InventoryService.default_warehouse(challan.company),
             invoice_type=invoice_type,
             company_gstin=getattr(challan, "company_gstin", None)

@@ -247,11 +247,13 @@ def test_round_robin_uses_only_active_sales_staff(tenant_a):
     assert next_assignee(tenant_a.company).id == staff.id
     staff.role = CompanyUser.Role.VIEWER
     staff.save(update_fields=["role"])
-    assert next_assignee(tenant_a.company) is None
+    # D13: with no sales staff left, the owner works the leads.
+    owner = CompanyUser.objects.get(company=tenant_a.company, user=tenant_a.owner)
+    assert next_assignee(tenant_a.company).id == owner.id
     created = capture_lead(
         tenant_a.company, tenant_a.owner, name="Unassigned", email="free@alpha.test", source="phone",
     )
-    assert created.assigned_to_id is None
+    assert created.assigned_to_id == owner.id
     assert created.status == Lead.Status.NEW
 
 

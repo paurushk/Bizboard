@@ -24,6 +24,16 @@ export type Lead = SchemaOr<
   campaignName?: string | null;
   customerName?: string | null;
   referralCode?: number | null;
+  lostReason?: string;
+  lostReasonNote?: string;
+  duplicateOf?: number | null;
+  dedupeDecision?: string;
+  lastTouchedAt?: string | null;
+};
+
+export type DedupeDetails = {
+  customers: Array<{ id: number; name: string; phone: string; email: string; gstin: string }>;
+  leads: Array<{ id: number; name: string; phone: string; email: string; status: string; lastTouchedAt: string | null }>;
 };
 
 export type LeadActivity = {
@@ -34,6 +44,7 @@ export type LeadActivity = {
   remindedAt?: string | null;
   createdAt: string;
   createdBy: number | null;
+  createdByName?: string;
 };
 
 export type LeadConvertResult = {
@@ -72,8 +83,22 @@ export function listLeadsPage(params?: {
   mine?: boolean;
   q?: string;
   status?: string;
+  assigned_to?: string;
 }) {
   return fetchPage<Lead>(`${BASE}/leads/`, params);
+}
+
+export async function getDedupeCandidates(leadId: number): Promise<DedupeDetails> {
+  const { data } = await apiClient.get(`${BASE}/leads/${leadId}/dedupe-candidates/`);
+  return unwrapData<DedupeDetails>(data);
+}
+
+export async function resolveDedupe(
+  leadId: number,
+  body: { decision: 'different' | 'same_customer' | 'same_lead'; customer_id?: number; lead_id?: number },
+): Promise<Lead> {
+  const { data } = await apiClient.post(`${BASE}/leads/${leadId}/resolve-dedupe/`, body);
+  return unwrapData<Lead>(data);
 }
 
 export async function createLead(
@@ -150,11 +175,22 @@ export async function assignLead(id: number, assignedTo: number | null): Promise
   return unwrapData<Lead>(data);
 }
 
-export async function importLeadsCsv(file: File): Promise<{ created: number; pendingReview: number; errors: Array<{ row: number; detail: string }>; accepted?: boolean }> {
+export type ImportRowError = { row: number; detail: string; name?: string; phone?: string; email?: string };
+
+export type ImportResult = {
+  total?: number;
+  created: number;
+  pendingReview: number;
+  errorCount?: number;
+  errors: ImportRowError[];
+  accepted?: boolean;
+};
+
+export async function importLeadsCsv(file: File): Promise<ImportResult> {
   const body = new FormData();
   body.append('file', file);
   const { data } = await apiClient.post(`${BASE}/leads/import-csv/`, body);
-  let job = unwrapData<{ id: number; status: string; result: { created: number; pendingReview: number; errors: Array<{ row: number; detail: string }> }; error: string }>(data);
+  let job = unwrapData<{ id: number; status: string; result: ImportResult; error: string }>(data);
   for (let attempt = 0; attempt < 60 && (job.status === 'PENDING' || job.status === 'RUNNING'); attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     const next = await apiClient.get(`${BASE}/leads/ingest-jobs/${job.id}/`);
@@ -169,8 +205,13 @@ export async function importLeadsCsv(file: File): Promise<{ created: number; pen
   return job.result;
 }
 
-export async function issueLeadFormToken(): Promise<{ token: string }> {
-  const { data } = await apiClient.post(`${BASE}/leads/form-token/`, {});
+export async function issueLeadFormToken(
+  opts: { rotate?: boolean; campaign?: number } = {},
+): Promise<{ token: string; campaignParam?: string }> {
+  const { data } = await apiClient.post(`${BASE}/leads/form-token/`, {
+    ...(opts.rotate ? { rotate: true } : {}),
+    ...(opts.campaign ? { campaign: opts.campaign } : {}),
+  });
   return unwrapData(data);
 }
 
@@ -183,8 +224,15 @@ export function whatsappWebhookUrl(token: string): string {
   return `${window.location.origin}${base}${path}`;
 }
 
-export async function issueWhatsappWebhookToken(rotate = false): Promise<{ token: string }> {
+export async function issueWhatsappWebhookToken(
+  rotate = false,
+): Promise<{ token: string; verifyToken: string; secretConfigured: boolean }> {
   const { data } = await apiClient.post(`${BASE}/leads/whatsapp-token/`, rotate ? { rotate: true } : {});
+  return unwrapData(data);
+}
+
+export async function saveWhatsappAppSecret(appSecret: string): Promise<{ secretConfigured: boolean }> {
+  const { data } = await apiClient.post(`${BASE}/leads/whatsapp-secret/`, { app_secret: appSecret });
   return unwrapData(data);
 }
 

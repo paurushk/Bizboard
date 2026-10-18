@@ -20,10 +20,74 @@ class LeadSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True, default=None)
     campaign_name = serializers.CharField(source="campaign.name", read_only=True, allow_null=True, default=None)
 
+    def validate_campaign(self, value):
+        # A paused or completed campaign keeps its history; it does not take new leads.
+        unchanged = self.instance is not None and self.instance.campaign_id == getattr(value, "id", None)
+        if value is not None and not unchanged and value.status not in (
+            Campaign.Status.DRAFT, Campaign.Status.ACTIVE,
+        ):
+            raise serializers.ValidationError(
+                f"{value.name} is {value.get_status_display().lower()} and is not accepting new leads."
+            )
+        return value
+
+    def validate_status(self, value):
+        if value not in Lead.Status.values:
+            raise serializers.ValidationError("Choose a valid status.")
+        if (
+            value == Lead.Status.QUALIFIED
+            and (self.instance is None or self.instance.status != Lead.Status.QUALIFIED)
+            and (self.instance is None or not self.instance.opportunities.exists())
+        ):
+            # Qualified means a deal exists; Convert creates it and sets this status.
+            raise serializers.ValidationError("Convert the lead to a deal to mark it qualified.")
+        return value
+
+    def validate_source(self, value):
+        from .pipeline import SOURCES
+
+        if value and value not in SOURCES:
+            raise serializers.ValidationError("Unknown lead source.")
+        return value or None
+
+    def validate_gstin(self, value):
+        value = (value or "").strip().upper()
+        if value:
+            from core.validators import GSTIN_RE
+
+            if not GSTIN_RE.match(value):
+                raise serializers.ValidationError("Enter a valid 15-character GSTIN.")
+        return value
+
+    def validate(self, attrs):
+        instance = self.instance
+        new_status = attrs.get("status", getattr(instance, "status", None))
+        closing = new_status == Lead.Status.LOST and (instance is None or instance.status != Lead.Status.LOST)
+        if closing:
+            reason = (attrs.get("lost_reason") or getattr(instance, "lost_reason", "") or "").strip()
+            if reason not in Opportunity.LostReason.values:
+                raise serializers.ValidationError({"lost_reason": "Say why the lead was lost."})
+            note = attrs.get("lost_reason_note", getattr(instance, "lost_reason_note", ""))
+            if reason == Opportunity.LostReason.OTHER and not (note or "").strip():
+                raise serializers.ValidationError({"lost_reason_note": "Add a short note for Other."})
+        elif "lost_reason" in attrs and attrs["lost_reason"] and attrs["lost_reason"] not in Opportunity.LostReason.values:
+            raise serializers.ValidationError({"lost_reason": "Choose a valid reason."})
+        return attrs
+
+    def update(self, instance, validated_data):
+        validated_data["last_touched_at"] = timezone.now()
+        if validated_data.get("status") == Lead.Status.LOST:
+            validated_data.setdefault("lost_reason", instance.lost_reason)
+        elif validated_data.get("status") and validated_data["status"] != Lead.Status.LOST:
+            validated_data["lost_reason"] = ""
+            validated_data["lost_reason_note"] = ""
+        return super().update(instance, validated_data)
+
     class Meta:
         model = Lead
         fields = [
             "id", "name", "phone", "email", "state", "gstin", "address", "status",
+            "lost_reason", "lost_reason_note", "duplicate_of", "dedupe_decision",
             "source", "message", "assigned_to", "dedupe_matched_customer",
             "dedupe_matched_lead", "dedupe_review", "dedupe_candidates",
             "customer", "customer_name", "campaign", "campaign_name", "referral_code",
@@ -32,15 +96,25 @@ class LeadSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "created_at", "updated_at", "customer_name", "campaign_name", "assigned_to", "dedupe_matched_customer",
             "dedupe_matched_lead", "dedupe_review", "dedupe_candidates", "referral_code",
-            "last_touched_at",
+            "last_touched_at", "duplicate_of", "dedupe_decision",
         ]
 
 
 class LeadActivitySerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    def get_created_by_name(self, obj) -> str:
+        user = obj.created_by
+        if user is None:
+            return ""
+        return getattr(user, "full_name", "") or getattr(user, "email", "") or ""
+
     class Meta:
         model = LeadActivity
-        fields = ["id", "kind", "body", "due_at", "reminded_at", "created_at", "created_by"]
-        read_only_fields = ["id", "reminded_at", "created_at", "created_by"]
+        fields = [
+            "id", "kind", "body", "due_at", "reminded_at", "created_at", "created_by", "created_by_name",
+        ]
+        read_only_fields = ["id", "reminded_at", "created_at", "created_by", "created_by_name"]
 
 
 class OpportunitySerializer(serializers.ModelSerializer):
@@ -208,21 +282,51 @@ class ReferralCodeSerializer(serializers.ModelSerializer):
     referrer_user = CompanyPrimaryKeyRelatedField(
         queryset=CompanyUser.objects.all(), allow_null=True, required=False
     )
+    referrer_name = serializers.SerializerMethodField()
+    uses = serializers.IntegerField(source="lead_count", read_only=True, default=0)
+    rewards_earned = serializers.IntegerField(source="reward_count", read_only=True, default=0)
+
+    def get_referrer_name(self, obj) -> str:
+        if obj.referrer_customer_id:
+            return obj.referrer_customer.name
+        member = obj.referrer_user
+        user = getattr(member, "user", None)
+        return (getattr(user, "get_full_name", lambda: "")() or getattr(user, "email", "")) if user else ""
 
     class Meta:
         model = ReferralCode
         fields = [
-            "id", "referrer_customer", "referrer_user", "code", "reward_type",
-            "reward_value", "active", "created_at",
+            "id", "referrer_customer", "referrer_user", "referrer_name", "code", "reward_type",
+            "reward_value", "active", "deactivated_at", "uses", "rewards_earned", "created_at",
         ]
-        read_only_fields = ["id", "code", "created_at"]
+        read_only_fields = [
+            "id", "code", "created_at", "referrer_name", "deactivated_at", "uses", "rewards_earned",
+        ]
 
 
 class ReferralRewardSerializer(serializers.ModelSerializer):
+    lead_name = serializers.CharField(source="lead.name", read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    referrer_name = serializers.SerializerMethodField()
+    code = serializers.CharField(source="referral_code.code", read_only=True)
+    opportunity_title = serializers.CharField(source="opportunity.title", read_only=True)
+
+    def get_customer_name(self, obj) -> str:
+        customer = obj.opportunity.customer
+        return customer.name if customer is not None else ""
+
+    def get_referrer_name(self, obj) -> str:
+        code = obj.referral_code
+        if code.referrer_customer_id:
+            return code.referrer_customer.name
+        user = getattr(code.referrer_user, "user", None)
+        return (getattr(user, "get_full_name", lambda: "")() or getattr(user, "email", "")) if user else ""
+
     class Meta:
         model = ReferralReward
         fields = [
-            "id", "referral_code", "lead", "opportunity", "reward_amount",
+            "id", "referral_code", "code", "lead", "lead_name", "opportunity", "opportunity_title",
+            "customer_name", "referrer_name", "reward_amount", "basis", "review_note",
             "reward_status", "rejection_reason", "paid_at", "credit_note", "created_at",
         ]
         read_only_fields = fields

@@ -1,5 +1,6 @@
 """Lead capture that was accepted on the request and finishes in the worker."""
 
+import logging
 from datetime import timedelta
 
 from celery import shared_task
@@ -7,6 +8,11 @@ from django.db import transaction
 from django.utils import timezone
 
 STALE_AFTER = timedelta(minutes=15)
+
+
+logger = logging.getLogger("bizboard.crm")
+
+GENERIC_FAILURE = "The import stopped unexpectedly. Try again, and contact support if it keeps happening."
 
 
 @shared_task
@@ -49,21 +55,57 @@ def process_lead_ingest(job_id: int, company_id: int | None = None) -> None:
                 sender=str(payload.get("sender") or ""),
                 text=str(payload.get("text") or ""),
                 sent_at=str(payload.get("sent_at") or ""),
+                name=str(payload.get("name") or ""),
             )
             result = {"ok": True, "lead_id": lead.id if lead else None}
     except (BusinessRuleError, ValidationError) as exc:
-        LeadIngestJob.objects.filter(pk=job_id).update(
-            status=LeadIngestJob.Status.FAILED,
-            error=str(exc),
-            updated_at=timezone.now(),
-        )
+        _fail(job_id, "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc))
         return
+    except Exception:  # noqa: BLE001 — a job must always end DONE or FAILED, never sit RUNNING
+        logger.exception("lead_ingest_failed job_id=%s company_id=%s", job_id, getattr(job, "company_id", None))
+        _fail(job_id, GENERIC_FAILURE)
+        return
+    # E1: the rows hold names, phones and emails; once imported they are not kept.
     LeadIngestJob.objects.filter(pk=job_id, status=LeadIngestJob.Status.RUNNING).update(
         status=LeadIngestJob.Status.DONE,
         result=result,
         error="",
+        payload={},
         updated_at=timezone.now(),
     )
+
+
+def _fail(job_id: int, message: str) -> None:
+    from crm.models import LeadIngestJob
+
+    LeadIngestJob.objects.filter(pk=job_id).update(
+        status=LeadIngestJob.Status.FAILED,
+        error=message[:500],
+        payload={},
+        updated_at=timezone.now(),
+    )
+
+
+@shared_task
+def reap_stale_lead_ingest_jobs() -> dict:
+    """A job stuck RUNNING (worker died) is retried once, then marked FAILED."""
+    from crm.models import LeadIngestJob
+
+    cutoff = timezone.now() - STALE_AFTER
+    retried = failed = 0
+    for job in LeadIngestJob.objects.filter(status=LeadIngestJob.Status.RUNNING, updated_at__lt=cutoff):
+        payload = dict(job.payload or {})
+        if int(payload.get("_retries") or 0) >= 1:
+            _fail(job.id, "The import did not finish in time. Upload it again.")
+            failed += 1
+            continue
+        payload["_retries"] = 1
+        LeadIngestJob.objects.filter(pk=job.id).update(
+            status=LeadIngestJob.Status.PENDING, payload=payload, updated_at=timezone.now(),
+        )
+        process_lead_ingest.delay(job.id, company_id=job.company_id)
+        retried += 1
+    return {"retried": retried, "failed": failed}
 
 
 @shared_task

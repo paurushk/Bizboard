@@ -2096,6 +2096,7 @@ class SalesService:
         invoice = SalesInvoice.objects.create(
             company=quotation.company,
             customer=quotation.customer,
+            opportunity=quotation.opportunity,
             warehouse=InventoryService.default_warehouse(quotation.company),
             invoice_type=quotation.invoice_type,
             company_gstin=getattr(quotation, "company_gstin", None) or stamp,

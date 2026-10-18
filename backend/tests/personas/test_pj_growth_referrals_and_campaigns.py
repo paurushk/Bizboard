@@ -66,7 +66,8 @@ def test_pj_growth_campaign_referral_and_pipeline_journey(boundary):
     campaign_id = camp_resp.data["id"]
 
     # Step 2: Issue Referral Code for existing Customer
-    code_resp = sc.post(
+    # D14: only owner/manager issue codes and set reward values
+    code_resp = oc.post(
         "/api/v1/crm/referrals/codes/issue/",
         {
             "referrer_customer": cust.id,

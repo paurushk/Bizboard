@@ -58,6 +58,21 @@ class Lead(CompanyScopedModel):
         "ReferralCode", null=True, blank=True, on_delete=models.SET_NULL, related_name="leads",
     )
     last_touched_at = models.DateTimeField(null=True, blank=True)
+    # CRM review D7/D8: a lead that is closed says why; a duplicate points at the lead it repeats.
+    lost_reason = models.CharField(max_length=16, blank=True, default="")
+    lost_reason_note = models.CharField(max_length=200, blank=True, default="")
+    duplicate_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="duplicates",
+    )
+    # What staff answered when the dedupe review asked: "" (never asked), "different" or "same".
+    dedupe_decision = models.CharField(max_length=16, blank=True, default="")
+
+    def touch(self) -> None:
+        """Record contact now. Called by activities, status changes, assignment and convert."""
+        from django.utils import timezone
+
+        self.last_touched_at = timezone.now()
+        self.save(update_fields=["last_touched_at", "updated_at"])
 
     def save(self, *args, **kwargs):
         from django.utils import timezone
@@ -257,6 +272,11 @@ class ReferralCode(CompanyScopedModel):
     reward_type = models.CharField(max_length=16, choices=RewardType.choices, default=RewardType.FLAT)
     reward_value = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
     active = models.BooleanField(default=True)
+    # CRM review D12: a code is switched off, never deleted, so past rewards keep their source.
+    deactivated_at = models.DateTimeField(null=True, blank=True)
+    deactivated_by = models.ForeignKey(
+        "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
 
     class Meta:
         constraints = [
@@ -287,6 +307,11 @@ class ReferralReward(CompanyScopedModel):
     lead = models.ForeignKey(Lead, on_delete=models.PROTECT, related_name="referral_rewards")
     opportunity = models.ForeignKey(Opportunity, on_delete=models.PROTECT, related_name="referral_rewards")
     reward_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    # PERCENT rewards have no amount until they are paid (D1): it is worked out from the
+    # deal's completed invoices at that moment.
+    basis = models.CharField(max_length=8, choices=ReferralCode.RewardType.choices, default="FLAT")
+    # "existing_customer": the referred person was already a customer, so a manager decides (D2).
+    review_note = models.CharField(max_length=32, blank=True, default="")
     reward_status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
     # Stable code, not free text. Set only by the self-referral auto-reject path.
     # Manual reject leaves this blank — the UI cannot invent a reason it was not given.
