@@ -42,22 +42,66 @@ export interface StockByProductParams {
 
 export const STOCK_PAGE_SIZE = 100;
 
-export async function listStockByProduct(params: StockByProductParams = {}): Promise<StockByProductPage> {
-  const { data } = await apiClient.get('/inventory/balances/by-product/', {
-    params: flattenQueryParams({
-      ...params,
-      negative: params.negative ? '1' : undefined,
-      pageSize: params.pageSize ?? STOCK_PAGE_SIZE,
-    }),
-    paramsSerializer: { indexes: null },
-  });
-  const body = unwrapData<Partial<StockByProductPage> & { results?: StockByProductRow[] }>(data);
+function mockStockByProduct(params: StockByProductParams): StockByProductPage {
+  let rows = mockStock;
+  if (params.q) {
+    const term = params.q.toLowerCase();
+    rows = rows.filter(
+      (s) =>
+        s.productName.toLowerCase().includes(term) ||
+        s.sku.toLowerCase().includes(term) ||
+        Object.values(s.customFields ?? {}).some((value) => value.toLowerCase().includes(term)),
+    );
+  }
+  if (params.cf) {
+    rows = rows.filter((s) =>
+      Object.entries(params.cf!).every(([key, values]) => {
+        if (!values.length) return true;
+        const current = (s.customFields?.[key] ?? '').toLowerCase();
+        return values.some((value) => current === value.toLowerCase());
+      }),
+    );
+  }
+  if (params.negative) rows = rows.filter((s) => Number(s.available) <= 0);
+  const results: StockByProductRow[] = rows.map((s) => ({
+    product: s.product,
+    productName: s.productName,
+    sku: s.sku,
+    customFields: s.customFields,
+    warehouse: params.warehouse ?? null,
+    onHand: s.onHand,
+    reserved: s.reserved,
+    available: s.available,
+    lots: 1,
+    nearestExpiry: null,
+  }));
+  const itemsOut = results.filter((r) => Number(r.available) <= 0).length;
   return {
-    results: body.results ?? [],
-    count: body.count ?? (body.results ?? []).length,
-    next: body.next ?? null,
-    summary: body.summary ?? { items: 0, itemsInStock: 0, itemsOut: 0 },
+    results,
+    count: results.length,
+    next: null,
+    summary: { items: results.length, itemsInStock: results.length - itemsOut, itemsOut },
   };
+}
+
+export async function listStockByProduct(params: StockByProductParams = {}): Promise<StockByProductPage> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/inventory/balances/by-product/', {
+      params: flattenQueryParams({
+        ...params,
+        negative: params.negative ? '1' : undefined,
+        pageSize: params.pageSize ?? STOCK_PAGE_SIZE,
+      }),
+      paramsSerializer: { indexes: null },
+    });
+    const body = unwrapData<Partial<StockByProductPage> & { results?: StockByProductRow[] }>(data);
+    return {
+      results: body.results ?? [],
+      count: body.count ?? (body.results ?? []).length,
+      next: body.next ?? null,
+      summary: body.summary ?? { items: 0, itemsInStock: 0, itemsOut: 0 },
+    };
+  }, () => mockStockByProduct(params));
 }
 
 /** Every page of the grouped list, for a print view. */

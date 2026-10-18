@@ -1283,7 +1283,8 @@ export function NewInvoicePage() {
       if ((mode === 'complete' || mode === 'complete_new') && completeWarning && invoice.status !== 'COMPLETED') {
         setError(completeWarning);
         if (!isEdit && invoice.id) {
-          navigate(`/sales/history/${invoice.id}/edit`, { replace: true });
+          // The edit page is a fresh mount: carry the reason in, or the person sees a draft and no explanation.
+          navigate(`/sales/history/${invoice.id}/edit`, { replace: true, state: { message: completeWarning } });
         }
         return;
       }

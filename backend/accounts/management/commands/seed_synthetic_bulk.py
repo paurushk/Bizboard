@@ -152,7 +152,8 @@ class Command(BaseCommand):
             StockCountSession(
                 company=company,
                 warehouse=warehouse,
-                status=StockCountSession.Status.DRAFT,
+                # only one open (DRAFT/COUNTED) count is allowed per godown, so past counts are POSTED
+                status=StockCountSession.Status.POSTED,
                 counted_on=start + timedelta(days=i * 30),
                 notes="ux-history",
             )

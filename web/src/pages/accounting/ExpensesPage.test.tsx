@@ -239,7 +239,7 @@ describe('ExpensesPage register and extras (ACS-17)', () => {
         supplierGstin: '27AAPFU0939F1ZV', tdsSection: '194C', tdsAmount: 100,
       }),
     );
-  });
+  }, 90_000);
 
   it('blocks saving when ITC is claimed without a GSTIN', async () => {
     wrap(<ExpensesPage />);

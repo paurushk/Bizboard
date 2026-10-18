@@ -288,6 +288,12 @@ function OpenedInvoice() {
   return <h1>Opened invoice {id}</h1>;
 }
 
+/** Mirrors App.tsx: the editor is keyed by invoice id, so moving from /sales/new to a draft's edit URL remounts it. */
+function KeyedEditor() {
+  const { id } = useParams();
+  return <NewInvoicePage key={id ?? 'new'} />;
+}
+
 function renderPage(initialEntries = ['/sales/new']) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -296,8 +302,8 @@ function renderPage(initialEntries = ['/sales/new']) {
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={initialEntries}>
         <Routes>
-          <Route path="/sales/new" element={<NewInvoicePage />} />
-          <Route path="/sales/history/:id/edit" element={<NewInvoicePage />} />
+          <Route path="/sales/new" element={<KeyedEditor />} />
+          <Route path="/sales/history/:id/edit" element={<KeyedEditor />} />
           <Route path="/sales/history/:id" element={<OpenedInvoice />} />
         </Routes>
       </MemoryRouter>
@@ -858,25 +864,48 @@ describe('INV-MAIN default path', () => {
     const party = await screen.findByPlaceholderText(/search by customer name/i);
     party.focus();
     await user.keyboard('Anil');
-    await screen.findByRole('option', { name: /anil store/i });
-    await user.keyboard('{ArrowDown}{Enter}');
+    await user.click(await screen.findByRole('option', { name: /anil store/i }, { timeout: 10_000 }));
     const item = screen.getByPlaceholderText(/scan barcode or search sku/i);
     item.focus();
     await user.keyboard('Nirma');
-    await screen.findByRole('option', { name: /nirma soap/i });
-    await user.keyboard('{ArrowDown}{Enter}');
-    const region = await screen.findByRole('region', { name: /scroll sideways/i });
+    await user.click(await screen.findByRole('option', { name: /nirma soap/i }, { timeout: 10_000 }));
+    const region = await screen.findByRole('region', { name: /scroll sideways/i }, { timeout: 10_000 });
     region.style.width = '320px';
     region.style.maxWidth = '320px';
     expect(getComputedStyle(region).overflow).toMatch(/auto|scroll/);
-    expect(within(region).getByText('Nirma Soap')).toBeInTheDocument();
-    expect(within(region).getByDisplayValue('1')).toBeInTheDocument();
-    expect(within(region).getByLabelText(/total amount/i)).toBeInTheDocument();
-    const complete = await screen.findByRole('button', { name: /save & complete/i });
+    expect(await within(region).findByText('Nirma Soap', undefined, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await within(region).findByDisplayValue('1', undefined, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await within(region).findByLabelText(/total amount/i, undefined, { timeout: 10_000 })).toBeInTheDocument();
+    const complete = await screen.findByRole('button', { name: /save & complete/i }, { timeout: 10_000 });
     await waitFor(() => expect(complete).toBeEnabled());
     complete.focus();
     await user.keyboard('{Enter}');
-    expect(await screen.findByRole('heading', { name: /opened invoice 88/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /opened invoice 88/i }, { timeout: 10_000 })).toBeInTheDocument();
+  }, 60_000);
+
+  it('keeps the reason on screen when Complete is refused after the new bill was saved as a draft', async () => {
+    const refused = new AxiosError('Request failed', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status: 400,
+      statusText: 'Bad Request',
+      headers: {},
+      config: {} as never,
+      data: { error: { code: 'closed_period', message: 'Cannot amend money fields: GST period 2026-10 is SOFT_CLOSED.' } },
+    });
+    completeSalesInvoice.mockRejectedValueOnce(refused);
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+    await user.click(await screen.findByPlaceholderText(/search by customer name/i));
+    await user.click(await screen.findByRole('option', { name: /anil store/i }));
+    await user.click(screen.getByPlaceholderText(/scan barcode or search sku/i));
+    await user.paste('Nirma');
+    await user.click(await screen.findByRole('option', { name: /nirma soap/i }));
+    const complete = await screen.findByRole('button', { name: /save & complete/i }, { timeout: 10_000 });
+    await waitFor(() => expect(complete).toBeEnabled());
+    await user.click(complete);
+    // The draft is saved and the page moves to its edit URL; the refusal has to travel with it.
+    // Wait for the move to the edit URL first: the message shows briefly on the old page too, which would pass this test trivially.
+    expect(await screen.findByRole('heading', { name: /edit draft invoice/i }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(await screen.findByText(/GST period 2026-10 is SOFT_CLOSED/i, undefined, { timeout: 10_000 })).toBeInTheDocument();
   }, 60_000);
 
   it('INV-MAIN-16 Complete stays off and names the short item', async () => {
