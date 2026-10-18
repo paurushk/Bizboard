@@ -667,6 +667,34 @@ class PostingService:
                 raise
         return entry
 
+    @staticmethod
+    def _charges_tax_components(document, hdr_cgst, hdr_sgst, hdr_igst, line_cgst, line_sgst, line_igst):
+        """(cgst, sgst, igst) of GST on taxable additional charges (freight/packing).
+
+        The header totals fold this tax in (``compute_document_totals``) but no
+        line row carries it, so it must be added to the line sums before the
+        header-vs-line drift check and the Output/Input GST legs. The
+        intra/inter split is not stored; pick whichever split best explains the
+        header-minus-lines gap.
+        """
+        from core.services.charges import charge_line
+
+        zero = (Decimal("0"), Decimal("0"), Decimal("0"))
+        best, best_gap = zero, None
+        for intra in (True, False):
+            charge = charge_line(document, intra_state=intra)
+            if charge is None:
+                return zero
+            comp = (charge.cgst, charge.sgst, charge.igst)
+            gap = (
+                abs(line_cgst + comp[0] - hdr_cgst)
+                + abs(line_sgst + comp[1] - hdr_sgst)
+                + abs(line_igst + comp[2] - hdr_igst)
+            )
+            if best_gap is None or gap < best_gap:
+                best, best_gap = comp, gap
+        return best
+
     @classmethod
     def post_sales_invoice(cls, invoice, user=None):
         cls._ensure_chart(invoice.company)
@@ -680,6 +708,13 @@ class PostingService:
         hdr_sgst = Decimal(str(invoice.sgst_total or 0))
         hdr_igst = Decimal(str(invoice.igst_total or 0))
         hdr_cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        # GST on taxable freight/packing sits in the header but on no line.
+        ch_cgst, ch_sgst, ch_igst = cls._charges_tax_components(
+            invoice, hdr_cgst, hdr_sgst, hdr_igst, line_cgst, line_sgst, line_igst
+        )
+        line_cgst += ch_cgst
+        line_sgst += ch_sgst
+        line_igst += ch_igst
         drift = (
             abs(line_cgst - hdr_cgst)
             + abs(line_sgst - hdr_sgst)
@@ -1375,6 +1410,12 @@ class PostingService:
         hdr_sgst = Decimal(str(invoice.sgst_total or 0))
         hdr_igst = Decimal(str(invoice.igst_total or 0))
         hdr_cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        ch_cgst, ch_sgst, ch_igst = cls._charges_tax_components(
+            invoice, hdr_cgst, hdr_sgst, hdr_igst, line_cgst, line_sgst, line_igst
+        )
+        line_cgst += ch_cgst
+        line_sgst += ch_sgst
+        line_igst += ch_igst
         tax_hdr_line_drift = (
             abs(line_cgst - hdr_cgst)
             + abs(line_sgst - hdr_sgst)
