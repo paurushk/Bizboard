@@ -32,6 +32,10 @@ const goldenApiEnv = {
   FRONTEND_URL: webBase,
   CORS_ALLOWED_ORIGINS: spaOrigins,
   CSRF_TRUSTED_ORIGINS: spaOrigins,
+  // B7-012: sign-up/login now require an OTP; the golden suite has no inbox
+  // to read a real email from, so it needs the plaintext code echoed back in
+  // the API response the same way registerTenant()'s "Dev OTP:" hint expects.
+  OTP_DEBUG_ECHO: '1',
 };
 
 export default defineConfig({

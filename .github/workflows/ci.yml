@@ -281,6 +281,12 @@ jobs:
       CI: "1"
       DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
       DJANGO_SETTINGS_MODULE: config.settings
+      # The "Install backend" migrate step runs under this job-level env (not
+      # playwright.golden.config.ts's goldenApiEnv, which only wraps the
+      # webServer subprocesses) — without DEBUG on here, config.settings'
+      # dedicated-secrets gate demands OTP_PEPPER/GSP_FERNET_KEY this job
+      # never sets. Matches the DJANGO_DEBUG=1 the webServer processes use.
+      DJANGO_DEBUG: "1"
       CELERY_TASK_ALWAYS_EAGER: "1"
       # No broker in this job — force the LocMem cache. `config.settings` otherwise
       # points CACHES at redis://localhost:6379 and `/api/v1/health/` (the golden
@@ -288,6 +294,9 @@ jobs:
       REDIS_URL: ""
       E2E_GOLDEN_API_PORT: "8000"
       E2E_GOLDEN_WEB_PORT: "5173"
+      # B7-012: sign-up/login now require an OTP; golden e2e has no inbox to
+      # read a real email from, so the plaintext code must be echoed back.
+      OTP_DEBUG_ECHO: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

@@ -76,7 +76,10 @@ export async function createProduct(
   const emptyAdd = page.getByRole('button', { name: /Add Products/i });
   // PageTitle is an h1, but empty-state + toolbar both expose an Add* button.
   // Wait for either surface so a heading-role drift cannot stall the suite.
-  await expect(heading.or(toolbarAdd).or(emptyAdd)).toBeVisible({ timeout: 20_000 });
+  // .first(): once a product already exists, heading + toolbar Add are both
+  // visible at once, and toBeVisible() on a multi-element locator throws a
+  // strict-mode violation rather than treating the .or() as "any of these".
+  await expect(heading.or(toolbarAdd).or(emptyAdd).first()).toBeVisible({ timeout: 20_000 });
   if (await toolbarAdd.count()) {
     await toolbarAdd.first().click();
   } else {

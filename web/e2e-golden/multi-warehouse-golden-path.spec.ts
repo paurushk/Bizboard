@@ -73,12 +73,11 @@ test('golden path: sale and purchase against a non-default godown never touch th
   await selectPartyOnDocument(page, supplierName);
   await selectDocumentWarehouse(page, branchName);
   await addInvoiceItem(page, productSku);
-  // The line's quantity field has no accessible label of its own (a bare
-  // NumericField in a table cell) — it's the second <input> in the product's
-  // row: the first is the free-text "Description (optional)" field right
-  // above it (see components/billing/DraftLineTable.tsx).
+  // The row's "Description (optional)" field is a <textarea>, not an
+  // <input>, so it doesn't shift indices — the QTY field has its own
+  // aria-label ("QTY") and is more robust than a positional input index.
   const purchaseRow = page.getByRole('row', { name: new RegExp(productName) });
-  await purchaseRow.locator('input').nth(1).fill('5');
+  await purchaseRow.getByLabel('QTY').fill('5');
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/purchases\/history/);
 

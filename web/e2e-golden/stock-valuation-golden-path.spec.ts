@@ -46,10 +46,10 @@ test('golden path: stock valuation total reflects purchased cost x quantity', as
   await selectPartyOnDocument(page, supplierName);
   await addInvoiceItem(page, productASku);
   const purchaseRowA = page.getByRole('row', { name: new RegExp(productAName) });
-  await purchaseRowA.locator('input').nth(1).fill('3');
+  await purchaseRowA.getByLabel('QTY').fill('3');
   await addInvoiceItem(page, productBSku);
   const purchaseRowB = page.getByRole('row', { name: new RegExp(productBName) });
-  await purchaseRowB.locator('input').nth(1).fill('2');
+  await purchaseRowB.getByLabel('QTY').fill('2');
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/purchases\/history/);
 
