@@ -292,8 +292,15 @@ export async function createWarehouse(page: Page, name: string) {
  * landed on the right warehouse and not just somewhere in the company. */
 export async function readGodownStock(page: Page, warehouseName: string, productName: string): Promise<number> {
   await page.goto('/inventory/stock');
+  // The grouped list is server-side: read the row only after the godown-filtered answer arrives,
+  // or the unfiltered all-godown total is still on screen.
+  const filtered = page
+    .waitForResponse((r) => r.url().includes('/inventory/balances/by-product/') && r.url().includes('warehouse='), { timeout: 20_000 })
+    .catch(() => null);
   await page.getByLabel('Godowns').click();
   await chooseVisibleOption(page, warehouseName);
+  await filtered;
+  await page.waitForLoadState('networkidle');
   // "Show lots" is a button inside the name cell, so the row's accessible
   // name is that button and getByRole({ name: product }) misses the text.
   const row = page.getByRole('row').filter({ hasText: productName });
@@ -409,7 +416,7 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
   const row = page.getByRole('row', { name: rowMatcher }).first();
   await expect(row).toBeVisible({ timeout: 15_000 });
   // Open completed invoices show Unpaid/Paid, not the document word Completed.
-  const settledChip = /^(Completed|Unpaid|Paid)b/;
+  const settledChip = /^(Completed|Unpaid|Paid)\b/;
   const completedNow = await row
     .getByText(settledChip)
     .isVisible()
@@ -430,8 +437,8 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
       // A completed invoice offers payment and the PDF; a draft does not.
       await expect(page.getByRole('button', { name: 'Record Payment' })).toBeVisible({ timeout: 20_000 });
       await page.goto('/sales/history');
-  // Let the session refresh settle: a reload while one is in flight can revoke the token family.
-  await page.waitForLoadState('networkidle');
+      // Let the session refresh settle: a reload while one is in flight can revoke the token family.
+      await page.waitForLoadState('networkidle');
       return;
     }
     // InvoiceDetailPage's "Edit" Button uses component={RouterLink} — an
@@ -441,7 +448,7 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
     await page.getByRole('button', { name: 'Save & Complete' }).click();
     await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
   }
-  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText(/^(Completed|Unpaid|Paid)b/)).toBeVisible({
+  await expect(page.getByRole('row', { name: rowMatcher }).first().getByText(/^(Completed|Unpaid|Paid)\b/)).toBeVisible({
     timeout: 15_000,
   });
 }
@@ -530,6 +537,9 @@ export async function createPaymentLinkAndReadPublicPath(page: Page, invoiceNumb
 }
 
 export async function posCompleteCashSale(page: Page) {
+  // The till must be open before the counter can take cash.
+  const openTill = page.getByRole('button', { name: 'Open till' });
+  if (await openTill.isVisible().catch(() => false)) await openTill.click();
   await page.getByRole('button', { name: /^Cash — ₹/ }).click();
   const done = page.getByText(/Sale complete/i);
   for (let i = 0; i < 6; i += 1) {

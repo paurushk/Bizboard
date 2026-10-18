@@ -108,13 +108,15 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   await page.goto('/accounting/periods');
+  await page.getByText('Add a single period (advanced)').click();
   await page.getByLabel('Name', { exact: true }).fill(`FY-close ${id}`);
   await page.getByLabel('Start', { exact: true }).fill(today);
   await page.getByLabel('End', { exact: true }).fill(today);
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page.getByText(`FY-close ${id}`)).toBeVisible({ timeout: 15_000 });
   await page.getByRole('button', { name: 'Close period', exact: true }).first().click();
-  await expect(page.getByText(/CLOSED/i).first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole('dialog').getByRole('button', { name: 'Close period', exact: true }).click();
+  await expect(page.getByText(/closed/i).first()).toBeVisible({ timeout: 20_000 });
 
   await page.goto('/sales/new');
   await selectPartyOnDocument(page, customerName);

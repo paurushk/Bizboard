@@ -98,6 +98,7 @@ test('lifecycle roles: cashier POS Paid, Owner return, cashier Returned, account
   await signOut(page);
   await loginWithPassword(page, ownerEmail, password);
   await page.goto('/accounting/periods');
+  await page.getByText('Add a single period (advanced)').click();
   await page.getByLabel('Name', { exact: true }).fill(`Roles close ${id}`);
   await page.getByLabel('Start', { exact: true }).fill(today);
   await page.getByLabel('End', { exact: true }).fill(today);
@@ -109,15 +110,15 @@ test('lifecycle roles: cashier POS Paid, Owner return, cashier Returned, account
   await page.goto('/accounting/periods');
   // Close is owner-only, so an accountant never gets a button that could 403.
   const periodRow = page.getByRole('row', { name: new RegExp(`Roles close ${id}`) });
-  await expect(periodRow.getByText('OPEN', { exact: true })).toBeVisible();
+  await expect(periodRow.getByText(/^open$/i).first()).toBeVisible();
   // Only after the table has rendered: a count of 0 on a page that has not loaded proves nothing.
   await expect(page.getByRole('button', { name: 'Close period', exact: true })).toHaveCount(0);
-  await expect(periodRow.getByText('CLOSED', { exact: true })).toHaveCount(0);
+  await expect(periodRow.getByText(/^closed$/i)).toHaveCount(0);
 
   await signOut(page);
   await loginWithPassword(page, ownerEmail, password);
   await page.goto('/accounting/periods');
-  // Dialogs are already accepted by the listener registered at the start of the test.
-  await page.getByRole('button', { name: 'Close period', exact: true }).first().click();
-  await expect(periodRow.getByText('CLOSED', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await periodRow.getByRole('button', { name: 'Close period', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Close period', exact: true }).click();
+  await expect(periodRow.getByText(/^closed$/i).first()).toBeVisible({ timeout: 20_000 });
 });

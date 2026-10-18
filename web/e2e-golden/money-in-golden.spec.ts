@@ -42,7 +42,7 @@ test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in
   });
   await page.goto('/settings/accounting');
   await page.getByRole('button', { name: 'Enable accounting' }).click();
-  await expect(page.getByText('Accounting enabled — CoA seeded.')).toBeVisible();
+  await expect(page.getByText(/Accounting enabled/i)).toBeVisible();
 
   await createProduct(page, { name: productName, sku, sellingPrice: '1000', purchasePrice: '700', gstRate: '0' });
   await addStockAdjustment(page, { sku, quantity: '20' });

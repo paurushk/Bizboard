@@ -27,6 +27,9 @@ test('golden path: complete invoice then share from history row menu', async ({ 
   await addInvoiceItem(page, productSku);
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // Complete opens the finished invoice; the register row is on the list page.
+  await expect(page.getByText(/Unpaid|Paid/).first()).toBeVisible({ timeout: 20_000 });
+  await page.goto('/sales/history');
 
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(invoiceRow).toContainText('Unpaid');

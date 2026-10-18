@@ -42,6 +42,9 @@ test('glossary: POS Paid ≠ invoice Completed ≠ Returned on the same tenant',
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
+  // Complete opens the finished invoice; the register row is on the list page.
+  await expect(page.getByText(/Unpaid|Paid/).first()).toBeVisible({ timeout: 20_000 });
+  await page.goto('/sales/history');
   const completedRow = page.getByRole('row', { name: new RegExp(customerName) });
   await expect(completedRow).toContainText('Unpaid');
   const textCells = await completedRow.locator('td').allTextContents();

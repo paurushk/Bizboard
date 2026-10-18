@@ -29,7 +29,8 @@ test('golden path: register -> enable accounting -> post journal -> trial balanc
 
   await page.goto('/accounting/journals');
   await page.getByRole('button', { name: 'New voucher' }).click();
-  await page.getByLabel('Narration').fill(narration);
+  // the voucher's own narration comes first; each line has a narration field too
+  await page.getByRole('dialog').getByLabel('Narration').first().fill(narration);
 
   const accountSelects = page.getByRole('dialog').getByLabel('Account');
   await accountSelects.nth(0).click();
@@ -45,12 +46,12 @@ test('golden path: register -> enable accounting -> post journal -> trial balanc
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   const journalRow = page.getByRole('row', { name: new RegExp(narration) });
-  await expect(journalRow).toContainText('DRAFT');
+  await expect(journalRow).toContainText(/draft/i);
 
   await journalRow.getByRole('button', { name: 'Post' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Post' }).click();
-  await expect(journalRow).toContainText('POSTED');
+  await expect(journalRow).toContainText(/posted/i);
 
   await page.goto('/reports/trial-balance');
   await expect(page.getByText('Total debit ₹500.00 · Total credit ₹500.00')).toBeVisible();

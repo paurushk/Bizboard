@@ -199,16 +199,17 @@ test.describe('Complete-gate goldens (live Django)', () => {
     const end = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(endDay).padStart(2, '0')}`;
 
     await page.goto('/accounting/periods');
-    await page.getByLabel(/period name|^name$/i).fill(`CG11 ${id}`);
-    await page.getByLabel(/start/i).fill(start);
-    await page.getByLabel(/end/i).first().fill(end);
-    await page.getByRole('button', { name: /^Create$/i }).click();
-    await expect(page.getByText(`CG11 ${id}`).first()).toBeVisible({ timeout: 15_000 });
-    page.once('dialog', async (dialog) => {
-      await dialog.accept();
-    });
-    await page.getByRole('button', { name: /close period/i }).click();
-    await expect(page.getByText(/CLOSED/i).first()).toBeVisible({ timeout: 15_000 });
+    // One period is added by hand under the advanced accordion, then closed from its row.
+    await page.getByText('Add a single period (advanced)').click();
+    await page.getByLabel('Name', { exact: true }).fill(`CG11 ${id}`);
+    await page.getByLabel('Start', { exact: true }).fill(start);
+    await page.getByLabel('End', { exact: true }).fill(end);
+    await page.getByRole('button', { name: 'Create', exact: true }).click();
+    const periodRow = page.getByRole('row', { name: new RegExp(`CG11 ${id}`) });
+    await expect(periodRow).toBeVisible({ timeout: 15_000 });
+    await periodRow.getByRole('button', { name: 'Close period' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Close period' }).click();
+    await expect(periodRow.getByText(/closed/i).first()).toBeVisible({ timeout: 15_000 });
 
     await page.goto('/sales/new');
     await selectPartyOnDocument(page, customerName);

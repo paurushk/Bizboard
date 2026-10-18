@@ -50,5 +50,8 @@ test('CG-02 / B14: Regular empty GSTIN blocks GST Complete until GSTIN is saved'
   await expect(page.getByRole('button', { name: 'Save & Complete' })).toBeEnabled();
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // Complete opens the finished invoice; the register row is on the list page.
+  await expect(page.getByText(/Unpaid|Paid/).first()).toBeVisible({ timeout: 20_000 });
+  await page.goto('/sales/history');
   await expect(page.getByRole('row', { name: new RegExp(customerName) })).toContainText('Unpaid');
 });

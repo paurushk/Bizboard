@@ -49,6 +49,9 @@ test('golden path: register -> invoice -> complete -> pay -> pdf', async ({ page
 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
+  // Complete opens the finished invoice; the register row is on the list page.
+  await expect(page.getByText('Unpaid').first()).toBeVisible({ timeout: 20_000 });
+  await page.goto('/sales/history');
   const invoiceRow = page.getByRole('row', { name: new RegExp(customerName) });
   // An open completed invoice shows the payment chip, not the document word Completed.
   await expect(invoiceRow).toContainText('Unpaid');

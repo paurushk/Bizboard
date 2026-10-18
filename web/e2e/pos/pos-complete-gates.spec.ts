@@ -37,10 +37,11 @@ test.describe('POS — complete/pay gates', () => {
 
     const cash = cashPay(page);
     await expect(cash).toBeDisabled();
-    await expect(page.getByPlaceholder('Batch number', { exact: true })).toBeVisible();
-
-    await page.getByPlaceholder('Batch number', { exact: true }).fill('LOT-POS');
-    await expect(cash).toBeEnabled();
+    // The cashier picks a lot that has stock in this godown (no free-typed lot). With no stocked lot
+    // in the demo data the picker says so, and pay stays off.
+    await expect(page.getByText('Select batch')).toBeVisible();
+    await expect(page.getByText('No batch with stock in this godown')).toBeVisible();
+    await expect(cash).toBeDisabled();
   });
 
   test('CG-30: serial-tracked POS item requires serials before it can be paid', async ({ page }) => {

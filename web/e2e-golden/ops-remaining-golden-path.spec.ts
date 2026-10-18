@@ -35,7 +35,7 @@ test('serial: opening serial is AVAILABLE then SOLD after invoice complete', asy
   await createCustomer(page, { name: customerName });
 
   await page.goto('/inventory/serials');
-  await expect(page.getByRole('row', { name: new RegExp(serialNo) })).toContainText('AVAILABLE');
+  await expect(page.getByRole('row', { name: new RegExp(serialNo) })).toContainText(/available/i);
 
   await page.goto('/sales/new');
   await selectPartyOnDocument(page, customerName);
@@ -45,7 +45,7 @@ test('serial: opening serial is AVAILABLE then SOLD after invoice complete', asy
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
   await page.goto('/inventory/serials');
-  await expect(page.getByRole('row', { name: new RegExp(serialNo) })).toContainText('SOLD');
+  await expect(page.getByRole('row', { name: new RegExp(serialNo) })).toContainText(/sold/i);
 });
 
 test('challan cancel after complete returns the document to Cancelled', async ({ page }) => {

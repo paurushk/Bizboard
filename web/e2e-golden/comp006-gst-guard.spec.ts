@@ -80,7 +80,7 @@ test('COMP-006: a malformed buyer GSTIN surfaces as a named Attention row', asyn
   expect(productId, 'could not find the just-created product id').toBeTruthy();
 
   const csrf = await getCsrfToken(page);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = new Date().toLocaleDateString('en-CA'); // local calendar day, as the server's business date is
   const createRes = await page.request.post('/api/v1/sales/invoices/', {
     headers: { 'X-CSRFToken': csrf },
     data: {

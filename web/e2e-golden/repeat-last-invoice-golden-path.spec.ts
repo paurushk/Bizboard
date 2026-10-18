@@ -73,12 +73,12 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   expect(originalInvoiceNumber).toMatch(/^INV-/);
 
   // 3. Navigate to the customer's 360 page via the real UI entry point (the
-  // "Customer 360" link on the customers list — a RouterLink-backed Button,
+  // customer name link on the customers list — a RouterLink,
   // whose implicit ARIA role is "link", not "button").
   await page.goto('/sales/customers');
   await page
     .getByRole('row', { name: new RegExp(customerName) })
-    .getByRole('link', { name: /Customer (360|Snapshot)/i })
+    .getByRole('link', { name: new RegExp(customerName) })
     .click();
   await expect(page).toHaveURL(/\/sales\/customers\/\d+$/);
 
@@ -102,7 +102,9 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   // The draft editor already lives under /sales/history/:id/edit, so a bare
   // /sales/history match would pass while Save is still running.
-  await expect(page).toHaveURL(/\/sales\/history\/?(?:\?.*)?$/, { timeout: 30_000 });
+  // Completing opens the finished invoice (no /edit); the register rows are on the list.
+  await expect(page).toHaveURL(/\/sales\/history\/\d+$/, { timeout: 30_000 });
+  await page.goto('/sales/history');
   let newInvoiceRow = page.getByRole('row', { name: new RegExp(customerName) }).filter({ hasText: '₹500.00' });
   await expect(newInvoiceRow).toBeVisible({ timeout: 15_000 });
   // Same transient SQLite "database is locked" retry as
@@ -152,7 +154,7 @@ test('golden path: repeat last invoice copies lines into a new editable draft, o
   await page.goto('/sales/customers');
   await page
     .getByRole('row', { name: new RegExp(emptyCustomerName) })
-    .getByRole('link', { name: /Customer (360|Snapshot)/i })
+    .getByRole('link', { name: new RegExp(emptyCustomerName) })
     .click();
   await expect(page).toHaveURL(/\/sales\/customers\/\d+$/);
   const noInvoicesUrl = page.url();

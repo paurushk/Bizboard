@@ -93,7 +93,7 @@ test('promise-to-pay: created via API (no UI exists yet), surfaces on the Attent
   // Create the promise-to-pay for TODAY — the only way one can be created
   // right now, since no UI exists (see the file-header finding above).
   const csrf = await getCsrfToken(page);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = new Date().toLocaleDateString('en-CA'); // local calendar day, as the server's business date is
   const note = `Promised over phone call, ${id}`;
   const createRes = await page.request.post('/api/v1/payments/promises/', {
     headers: { 'X-CSRFToken': csrf },

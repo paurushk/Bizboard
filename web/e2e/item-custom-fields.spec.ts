@@ -76,7 +76,8 @@ test.describe('Item custom fields v1', () => {
     await loginAsOwner(page);
     await page.goto('/pos');
     await expect(page.getByRole('heading', { name: /point of sale/i })).toBeVisible({ timeout: 15_000 });
-    await page.getByRole('button', { name: /filters/i }).click();
+    await page.getByRole('button', { name: /item filters/i }).click();
+    await page.getByRole('button', { name: /^filters/i }).click();
     await page.getByRole('combobox', { name: /brand form/i }).click();
     await page.getByRole('option', { name: 'Strip' }).click();
     await page.keyboard.press('Escape');
