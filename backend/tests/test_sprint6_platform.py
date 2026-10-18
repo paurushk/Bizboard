@@ -78,7 +78,9 @@ def test_bb_000630_phasepages_split_started():
     lines = phase.read_text(encoding="utf-8").count("\n") + 1
     assert lines < 80, f"PhasePages.tsx still a godfile ({lines} lines)"
     text = reports.read_text(encoding="utf-8")
-    assert "export function ChartOfAccountsPage" in text
+    # The chart of accounts now lives on its own page (accounting screens work).
+    chart = REPO / "web" / "src" / "pages" / "accounting" / "ChartOfAccountsPage.tsx"
+    assert "export function ChartOfAccountsPage" in chart.read_text(encoding="utf-8")
     assert "export const TrialBalancePage" in text
 
 

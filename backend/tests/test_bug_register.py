@@ -295,9 +295,14 @@ def test_bug_pur_013_convert_locks_the_grn_row():
 def test_bug_acc_013_bank_match_locks_both_rows():
     from accounting.views import BankReconSessionViewSet
 
-    source = inspect.getsource(BankReconSessionViewSet.match)
+    from accounting import bank_match
+
+    # The view delegates; the row locks live in bank_match.match_gl (both the journal line and the statement line).
+    source = inspect.getsource(bank_match.match_gl)
     assert source.count("select_for_update") >= 2
-    assert "transaction.atomic" in source or getattr(BankReconSessionViewSet.match, "__wrapped__", None)
+    view_source = inspect.getsource(BankReconSessionViewSet.match)
+    assert "match_gl" in view_source
+    assert "transaction.atomic" in source or "transaction.atomic" in view_source or getattr(BankReconSessionViewSet.match, "__wrapped__", None)
 
 
 def test_bug_bil_003_subscription_status_locks_the_row():

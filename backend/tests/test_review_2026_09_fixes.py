@@ -213,7 +213,7 @@ def test_cr003_pos_partial_payment_still_allowed(tenant_a):
 # (flushPosCheckout.ts probes status then rotates `<key>-complete`).           #
 # --------------------------------------------------------------------------- #
 
-def test_cr004_deterministic_4xx_on_complete_is_stored_and_needs_a_fresh_key(tenant_a):
+def test_cr004_insufficient_stock_on_complete_is_not_stored_and_the_same_key_retries(tenant_a):
     company = tenant_a.company
     assert company.negative_stock_policy == "BLOCK"
 
@@ -243,17 +243,12 @@ def test_cr004_deterministic_4xx_on_complete_is_stored_and_needs_a_fresh_key(ten
         unit_cost=Decimal("80"), reason="restock", user=tenant_a.owner,
     )
 
-    # W0-05: the stale key replays the stored 400 even though stock is now available.
+    # INV-IDR-01: "insufficient stock" is retryable, so it is NOT stored against the key. After the
+    # restock the very same key re-executes and succeeds (the stored-4xx contract is W0-05 in
+    # test_remaining_gates.py).
     r2 = tenant_a.client.post(
         f"/api/v1/sales/invoices/{inv['id']}/complete/",
         HTTP_IDEMPOTENCY_KEY=stale_key,
     )
-    assert r2.status_code == 400
-
-    # A fresh key re-executes and succeeds — this is the required retry contract.
-    r3 = tenant_a.client.post(
-        f"/api/v1/sales/invoices/{inv['id']}/complete/",
-        HTTP_IDEMPOTENCY_KEY="cr004-complete-key-rotated",
-    )
-    assert r3.status_code == 200, r3.data
-    assert r3.data["status"] == "COMPLETED"
+    assert r2.status_code == 200, r2.data
+    assert r2.data["status"] == "COMPLETED"

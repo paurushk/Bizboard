@@ -188,7 +188,7 @@ def test_bug_pur_004(tenant_a):
 
     stale = BillOfEntry.objects.create(
         company=tenant_a.company, supplier=foreign, boe_number="BOE-PUR004-STALE",
-        boe_date=timezone.localdate(), igst_amount=Decimal("18.00"),
+        boe_date=timezone.localdate(), assessable_value=Decimal("100.00"), igst_amount=Decimal("18.00"),
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
     assert tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{stale.id}/complete/").status_code == 200
@@ -197,7 +197,7 @@ def test_bug_pur_004(tenant_a):
 
     this_boe = BillOfEntry.objects.create(
         company=tenant_a.company, supplier=foreign, boe_number="BOE-PUR004-THIS",
-        boe_date=timezone.localdate(), igst_amount=Decimal("18.00"),
+        boe_date=timezone.localdate(), assessable_value=Decimal("100.00"), igst_amount=Decimal("18.00"),
         created_by=tenant_a.owner, updated_by=tenant_a.owner,
     )
     assert tenant_a.client.post(f"/api/v1/purchases/bills-of-entry/{this_boe.id}/complete/").status_code == 200

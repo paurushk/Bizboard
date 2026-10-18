@@ -256,11 +256,18 @@ def _contains_id(payload, pk):
 def _call(client, method, url):
     """Issue one request inside a savepoint so a DB error in one probe (which marks the
     test transaction for rollback) cannot poison every probe after it."""
+    # A probe against an unscoped route can fail deep inside the request and leave the test
+    # transaction flagged broken without unwinding to this level; the SQL transaction is still
+    # sound, so clear the flag or no later probe could open its savepoint.
+    transaction.get_connection().needs_rollback = False
     sid = transaction.savepoint()
     try:
         resp = getattr(client, method)(url, {}, format="json") if method != "get" else client.get(url)
     except Exception:
         transaction.savepoint_rollback(sid)
+        # the failed probe marked the test transaction broken; the savepoint rollback undid it,
+        # so clear the flag or the next probe cannot even open its own savepoint
+        transaction.get_connection().needs_rollback = False
         raise
     conn = transaction.get_connection()
     if conn.needs_rollback:
