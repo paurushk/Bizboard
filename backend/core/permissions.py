@@ -185,6 +185,26 @@ class CanExport(BasePermission):
         return cu is not None and (cu.role == "OWNER" or cu.can_export)
 
 
+class CanViewTaxWorksheets(BasePermission):
+    """TDS / TCS worksheets: the owner, or an accountant who may read financial reports."""
+
+    message = "Owner or accountant role required."
+
+    def has_permission(self, request, view):
+        cu = get_company_user(request)
+        if cu is None:
+            return False
+        if cu.role == "OWNER":
+            return True
+        return cu.role == "ACCOUNTANT" and bool(cu.can_view_financial_reports)
+
+
+class CanViewMargins(CanViewTaxWorksheets):
+    """Cost of goods and gross margin: the owner, or an accountant who may read financial reports."""
+
+    message = "Owner or accountant role required to see margins."
+
+
 class CanManagePolicies(BasePermission):
     """Policy desk writes. Owner does not receive this from the owner role."""
 

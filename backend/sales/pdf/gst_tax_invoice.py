@@ -22,6 +22,7 @@ from reportlab.platypus import (
 
 from ledgers.services import LedgerService
 from payments.models import PaymentAllocation
+from sales.statutory_snapshot import licences_to_print
 
 from .helpers import (
     amount_in_words,
@@ -104,6 +105,31 @@ def _party_block(styles, title: str, name: str, address: str, gstin: str, phone:
 
 def _copy_label(copy: str) -> str:
     return _COPY_LABELS.get((copy or "ORIGINAL").upper(), _COPY_LABELS["ORIGINAL"])
+
+
+class _Bank:
+    """Bank and UPI values for one invoice (see payments.services.invoice_bank_details)."""
+
+    def __init__(self, details: dict):
+        self.bank_name = details["bank_name"]
+        self.account_number = details["account_number"]
+        self.ifsc = details["ifsc"]
+        self.upi_id = details["upi_id"]
+
+
+def _bank(company) -> _Bank:
+    from payments.services import invoice_bank_details
+
+    return _Bank(invoice_bank_details(company))
+
+
+def _licence_type_label(licence_type: str) -> str:
+    from accounts.models import CompanyStatutoryLicence
+
+    try:
+        return CompanyStatutoryLicence.LicenceType(licence_type).label
+    except ValueError:
+        return licence_type
 
 
 def _is_bill_of_supply(invoice, items) -> bool:
@@ -208,11 +234,13 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         seller_bits.append(Paragraph(f"GSTIN: {pdf_esc(seller_gstin)}", styles["meta"]))
     # D15 / QOS-0027: ARCH-05 statutory licences — printed only when the
     # company has active ones on file; every other archetype sees no change.
+    # SET-03: the set frozen when the invoice completed, never the live table, and never a
+    # licence that had expired by the invoice date.
     licence_labels = {"DRUG_20B": "Drug Lic. (20B)", "DRUG_21B": "Drug Lic. (21B)", "FSSAI": "FSSAI Lic. No."}
-    for licence in company.statutory_licences.filter(is_active=True).order_by("licence_type"):
-        label = licence_labels.get(licence.licence_type, licence.get_licence_type_display())
+    for licence in licences_to_print(invoice):
+        label = licence_labels.get(licence["type"]) or _licence_type_label(licence["type"])
         seller_bits.append(
-            Paragraph(f"{label}: {pdf_esc(licence.licence_number)}", styles["meta"])
+            Paragraph(f"{label}: {pdf_esc(licence['number'])}", styles["meta"])
         )
     if company.phone:
         seller_bits.append(Paragraph(f"Mobile: {company.phone}", styles["meta"]))
@@ -429,6 +457,7 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
                 left_flow.append(Paragraph(irn_text, styles["meta"]))
         except Exception:
             left_flow.append(Paragraph("<b>e-Invoice QR unavailable</b>", styles["meta"]))
+    bank = _bank(company)
     include_qr = getattr(invoice, "include_payment_qr", True)
     if include_qr and not show_einvoice_qr:
         # Amount-lock QR to outstanding when partially paid (Phase 3 gap).
@@ -445,7 +474,7 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
         if qr_amount is None or qr_amount < 0:
             qr_amount = invoice.grand_total
         qr_png = build_upi_qr_png(
-            company.upi_id,
+            bank.upi_id,
             amount=qr_amount if qr_amount > 0 else invoice.grand_total,
             note=f"Invoice {invoice.number or invoice.pk}",
         )
@@ -453,24 +482,19 @@ def render_gst_tax_invoice(invoice, *, copy: str = "ORIGINAL") -> bytes:
             qr_img = Image(io.BytesIO(qr_png), width=28 * mm, height=28 * mm)
             left_flow.append(qr_img)
             left_flow.append(Spacer(1, 1 * mm))
-            left_flow.append(Paragraph(f"<b>UPI ID:</b> {company.upi_id}", styles["meta"]))
-        elif company.upi_id:
-            left_flow.append(Paragraph(f"<b>UPI ID:</b> {company.upi_id}", styles["meta"]))
+            left_flow.append(Paragraph(f"<b>UPI ID:</b> {bank.upi_id}", styles["meta"]))
+        elif bank.upi_id:
+            left_flow.append(Paragraph(f"<b>UPI ID:</b> {bank.upi_id}", styles["meta"]))
 
-    if getattr(invoice, "include_bank_details", False) and (
-        company.bank_name or company.bank_account
-    ):
+    if getattr(invoice, "include_bank_details", False) and (bank.bank_name or bank.account_number):
         left_flow.append(Spacer(1, 2 * mm))
         left_flow.append(Paragraph("<b>Bank Details</b>", styles["section_head"]))
-        if company.bank_name:
-            left_flow.append(Paragraph(company.bank_name, styles["meta"]))
-        from planwave.crypto import reveal_bank_account
-
-        plain_account = reveal_bank_account(company.bank_account or "")
-        if plain_account:
-            left_flow.append(Paragraph(f"A/C: {plain_account}", styles["meta"]))
-        if company.bank_ifsc:
-            left_flow.append(Paragraph(f"IFSC: {company.bank_ifsc}", styles["meta"]))
+        if bank.bank_name:
+            left_flow.append(Paragraph(bank.bank_name, styles["meta"]))
+        if bank.account_number:
+            left_flow.append(Paragraph(f"A/C: {bank.account_number}", styles["meta"]))
+        if bank.ifsc:
+            left_flow.append(Paragraph(f"IFSC: {bank.ifsc}", styles["meta"]))
 
     include_terms = getattr(invoice, "include_terms", True)
     if include_terms:

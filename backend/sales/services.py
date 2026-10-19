@@ -760,6 +760,15 @@ class SalesService:
             raise BusinessRuleError("Cancelled/returned invoice cannot be line-edited.")
         if invoice.status not in (SalesInvoice.Status.DRAFT, SalesInvoice.Status.COMPLETED):
             raise BusinessRuleError(f"Cannot edit invoice in status {invoice.status}.")
+        if invoice.status == SalesInvoice.Status.DRAFT and invoice.pk and (
+            invoice.job_cards.exists() or invoice.project_milestones.exists()
+        ):
+            # The job card or project milestone owns these lines; editing them here would let the
+            # two drift apart. The link is made after the lines are first written, so creation is safe.
+            raise BusinessRuleError(
+                "This draft was created from a job card or project milestone. Change it there "
+                "(revert the job to editing, or edit the milestone) and create the draft again."
+            )
         if invoice.status == SalesInvoice.Status.COMPLETED:
             from .irn_guard import assert_no_live_eway, assert_no_live_irn
 
@@ -1097,7 +1106,7 @@ class SalesService:
         tax_enabled = _tax_enabled(invoice.invoice_type)
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
         assert_statutory_licence_present(
-            invoice.company, items, confirm_missing_licence=confirm_missing_licence
+            invoice.company, items, confirm_missing_licence=confirm_missing_licence, invoice=invoice
         )
 
         # BB-000264: opening bypass only via internal flag, never user-writable notes magic.
@@ -1514,6 +1523,10 @@ class SalesService:
                 )
         invoice.status = SalesInvoice.Status.COMPLETED
         invoice.completed_at = timezone.now()
+        # SET-03: freeze the licences this invoice prints, so a later edit or expiry never rewrites it.
+        from .statutory_snapshot import capture_snapshot
+
+        capture_snapshot(invoice)
         from projects.services import sync_project_milestone
 
         sync_project_milestone(invoice, completed=True)

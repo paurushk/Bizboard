@@ -12,6 +12,20 @@ class ImportJobSerializer(serializers.ModelSerializer):
     errors_truncated = serializers.SerializerMethodField()
     file_name = serializers.SerializerMethodField()
     file_type = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField(help_text="Who uploaded it.")
+    can_undo = serializers.SerializerMethodField(
+        help_text="Product and opening-stock imports can be undone while their stock is unused; "
+        "bills while still a draft. Customer and supplier imports cannot be undone."
+    )
+
+    def get_created_by_name(self, obj) -> str:
+        user = getattr(obj, "created_by", None)
+        return (getattr(user, "full_name", "") or getattr(user, "email", "")) if user else ""
+
+    def get_can_undo(self, obj) -> bool:
+        return obj.status == ImportJob.Status.COMMITTED and (
+            obj.kind in (ImportJob.Kind.PRODUCTS, ImportJob.Kind.OPENING_STOCK) or obj.kind in ImportJob.BILL_KINDS
+        )
 
     class Meta:
         model = ImportJob
@@ -21,10 +35,10 @@ class ImportJobSerializer(serializers.ModelSerializer):
             "column_mappings", "voided_rows", "clarifications", "committed_at",
             "created_at", "supplier", "customer", "purchase_invoice",
             "sales_invoice", "bill_template", "failure_reason",
-            "file_name", "file_type", "extraction_heartbeat_at",
+            "file_name", "file_type", "extraction_heartbeat_at", "created_by_name", "can_undo",
         ]
         read_only_fields = [
-            "file_name", "file_type", "extraction_heartbeat_at",
+            "file_name", "file_type", "extraction_heartbeat_at", "created_by_name", "can_undo",
             "file", "status", "total_rows", "valid_rows", "error_rows",
             "preview", "errors", "preview_truncated", "errors_truncated",
             "column_mappings", "voided_rows", "clarifications", "committed_at",

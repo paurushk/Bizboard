@@ -2,6 +2,7 @@ from django.urls import path
 
 from .shopify import ShopifyWebhookView
 from .views import (
+    TallyRunsView,
     ShopifyConnectionView,
     ShopifyPendingApplyView,
     TallyCommitView,
@@ -21,6 +22,7 @@ urlpatterns = [
     path("tally/export/", TallyExportView.as_view(), name="tally-export"),
     path("tally/push-http/", TallyHttpPushView.as_view(), name="tally-push-http"),
     path("tally/migrate-diff/", TallyMigrationDiffView.as_view(), name="tally-migrate-diff"),
+    path("tally/runs/", TallyRunsView.as_view(), name="tally-runs"),
     path("tally/runs/<int:pk>/errors/", TallyErrorsView.as_view(), name="tally-errors"),
     path("whatsapp/connection/", WhatsAppConnectionView.as_view(), name="whatsapp-connection"),
     path("shopify/connection/", ShopifyConnectionView.as_view(), name="shopify-connection"),

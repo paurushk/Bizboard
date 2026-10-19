@@ -12,7 +12,7 @@ from rest_framework.throttling import AnonRateThrottle
 from core.exceptions import BusinessRuleError
 
 from .models import PaymentLink, PaymentLinkStatus
-from .services import PaymentService
+from .services import PaymentService, invoice_bank_details
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def public_payment_link(request, token: str):
         customer_name = getattr(link.customer, "name", "") or ""
 
     upi = upi_qr_fields(
-        upi_id=company.upi_id,
+        upi_id=invoice_bank_details(company)["upi_id"],
         amount=amount,
         note=invoice_number or (link.token[:12] if link.token else ""),
         payee_name=company.legal_name or company.name,

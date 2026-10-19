@@ -10,9 +10,10 @@ def derive_onboarding(company) -> dict:
 
     tax_done = company.tax_profile_confirmed_at is not None
     shop_done = bool((company.address or "").strip())
-    payments_done = bool(
-        (company.bank_account or "").strip() or (company.upi_id or "").strip()
-    )
+    from payments.services import invoice_bank_details
+
+    bank = invoice_bank_details(company)
+    payments_done = bool((bank["account_number"] or "").strip() or (bank["upi_id"] or "").strip())
     catalog_done = Product.objects.filter(company=company).exists()
     activation_done = SalesInvoice.objects.filter(
         company=company,

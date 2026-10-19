@@ -25,6 +25,7 @@ from core.permissions import (
     IsOwner,
     get_company_user,
 )
+from core.settings_writes import SettingsWriteMixin
 from core.services.gstin_verify import apply_verification, get_gstin_provider
 from core.throttles import CompanyRateThrottle, UserScopeRateThrottle
 from core.viewsets import CompanyScopedViewSet
@@ -113,7 +114,9 @@ class BrandViewSet(CompanyScopedViewSet):
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
 
 
-class UnitViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
+class UnitViewSet(SettingsWriteMixin, _CachedMastersListMixin, CompanyScopedViewSet):
+    idempotent_scope = "unit_create"
+    audit_changes = True
     queryset = Unit.objects.all()
     serializer_class = UnitSerializer
     list_cache_kind = "units"
@@ -123,6 +126,29 @@ class UnitViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             return [IsAuthenticated(), HasCompany(), IsOwner()]
         # BB-000422: VIEWER must not browse product catalog / prices.
         return [IsAuthenticated(), HasCompany(), CanViewMastersCatalog()]
+
+    @action(detail=False, methods=["get"], url_path="usage")
+    def usage(self, request):
+        """How many live items use each unit. Not cached: the units list is, and would go stale."""
+        from django.db.models import Count
+
+        counts = (
+            Product.objects.filter(company=self.company, unit__isnull=False)
+            .values("unit_id")
+            .annotate(n=Count("id"))
+        )
+        return Response({str(row["unit_id"]): row["n"] for row in counts})
+
+    def destroy(self, request, *args, **kwargs):
+        """A unit that items use is not deleted: deleting it would silently blank their unit."""
+        unit = self.get_object()
+        used = Product.objects.filter(company=self.company, unit=unit).count()
+        if used:
+            raise BusinessRuleError(
+                f"{used} item(s) use the unit '{unit.name}'. Change those items first, then delete it.",
+                code="UNIT_IN_USE",
+            )
+        return super().destroy(request, *args, **kwargs)
 
     def list(self, request, *args, **kwargs):
         key = f"masters:units:{self.company.pk}"
@@ -1127,6 +1153,11 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
                 raise ValidationError({"gst_rate": "Enter a number."}) from None
         if name := (params.get("name_exact") or "").strip():
             qs = qs.filter(name__iexact=name)
+        # Job cards pick parts (GOODS) and labour (SERVICE) from separate lists.
+        if product_type := (params.get("product_type") or "").strip().upper():
+            if product_type not in ("GOODS", "SERVICE"):
+                raise ValidationError({"product_type": "Use GOODS or SERVICE."})
+            qs = qs.filter(product_type=product_type)
         stock_status = (params.get("stock_status") or "").strip().lower()
         if stock_status:
             if stock_status not in ("in", "low", "out"):
@@ -1259,6 +1290,16 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
         cache.set(cache_key, data, _MASTERS_LIST_TTL)
         return Response(data)
 
+    @action(detail=False, methods=["get"], url_path="custom-field-usage")
+    def custom_field_usage(self, request):
+        """Items holding a value for each custom field key, so removing a field can say what it hides."""
+        from masters.custom_fields import usage_counts
+
+        from masters.custom_fields import defs_for_company
+
+        keys = [row["key"] for row in defs_for_company(self.company)]
+        return Response(usage_counts(self.company, keys))
+
     @action(detail=False, methods=["get"], url_path="missing-barcode")
     def missing_barcode(self, request):
         """Active items that have no barcode: how many, and a page of them (INV-IDR-11)."""
@@ -1335,11 +1376,35 @@ class ProductViewSet(_CachedMastersListMixin, CompanyScopedViewSet):
             )
 
 
-class PriceListViewSet(CompanyScopedViewSet):
+class PriceListViewSet(SettingsWriteMixin, CompanyScopedViewSet):
+    idempotent_scope = "price_list_create"
+    audit_changes = True
     queryset = PriceList.objects.prefetch_related("items__product")
     serializer_class = PriceListSerializer
 
+    def get_queryset(self):
+        from django.db.models import Count, Q
+
+        return super().get_queryset().annotate(
+            customer_count_annot=Count("customers", filter=Q(customers__is_deleted=False), distinct=True)
+        )
+
+    @action(detail=True, methods=["get"], url_path="customers")
+    def assigned_customers(self, request, pk=None):
+        """Who is on this list, so a warning can name them (first 50)."""
+        price_list = self.get_object()
+        rows = price_list.customers.filter(is_deleted=False).order_by("name").values("id", "name")[:50]
+        return Response(list(rows))
+
     def perform_destroy(self, instance):
+        in_use = instance.customers.filter(is_deleted=False).count()
+        confirmed = str(self.request.query_params.get("confirm_customers") or self.request.data.get("confirm_customers") or "").lower() in ("1", "true", "yes")
+        if in_use and not confirmed:
+            raise BusinessRuleError(
+                f"{in_use} customer(s) use this price list. Deleting it charges them the normal selling price. Confirm to delete it.",
+                code="PRICE_LIST_IN_USE",
+                extra={"customer_count": in_use},
+            )
         _soft_destroy(instance, self.request.user)
         # a soft delete is still a delete: it must leave the same audit row a hard one did
         self._audit_raw("DELETE", str(instance.pk))

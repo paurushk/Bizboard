@@ -490,6 +490,8 @@ def balance_sheet(company, as_of=None, cost_center=None):
     # B1-011: `_balances` with as_of=None is all-time, but current_earnings is
     # P&L capped at fy_to — equation_holds then compares mismatched horizons.
     # Pin both to the same cut-off.
+    # RPT-01: tell the caller when the cut-off was filled in here, so a screen can say so.
+    as_of_defaulted = as_of is None
     if as_of is None:
         as_of = fy_to
     rows = _balances(company, as_of=as_of, cost_center=cost_center, exclude_fy_close_after=fy_from)
@@ -527,6 +529,7 @@ def balance_sheet(company, as_of=None, cost_center=None):
         inventory_source = "valuation_engine"
     return {
         "as_of": as_of,
+        "as_of_defaulted": as_of_defaulted,
         "cost_center": cost_center,
         "assets": assets,
         "liabilities": liabilities,

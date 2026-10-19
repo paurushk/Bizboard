@@ -61,7 +61,14 @@ def assert_slab_payloads(items) -> None:
 
 def _matching_slab(*, price_list_id, product, quantity: Decimal | None):
     items = list(
-        PriceListItem.objects.filter(price_list_id=price_list_id, product=product)
+        PriceListItem.objects.filter(
+            price_list_id=price_list_id,
+            product=product,
+            # SET-09: "Active" used to be cosmetic here; a switched-off or deleted list still priced
+            # every customer assigned to it.
+            price_list__is_active=True,
+            price_list__is_deleted=False,
+        )
         .select_related("price_list")
         .order_by("-min_qty")
     )

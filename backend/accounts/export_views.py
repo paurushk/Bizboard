@@ -58,7 +58,11 @@ class TenantExportView(APIView):
                 entity_type="Company",
                 entity_id=company.pk,
                 description="Owner downloaded encrypted tenant export.",
-                metadata={"bytes": len(blob), "version": payload.get("version")},
+                metadata={
+                    "bytes": len(blob),
+                    "version": payload.get("version"),
+                    "summary": summarise_export(payload),
+                },
             )
             filename = f"bizboard-tenant-{company.pk}-{timezone.now().strftime('%Y%m%dT%H%M%SZ')}.bin"
             response = HttpResponse(blob, content_type="application/octet-stream")
@@ -67,6 +71,70 @@ class TenantExportView(APIView):
         except Exception:
             cache.delete(cache_key)
             raise
+
+
+def summarise_export(payload: dict) -> dict:
+    """What an export actually holds, counted from the export itself (SET-08).
+
+    Stored with the audit entry so the screen can say what the last backup contained, rather than
+    describing a backup in general terms.
+    """
+    sections = {k: len(v) for k, v in payload.items() if isinstance(v, list) and k != "file_asset_warnings"}
+    files = payload.get("file_assets") or []
+    return {
+        "sections": len([n for n in sections.values() if n]),
+        "records": sum(sections.values()) - len(files),
+        "customers": sections.get("customers", 0),
+        "suppliers": sections.get("suppliers", 0),
+        "products": sections.get("products", 0),
+        "sales_invoices": sections.get("sales_invoices", 0),
+        "purchase_invoices": sections.get("purchase_invoices", 0),
+        "receipts": sections.get("receipts", 0),
+        "journals": sections.get("journals", 0),
+        "files_with_bytes": sum(1 for f in files if f.get("bytes_b64")),
+        "files_listed_only": sum(1 for f in files if not f.get("bytes_b64")),
+        "file_warnings": len(payload.get("file_asset_warnings") or []),
+    }
+
+
+class TenantExportLastView(APIView):
+    """GET /company/export/last/: when the last encrypted backup was taken, by whom, and what it held.
+
+    Read from the audit trail, so it reflects downloads that really happened. `null` means none yet.
+    Also says what the Restore button can and cannot do on this server.
+    """
+
+    permission_classes = [IsAuthenticated, IsOwner]
+
+    def get(self, request):
+        from django.conf import settings
+
+        from core.models import AuditEvent
+
+        company = get_company_user(request).company
+        event = (
+            AuditEvent.objects.filter(company=company, action="tenant.export")
+            .select_related("user")
+            .order_by("-created_at", "-id")
+            .first()
+        )
+        last = None
+        if event is not None:
+            meta = event.metadata or {}
+            last = {
+                "exported_at": event.created_at,
+                "bytes": meta.get("bytes"),
+                "version": meta.get("version"),
+                "by": (getattr(event.user, "full_name", "") or getattr(event.user, "email", "")) if event.user else "",
+                "summary": meta.get("summary"),
+            }
+        return Response(
+            {
+                "last_export": last,
+                "restore_into_live_enabled": bool(getattr(settings, "TENANT_RESTORE_DESTROY_ENABLED", False)),
+                "max_sandboxes": int(getattr(settings, "MAX_CONCURRENT_SANDBOXES", 3) or 0),
+            }
+        )
 
 
 class TenantRestoreView(APIView):
@@ -99,6 +167,16 @@ class TenantRestoreView(APIView):
             restore_mode = str(request.data.get("restore") or "").strip().lower()
             # SPA contract: restore=sandbox only. confirm_destroy stays API-only.
             if confirm_destroy and restore_mode != "sandbox":
+                from django.conf import settings
+
+                if not getattr(settings, "TENANT_RESTORE_DESTROY_ENABLED", False):
+                    # Restoring over live data cannot be undone, so it is not an owner self-service
+                    # action: support turns it on for a case after checking with the owner.
+                    raise BusinessRuleError(
+                        "Restoring over your live data is done by support, not from this screen. "
+                        "Restore into a sandbox copy to check the backup, then contact support.",
+                        code="RESTORE_LIVE_DISABLED",
+                    )
                 typed_name = (request.data.get("typed_name") or request.data.get("typedName") or "").strip()
                 if typed_name != company.name:
                     raise BusinessRuleError(
@@ -107,6 +185,15 @@ class TenantRestoreView(APIView):
                 confirm_unbacked = _truthy(
                     request.data.get("confirm_destroy_unbacked")
                     or request.data.get("confirmDestroyUnbacked")
+                )
+                # Written before the destructive step, so a failure part-way still leaves a record.
+                AuditService.log(
+                    action="tenant.restore_destroy_started",
+                    company=company,
+                    user=request.user,
+                    entity_type="Company",
+                    entity_id=company.pk,
+                    description="In-place restore started.",
                 )
                 restore_destroy_in_place(
                     company=company,

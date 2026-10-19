@@ -163,7 +163,7 @@ def _can_see(company_user, code: str) -> bool:
         )
     if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT", "WALK_IN_UNALLOCATED_RECEIPT", "VOID_RATE_HIGH"}:
         return bool(company_user.can_create_payments or company_user.can_view_financial_reports)
-    if code in {"TICKET_SLA_BREACH", "CONTRACT_RENEWAL"}:
+    if code in {"TICKET_SLA_BREACH", "CONTRACT_RENEWAL", "MILESTONE_OVERDUE", "JOB_READY_TO_INVOICE"}:
         return bool(company_user.can_create_sales)
     if code in {
         "NO_SALES_TODAY",

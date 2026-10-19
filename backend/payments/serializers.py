@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from django.db.models import Sum
@@ -27,21 +28,178 @@ from .receipt_math import LiveTotals, cash_available, receipt_unallocated
 from .upi import upi_qr_fields
 
 
+IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
+ACCOUNT_NUMBER_RE = re.compile(r"^[0-9]{9,18}$")
+
+
 class BankAccountSerializer(serializers.ModelSerializer):
+    """Bank account with its full number sealed away.
+
+    `account_number` is write-only: the full number is never returned here (the owner can ask for
+    it on demand, which is audited). `account_number_masked` is derived from it, so a typed-in
+    "masked" value can no longer drift away from the real number.
+    """
+
+    account_number = serializers.CharField(write_only=True, required=False, allow_blank=True, max_length=40)
+    has_full_number = serializers.SerializerMethodField()
+    opening_locked = serializers.SerializerMethodField(
+        help_text="True once money has moved through the account; the opening balance can then only be adjusted."
+    )
+
     class Meta:
         model = BankAccount
         fields = [
             "id",
             "name",
+            "account_number",
             "account_number_masked",
+            "has_full_number",
             "ifsc",
+            "upi_id",
             "account_type",
             "opening_balance",
             "opening_as_of",
+            "opening_locked",
             "is_default",
             "is_active",
+            "print_on_invoices",
             "created_at",
+            "updated_at",
         ]
+        read_only_fields = ["account_number_masked", "created_at", "updated_at"]
+
+    def get_has_full_number(self, obj) -> bool:
+        return bool(obj.account_number_sealed)
+
+    def get_opening_locked(self, obj) -> bool:
+        return obj.has_transactions()
+
+    # The details printed on bills are the owner's to change.
+    _OWNER_FIELDS = ("account_number", "upi_id", "print_on_invoices")
+
+    def _is_owner(self) -> bool:
+        from core.permissions import get_company_user
+
+        request = self.context.get("request")
+        member = get_company_user(request) if request is not None else None
+        return bool(member is not None and member.role == "OWNER")
+
+    def validate_name(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("Enter a name for the account.")
+        return value
+
+    def validate_ifsc(self, value):
+        value = (value or "").strip().upper()
+        if value and not IFSC_RE.match(value):
+            raise serializers.ValidationError("Enter a valid IFSC (4 letters, a zero, then 6 letters or digits).")
+        return value
+
+    def validate_upi_id(self, value):
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from core.validators import validate_upi_vpa
+
+        value = (value or "").strip()
+        try:
+            validate_upi_vpa(value)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(list(exc.messages)) from exc
+        return value
+
+    def validate_account_number(self, value):
+        plain = BankAccount.normalise_number(value)
+        if plain and not ACCOUNT_NUMBER_RE.match(plain):
+            raise serializers.ValidationError("An account number is 9 to 18 digits.")
+        return plain
+
+    def validate(self, attrs):
+        from rest_framework.exceptions import PermissionDenied
+
+        instance = self.instance
+        company = (
+            instance.company
+            if instance is not None
+            else getattr(self.context.get("view"), "company", None)
+        )
+
+        def current(field, default=None):
+            if field in attrs:
+                return attrs[field]
+            return getattr(instance, field, default) if instance is not None else default
+
+        touched = [
+            f
+            for f in self._OWNER_FIELDS
+            if f in attrs and (f == "account_number" or attrs[f] not in (None, "", False))
+        ]
+        if instance is not None:
+            touched += [
+                f
+                for f in ("upi_id", "print_on_invoices")
+                if f in attrs and attrs[f] != getattr(instance, f) and f not in touched
+            ]
+        if touched and not self._is_owner():
+            raise PermissionDenied("Only the owner can change the account number, UPI ID or invoice account.")
+
+        if attrs.get("account_number") and company is not None:
+            digest = BankAccount.number_hash(attrs["account_number"])
+            clash = BankAccount.objects.filter(company=company, account_number_hash=digest)
+            if instance is not None:
+                clash = clash.exclude(pk=instance.pk)
+            if clash.exists():
+                raise serializers.ValidationError(
+                    {"account_number": f"This account number is already saved as '{clash.first().name}'."}
+                )
+
+        account_type = current("account_type")
+        is_active = current("is_active", True)
+        wants_print = current("print_on_invoices", False)
+        has_number = bool(attrs["account_number"]) if "account_number" in attrs else bool(
+            instance is not None and instance.account_number_sealed
+        )
+        errors = {}
+        if wants_print:
+            if account_type == "CASH_BOX":
+                errors["print_on_invoices"] = "A cash box cannot be the account printed on invoices."
+            elif not is_active:
+                errors["print_on_invoices"] = "An inactive account cannot be printed on invoices."
+            elif not has_number:
+                errors["print_on_invoices"] = (
+                    "Enter the full account number before printing this account on invoices."
+                )
+        if not is_active and current("is_default", False):
+            errors["is_active"] = "Make another account the default before switching this one off."
+        if instance is not None and not is_active and instance.print_on_invoices and wants_print:
+            errors["is_active"] = "Choose another account for invoices before switching this one off."
+        if instance is not None and instance.has_transactions():
+            for field in ("opening_balance", "opening_as_of"):
+                if field in attrs and attrs[field] != getattr(instance, field):
+                    errors[field] = (
+                        "Money has already moved through this account, so the opening balance "
+                        "cannot be edited. Record an adjustment instead."
+                    )
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def create(self, validated_data):
+        number = validated_data.pop("account_number", "")
+        instance = BankAccount(**validated_data)
+        if number:
+            instance.set_account_number(number)
+        instance.save()
+        return instance
+
+    def update(self, instance, validated_data):
+        number = validated_data.pop("account_number", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if number is not None:
+            instance.set_account_number(number)
+        instance.save()
+        return instance
 
 
 class ReceiptAllocationLineSerializer(serializers.Serializer):
@@ -627,7 +785,9 @@ class UpiQrSerializer(serializers.Serializer):
         from sales.models import SalesInvoice
 
         data = self.validated_data
-        upi_id = data.get("upi_id") or company.upi_id
+        from payments.services import invoice_bank_details
+
+        upi_id = data.get("upi_id") or invoice_bank_details(company)["upi_id"]
         amount = data.get("amount")
         note = data.get("note") or ""
         inv_id = data.get("sales_invoice")

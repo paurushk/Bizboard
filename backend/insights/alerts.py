@@ -398,7 +398,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_type="ticket",
                     document_id=ticket.id,
                     dedupe_key=f"TICKET_SLA_BREACH:{ticket.id}",
-                    cta_path="/support/tickets",
+                    cta_path=f"/support/tickets/{ticket.id}",
                 ))
             return rows
 
@@ -408,18 +408,11 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
             from contracts.models import Contract
 
             rows = []
-            from contracts.status import effective_contract_status
-
             today = timezone.localdate()
-            expiring = [
-                contract
-                for contract in Contract.objects.filter(company=company).exclude(
-                    status=Contract.Status.CANCELLED,
-                ).only("id", "number", "status", "end_date", "renewal_reminder_days")
-                if effective_contract_status(
-                    contract.status, contract.end_date, contract.renewal_reminder_days, today,
-                ) == Contract.Status.EXPIRING
-            ]
+            # Inside the reminder window but not yet over: a plain date comparison (CON-07).
+            expiring = Contract.objects.filter(
+                company=company, end_date__gte=today, expiring_from_date__lte=today,
+            ).exclude(status=Contract.Status.CANCELLED).only("id", "number")
             for contract in expiring:
                 rows.append(_alert(
                     "CONTRACT_RENEWAL",
@@ -429,11 +422,66 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_type="contract",
                     document_id=contract.id,
                     dedupe_key=f"CONTRACT_RENEWAL:{contract.id}",
-                    cta_path="/contracts",
+                    cta_path=f"/contracts/{contract.id}",
                 ))
             return rows
 
         builders.append(("contract_renewal", _contract_renewal))
+    if flag_enabled(company, "ENABLE_PROJECTS"):
+        def _milestone_overdue():
+            from projects.models import Project, ProjectMilestone
+
+            rows = []
+            late = (
+                ProjectMilestone.objects.filter(
+                    company=company, target_completion_date__lt=as_of, project__status=Project.Status.OPEN,
+                )
+                .exclude(status=ProjectMilestone.Status.INVOICED)
+                .select_related("project")
+                .order_by("target_completion_date", "id")[:50]
+            )
+            for milestone in late:
+                rows.append(_alert(
+                    "MILESTONE_OVERDUE",
+                    "warning",
+                    f"{milestone.project.number}: milestone '{milestone.name}' was due "
+                    f"{milestone.target_completion_date:%d %b} and is not invoiced.",
+                    subject_key=f"milestone:{milestone.id}",
+                    document_type="project",
+                    document_id=milestone.project_id,
+                    dedupe_key=f"MILESTONE_OVERDUE:{milestone.id}",
+                    cta_path=f"/projects/{milestone.project_id}",
+                ))
+            return rows
+
+        builders.append(("milestone_overdue", _milestone_overdue))
+    if flag_enabled(company, "ENABLE_WORKSHOP"):
+        def _jobs_ready():
+            from workshop.models import JobCard
+
+            rows = []
+            ready = (
+                JobCard.objects.filter(
+                    company=company, status=JobCard.Status.IN_PROGRESS, sales_invoice__isnull=True,
+                    lines__isnull=False,
+                )
+                .distinct()
+                .order_by("id")[:50]
+            )
+            for job in ready:
+                rows.append(_alert(
+                    "JOB_READY_TO_INVOICE",
+                    "info",
+                    f"Job card {job.number} has lines and no invoice yet.",
+                    subject_key=f"job:{job.id}",
+                    document_type="job_card",
+                    document_id=job.id,
+                    dedupe_key=f"JOB_READY_TO_INVOICE:{job.id}",
+                    cta_path=f"/workshop/jobs/{job.id}",
+                ))
+            return rows
+
+        builders.append(("jobs_ready", _jobs_ready))
 
     def _quotation_expiry():
         """Open quotes that expire within 3 days, or expired in the last 7 and are still open."""

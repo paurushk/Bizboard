@@ -38,7 +38,8 @@ class BrandSerializer(serializers.ModelSerializer):
 class UnitSerializer(serializers.ModelSerializer):
     class Meta:
         model = Unit
-        fields = ["id", "name", "short_name", "uqc_code"]
+        fields = ["id", "name", "short_name", "uqc_code", "updated_at"]
+        read_only_fields = ["updated_at"]
 
     def validate(self, attrs):
         from core.services.uqc import normalize_uqc
@@ -48,6 +49,12 @@ class UnitSerializer(serializers.ModelSerializer):
         explicit = attrs.get("uqc_code")
         if explicit is None and self.instance is not None:
             explicit = self.instance.uqc_code
+        # SET-09: a code typed by hand must be a real GSTN unit code. It used to be saved as given
+        # whenever it could not be matched, and then failed later in a GSTR-1 file.
+        if attrs.get("uqc_code") and not normalize_uqc(attrs["uqc_code"]):
+            raise serializers.ValidationError(
+                {"uqc_code": "Choose a GSTN unit code (for example PCS, KGS, NOS, LTR, BOX)."}
+            )
         code = normalize_uqc(explicit) or normalize_uqc(short) or normalize_uqc(name)
         attrs["uqc_code"] = code or (explicit or "")
         return attrs
@@ -683,10 +690,13 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class PriceListItemSerializer(serializers.ModelSerializer):
     product = CompanyPrimaryKeyRelatedField(queryset=Product.objects.all())
+    # Read-only labels, so the slab editor can show what each row is without loading every item.
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_sku = serializers.CharField(source="product.sku", read_only=True)
 
     class Meta:
         model = PriceListItem
-        fields = ["id", "product", "unit_price", "min_qty", "max_qty", "discount_pct"]
+        fields = ["id", "product", "product_name", "product_sku", "unit_price", "min_qty", "max_qty", "discount_pct"]
 
     def validate(self, attrs):
         from core.exceptions import BusinessRuleError
@@ -718,12 +728,40 @@ class PriceListItemSerializer(serializers.ModelSerializer):
 
 class PriceListSerializer(serializers.ModelSerializer):
     items = PriceListItemSerializer(many=True, required=False)
+    item_count = serializers.SerializerMethodField()
+    customer_count = serializers.SerializerMethodField(
+        help_text="Customers assigned to this list. They are charged the normal selling price when it is off."
+    )
 
     class Meta:
         model = PriceList
-        fields = ["id", "name", "is_active", "items", "created_at", "updated_at"]
+        fields = ["id", "name", "is_active", "items", "item_count", "customer_count", "created_at", "updated_at"]
+        read_only_fields = ["item_count", "customer_count"]
+
+    def get_item_count(self, obj) -> int:
+        return len(obj.items.all())
+
+    def get_customer_count(self, obj) -> int:
+        annotated = getattr(obj, "customer_count_annot", None)
+        return annotated if annotated is not None else obj.customers.filter(is_deleted=False).count()
 
     def validate(self, attrs):
+        instance = self.instance
+        if instance is not None and attrs.get("is_active") is False and instance.is_active:
+            in_use = instance.customers.filter(is_deleted=False).count()
+            request = self.context.get("request")
+            confirmed = str(getattr(request, "data", {}).get("confirm_customers") or "").lower() in (
+                "1", "true", "yes",
+            )
+            if in_use and not confirmed:
+                from core.exceptions import BusinessRuleError
+
+                raise BusinessRuleError(
+                    f"{in_use} customer(s) use this price list. Switching it off charges them the normal "
+                    "selling price. Confirm to switch it off.",
+                    code="PRICE_LIST_IN_USE",
+                    extra={"customer_count": in_use},
+                )
         items = attrs.get("items")
         if items is not None:
             from core.exceptions import BusinessRuleError

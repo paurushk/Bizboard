@@ -186,30 +186,70 @@ class UniversalSearchView(APIView):
                 debit_notes = _note_rows(SalesDebitNote, "debit_note")
             can_view_growth = cu.role != "VIEWER"
             tickets = complaints = contracts = opportunities = []
+            job_cards = projects = supplier_complaints = shared_tickets = []
             if can_view_growth:
-                from complaints.models import Complaint
+                from complaints.models import Complaint, SupplierComplaint
                 from contracts.models import Contract
+                from core.services.feature_flags import flag_enabled
                 from crm.models import Opportunity
-                from support.models import Ticket
+                from projects.models import Project
+                from support.models import Ticket, VendorTicketShare
+                from support.share import is_vendor_company
+                from workshop.models import JobCard
 
                 tickets = [
                     {"id": row.id, "kind": "ticket", "number": row.number, "subject": row.subject}
                     for row in Ticket.objects.filter(company=company).filter(
-                        Q(number__icontains=q) | Q(subject__icontains=q)
+                        Q(number__icontains=q) | Q(subject__icontains=q) | Q(customer__name__icontains=q)
                     )[:LIMIT]
                 ]
                 complaints = [
                     {"id": row.id, "kind": "complaint", "number": row.number}
-                    for row in Complaint.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                    for row in Complaint.objects.filter(company=company).filter(
+                        Q(number__icontains=q) | Q(customer__name__icontains=q)
+                    )[:LIMIT]
                 ]
                 contracts = [
                     {"id": row.id, "kind": "contract", "number": row.number}
-                    for row in Contract.objects.filter(company=company, number__icontains=q)[:LIMIT]
+                    for row in Contract.objects.filter(company=company).filter(
+                        Q(number__icontains=q) | Q(customer__name__icontains=q)
+                    )[:LIMIT]
                 ]
                 opportunities = [
                     {"id": row.id, "kind": "opportunity", "title": row.title}
                     for row in Opportunity.objects.filter(company=company, title__icontains=q)[:LIMIT]
                 ]
+                if flag_enabled(company, "ENABLE_WORKSHOP"):
+                    job_cards = [
+                        {"id": row.id, "kind": "job_card", "number": row.number, "subject": row.registration_no}
+                        for row in JobCard.objects.filter(company=company).filter(
+                            Q(number__icontains=q) | Q(registration_no__icontains=q)
+                            | Q(customer__name__icontains=q)
+                        )[:LIMIT]
+                    ]
+                if flag_enabled(company, "ENABLE_PROJECTS"):
+                    projects = [
+                        {"id": row.id, "kind": "project", "number": row.number, "subject": row.name}
+                        for row in Project.objects.filter(company=company).filter(
+                            Q(number__icontains=q) | Q(name__icontains=q) | Q(customer__name__icontains=q)
+                        )[:LIMIT]
+                    ]
+                if flag_enabled(company, "ENABLE_COMPLAINTS") and (
+                    cu.role == "OWNER" or getattr(cu, "can_create_purchases", False)
+                ):
+                    supplier_complaints = [
+                        {"id": row.id, "kind": "supplier_complaint", "number": row.number}
+                        for row in SupplierComplaint.objects.filter(company=company).filter(
+                            Q(number__icontains=q) | Q(supplier__name__icontains=q)
+                        )[:LIMIT]
+                    ]
+                if is_vendor_company(company):
+                    shared_tickets = [
+                        {"id": row.id, "kind": "shared_ticket", "number": row.source_number, "subject": row.subject}
+                        for row in VendorTicketShare.objects.filter(company=company, revoked_at__isnull=True).filter(
+                            Q(source_number__icontains=q) | Q(subject__icontains=q)
+                        )[:LIMIT]
+                    ]
 
         return Response({
             "customers": [
@@ -238,4 +278,8 @@ class UniversalSearchView(APIView):
             "complaints": complaints,
             "contracts": contracts,
             "opportunities": opportunities,
+            "job_cards": job_cards,
+            "projects": projects,
+            "supplier_complaints": supplier_complaints,
+            "shared_tickets": shared_tickets,
         })

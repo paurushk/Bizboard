@@ -270,11 +270,14 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
         due = Decimal(str(LedgerService.sales_invoice_outstanding(invoice) or 0))
     except Exception:
         due = Decimal(str(getattr(invoice, "grand_total", 0) or 0))
-    if company.upi_id and due > 0:
+    from payments.services import invoice_bank_details
+
+    upi_id = invoice_bank_details(company)["upi_id"]
+    if upi_id and due > 0:
         story.append(Spacer(1, 2 * mm))
         qr_size = 22 * mm if narrow else 26 * mm
         qr_png = build_upi_qr_png(
-            company.upi_id,
+            upi_id,
             amount=due,
             note=f"Invoice {invoice.number or invoice.pk}",
         )
@@ -283,7 +286,7 @@ def render_thermal_receipt(invoice, *, width_mm: int = 80) -> bytes:
             qr_img.hAlign = "CENTER"
             story.append(qr_img)
             story.append(Spacer(1, 1 * mm))
-        story.append(Paragraph(f"UPI: {pdf_esc(company.upi_id)}", styles["center"]))
+        story.append(Paragraph(f"UPI: {pdf_esc(upi_id)}", styles["center"]))
     if getattr(invoice, "irn", ""):
         story.append(Paragraph(f"IRN: {pdf_esc(str(invoice.irn)[:40])}", styles["center"]))
 

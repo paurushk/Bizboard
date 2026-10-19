@@ -70,11 +70,11 @@ def test_bb_000630_phasepages_split_started():
     phase = REPO / "web" / "src" / "pages" / "phase" / "PhasePages.tsx"
     reports = REPO / "web" / "src" / "pages" / "phase" / "AccountingReportsPages.tsx"
     banking = REPO / "web" / "src" / "pages" / "phase" / "BankingPhasePages.tsx"
-    inventory = REPO / "web" / "src" / "pages" / "phase" / "InventoryPhasePages.tsx"
     assert phase.is_file()
     assert reports.is_file()
     assert banking.is_file()
-    assert inventory.is_file()
+    # SET-09: the old price-list editor in InventoryPhasePages.tsx moved to pages/settings, so the file is gone.
+    assert not (REPO / "web" / "src" / "pages" / "phase" / "InventoryPhasePages.tsx").exists()
     lines = phase.read_text(encoding="utf-8").count("\n") + 1
     assert lines < 80, f"PhasePages.tsx still a godfile ({lines} lines)"
     text = reports.read_text(encoding="utf-8")

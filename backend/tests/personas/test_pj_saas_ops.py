@@ -52,17 +52,29 @@ def test_j_saas_p13_activate_and_winback(tenant_a):
         assert Subscription.objects.get(company=tenant_a.company).status == Subscription.Status.TRIAL
         resp = tenant_a.client.post(
             "/api/v1/billing/subscription/",
-            {"action": "suspend", "churn_reason": "Too expensive"},
+            {
+                "action": "suspend",
+                "churn_reason": "Too expensive",
+                # SET-06: suspending asks for the company name and the owner's password.
+                "confirm_company_name": tenant_a.company.name,
+                "password": "StrongPass123!",
+            },
             format="json",
         )
         assert resp.status_code == 200, resp.data
         assert Campaign.objects.filter(company=vendor, name__startswith="Win-back").count() == 1
         again = tenant_a.client.post(
             "/api/v1/billing/subscription/",
-            {"action": "suspend", "churn_reason": "Still gone"},
+            {
+                "action": "suspend",
+                "churn_reason": "Still gone",
+                "confirm_company_name": tenant_a.company.name,
+                "password": "StrongPass123!",
+            },
             format="json",
         )
-        assert again.status_code == 200
+        # SET-06: suspending an already suspended workspace is refused, not repeated.
+        assert again.status_code == 400
         assert Campaign.objects.filter(company=vendor, name__startswith="Win-back").count() == 1
     assert_all_invariants(tenant_a.company)
 

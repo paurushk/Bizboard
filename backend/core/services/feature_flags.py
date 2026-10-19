@@ -289,6 +289,13 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         overrides = getattr(company, "feature_flags", None)
         overrides = overrides if isinstance(overrides, dict) else {}
         flags["ENABLE_AA_CONSENT"] = bool(overrides.get("ENABLE_AA_CONSENT"))
+        # Only the vendor company has a shared-ticket inbox; nobody else should see the menu item.
+        from django.conf import settings as _settings
+
+        flags["IS_VENDOR_COMPANY"] = (
+            str(getattr(_settings, "VENDOR_COMPANY_ID", "") or "").strip() == str(getattr(company, "pk", ""))
+            and bool(getattr(company, "pk", None))
+        )
         # New signups set this True so the sidebar starts as the archetype pack.
         # Absent means an existing company keeps the full menu.
         flags["NAV_PACK_DEFAULT"] = bool(overrides.get("NAV_PACK_DEFAULT"))
@@ -298,6 +305,7 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         flags["ENABLE_ACCOUNTING"] = False
         flags["ENABLE_AI"] = False
         flags["ENABLE_AA_CONSENT"] = False
+        flags["IS_VENDOR_COMPANY"] = False
         for key in COMPANY_ROLLOUT_KEYS:
             flags[key] = False
     return flags

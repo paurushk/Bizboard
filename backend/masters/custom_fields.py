@@ -77,6 +77,43 @@ def surface_values(values: dict | None, defs: list[dict] | None) -> dict:
     return {key: value for key, value in cleaned.items() if key in active_keys}
 
 
+def usage_counts(company, keys: list[str] | None = None) -> dict[str, int]:
+    """How many items hold a non-empty value for each custom field key (active or removed).
+
+    A removed field keeps its values (they come back if the field is restored), so the count is the
+    number of items that would lose a visible value while it stays removed.
+
+    With ``keys`` (the company's defined fields) each count is one database query, so the rows are
+    never loaded into Python; without them every item's values are scanned.
+    """
+    from django.db.models import Q
+
+    from masters.models import Product
+
+    counts: dict[str, int] = {}
+    if keys is not None:
+        base = Product.objects.filter(company=company)
+        for key in dict.fromkeys(keys):
+            n = base.filter(**{"custom_fields__has_key": key}).exclude(
+                Q(**{f"custom_fields__{key}": None}) | Q(**{f"custom_fields__{key}__regex": r"^\s*$"})
+            ).count()
+            if n:
+                counts[key] = n
+        return counts
+    qs = (
+        Product.objects.filter(company=company)
+        .exclude(custom_fields={})
+        .values_list("custom_fields", flat=True)
+    )
+    for fields in qs.iterator(chunk_size=500):
+        if not isinstance(fields, dict):
+            continue
+        for key, value in fields.items():
+            if str(value or "").strip():
+                counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
 def distinct_values_for_keys(company, keys: list[str]) -> dict[str, list[str]]:
     """Distinct stored values per key (case-insensitive), preserving first spelling."""
     if not keys:

@@ -1,5 +1,8 @@
 from django.urls import path
 
+from .care_kpis import CareKpiView
+from .care_links import CareLinksView
+from .care_timeline import CareTimelineView
 from .help_views import HelpEventsView, HelpFeedbackView, HelpHealthView
 from .routers import DefaultRouter
 from .views import (
@@ -24,6 +27,9 @@ router.register("audit", AuditEventViewSet, basename="audit")
 router.register("statutory-events", StatutoryDocumentEventViewSet, basename="statutory-events")
 
 urlpatterns = router.urls + [
+    path("links/", CareLinksView.as_view(), name="care-links"),
+    path("care-kpis/", CareKpiView.as_view(), name="care-kpis"),
+    path("audit-timeline/", CareTimelineView.as_view(), name="care-timeline"),
     path("feature-flags/", FeatureFlagsView.as_view(), name="feature-flags"),
     path("invariants/check/", InvariantsCheckView.as_view(), name="invariants-check"),
     path("integrations/inventory/", IntegrationsInventoryView.as_view(), name="integrations-inventory"),

@@ -129,7 +129,7 @@ class ImportJobViewSet(
         return job
 
     def get_queryset(self):
-        qs = self.queryset.filter(company=self.company)
+        qs = self.queryset.filter(company=self.company).select_related("created_by", "file")
         if self.action == "list":
             params = self.request.query_params
             kind = (params.get("kind") or "").upper()

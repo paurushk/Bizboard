@@ -34,6 +34,26 @@ class DeadLetterEventAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     list_filter = ("provider", "status")
     search_fields = ("event_id", "error")
     readonly_fields = [f.name for f in DeadLetterEvent._meta.fields]
+    actions = ["replay_selected"]
+
+    @admin.action(description="Replay selected parked events (pending only)")
+    def replay_selected(self, request, queryset):
+        """SET-06: replaying a parked billing webhook is operator work, so it lives here and no
+        longer on the customer's Billing screen. Each replay is the same call the API makes."""
+        from .services import replay_dead_letter
+
+        done = failed = skipped = 0
+        for event in queryset:
+            if event.status != "pending":
+                skipped += 1
+                continue
+            try:
+                replay_dead_letter(event, user=request.user)
+                done += 1
+            except Exception as exc:  # noqa: BLE001 - report each failure, keep going
+                failed += 1
+                self.message_user(request, f"Event {event.event_id}: {exc}", level="error")
+        self.message_user(request, f"Replayed {done}; {failed} failed; {skipped} not pending.")
 
     def has_add_permission(self, request):
         return False

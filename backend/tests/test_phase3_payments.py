@@ -96,6 +96,27 @@ def test_company_bank_syncs_into_bank_accounts_list(tenant_a):
     assert BankAccount.objects.filter(company=company).exists()
 
 
+def test_bank_account_edit_survives_later_list(tenant_a):
+    """SET-04: listing must not revert a name or IFSC edited on the Bank Accounts screen."""
+    company = tenant_a.company
+    company.bank_name = "HDFC"
+    company.bank_account = "123456789012"
+    company.bank_ifsc = "HDFC0001234"
+    company.save(update_fields=["bank_name", "bank_account", "bank_ifsc"])
+    tenant_a.client.get("/api/v1/payments/bank-accounts/")
+    account = BankAccount.objects.get(company=company)
+    patched = tenant_a.client.patch(
+        f"/api/v1/payments/bank-accounts/{account.id}/",
+        {"name": "HDFC Current A/c", "ifsc": "HDFC0009999"},
+        format="json",
+    )
+    assert patched.status_code == 200, patched.data
+    tenant_a.client.get("/api/v1/payments/bank-accounts/")
+    account.refresh_from_db()
+    assert account.name == "HDFC Current A/c"
+    assert account.ifsc == "HDFC0009999"
+
+
 def test_receipt_with_utr_and_bank_account(tenant_a):
     customer = make_customer(tenant_a.company)
     ba = BankAccount.objects.create(company=tenant_a.company, name="Cash", is_default=True)

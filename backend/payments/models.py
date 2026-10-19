@@ -60,6 +60,14 @@ class BankAccount(CompanyScopedModel):
     opening_as_of = models.DateField(null=True, blank=True)
     is_default = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
+    # SET-04: the full account number (sealed, never returned by the list API) and the UPI ID,
+    # so the account that is printed on bills can live here instead of on the Company row.
+    account_number_sealed = models.TextField(blank=True)
+    # Keyed hash of the digits, to refuse a duplicate account without storing the number in clear.
+    account_number_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    upi_id = models.CharField(max_length=100, blank=True)
+    # The one account whose details are printed on invoices and used for the UPI QR.
+    print_on_invoices = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-is_default", "name"]
@@ -70,10 +78,69 @@ class BankAccount(CompanyScopedModel):
                 condition=models.Q(is_default=True),
                 name="one_default_bank_account_per_company",
             ),
+            models.UniqueConstraint(
+                fields=["company"],
+                condition=models.Q(print_on_invoices=True),
+                name="one_print_bank_account_per_company",
+            ),
         ]
 
     def __str__(self):
         return self.name
+
+    # -- full account number -------------------------------------------------------------
+    @staticmethod
+    def normalise_number(value: str) -> str:
+        return "".join(ch for ch in str(value or "") if ch.isalnum()).upper()
+
+    @staticmethod
+    def number_hash(value: str) -> str:
+        """Keyed hash (server secret) of the normalised number; stable, not reversible."""
+        import hashlib
+        import hmac
+
+        from planwave.crypto import _raw_key
+
+        return hmac.new(_raw_key(), BankAccount.normalise_number(value).encode(), hashlib.sha256).hexdigest()
+
+    def set_account_number(self, value: str) -> None:
+        """Store a full number sealed, with its hash and the masked display form. Blank clears all three."""
+        from planwave.crypto import seal_bank_account
+
+        plain = self.normalise_number(value)
+        if not plain:
+            self.account_number_sealed = ""
+            self.account_number_hash = ""
+            self.account_number_masked = ""
+            return
+        self.account_number_sealed = seal_bank_account(plain)
+        self.account_number_hash = self.number_hash(plain)
+        self.account_number_masked = ("X" * max(0, len(plain) - 4)) + plain[-4:]
+
+    @property
+    def plain_account_number(self) -> str:
+        from planwave.crypto import reveal_bank_account
+
+        return reveal_bank_account(self.account_number_sealed or "")
+
+    def has_transactions(self) -> bool:
+        """True once money has moved through this account (receipts, payments, statements ...).
+
+        The GL account created for it by the books is not a transaction.
+        """
+        for rel in self._meta.related_objects:
+            if rel.related_model._meta.label in {"accounting.Account"}:
+                continue
+            accessor = rel.get_accessor_name()
+            if not accessor:
+                continue
+            try:
+                manager = getattr(self, accessor)
+            except Exception:
+                continue
+            if hasattr(manager, "exists") and manager.exists():
+                return True
+        return False
 
 
 class CustomerReceipt(CompanyScopedModel):

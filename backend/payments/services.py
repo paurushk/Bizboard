@@ -106,42 +106,85 @@ from .receipt_math import (
 from .upi import normalize_utr
 
 
-def sync_company_bank_account(company):
-    """Keep payments.BankAccount in sync with company bill-print bank details (E2E3-033)."""
-    from .models import BankAccountType
+def invoice_bank_details(company) -> dict:
+    """The bank and UPI details printed on bills and used for the UPI QR.
 
+    The account marked "print on invoices" in Bank Accounts rules once there is one. Until then the
+    company's own bank fields apply, exactly as before, so nothing changes for a company that has
+    not chosen an account. Returns plain values: ``bank_name``, ``account_number`` (unsealed),
+    ``ifsc`` and ``upi_id``, each possibly empty.
+    """
     from planwave.crypto import reveal_bank_account
+
+    chosen = BankAccount.objects.filter(company=company, print_on_invoices=True, is_active=True).first()
+    if chosen is not None:
+        return {
+            "bank_name": chosen.name or "",
+            "account_number": chosen.plain_account_number,
+            "ifsc": chosen.ifsc or "",
+            "upi_id": chosen.upi_id or "",
+        }
+    return {
+        "bank_name": company.bank_name or "",
+        "account_number": reveal_bank_account(company.bank_account or ""),
+        "ifsc": company.bank_ifsc or "",
+        "upi_id": company.upi_id or "",
+    }
+
+
+def sync_company_bank_account(company, *, create_only: bool = False):
+    """Keep payments.BankAccount in sync with company bill-print bank details (E2E3-033).
+
+    ``create_only`` is for read paths (the bank-accounts list): it may bootstrap the
+    first account from the company's bank details but never rewrites an existing one,
+    so edits made in Bank Accounts are not reverted by the next page load (SET-04).
+
+    Otherwise (the company's bank fields were just saved) the company's name, full number, IFSC and
+    UPI ID are copied onto the account printed on invoices, or the default account when none has
+    been chosen yet, which then becomes the invoice account.
+    """
+    from planwave.crypto import reveal_bank_account
+
+    from .models import BankAccountType
 
     name = (company.bank_name or "").strip()
     number = reveal_bank_account(company.bank_account or "").strip()
     ifsc = (company.bank_ifsc or "").strip()
+    upi = (company.upi_id or "").strip()
     if not name and not number:
         return None
     display = name or "Company bank"
-    masked = (("X" * max(0, len(number) - 4)) + number[-4:]) if number else ""
-    existing = BankAccount.objects.filter(company=company).order_by("-is_default", "id").first()
-    if existing:
-        fields = []
-        if existing.name != display:
-            existing.name = display
-            fields.append("name")
-        if number and existing.account_number_masked != masked:
-            existing.account_number_masked = masked
-            fields.append("account_number_masked")
-        if ifsc and existing.ifsc != ifsc:
-            existing.ifsc = ifsc
-            fields.append("ifsc")
-        if fields:
-            existing.save(update_fields=fields)
+    accounts = BankAccount.objects.filter(company=company)
+    existing = (
+        accounts.filter(print_on_invoices=True).first()
+        or accounts.order_by("-is_default", "id").first()
+    )
+    if existing and create_only:
         return existing
-    return BankAccount.objects.create(
+    if existing:
+        existing.name = display
+        if number:
+            existing.set_account_number(number)
+        if ifsc:
+            existing.ifsc = ifsc
+        existing.upi_id = upi
+        if not accounts.filter(print_on_invoices=True).exclude(pk=existing.pk).exists() and number:
+            existing.print_on_invoices = True
+        existing.save()
+        return existing
+    created = BankAccount(
         company=company,
         name=display,
-        account_number_masked=masked,
         ifsc=ifsc,
+        upi_id=upi,
         account_type=BankAccountType.CURRENT,
         is_default=True,
+        print_on_invoices=bool(number),
     )
+    if number:
+        created.set_account_number(number)
+    created.save()
+    return created
 
 
 def _allocated_of_payment(payment_field, payment) -> Decimal:
@@ -1667,8 +1710,45 @@ class PaymentService:
         return acct
 
     @staticmethod
+    def assert_gateway_keys_accepted(company, provider=None) -> None:
+        """Refuse to make a payment link on keys the provider has refused.
+
+        Keys the provider has already accepted pass at once. Keys never checked (saved before this
+        rule, or just entered) are checked now, once, and remembered. Only an explicit refusal by
+        the provider blocks: a check that could not be completed (provider down, no automatic check
+        for this provider such as PayU) never stops a payment link, because the link request itself
+        reaches the same provider and fails clearly if the keys are bad. Runs before the link's
+        database transaction, so the provider call never holds locks.
+        """
+        from payments.gateway import DISABLED_PROVIDERS, keys_accepted_for, record_keys_accepted
+
+        provider = (provider or getattr(company, "payment_gateway_provider", None) or "razorpay").lower()
+        if provider == "sandbox" or provider in DISABLED_PROVIDERS:
+            return
+        creds = decrypt_gateway_credentials(getattr(company, "payment_gateway_credentials_encrypted", "") or "")
+        if not creds or keys_accepted_for(creds, provider):
+            return  # no keys: the create path reports that itself
+        check = getattr(get_adapter(provider, creds, company_id=company.id), "verify_credentials", None)
+        if check is None:
+            return  # an adapter with no check is trusted as before
+        result = check()
+        if result.status == "valid":
+            record_keys_accepted(company, creds, provider)
+        elif result.status == "invalid":
+            raise BusinessRuleError(
+                f"The {provider.capitalize()} account did not accept the saved payment keys. "
+                "Check them in Settings, Payment gateway, then try again.",
+                code="GATEWAY_KEYS_REFUSED",
+            )
+
+    @staticmethod
+    def create_payment_link(**kwargs):
+        PaymentService.assert_gateway_keys_accepted(kwargs["company"], kwargs.get("provider"))
+        return PaymentService._create_payment_link(**kwargs)
+
+    @staticmethod
     @transaction.atomic
-    def create_payment_link(
+    def _create_payment_link(
         *,
         company,
         amount,
@@ -2728,7 +2808,7 @@ class PaymentService:
         alerts = []
         ar = LedgerService.bulk_customer_outstanding(company) if hasattr(LedgerService, "bulk_customer_outstanding") else {}
         total_ar = sum(ar.values(), Decimal("0")) if isinstance(ar, dict) else Decimal("0")
-        if not (company.upi_id or "").strip() and total_ar > 0:
+        if not (invoice_bank_details(company)["upi_id"] or "").strip() and total_ar > 0:
             alerts.append(
                 {
                     "code": "UPI_ID_MISSING",
@@ -2766,7 +2846,7 @@ class PaymentService:
         from sales.models import SalesInvoice
         from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
-        if not (company.upi_id or "").strip():
+        if not (invoice_bank_details(company)["upi_id"] or "").strip():
             open_inv_ids = list(
                 SalesInvoice.objects.filter(
                     company=company, status__in=OPEN_RECEIVABLE_STATUSES

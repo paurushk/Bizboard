@@ -120,6 +120,8 @@ class SalesInvoice(DocumentTotalsModel):
         "core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     completed_at = models.DateTimeField(null=True, blank=True)
+    # SET-03: licences printed on this invoice, frozen at completion. None = not captured yet.
+    statutory_licences_snapshot = models.JSONField(null=True, blank=True)
     cancelled_at = models.DateTimeField(null=True, blank=True)
     cancel_reason = models.CharField(max_length=500, blank=True, default="")
     # CFT-120: optimistic concurrency token for completed-invoice amend.

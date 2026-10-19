@@ -641,6 +641,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "contracts.tasks.refresh_contract_statuses",
         "schedule": crontab(hour=1, minute=15),
     },
+    "contracts-renewal-reminders": {
+        "task": "contracts.tasks.send_contract_renewal_reminders",
+        "schedule": crontab(hour=8, minute=30),
+    },
+    "projects-milestone-reminders": {
+        "task": "projects.tasks.send_milestone_due_reminders",
+        "schedule": crontab(hour=8, minute=45),
+    },
     "sales-recurring-invoices": {
         "task": "sales.tasks.generate_recurring_invoices_task",
         "schedule": crontab(minute=15),
@@ -663,6 +671,16 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(hour=3, minute=40),
     },
     # R-014: expired sandbox companies from tenant restore (wipe then delete).
+    # SET-08: weekly encrypted backup for companies that opted in (Sunday, small hours).
+    "accounts-scheduled-backups-weekly": {
+        "task": "accounts.tasks.run_scheduled_backups_task",
+        "schedule": crontab(day_of_week="sunday", hour=2, minute=15),
+    },
+    # SET-23: licence expiry, quiet gateway and plan-limit alerts to owners, once each.
+    "accounts-settings-alerts-daily": {
+        "task": "accounts.tasks.run_settings_alerts_task",
+        "schedule": crontab(hour=7, minute=5),
+    },
     "accounts-sweep-expired-sandboxes": {
         "task": "accounts.tasks.sweep_expired_sandboxes_task",
         "schedule": crontab(hour=4, minute=10),
@@ -1004,6 +1022,9 @@ BILLING_TRIAL_DAYS = _env_int("BILLING_TRIAL_DAYS", 14)
 # B6-006: a sandbox restore creates a full company copy of real tenant data --
 # cap how many an owner can have live at once.
 MAX_CONCURRENT_SANDBOXES = _env_int("MAX_CONCURRENT_SANDBOXES", 3)
+# SET-08: restoring a backup OVER the live company deletes live data. Off unless support turns it on
+# for a case; owners can only restore into a separate sandbox copy.
+TENANT_RESTORE_DESTROY_ENABLED = _env_bool("TENANT_RESTORE_DESTROY_ENABLED", "0")
 # BB-000726: PAST_DUE write grace after current_period_end (0 = block immediately).
 BILLING_PAST_DUE_GRACE_DAYS = _env_int("BILLING_PAST_DUE_GRACE_DAYS", 0)
 GSP_LIVE_ENABLED = _env_bool("GSP_LIVE_ENABLED")

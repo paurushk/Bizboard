@@ -15,6 +15,7 @@ from accounts.models import CompanyStatutoryLicence
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from masters.models import Product
+from sales.statutory_snapshot import invoice_state_code, licence_covers_state
 
 _LICENCE_TYPES_FOR_CATEGORY = {
     Product.RegulatedCategory.DRUG: (
@@ -25,7 +26,7 @@ _LICENCE_TYPES_FOR_CATEGORY = {
 }
 
 
-def assert_statutory_licence_present(company, items, *, confirm_missing_licence=False) -> None:
+def assert_statutory_licence_present(company, items, *, confirm_missing_licence=False, invoice=None) -> None:
     if not getattr(settings, "ENABLE_ARCH05_STATUTORY_FORMS", False):
         return
 
@@ -39,24 +40,28 @@ def assert_statutory_licence_present(company, items, *, confirm_missing_licence=
 
     today = timezone.localdate()
     still_valid = Q(valid_upto__isnull=True) | Q(valid_upto__gte=today)
-    missing = [
-        category
-        for category in regulated_categories
-        if not CompanyStatutoryLicence.objects.filter(
+    # SET-03: a licence covers the state of its premises. When the invoice's branch state is
+    # known, only a licence with no state or the same state counts (see statutory_snapshot).
+    state_code = invoice_state_code(invoice) if invoice is not None else None
+    missing = []
+    for category in regulated_categories:
+        candidates = CompanyStatutoryLicence.objects.filter(
             still_valid,
             company=company,
             licence_type__in=_LICENCE_TYPES_FOR_CATEGORY[category],
             is_active=True,
-        ).exists()
-    ]
+        )
+        if not any(licence_covers_state(licence, state_code) for licence in candidates):
+            missing.append(category)
     if not missing:
         return
 
     if not confirm_missing_licence:
         labels = ", ".join(Product.RegulatedCategory(c).label for c in sorted(missing))
+        where = f" for the branch's state ({state_code})" if state_code else ""
         raise BusinessRuleError(
             f"This invoice has a {labels} line but the company has no active statutory "
-            f"licence on file. Add the licence, or confirm to complete anyway "
+            f"licence on file{where}. Add the licence, or confirm to complete anyway "
             f"(confirm_missing_licence=true).",
             code=HelpCode.CONFIRM_MISSING_LICENCE,
         )

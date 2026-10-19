@@ -364,7 +364,12 @@ def _baseline_price(customer, product, qty) -> Decimal:
     price_list_id = getattr(customer, "price_list_id", None)
     if price_list_id:
         slabs = list(
-            PriceListItem.objects.filter(price_list_id=price_list_id, product=product).order_by("-min_qty")
+            PriceListItem.objects.filter(
+                price_list_id=price_list_id,
+                product=product,
+                price_list__is_active=True,
+                price_list__is_deleted=False,
+            ).order_by("-min_qty")
         )
         quantity = Decimal(str(qty or 1))
         for slab in slabs:

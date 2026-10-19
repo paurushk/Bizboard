@@ -24,7 +24,7 @@ from crm.models import Campaign, Lead, Opportunity, ReferralCode, ReferralReward
 from crm.pipeline import capture_lead, import_lead_rows, ingest_whatsapp_message, next_assignee
 from insights.alerts import build_business_alerts
 from insights.attention import build_attention_rows
-from sales.models import Quotation, SalesInvoice
+from sales.models import Quotation, SalesInvoice, SalesItem
 from support.models import Ticket
 from support.tickets import next_ticket_assignee
 
@@ -169,6 +169,10 @@ def test_complaint_transitions_and_return_requires_invoice(tenant_a):
     )
     tenant_a.client.patch(f"/api/v1/complaints/{complaint_id}/", {"source_invoice": invoice.id}, format="json")
     product = make_product(tenant_a.company, sku="RMA-1")
+    # the product must be on the source invoice for a return line to be accepted
+    SalesItem.objects.create(
+        company=tenant_a.company, invoice=invoice, product=product, quantity=5, unit_price=10,
+    )
     made = tenant_a.client.post(
         f"/api/v1/complaints/{complaint_id}/create-return/",
         {"items": [{"product": product.id, "quantity": "1", "unit_price": "10"}]},

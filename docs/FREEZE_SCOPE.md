@@ -181,7 +181,7 @@ config-consistency guard ignores them): `AUTO_PICK_COMPANY_ON_EMPTY`,
 `GSP_HTTP_SANDBOX`, `JSON_REQUEST_LOGS`, `OTP_DEBUG_ECHO`,
 `PAYMENTS_REFUND_EVENT_MAP_V2`, `REQUIRE_SANDBOX_WEBHOOK_SECRET`,
 `SECURE_SSL_REDIRECT`, `USE_TLS`, `ENABLE_SCHEDULED_COVERAGE_AUDIT`,
-`PORTAL_DEBUG_ECHO` (customer-portal OTP echo for local debugging; settings
+`TENANT_RESTORE_DESTROY_ENABLED` (default off: restoring a backup over live data is a support action; the Backup screen can only restore into a sandbox copy), `PORTAL_DEBUG_ECHO` (customer-portal OTP echo for local debugging; settings
 refuse it outside development/test). `IDEMPOTENCY_STRICT_FINGERPRINT` (default on: a reused
 Idempotency-Key with a different request body is refused with 422; off only for a quick rollback).
 `MFA_ENFORCE_FOR_MONEY_ROLES` (default on in production and staging: an Owner or Accountant

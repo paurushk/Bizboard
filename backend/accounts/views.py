@@ -10,6 +10,7 @@ from django.db import IntegrityError, transaction
 from django.middleware.csrf import get_token
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.generics import RetrieveUpdateAPIView
 from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -21,6 +22,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.exceptions import (
+    BusinessRuleError,
     CompanyContextConflict,
     CompanyRequired,
     OtpExpiredError,
@@ -30,6 +32,7 @@ from core.exceptions import (
 )
 from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.audit import AuditService
+from core.settings_writes import SettingsWriteMixin, check_expected_updated_at
 from core.services.sms import SmsProvider
 
 from .models import (
@@ -89,6 +92,16 @@ def _make_invite_token(*, user_id: int, company_id: int, membership_id: int) -> 
         expires_at=timezone.now() + timezone.timedelta(seconds=_INVITE_MAX_AGE),
     )
     return token
+
+
+def _invite_expiry(membership):
+    """When the latest unused invite link for this membership stops working (None if there is none)."""
+    row = (
+        InviteJti.objects.filter(membership=membership, consumed_at__isnull=True, expires_at__gt=timezone.now())
+        .order_by("-expires_at")
+        .first()
+    )
+    return row.expires_at if row else None
 
 
 def _invite_url(token: str) -> str:
@@ -541,6 +554,10 @@ def _complete_login(request, response, user):
     """
     _ensure_active_company(user)
     membership = _active_membership(user)
+    # Nothing else sets last_login, so "last signed in" stayed empty for everyone (and the vendor
+    # tenant snapshot that reads it). Stamped here, where both the password and 2-step logins end.
+    user.last_login = timezone.now()
+    user.save(update_fields=["last_login"])
     AuditService.log(
         company=membership.company if membership else None,
         user=user, action="LOGIN", entity_type="User", entity_id=user.id,
@@ -1052,14 +1069,35 @@ class CompanyDetailView(RetrieveUpdateAPIView):
     def get_object(self):
         return get_company_user(self.request).company
 
-    def perform_update(self, serializer):
-        instance = serializer.save()
-        from payments.services import sync_company_bank_account
+    def update(self, request, *args, **kwargs):
+        # SET-11b: a form that opened an older version of the company record is refused, not merged.
+        check_expected_updated_at(request, self.get_object())
+        return super().update(request, *args, **kwargs)
 
-        sync_company_bank_account(instance)
+    def perform_update(self, serializer):
+        company = serializer.instance
+        bank_fields = ("bank_name", "bank_account", "bank_ifsc", "upi_id")
+        before = {f: getattr(company, f) for f in bank_fields}
+        from core.settings_audit import diff_instance, snapshot
+
+        audited = snapshot(company, serializer.validated_data.keys())
+        instance = serializer.save()
+        # Only a real change to the bank fields touches the bank account: saving the rest of the
+        # Company form must not overwrite what was edited on the Bank Accounts screen (SET-04).
+        # `bank_account` is compared in plain text because it is re-sealed on every save.
+        from planwave.crypto import reveal_bank_account
+
+        def _plain(f, value):
+            return reveal_bank_account(value or "") if f == "bank_account" else value
+
+        if any(_plain(f, before[f]) != _plain(f, getattr(instance, f)) for f in bank_fields):
+            from payments.services import sync_company_bank_account
+
+            sync_company_bank_account(instance)
         AuditService.log(
             company=instance, user=self.request.user, action="UPDATE",
             entity_type="Company", entity_id=instance.id,
+            metadata={"changes": diff_instance(instance, audited.keys(), audited)},
         )
 
 
@@ -1427,7 +1465,7 @@ def _enforce_plan_seat_limit(company, *, exclude_membership_pk=None) -> None:
         })
 
 
-class CompanyUserViewSet(viewsets.ModelViewSet):
+class CompanyUserViewSet(SettingsWriteMixin, viewsets.ModelViewSet):
     """Owner manages staff users (E1.9)."""
 
     serializer_class = CompanyUserSerializer
@@ -1439,6 +1477,17 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(company=get_company_user(self.request).company)
 
     def create(self, request, *args, **kwargs):
+        # SET-11b: a double-click or retry with the same Idempotency-Key invites the person once.
+        from core.idempotency import wrap_idempotent
+
+        return wrap_idempotent(
+            request=request,
+            company=get_company_user(request).company,
+            scope="user_invite",
+            build=lambda: self._create_invite(request, *args, **kwargs),
+        )
+
+    def _create_invite(self, request, *args, **kwargs):
         serializer = InviteUserSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -1534,6 +1583,51 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
                 )
             return Response(body, status=status.HTTP_201_CREATED)
 
+    def _pending_invite_membership(self):
+        """The membership behind this URL, only if it is still waiting for the person to accept."""
+        membership = self.get_object()
+        if membership.is_active:
+            raise ValidationError({"detail": "This person has already joined."})
+        return membership
+
+    @action(detail=True, methods=["post"], url_path="resend-invite")
+    def resend_invite(self, request, pk=None):
+        """Issue a fresh invite link for someone who has not accepted yet; earlier links stop working."""
+        membership = self._pending_invite_membership()
+        company = get_company_user(request).company
+        with transaction.atomic():
+            InviteJti.objects.filter(membership=membership, consumed_at__isnull=True).update(
+                consumed_at=timezone.now()
+            )
+            token = _make_invite_token(
+                user_id=membership.user_id, company_id=company.id, membership_id=membership.id,
+            )
+            AuditService.log(
+                company=company, user=request.user, action="UPDATE",
+                entity_type="CompanyUser", entity_id=membership.id, description="Invite re-sent",
+            )
+        body = {"invite_url": _invite_url(token), "invite_expires_at": _invite_expiry(membership)}
+        django_env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
+        if django_env not in ("production", "staging"):
+            body["invite_token"] = token
+        return Response(body)
+
+    @action(detail=True, methods=["post"], url_path="revoke-invite")
+    def revoke_invite(self, request, pk=None):
+        """Cancel an invite that has not been accepted: its links stop working."""
+        membership = self._pending_invite_membership()
+        company = get_company_user(request).company
+        with transaction.atomic():
+            revoked = InviteJti.objects.filter(membership=membership, consumed_at__isnull=True).update(
+                consumed_at=timezone.now()
+            )
+            AuditService.log(
+                company=company, user=request.user, action="UPDATE",
+                entity_type="CompanyUser", entity_id=membership.id,
+                description="Invite revoked", metadata={"links_revoked": revoked},
+            )
+        return Response({"revoked": revoked})
+
     def perform_update(self, serializer):
         instance = serializer.instance
         was_active_owner = instance.role == CompanyUser.Role.OWNER and instance.is_active
@@ -1541,6 +1635,9 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
         new_active = serializer.validated_data.get("is_active", instance.is_active)
         stays_active_owner = new_role == CompanyUser.Role.OWNER and new_active
         deactivating = instance.is_active and not new_active
+        from core.settings_audit import diff_instance, snapshot
+
+        audited = snapshot(instance, serializer.validated_data.keys())
         with transaction.atomic():
             if was_active_owner and not stays_active_owner:
                 if _active_owner_count(instance.company, exclude_pk=instance.pk) == 0:
@@ -1551,7 +1648,9 @@ class CompanyUserViewSet(viewsets.ModelViewSet):
             if deactivating:
                 _revoke_sessions_if_last_active_membership(updated.user)
         AuditService.log(company=updated.company, user=self.request.user, action="UPDATE",
-                         entity_type="CompanyUser", entity_id=updated.id)
+                         entity_type="CompanyUser", entity_id=updated.id,
+                         description=updated.user.email,
+                         metadata={"changes": diff_instance(updated, audited.keys(), audited)})
 
     def perform_destroy(self, instance):
         if instance.role == CompanyUser.Role.OWNER and instance.is_active:
@@ -1640,21 +1739,116 @@ class CompanyStatutoryLicenceViewSet(viewsets.ModelViewSet):
         )
 
     def perform_update(self, serializer):
+        from core.settings_audit import diff_instance, snapshot
+
+        audited = snapshot(serializer.instance, serializer.validated_data.keys())
         instance = serializer.save(
             company=get_company_user(self.request).company, updated_by=self.request.user,
         )
         AuditService.log(
             company=instance.company, user=self.request.user, action="UPDATE",
             entity_type="CompanyStatutoryLicence", entity_id=instance.id,
+            description=instance.licence_number,
+            metadata={"changes": diff_instance(instance, audited.keys(), audited)},
         )
 
     def perform_destroy(self, instance):
+        if instance.locked_at is not None:
+            raise BusinessRuleError(
+                "This licence is printed on issued invoices and cannot be deleted. "
+                "Deactivate it, or replace it with a new licence.",
+                code="LICENCE_LOCKED",
+            )
         entity_id = instance.pk
         company = instance.company
         instance.delete()
         AuditService.log(
             company=company, user=self.request.user, action="DELETE",
             entity_type="CompanyStatutoryLicence", entity_id=entity_id,
+        )
+
+    @action(detail=True, methods=["post"], url_path="replace")
+    def replace(self, request, pk=None):
+        """Renew or correct a licence: enter the new record and switch this one off, in one step.
+
+        A renewal usually keeps the licence number and moves the end date; a correction changes
+        the number. Either way the old record is kept exactly as it was (it may be printed on issued
+        invoices) and the new one copies the type and premises unless the request overrides them.
+        """
+        old = self.get_object()
+        if not old.is_active:
+            raise BusinessRuleError("Only an active licence can be renewed or replaced.", code="LICENCE_INACTIVE")
+        body = request.data
+        payload = {
+            "licence_type": body.get("licence_type", old.licence_type),
+            "licence_number": body.get("licence_number") or old.licence_number,
+            "premises_address": body.get("premises_address", old.premises_address),
+            "premises_state": body.get("premises_state", old.premises_state),
+            "premises_city": body.get("premises_city", old.premises_city),
+            "premises_pincode": body.get("premises_pincode", old.premises_pincode),
+            "valid_from": body.get("valid_from"),
+            "valid_upto": body.get("valid_upto"),
+            "is_active": True,
+        }
+        same_number = (
+            payload["licence_type"] == old.licence_type and payload["licence_number"] == old.licence_number
+        )
+        same_dates = (
+            str(payload["valid_from"] or "") == (old.valid_from.isoformat() if old.valid_from else "")
+            and str(payload["valid_upto"] or "") == (old.valid_upto.isoformat() if old.valid_upto else "")
+        )
+        if same_number and same_dates:
+            raise BusinessRuleError(
+                "Enter the new licence number or the new validity dates.", code="LICENCE_UNCHANGED"
+            )
+        with transaction.atomic():
+            # Switch the old record off first: only one active record may carry a number, and a
+            # failed validation below rolls this back.
+            old.is_active = False
+            old.updated_by = request.user
+            old.save(update_fields=["is_active", "updated_by", "updated_at"])
+            serializer = self.get_serializer(data=payload)
+            serializer.is_valid(raise_exception=True)
+            company = old.company
+            new = serializer.save(company=company, created_by=request.user, updated_by=request.user)
+            AuditService.log(
+                company=company, user=request.user, action="CREATE",
+                entity_type="CompanyStatutoryLicence", entity_id=new.id,
+                description=f"Replaced licence {old.pk}",
+            )
+            AuditService.log(
+                company=company, user=request.user, action="UPDATE",
+                entity_type="CompanyStatutoryLicence", entity_id=old.pk,
+                description=f"Replaced by licence {new.pk}",
+            )
+        return Response(self.get_serializer(new).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="status")
+    def enforcement_status(self, request):
+        """What the invoice licence check is doing for this company, and what needs attention."""
+        from datetime import timedelta
+
+        from django.conf import settings as dj_settings
+        from django.utils import timezone
+
+        from masters.models import Product
+
+        company = get_company_user(request).company
+        today = timezone.localdate()
+        active = self.get_queryset().filter(is_active=True)
+        regulated = Product.objects.filter(company=company).exclude(
+            regulated_category=Product.RegulatedCategory.NONE
+        )
+        return Response(
+            {
+                "enforcement": bool(getattr(dj_settings, "ENABLE_ARCH05_STATUTORY_FORMS", False)),
+                "regulated_products": regulated.count(),
+                "active_licences": active.count(),
+                "expired": active.filter(valid_upto__lt=today).count(),
+                "expiring_soon": active.filter(
+                    valid_upto__gte=today, valid_upto__lte=today + timedelta(days=30)
+                ).count(),
+            }
         )
 
 

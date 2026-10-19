@@ -552,6 +552,7 @@ def test_contract_schedule_is_idempotent_and_sales_does_not_import_contracts(ten
         "start_date": str(today + timedelta(days=10)),
         "end_date": str(today + timedelta(days=365)),
         "value": "800.00",
+        "allow_overlap": True,  # this test is about the schedule, not the overlap warning
     }, format="json")
     assert future.status_code == 201, future.data
     scheduled = tenant_a.client.post(

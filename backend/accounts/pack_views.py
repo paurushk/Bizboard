@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.models import CompanyPackState
-from accounts.packs import PACKS, HELD_PACKS, propose_pack, apply_pack
+from accounts.packs import PACKS, HELD_PACKS, propose_pack, apply_pack, pack_preview
 from core.exceptions import BusinessRuleError
 from core.permissions import HasCompany, IsOwner, get_company_user
 from core.services.feature_flags import flag_enabled
@@ -71,7 +71,7 @@ class PackWizardView(APIView):
             state.answers = answers
             state.proposed_pack = proposed
             state.save(update_fields=["answers", "proposed_pack", "updated_at"])
-            return Response({"proposed_pack": proposed, "applied": False})
+            return Response({"proposed_pack": proposed, "applied": False, "preview": pack_preview(company, proposed)})
         try:
             state = apply_pack(company, proposed, answers, request.user)
         except BusinessRuleError as exc:

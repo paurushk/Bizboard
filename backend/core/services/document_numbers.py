@@ -275,6 +275,25 @@ class DocumentNumberService:
             }
 
     @staticmethod
+    def validate_prefix(prefix) -> str:
+        """SET-02: a prefix is saved exactly as given or refused, never silently cut or altered.
+
+        Letters, digits, ``/`` and ``-`` only, at most 16 characters, and not starting or ending
+        with ``/`` or ``-``. The limit on the whole composed number is a separate rule, pending
+        CA confirmation (Settings plan D-8).
+        """
+        cleaned = str(prefix).strip()
+        if not cleaned:
+            raise ValueError("Prefix cannot be empty.")
+        if len(cleaned) > 16:
+            raise ValueError("Prefix can be at most 16 characters.")
+        if not re.fullmatch(r"[A-Za-z0-9/-]+", cleaned):
+            raise ValueError("Prefix can contain only letters, digits, '/' and '-'.")
+        if cleaned[0] in "/-" or cleaned[-1] in "/-":
+            raise ValueError("Prefix cannot start or end with '/' or '-'.")
+        return cleaned
+
+    @staticmethod
     @transaction.atomic
     def configure(company, doc_type: str, *, prefix=None, next_number=None, padding=None,
                   gstin=None, on_date=None) -> dict:
@@ -288,10 +307,7 @@ class DocumentNumberService:
             company=company, doc_type=doc_type, gstin_key=gstin_key, fy_label=fy_label
         )
         if prefix is not None:
-            cleaned = str(prefix).strip()
-            if not cleaned:
-                raise ValueError("Prefix cannot be empty.")
-            series.prefix = cleaned[:16]
+            series.prefix = DocumentNumberService.validate_prefix(prefix)
         if next_number is not None:
             n = int(next_number)
             if n < 1:

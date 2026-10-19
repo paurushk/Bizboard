@@ -43,6 +43,7 @@ from core.permissions import (
 )
 from core.rls import stream_with_rls
 from core.services.audit import AuditService
+from core.settings_writes import SettingsWriteMixin, check_expected_updated_at
 from core.throttles import CompanyRateThrottle
 from core.viewsets import CompanyScopedViewSet
 
@@ -97,7 +98,9 @@ from .services import PaymentService
 from .webhook_views import public_frontend_base_url
 
 
-class BankAccountViewSet(CompanyScopedViewSet):
+class BankAccountViewSet(SettingsWriteMixin, CompanyScopedViewSet):
+    audit_changes = True
+    idempotent_scope = "bank_account_create"
     queryset = BankAccount.objects.all()
     serializer_class = BankAccountSerializer
     http_method_names = ["get", "post", "patch", "delete"]
@@ -113,24 +116,74 @@ class BankAccountViewSet(CompanyScopedViewSet):
     def get_queryset(self):
         from payments.services import sync_company_bank_account
 
-        sync_company_bank_account(self.company)
-        return super().get_queryset()
+        # Create-only: a read must never overwrite what the owner edited here (SET-04).
+        sync_company_bank_account(self.company, create_only=True)
+        qs = super().get_queryset()
+        # Pickers (receipts, expenses, assets) offer live accounts only; the Bank Accounts screen
+        # asks for the switched-off ones too with ?include_inactive=1.
+        if getattr(self, "action", None) == "list" and str(
+            self.request.query_params.get("include_inactive", "")
+        ).lower() not in ("1", "true", "yes"):
+            qs = qs.filter(is_active=True)
+        return qs
 
     def perform_create(self, serializer):
-        if serializer.validated_data.get("is_default"):
-            BankAccount.objects.filter(company=self.company, is_default=True).update(is_default=False)
-        serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
+        from django.db import transaction
+
+        with transaction.atomic():
+            data = serializer.validated_data
+            # Free the single slot before the new row claims it (the database allows only one).
+            for flag in ("is_default", "print_on_invoices"):
+                if data.get(flag):
+                    BankAccount.objects.filter(company=self.company, **{flag: True}).update(**{flag: False})
+            serializer.save(company=self.company, created_by=self.request.user, updated_by=self.request.user)
         self._audit("CREATE", serializer.instance)
         self._post_opening_balance(serializer.instance)
 
     def perform_update(self, serializer):
-        if serializer.validated_data.get("is_default"):
-            BankAccount.objects.filter(company=self.company, is_default=True).exclude(
-                pk=serializer.instance.pk
-            ).update(is_default=False)
-        serializer.save(updated_by=self.request.user)
+        from django.db import transaction
+
+        with transaction.atomic():
+            data = serializer.validated_data
+            for flag in ("is_default", "print_on_invoices"):
+                if data.get(flag):
+                    BankAccount.objects.filter(company=self.company, **{flag: True}).exclude(
+                        pk=serializer.instance.pk
+                    ).update(**{flag: False})
+            serializer.save(updated_by=self.request.user)
         self._audit("UPDATE", serializer.instance)
         self._post_opening_balance(serializer.instance)
+
+    def perform_destroy(self, instance):
+        """An account is switched off, never deleted: receipts, payments and statements point at it."""
+        from rest_framework.exceptions import ValidationError
+
+        if instance.is_default:
+            raise ValidationError({"detail": "Make another account the default before switching this one off."})
+        if instance.print_on_invoices:
+            raise ValidationError({"detail": "Choose another account for invoices before switching this one off."})
+        if instance.is_active:
+            instance.is_active = False
+            instance.updated_by = self.request.user
+            instance.save(update_fields=["is_active", "updated_by", "updated_at"])
+        self._audit("UPDATE", instance)
+
+    @action(detail=True, methods=["get"], url_path="reveal-number")
+    def reveal_number(self, request, pk=None):
+        """The full account number, on demand, for the owner only. Every look is audited."""
+        from rest_framework.exceptions import PermissionDenied
+
+        if self.company_user.role != "OWNER":
+            raise PermissionDenied("Only the owner can view the full account number.")
+        account = self.get_object()
+        AuditService.log(
+            company=self.company,
+            user=request.user,
+            action="bank_account.reveal_number",
+            entity_type="BankAccount",
+            entity_id=account.pk,
+        )
+        return Response({"account_number": account.plain_account_number})
 
     def _post_opening_balance(self, bank_account):
         """PAY-14: keep the GL bank opening balance in step with the operational
@@ -2328,11 +2381,174 @@ class ReconViewSet(viewsets.ViewSet):
         )
 
 
+def _money_in_rules_payload(company) -> dict:
+    return {
+        "require_payment_reference": company.require_payment_reference,
+        "auto_match_bank_exact": company.auto_match_bank_exact,
+        "cheque_allocation_on_clearance": company.cheque_allocation_on_clearance,
+        "cash_269st_mode": company.cash_269st_mode,
+        "advance_gst_treatment": company.advance_gst_treatment,
+        "advance_gst_default_rate": (
+            str(Decimal(str(company.advance_gst_default_rate)).quantize(Decimal("0.01")))
+            if company.advance_gst_default_rate is not None
+            else None
+        ),
+        # SET-17: reminders and the automatic credit hold on severe overdue.
+        "dunning_enabled": company.dunning_enabled,
+        "dunning_days": list(company.dunning_days or []),
+        "dunning_max_reminders": company.dunning_max_reminders,
+        "dunning_quiet_hours_start": company.dunning_quiet_hours_start,
+        "dunning_quiet_hours_end": company.dunning_quiet_hours_end,
+        "auto_credit_hold_on_severe_overdue": company.auto_credit_hold_on_severe_overdue,
+        "updated_at": company.updated_at,
+    }
+
+
+def _apply_money_in_rules(company, data) -> set[str]:
+    """Validate and set the Money-In rule fields present in ``data``; returns the fields touched.
+
+    Shared by the Money-In rules endpoint and, for older clients, the gateway endpoint.
+    """
+    touched: set[str] = set()
+    for field in ("require_payment_reference", "auto_match_bank_exact", "cheque_allocation_on_clearance"):
+        if field in data:
+            setattr(company, field, bool(data.get(field)))
+            touched.add(field)
+    if "cash_269st_mode" in data:
+        mode = str(data.get("cash_269st_mode") or "").lower()
+        if mode not in ("off", "warn", "block"):
+            raise BusinessRuleError("Cash limit check must be off, warn or block.")
+        company.cash_269st_mode = mode
+        touched.add("cash_269st_mode")
+    if "advance_gst_treatment" in data:
+        treatment = str(data.get("advance_gst_treatment") or "").lower()
+        if treatment not in ("none", "goods", "services"):
+            raise BusinessRuleError("Advance GST treatment must be none, goods or services.")
+        company.advance_gst_treatment = treatment
+        touched.add("advance_gst_treatment")
+    if "advance_gst_default_rate" in data:
+        raw_rate = data.get("advance_gst_default_rate")
+        if raw_rate in (None, ""):
+            company.advance_gst_default_rate = None
+        else:
+            try:
+                rate = Decimal(str(raw_rate))
+            except InvalidOperation:
+                raise BusinessRuleError("The advance GST rate must be a number.") from None
+            if rate < 0 or rate > 40:
+                raise BusinessRuleError("The advance GST rate must be between 0 and 40.")
+            company.advance_gst_default_rate = rate
+        touched.add("advance_gst_default_rate")
+    for field in ("dunning_enabled", "auto_credit_hold_on_severe_overdue"):
+        if field in data:
+            setattr(company, field, bool(data.get(field)))
+            touched.add(field)
+    if "dunning_days" in data:
+        raw_days = data.get("dunning_days") or []
+        if not isinstance(raw_days, list):
+            raise BusinessRuleError("Reminder days must be a list of numbers.")
+        days: list[int] = []
+        for item in raw_days:
+            try:
+                n = int(item)
+            except (TypeError, ValueError):
+                raise BusinessRuleError("Reminder days must be whole numbers.") from None
+            if n < 1 or n > 365:
+                raise BusinessRuleError("Each reminder day must be between 1 and 365.")
+            days.append(n)
+        company.dunning_days = sorted(set(days))
+        touched.add("dunning_days")
+    for field, low, high, label in (
+        ("dunning_max_reminders", 1, 10, "The number of reminders"),
+        ("dunning_quiet_hours_start", 0, 23, "Quiet hours start"),
+        ("dunning_quiet_hours_end", 0, 23, "Quiet hours end"),
+    ):
+        if field in data:
+            try:
+                n = int(data.get(field))
+            except (TypeError, ValueError):
+                raise BusinessRuleError(f"{label} must be a whole number.") from None
+            if n < low or n > high:
+                raise BusinessRuleError(f"{label} must be between {low} and {high}.")
+            setattr(company, field, n)
+            touched.add(field)
+    return touched
+
+
+class MoneyInRulesView(APIView):
+    """SET-05: how receipts are recorded and matched. Separate from the gateway keys, so saving one
+    can never change the other."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        return Response(_money_in_rules_payload(get_company_user(request).company))
+
+    def patch(self, request):
+        company = get_company_user(request).company
+        check_expected_updated_at(request, company)
+        from core.settings_audit import changes as _changes
+
+        rule_fields = [
+            "require_payment_reference", "auto_match_bank_exact", "cheque_allocation_on_clearance",
+            "cash_269st_mode", "advance_gst_treatment", "advance_gst_default_rate",
+            "dunning_enabled", "dunning_days", "dunning_max_reminders", "dunning_quiet_hours_start",
+            "dunning_quiet_hours_end", "auto_credit_hold_on_severe_overdue",
+        ]
+        before_rules = {f: getattr(company, f) for f in rule_fields}
+        touched = _apply_money_in_rules(company, request.data)
+        if touched:
+            company.save(update_fields=[*touched, "updated_at"])
+        AuditService.log(
+            company=company,
+            user=request.user,
+            action="UPDATE",
+            entity_type="MoneyInRules",
+            entity_id=company.id,
+            metadata={
+                "fields": sorted(touched),
+                "changes": _changes(before_rules, {f: getattr(company, f) for f in rule_fields}),
+            },
+        )
+        return self.get(request)
+
+
+# Markers kept inside the sealed credentials: when the provider last accepted these keys, and for
+# which provider. Cleared whenever the keys change.
+from payments.gateway import VERIFIED_AT_KEY as _VERIFIED_AT  # noqa: E402
+from payments.gateway import VERIFIED_PROVIDER_KEY as _VERIFIED_PROVIDER  # noqa: E402
+
+
+def _gateway_changes(before, after):
+    from core.settings_audit import changes
+
+    return changes(before, after)
+
+
+#: Addresses an owner may point a provider at (live or the provider's own test system).
+ALLOWED_API_BASES = frozenset(
+    {
+        "https://api.cashfree.com/pg",
+        "https://sandbox.cashfree.com/pg",
+        "https://secure.payu.in",
+        "https://test.payu.in",
+    }
+)
+
+
+def _last_webhook_at(company):
+    """When the provider last told us about a payment for this company (durable dedup table)."""
+    from payments.models import ProcessedWebhookEvent
+
+    row = ProcessedWebhookEvent.objects.filter(company=company).order_by("-created_at").first()
+    return row.created_at if row else None
+
+
 class GatewaySettingsView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
 
     def get(self, request):
-        from payments.gateway import DISABLED_PROVIDERS, sandbox_forbidden_env
+        from payments.gateway import DISABLED_PROVIDERS, credential_hint_and_mode, sandbox_forbidden_env
 
         company = get_company_user(request).company
         sandbox_ok = not sandbox_forbidden_env()
@@ -2341,26 +2557,34 @@ class GatewaySettingsView(APIView):
         for p in ("cashfree", "payu"):
             if p not in DISABLED_PROVIDERS:
                 enabled.append(p)
+        provider = company.payment_gateway_provider or "razorpay"
+        creds = decrypt_gateway_credentials(company.payment_gateway_credentials_encrypted or "")
+        hint, mode = credential_hint_and_mode(provider, creds)
+        verified_for = creds.get(_VERIFIED_PROVIDER)
         return Response(
             {
-                "provider": company.payment_gateway_provider or "razorpay",
+                "provider": provider,
+                "updated_at": company.updated_at,
                 "test_mode": company.payment_gateway_test_mode,
+                # The "test mode" switch only exists for development and CI (it maps empty keys to the
+                # sandbox). Real test or live behaviour is decided by the keys themselves.
+                "test_mode_available": sandbox_ok,
                 "credentials_configured": bool(company.payment_gateway_credentials_encrypted),
-                "require_payment_reference": company.require_payment_reference,
-                "auto_match_bank_exact": company.auto_match_bank_exact,
-                "cheque_allocation_on_clearance": company.cheque_allocation_on_clearance,
-                "cash_269st_mode": company.cash_269st_mode,
-                "advance_gst_treatment": company.advance_gst_treatment,
-                "advance_gst_default_rate": (
-                    str(Decimal(str(company.advance_gst_default_rate)).quantize(Decimal("0.01")))
-                    if company.advance_gst_default_rate is not None else None
-                ),
+                "credentials_hint": hint,
+                "credentials_mode": mode,
+                "webhook_secret_configured": bool(str(creds.get("webhook_secret") or "").strip()),
+                "last_webhook_at": _last_webhook_at(company),
+                "credentials_verified": bool(creds.get(_VERIFIED_AT)) and verified_for == provider,
+                "credentials_verified_at": creds.get(_VERIFIED_AT) if verified_for == provider else None,
+                "verification_supported": provider != "payu" and provider not in DISABLED_PROVIDERS,
                 "enabled_providers": enabled,
                 "disabled_providers": disabled,
                 "webhook_paths": {
                     "razorpay": f"/api/v1/webhooks/payments/razorpay/?company_id={company.id}",
                     "sandbox": f"/api/v1/webhooks/payments/sandbox/?company_id={company.id}",
                 },
+                # Deprecated here: use /payments/money-in-rules/. Kept so older clients still read them.
+                **_money_in_rules_payload(company),
             }
         )
 
@@ -2368,12 +2592,18 @@ class GatewaySettingsView(APIView):
         from payments.gateway import DISABLED_PROVIDERS, sandbox_forbidden_env
 
         company = get_company_user(request).company
+        check_expected_updated_at(request, company)
+        before_gateway = {
+            "payment_gateway_provider": company.payment_gateway_provider,
+            "payment_gateway_test_mode": company.payment_gateway_test_mode,
+        }
         touched: set[str] = set()  # B4-030: only save the fields we changed
         if "provider" in request.data:
             provider = str(request.data.get("provider") or "razorpay")[:32].lower()
             if provider in DISABLED_PROVIDERS:
                 raise BusinessRuleError(
-                    f"Payment provider '{provider}' is not enabled. Use razorpay or sandbox."
+                    f"Payment provider '{provider}' is not enabled. Use razorpay or sandbox.",
+                    code="GATEWAY_PROVIDER_DISABLED",
                 )
             if provider == "sandbox" and sandbox_forbidden_env():
                 raise BusinessRuleError(
@@ -2389,50 +2619,33 @@ class GatewaySettingsView(APIView):
                 )
             company.payment_gateway_test_mode = test_mode
             touched.add("payment_gateway_test_mode")
-        if "require_payment_reference" in request.data:
-            company.require_payment_reference = bool(request.data.get("require_payment_reference"))
-            touched.add("require_payment_reference")
-        if "auto_match_bank_exact" in request.data:
-            company.auto_match_bank_exact = bool(request.data.get("auto_match_bank_exact"))
-            touched.add("auto_match_bank_exact")
-        if "cheque_allocation_on_clearance" in request.data:
-            company.cheque_allocation_on_clearance = bool(request.data.get("cheque_allocation_on_clearance"))
-            touched.add("cheque_allocation_on_clearance")
-        if "cash_269st_mode" in request.data:
-            mode = str(request.data.get("cash_269st_mode") or "").lower()
-            if mode not in ("off", "warn", "block"):
-                raise BusinessRuleError("Cash limit check must be off, warn or block.")
-            company.cash_269st_mode = mode
-            touched.add("cash_269st_mode")
-        if "advance_gst_treatment" in request.data:
-            treatment = str(request.data.get("advance_gst_treatment") or "").lower()
-            if treatment not in ("none", "goods", "services"):
-                raise BusinessRuleError("Advance GST treatment must be none, goods or services.")
-            company.advance_gst_treatment = treatment
-            touched.add("advance_gst_treatment")
-        if "advance_gst_default_rate" in request.data:
-            raw_rate = request.data.get("advance_gst_default_rate")
-            if raw_rate in (None, ""):
-                company.advance_gst_default_rate = None
-            else:
-                try:
-                    rate = Decimal(str(raw_rate))
-                except InvalidOperation:
-                    raise BusinessRuleError("The advance GST rate must be a number.") from None
-                if rate < 0 or rate > 40:
-                    raise BusinessRuleError("The advance GST rate must be between 0 and 40.")
-                company.advance_gst_default_rate = rate
-            touched.add("advance_gst_default_rate")
+        # Deprecated here: older clients still save the Money-In rules through this endpoint.
+        touched |= _apply_money_in_rules(company, request.data)
+        removed_keys = False
         if request.data.get("clear_credentials"):
             company.payment_gateway_credentials_encrypted = ""
             touched.add("payment_gateway_credentials_encrypted")
+            removed_keys = True
         creds = request.data.get("credentials")
         if isinstance(creds, dict):
             existing = decrypt_gateway_credentials(company.payment_gateway_credentials_encrypted or "")
             # BB-000367: ignore empty strings (do not wipe secrets); explicit clear_credentials only.
-            existing.update({k: v for k, v in creds.items() if v is not None and str(v).strip() != ""})
-            company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(existing)
-            touched.add("payment_gateway_credentials_encrypted")
+            changed = {k: v for k, v in creds.items() if v is not None and str(v).strip() != ""}
+            if "api_base" in changed:
+                # The server calls this address, so it must be one of the provider's own.
+                base = str(changed["api_base"]).strip().rstrip("/")
+                if base not in ALLOWED_API_BASES:
+                    raise BusinessRuleError("That provider address is not one of the supported ones.", code="GATEWAY_ADDRESS_UNSUPPORTED")
+                changed["api_base"] = base
+            if changed:
+                existing.update(changed)
+                # New keys have not been checked yet. The webhook secret is not part of that check,
+                # so adding or replacing only it leaves the last check standing.
+                if set(changed) - {"webhook_secret"}:
+                    existing.pop(_VERIFIED_AT, None)
+                    existing.pop(_VERIFIED_PROVIDER, None)
+                company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(existing)
+                touched.add("payment_gateway_credentials_encrypted")
         if touched:
             company.save(update_fields=[*touched, "updated_at"])
         AuditService.log(
@@ -2441,8 +2654,69 @@ class GatewaySettingsView(APIView):
             action="UPDATE",
             entity_type="PaymentGatewaySettings",
             entity_id=company.id,
+            description="Payment keys removed" if removed_keys else "",
+            metadata={
+                "fields": sorted(touched),
+                # Provider and mode with their values; the keys themselves are never recorded.
+                "changes": {
+                    **_gateway_changes(
+                        before_gateway,
+                        {
+                            "payment_gateway_provider": company.payment_gateway_provider,
+                            "payment_gateway_test_mode": company.payment_gateway_test_mode,
+                        },
+                    ),
+                    **({"payment_keys": {"changed": True}} if "payment_gateway_credentials_encrypted" in touched else {}),
+                },
+            },
         )
         return self.get(request)
+
+
+class GatewayVerifyView(APIView):
+    """SET-05: ask the provider whether the saved keys are accepted (a read-only call).
+
+    The result is shown to the owner and, when the provider accepts the keys, remembered with the
+    provider name until the keys change. Nothing here moves money or changes provider settings.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request):
+        from django.core.cache import cache
+
+        from payments.gateway import get_adapter
+
+        company = get_company_user(request).company
+        lock = f"gateway-verify:{company.pk}"
+        if not cache.add(lock, 1, 5):
+            raise BusinessRuleError("Please wait a few seconds before checking the keys again.", code="GATEWAY_CHECK_TOO_SOON")
+        provider = company.payment_gateway_provider or "razorpay"
+        creds = decrypt_gateway_credentials(company.payment_gateway_credentials_encrypted or "")
+        if provider != "sandbox" and not creds:
+            result_status, detail = "missing", "Save the keys first."
+        else:
+            result = get_adapter(provider, creds, company_id=company.pk).verify_credentials()
+            result_status, detail = result.status, result.detail
+        verified_at = None
+        if result_status == "valid" and creds:
+            from payments.gateway import record_keys_accepted
+
+            verified_at = record_keys_accepted(company, creds, provider)
+        elif result_status == "invalid" and (creds.get(_VERIFIED_AT) or creds.get(_VERIFIED_PROVIDER)):
+            creds.pop(_VERIFIED_AT, None)
+            creds.pop(_VERIFIED_PROVIDER, None)
+            company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(creds)
+            company.save(update_fields=["payment_gateway_credentials_encrypted", "updated_at"])
+        AuditService.log(
+            company=company,
+            user=request.user,
+            action="payment_gateway.verify_keys",
+            entity_type="PaymentGatewaySettings",
+            entity_id=company.id,
+            description=f"{provider}: {result_status}",
+        )
+        return Response({"status": result_status, "detail": detail, "verified_at": verified_at, "provider": provider})
 
 
 class PaymentPromiseViewSet(CompanyScopedViewSet):

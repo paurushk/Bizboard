@@ -1,8 +1,13 @@
 from django.urls import path
 from core.routers import DefaultRouter
 
-from .export_views import TenantExportView, TenantRestoreView
+from .backup_schedule_views import BackupScheduleView
+from .export_views import TenantExportLastView, TenantExportView, TenantRestoreView
 from .pack_views import NavScopeView, PackWizardView
+from .series_views import NumberSeriesView
+from .settings_history import SettingsHistoryView
+from .settings_preview import SettingsPreviewView
+from .settings_health import SettingsHealthView
 from .views import (
     CompanyDetailView,
     CompanyEraseView,
@@ -25,8 +30,14 @@ urlpatterns = [
     path("verify-pan/", CompanyVerifyPanView.as_view(), name="company-verify-pan"),
     path("verify-udyam/", CompanyVerifyUdyamView.as_view(), name="company-verify-udyam"),
     path("export/", TenantExportView.as_view(), name="company-tenant-export"),
+    path("export/schedule/", BackupScheduleView.as_view(), name="company-backup-schedule"),
+    path("export/last/", TenantExportLastView.as_view(), name="company-tenant-export-last"),
     path("restore/", TenantRestoreView.as_view(), name="company-tenant-restore"),
     path("erase/", CompanyEraseView.as_view(), name="company-erase"),
     path("packs/", PackWizardView.as_view(), name="company-packs"),
+    path("settings-health/", SettingsHealthView.as_view(), name="company-settings-health"),
+    path("number-series/", NumberSeriesView.as_view(), name="company-number-series"),
+    path("settings-history/", SettingsHistoryView.as_view(), name="company-settings-history"),
+    path("settings-preview/", SettingsPreviewView.as_view(), name="company-settings-preview"),
     path("nav-scope/", NavScopeView.as_view(), name="company-nav-scope"),
 ] + router.urls

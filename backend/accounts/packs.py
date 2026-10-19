@@ -121,6 +121,43 @@ def _entitled(company, key: str) -> bool:
     return True
 
 
+def pack_preview(company, pack: str) -> dict:
+    """What confirming ``pack`` would do, without changing anything (SET-09b).
+
+    A pack only ever turns features on: it never turns one off and never touches data. Each key falls
+    in exactly one list, using the same rules as `apply_pack`:
+
+    * ``would_enable``: off now, and this pack will switch it on;
+    * ``already_on``: already on for this company;
+    * ``kept_as_set``: someone changed it by hand since a pack last set it, so it is left alone;
+    * ``unavailable``: this plan or deployment does not include it, so it is skipped.
+    """
+    from accounts.models import CompanyPackState
+    from core.exceptions import BusinessRuleError
+
+    if pack not in PACKS:
+        raise BusinessRuleError("Unknown pack.")
+    state = CompanyPackState.objects.filter(company=company).first()
+    snapshot = dict(state.applied_flags or {}) if state else {}
+    flags = dict(company.feature_flags or {})
+    out = {"pack": pack, "would_enable": [], "already_on": [], "kept_as_set": [], "unavailable": []}
+    for key in PACKS[pack]:
+        if key == "ENABLE_PAYROLL":
+            continue
+        granted_dark = (pack == "insurance" and key == "ENABLE_CRM") or (
+            pack == "manufacturing" and key == "ENABLE_MANUFACTURING"
+        )
+        if not _entitled(company, key) and not granted_dark:
+            out["unavailable"].append(key)
+        elif key in snapshot and flags.get(key) != snapshot.get(key):
+            out["kept_as_set"].append(key)
+        elif flags.get(key) is True:
+            out["already_on"].append(key)
+        else:
+            out["would_enable"].append(key)
+    return out
+
+
 @transaction.atomic
 def apply_pack(company, pack: str, answers: dict, user):
     from accounts.models import Company, CompanyPackState
@@ -173,4 +210,15 @@ def apply_pack(company, pack: str, answers: dict, user):
     state.save()
     state.skipped_flags = skipped
     log_flag_event(company, "ENABLE_ARCHETYPE_PACKS", "pack_confirmed", pack=pack)
+    from core.services.audit import AuditService
+
+    AuditService.log(
+        company=company, user=user, action="pack.apply", entity_type="CompanyPackState", entity_id=state.pk,
+        description=f"Applied the {pack} pack",
+        metadata={
+            "pack": pack,
+            "enabled": sorted(k for k in new_snapshot if k not in snapshot and new_snapshot[k] is True),
+            "skipped": skipped,
+        },
+    )
     return state

@@ -473,7 +473,8 @@ def build_export_payload(company) -> dict[str, Any]:
     # Track assets whose bytes/checksum could not be read so the Owner is not
     # handed an export they believe is byte-complete when it is not.
     file_asset_warnings: list[dict] = []
-    for asset in FileAsset.objects.filter(company=company).order_by("id"):
+    # Automatic backups are stored as files; leaving them out keeps each backup from carrying the last.
+    for asset in FileAsset.objects.filter(company=company).exclude(original_name__startswith="bizboard-auto-backup-").order_by("id"):
         checksum = _file_checksum(asset)
         if not checksum:
             file_asset_warnings.append({"id": asset.pk, "reason": "checksum_unreadable"})

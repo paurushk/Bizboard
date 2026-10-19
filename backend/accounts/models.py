@@ -319,6 +319,8 @@ class Company(TimeStampedModel):
     invoice_custom_field_defs = models.JSONField(default=list, blank=True)
     party_custom_field_defs = models.JSONField(default=list, blank=True)
     show_empty_signature_box = models.BooleanField(default=False)
+    # SET-08: a weekly encrypted backup kept on the server (the last few), taken for owners who opt in.
+    scheduled_backup_enabled = models.BooleanField(default=False)
     # A-07 — AR dunning. Default off (DPDP / spam). Owner must opt in.
     dunning_enabled = models.BooleanField(default=False)
     dunning_days = models.JSONField(default=list, blank=True)
@@ -445,6 +447,10 @@ class CompanyStatutoryLicence(TimeStampedModel):
     valid_from = models.DateField(null=True, blank=True)
     valid_upto = models.DateField(null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    # SET-03: set the first time this licence is frozen onto an issued invoice. From then on its
+    # type, number, dates and state cannot change. A renewal or correction is a new record made
+    # with "Replace"; this one is switched off and kept.
+    locked_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         "accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
@@ -454,8 +460,11 @@ class CompanyStatutoryLicence(TimeStampedModel):
 
     class Meta:
         constraints = [
+            # One *active* record per number: a renewal keeps the number, so the switched-off
+            # earlier record must not block the new one.
             models.UniqueConstraint(
                 fields=["company", "licence_type", "licence_number"],
+                condition=models.Q(is_active=True),
                 name="uniq_company_licence_type_number",
             ),
         ]

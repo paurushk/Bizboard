@@ -3,7 +3,7 @@ from decimal import Decimal
 from io import BytesIO
 
 from django.db import transaction
-from django.db.models import ProtectedError, Sum
+from django.db.models import Max, Min, ProtectedError, Sum
 from django.http import HttpResponse
 from rest_framework import status
 from rest_framework.decorators import action
@@ -1337,6 +1337,48 @@ def accounting_backfill_needed(company) -> bool:
     return not BooksHealthService.gl_basis_ready(company)
 
 
+def accounting_disable_preflight(company) -> dict:
+    """What switching the books off would do, and whether it is allowed (SET-07).
+
+    Switching off stops new postings. Entries already posted stay, and anything completed while the
+    books are off has no journal until a back-fill. Two situations are refused outright:
+
+    * a **closed accounting period**: documents dated inside it could never be posted later (the
+      back-fill refuses closed periods too), so the gap would be permanent;
+    * a **back-fill that is running**: switching off mid-run would leave it half done.
+    """
+    from django.core.cache import cache
+
+    from accounting.models import JournalEntry
+    from accounting.tasks import backfill_cache_key
+
+    entries = JournalEntry.objects.filter(company=company, status=JournalEntry.Status.POSTED)
+    dates = entries.aggregate(first=Min("entry_date"), last=Max("entry_date"))
+    periods = AccountingPeriod.objects.filter(company=company)
+    closed = periods.filter(status=AccountingPeriod.Status.CLOSED)
+    soft_closed = periods.filter(status=AccountingPeriod.Status.SOFT_CLOSED)
+    running = (cache.get(backfill_cache_key(company.id)) or {}).get("status") == "running"
+    blockers = []
+    if closed.exists():
+        blockers.append("closed_period")
+    if running:
+        blockers.append("backfill_running")
+    return {
+        "accounting_enabled": bool(company.accounting_enabled),
+        "posted_journals": entries.count(),
+        "first_entry_date": dates["first"].isoformat() if dates["first"] else None,
+        "last_entry_date": dates["last"].isoformat() if dates["last"] else None,
+        "closed_periods": closed.count(),
+        "soft_closed_periods": soft_closed.count(),
+        "latest_closed_period_end": (
+            latest_closed.isoformat() if (latest_closed := closed.aggregate(last=Max("end_date"))["last"]) else None
+        ),
+        "backfill_running": running,
+        "blockers": blockers,
+        "can_disable": bool(company.accounting_enabled) and not blockers,
+    }
+
+
 def _settings_payload(company) -> dict:
     return AccountingSettingsSerializer(
         {
@@ -1346,6 +1388,16 @@ def _settings_payload(company) -> dict:
             "expense_gl_pending": pending_summary(company),
         }
     ).data
+
+
+class AccountingDisablePreflightView(APIView):
+    """GET /accounting/settings/disable-preflight/: what switching the books off would do."""
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasCompany(), IsOwner()]
+
+    def get(self, request):
+        return Response(accounting_disable_preflight(get_company_user(request).company))
 
 
 class AccountingSettingsView(APIView):
@@ -1379,12 +1431,60 @@ class AccountingSettingsView(APIView):
                     "Preview it on this screen, then post. A company with no invoices "
                     "or stock can turn books on directly."
                 )
+            if enabled == bool(company.accounting_enabled):
+                return Response(_settings_payload(company))  # nothing to change, nothing to record
+            meta = {}
+            if not enabled:
+                meta = self._check_may_disable(request, company)
             company.accounting_enabled = enabled
             company.save(update_fields=["accounting_enabled", "updated_at"])
             BooksHealthService.clear_gl_basis_cache(company)
             if enabled:
                 seed_chart_of_accounts(company, request.user)
+            from core.services.audit import AuditService
+
+            AuditService.log(
+                company=company,
+                user=request.user,
+                action="accounting.enable" if enabled else "accounting.disable",
+                entity_type="AccountingSettings",
+                entity_id=company.pk,
+                description=(meta.get("reason") or "")[:255],
+                metadata=meta or None,
+            )
         return Response(_settings_payload(company))
+
+    @staticmethod
+    def _check_may_disable(request, company) -> dict:
+        """Refuse a switch-off that would leave a permanent gap, and make the owner say why."""
+        preflight = accounting_disable_preflight(company)
+        if "closed_period" in preflight["blockers"]:
+            raise BusinessRuleError(
+                "Accounting cannot be switched off while a period is closed: bills dated in it could "
+                "never be posted later. Reopen the closed period first, or ask support.",
+                code="ACCOUNTING_PERIOD_CLOSED",
+            )
+        if "backfill_running" in preflight["blockers"]:
+            raise BusinessRuleError(
+                "A back-fill is running. Wait for it to finish before switching accounting off.",
+                code="ACCOUNTING_BACKFILL_RUNNING",
+            )
+        reason = str(request.data.get("reason") or "").strip()
+        if not reason:
+            raise BusinessRuleError("Say why the books are being switched off.", code="REASON_REQUIRED")
+        acknowledged = request.data.get("acknowledge") in (True, "true", "True", 1, "1")
+        if preflight["posted_journals"] > 0 and not acknowledged:
+            raise BusinessRuleError(
+                f"The books hold {preflight['posted_journals']} posted entries. Confirm that bills completed "
+                "while accounting is off will not be posted until a back-fill (acknowledge).",
+                code="ACKNOWLEDGE_REQUIRED",
+            )
+        return {
+            "reason": reason[:200],
+            "posted_journals": preflight["posted_journals"],
+            "last_entry_date": preflight["last_entry_date"],
+            "soft_closed_periods": preflight["soft_closed_periods"],
+        }
 
     @staticmethod
     def _set_expense_gl_start(company, raw):
@@ -1652,6 +1752,13 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
     def company(self):
         return get_company_user(self.request).company
 
+    def perform_content_negotiation(self, request, force=False):
+        # RPT-01: DRF treats ?format= as renderer selection, so ?format=xlsx 404'd before the view
+        # ran and the Excel download of these reports never worked. Same fix the GST returns use.
+        # Keep the project's default (camel-casing) JSON renderer; only the ?format= override goes.
+        renderer = self.get_renderers()[0]
+        return (renderer, renderer.media_type)
+
     def get_permissions(self):
         # BB-000293: XLSX export requires CanExport.
         export_format = (self.request.query_params.get("format") or "json").lower()
@@ -1717,6 +1824,50 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
             return Response(payload)
         raise BusinessRuleError("Unknown accounting report.")
 
+    @staticmethod
+    def _append_summary_sheets(workbook, sheet, report, payload):
+        """RPT-01: totals row on the trial balance, a Summary sheet, and the Schedule III sections."""
+        if report == "trial-balance":
+            sheet.append(["", "Total", "", payload.get("total_debit", 0), payload.get("total_credit", 0), ""])
+        summary_rows = {
+            "trial-balance": [
+                ("As of", payload.get("as_of")),
+                ("Total debit", payload.get("total_debit")),
+                ("Total credit", payload.get("total_credit")),
+                ("Balanced", payload.get("balanced")),
+            ],
+            "profit-and-loss": [
+                ("From", payload.get("date_from")),
+                ("To", payload.get("date_to")),
+                ("Income", payload.get("income")),
+                ("Expenses", payload.get("expenses")),
+                ("Net profit", payload.get("net_profit")),
+            ],
+            "balance-sheet": [
+                ("As of", payload.get("as_of")),
+                ("Financial year from", payload.get("fy_from")),
+                ("Financial year to", payload.get("fy_to")),
+                ("Assets", payload.get("assets")),
+                ("Liabilities", payload.get("liabilities")),
+                ("Equity", payload.get("equity")),
+                ("Current earnings (included in equity above Schedule III)", payload.get("current_earnings")),
+                ("Assets equal liabilities + equity + earnings", payload.get("equation_holds")),
+            ],
+        }.get(report)
+        if summary_rows:
+            summary = workbook.create_sheet("Summary")
+            summary.append(["Item", "Value"])
+            for label, value in summary_rows:
+                summary.append([label, value])
+        schedule = payload.get("schedule_iii")
+        if schedule:
+            sheet3 = workbook.create_sheet("Schedule III")
+            sheet3.append(["Section", "Line", "Amount"])
+            for section in schedule.get("sections", []):
+                for line in section.get("lines", []):
+                    sheet3.append([section.get("label"), line.get("label"), line.get("amount")])
+                sheet3.append([section.get("label"), "Total", section.get("amount")])
+
     def _report_response(self, report, payload, request):
         if request.query_params.get("format") != "xlsx":
             return Response(payload)
@@ -1751,6 +1902,7 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
                     row.get("account_type", ""), row.get("debit", 0),
                     row.get("credit", 0), row.get("balance", 0),
                 ])
+        self._append_summary_sheets(workbook, sheet, report, payload)
         output = BytesIO()
         workbook.save(output)
         response = HttpResponse(

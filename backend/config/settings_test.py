@@ -34,6 +34,9 @@ from .settings import *  # noqa: E402,F401,F403
 
 DJANGO_ENV = "test"
 
+# Existing restore tests exercise the in-place path; test_backup_page_honesty covers the default (off).
+TENANT_RESTORE_DESTROY_ENABLED = True
+
 if not os.environ.get("DATABASE_URL"):
     DATABASES = {
         "default": {

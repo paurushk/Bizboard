@@ -217,7 +217,9 @@ def test_i2_pdf_is_queued_not_rendered_inline_in_production_mode(tenant_a, setti
 # complete (BUG-SEC-016, party snapshots, BUG-WRK-002). Not a licence to add more.
 # 108 -> 109: already 109 at commit 9cb2acb (measured 2026-10-10 on a clean checkout, before the
 # quotation work); the budget had not been updated for the sales-history commits.
-I2_QUERY_BUDGET = 109
+# 109 -> 111: set_items asks once whether a job card or a project milestone owns the draft (two fixed queries, not per row).
+# 111 -> 112: completing a bill also records which statutory licences it printed (SET-03), one lookup.
+I2_QUERY_BUDGET = 112
 
 
 def _queries_for_create_and_complete(tenant_a, lines: int):

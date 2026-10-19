@@ -468,7 +468,12 @@ def test_saas_activation_upgrade_trial_and_churn(tenant_a):
         past.save(update_fields=["status"])
         resp = tenant_a.client.post(
             "/api/v1/billing/subscription/",
-            {"action": "suspend", "churn_reason": "Too expensive"},
+            {
+                "action": "suspend",
+                "churn_reason": "Too expensive",
+                "confirm_company_name": tenant_a.company.name,
+                "password": "StrongPass123!",
+            },
             format="json",
         )
         assert resp.status_code == 200, resp.data

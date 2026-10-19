@@ -63,16 +63,41 @@ class SubscriptionDetailView(APIView):
         return Response(data)
 
     def post(self, request):
-        """Owner suspends the subscription and records a churn reason."""
+        """Owner suspends the subscription and records a churn reason.
+
+        The most destructive action on this screen, so it asks for: a reason, the company name typed
+        out, and the owner's password (plus a two-step code when that is on). It is refused if the
+        subscription is already suspended, and it is written to the audit trail.
+        """
         from django.db import transaction
+
+        from core.services.audit import AuditService
+
+        from .reauth import require_reauth
 
         cu = get_company_user(request)
         if request.data.get("action") != "suspend":
             raise BusinessRuleError("Unknown billing action.")
+        company = cu.company
+        reason = str(request.data.get("churn_reason") or request.data.get("churnReason") or "").strip()
+        if not reason:
+            raise BusinessRuleError("A churn reason is required to suspend.", code="CHURN_REASON_REQUIRED")
+        typed = str(request.data.get("confirm_company_name") or request.data.get("confirmCompanyName") or "")
+        if " ".join(typed.split()).casefold() != " ".join((company.name or "").split()).casefold():
+            raise BusinessRuleError("Type the company name exactly as shown to confirm.", code="COMPANY_NAME_MISMATCH")
+        existing = subscription_for_company(company)
+        if existing is not None and existing.status == existing.Status.SUSPENDED:
+            raise BusinessRuleError("This workspace is already suspended.", code="ALREADY_SUSPENDED")
+        require_reauth(request)
         with transaction.atomic():
-            sub, win_back_name = suspend_for_churn(
-                cu.company, request.user,
-                reason=request.data.get("churn_reason") or request.data.get("churnReason") or "",
+            sub, win_back_name = suspend_for_churn(company, request.user, reason=reason)
+            AuditService.log(
+                company=company,
+                user=request.user,
+                action="billing.suspend",
+                entity_type="Subscription",
+                entity_id=sub.pk,
+                description=reason[:255],
             )
         data = SubscriptionSerializer(sub).data
         data["win_back_name"] = win_back_name

@@ -1,0 +1,62 @@
+"""SET-20: the backend twin of ``web/src/navigation/settingsImpact.ts``.
+
+What each Settings screen and field reaches elsewhere. ``web/src/navigation/settingsImpact.test.ts``
+fails when the two lists differ, and when a screen has no entry.
+"""
+
+SCREEN_IMPACT: dict[str, tuple[str, ...]] = {
+    "company": ("nav.sales", "nav.purchases", "impact.printedDocuments"),
+    "gst": ("nav.sales", "nav.purchases", "nav.gstr1", "impact.einvoice"),
+    "statutory-licences": ("impact.printedDocuments", "nav.sales"),
+    "bank-accounts": ("impact.printedDocuments", "impact.upiQr", "nav.receipts", "nav.bankReconciliation"),
+    "payment-gateway": ("nav.paymentLinks", "nav.sales"),
+    "money-in-rules": ("nav.receipts", "nav.bankReconciliation", "nav.sales", "impact.reminders"),
+    "price-lists": ("nav.customers", "nav.sales", "nav.pos"),
+    "accounting-settings": ("nav.accounting", "nav.sales", "nav.purchases"),
+    "series": ("nav.sales", "nav.purchases", "impact.printedDocuments"),
+    "templates": ("impact.printedDocuments",),
+    "units": ("nav.products", "nav.sales", "nav.gstr1"),
+    "item-settings": ("nav.products", "nav.sales"),
+    "users": ("impact.signIn",),
+    "import": ("nav.products", "nav.customers", "nav.suppliers"),
+    "tally": ("nav.products", "nav.customers", "nav.suppliers"),
+    "backup": ("impact.yourData",),
+    "billing": ("impact.plan",),
+    "ai-settings": ("impact.billScan", "nav.purchases"),
+    "pack-wizard": ("impact.menu",),
+    "telegram": ("impact.alerts",),
+    "help-health": (),
+}
+
+SETTING_IMPACT: dict[str, tuple[str, ...]] = {
+    "company.name": ("impact.printedDocuments",),
+    "company.address": ("impact.printedDocuments", "nav.sales"),
+    "company.state": ("nav.sales", "nav.purchases", "nav.gstr1"),
+    "company.logo": ("impact.printedDocuments",),
+    "gst.registration_type": ("nav.sales", "nav.gstr1"),
+    "gst.gstin": ("nav.sales", "nav.gstr1", "impact.einvoice", "impact.printedDocuments"),
+    "gst.negative_stock_policy": ("nav.sales", "nav.inventory"),
+    "gst.eway_threshold_amount": ("nav.sales",),
+    "licence.licence_number": ("impact.printedDocuments",),
+    "licence.valid_upto": ("nav.sales",),
+    "bank.print_on_invoices": ("impact.printedDocuments",),
+    "bank.upi_id": ("impact.upiQr",),
+    "bank.is_default": ("nav.receipts",),
+    "gateway.payment_gateway_credentials_encrypted": ("nav.paymentLinks",),
+    "gateway.payment_gateway_provider": ("nav.paymentLinks",),
+    "money_in.cash_269st_mode": ("nav.receipts",),
+    "money_in.dunning_enabled": ("impact.reminders",),
+    "money_in.require_payment_reference": ("nav.receipts",),
+    "price_list.is_active": ("nav.sales", "nav.pos"),
+    "price_list.items": ("nav.sales", "nav.pos"),
+    "accounting.accounting_enabled": ("nav.accounting",),
+    "series.prefix": ("nav.sales", "nav.purchases", "impact.printedDocuments"),
+    "series.next_number": ("nav.sales", "nav.purchases"),
+    "templates.layout": ("impact.printedDocuments",),
+    "unit.uqc_code": ("nav.gstr1",),
+    "items.item_custom_field_defs": ("nav.products", "nav.sales"),
+    "users.role": ("impact.signIn",),
+    "users.is_active": ("impact.signIn",),
+    "ai.opening_cash_balance": ("impact.cashFlow",),
+    "packs.flags": ("impact.menu",),
+}

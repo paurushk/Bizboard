@@ -122,6 +122,14 @@ class GstinTotalChanged(APIException):
         super().__init__(detail=detail, code="GSTIN_TOTAL_CHANGED")
 
 
+class ConflictError(APIException):
+    """409: the row changed under the caller (FND-12) or its state no longer allows the action."""
+
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This record changed. Reload and try again."
+    default_code = "CONFLICT"
+
+
 class StockCountConflict(APIException):
     """C-01: server qty drifted from the count snapshot — cashier must choose."""
 

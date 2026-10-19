@@ -139,6 +139,41 @@ class TallyExportView(APIView):
         return resp
 
 
+class TallyRunsView(APIView):
+    """GET /integrations/tally/runs/: the company's recent Tally imports, newest first (SET-09)."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanImport]
+
+    def get(self, request):
+        cu = get_company_user(request)
+        assert_tally_enabled(cu.company)
+        runs = (
+            IntegrationSyncRun.objects.filter(company=cu.company, kind=IntegrationSyncRun.Kind.TALLY_IMPORT)
+            .select_related("created_by", "file")
+            .order_by("-created_at", "-id")[:20]
+        )
+        out = []
+        for run in runs:
+            preview = run.preview if isinstance(run.preview, dict) else {}
+            out.append(
+                {
+                    "id": run.id,
+                    "status": run.status,
+                    "created_at": run.created_at,
+                    "by": (getattr(run.created_by, "full_name", "") or getattr(run.created_by, "email", ""))
+                    if run.created_by
+                    else "",
+                    "file_name": getattr(run.file, "original_name", "") if run.file_id else "",
+                    "customers": len(preview.get("customers") or []),
+                    "suppliers": len(preview.get("suppliers") or []),
+                    "products": len(preview.get("products") or []),
+                    "error_count": len(run.errors or []),
+                    "failure_reason": run.failure_reason or "",
+                }
+            )
+        return Response(out)
+
+
 class TallyErrorsView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, CanImport]
 

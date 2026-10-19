@@ -9,6 +9,8 @@ from .views import (
     CustomerReceiptViewSet,
     GatewayPaymentViewSet,
     GatewaySettingsView,
+    GatewayVerifyView,
+    MoneyInRulesView,
     PaymentAllocationViewSet,
     PaymentHealthView,
     PaymentLinkViewSet,
@@ -43,6 +45,8 @@ router.register("promises", PaymentPromiseViewSet, basename="payment-promises")
 urlpatterns = router.urls + [
     path("upi-qr/", UpiQrView.as_view(), name="upi-qr"),
     path("gateway-settings/", GatewaySettingsView.as_view(), name="gateway-settings"),
+    path("gateway-settings/verify/", GatewayVerifyView.as_view(), name="gateway-settings-verify"),
+    path("money-in-rules/", MoneyInRulesView.as_view(), name="money-in-rules"),
     path("health/", PaymentHealthView.as_view(), name="payment-health"),
     path("collection-risk/", CollectionRiskView.as_view(), name="collection-risk"),
     path(

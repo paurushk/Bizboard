@@ -195,6 +195,75 @@ def decrypt_gateway_credentials(ciphertext: str) -> dict[str, Any]:
     return decrypt_gsp_credentials(ciphertext)
 
 
+# Markers kept inside the sealed credentials: when the provider last accepted these keys, and for
+# which provider. Cleared whenever the keys change.
+VERIFIED_AT_KEY = "_verified_at"
+VERIFIED_PROVIDER_KEY = "_verified_provider"
+
+
+def keys_accepted_for(creds: dict[str, Any], provider: str) -> bool:
+    return bool(creds.get(VERIFIED_AT_KEY)) and creds.get(VERIFIED_PROVIDER_KEY) == provider
+
+
+def record_keys_accepted(company, creds: dict[str, Any], provider: str) -> str:
+    """Remember that ``provider`` accepted ``creds`` (sealed with them). Returns the timestamp."""
+    from django.utils import timezone
+
+    stamp = timezone.now().isoformat()
+    creds[VERIFIED_AT_KEY] = stamp
+    creds[VERIFIED_PROVIDER_KEY] = provider
+    company.payment_gateway_credentials_encrypted = encrypt_gateway_credentials(creds)
+    company.save(update_fields=["payment_gateway_credentials_encrypted", "updated_at"])
+    return stamp
+
+
+@dataclass
+class CredentialCheck:
+    """Outcome of asking a provider whether a set of keys is accepted (SET-05).
+
+    status: "valid" (provider accepted the keys), "invalid" (provider refused them), "missing"
+    (nothing to check), "unreachable" (could not get an answer: network, timeout, provider error,
+    so we know nothing), "unsupported" (no automatic check exists for this provider).
+    """
+
+    status: str
+    detail: str = ""
+
+
+def _check_get(url: str, **kwargs) -> Any:
+    """One short, read-only GET for a credential check. Outside the money-path circuit breaker, so
+    checking keys never trips payments. Returns the response, or an "unreachable" result."""
+    import requests
+
+    try:
+        return requests.get(url, timeout=10, **kwargs)
+    except requests.RequestException:
+        return CredentialCheck("unreachable", "Could not reach the provider. Try again in a moment.")
+
+
+def credential_hint_and_mode(provider: str, creds: dict[str, Any]) -> tuple[str, str]:
+    """(last four characters of the public key id, "test" | "live" | "unknown").
+
+    Never the secret. Only Razorpay key ids say which mode they are (rzp_test_ / rzp_live_).
+    """
+    provider = (provider or "").lower()
+    if provider == "razorpay":
+        key = str(creds.get("key_id") or creds.get("api_key") or "").strip()
+    elif provider == "cashfree":
+        key = str(creds.get("app_id") or creds.get("client_id") or "").strip()
+    elif provider == "payu":
+        key = str(creds.get("merchant_key") or creds.get("key") or "").strip()
+    else:
+        key = ""
+    mode = "unknown"
+    if provider == "razorpay":
+        if key.startswith("rzp_test_"):
+            mode = "test"
+        elif key.startswith("rzp_live_"):
+            mode = "live"
+    return (key[-4:] if key else ""), mode
+
+
 @dataclass
 class CreateLinkResult:
     provider_link_id: str
@@ -236,6 +305,8 @@ class PaymentGatewayAdapter(Protocol):
 
     def refund(self, *, provider_payment_id: str, amount: Decimal, idempotency_key: str = "") -> dict[str, Any]: ...
 
+    def verify_credentials(self) -> CredentialCheck: ...
+
 
 def _sandbox_webhook_secret_base() -> str:
     """BB-000258: base HMAC secret for sandbox webhooks (required outside DJANGO_ENV=test)."""
@@ -274,6 +345,9 @@ class SandboxAdapter:
 
     def __init__(self, company_id=None):
         self.company_id = company_id
+
+    def verify_credentials(self) -> CredentialCheck:
+        return CredentialCheck("valid", "Sandbox has no keys to check.")
 
     def create_payment_link(
         self,
@@ -350,6 +424,22 @@ class RazorpayAdapter:
         self.key_secret = credentials.get("key_secret") or credentials.get("api_secret") or ""
         # BB-000307: dedicated webhook_secret required — no key_secret fallback.
         self.webhook_secret = (credentials.get("webhook_secret") or "").strip()
+
+    def verify_credentials(self) -> CredentialCheck:
+        """Razorpay documents HTTP Basic auth on every API; "fetch all payments" with count=1 is a
+        read-only call that answers 401 for keys it does not accept."""
+        if not self.key_id or not self.key_secret:
+            return CredentialCheck("missing", "Enter the Razorpay key ID and key secret.")
+        resp = _check_get(
+            "https://api.razorpay.com/v1/payments", params={"count": 1}, auth=(self.key_id, self.key_secret)
+        )
+        if isinstance(resp, CredentialCheck):
+            return resp
+        if resp.status_code == 200:
+            return CredentialCheck("valid", "Razorpay accepted the keys.")
+        if resp.status_code in (401, 403):
+            return CredentialCheck("invalid", "Razorpay did not accept these keys. Check the key ID and secret.")
+        return CredentialCheck("unreachable", f"Razorpay answered HTTP {resp.status_code}; the keys were not checked.")
 
     def create_payment_link(self, **kwargs) -> CreateLinkResult:
         if not self.key_id or not self.key_secret:
@@ -585,6 +675,29 @@ class CashfreeGateway:
         self.webhook_secret = (credentials.get("webhook_secret") or "").strip()
         self.api_base = (credentials.get("api_base") or "https://api.cashfree.com/pg").rstrip("/")
 
+    def verify_credentials(self) -> CredentialCheck:
+        """Looks up an order id that cannot exist. Cashfree documents the client id and secret as
+        request headers on Get Order; this assumes a missing order answers 404 for good keys and
+        401 for bad ones. That assumption is not stated in its documentation, so a 404 is treated
+        as "accepted" and anything unexpected as "could not check"."""
+        if not self.app_id or not self.secret_key:
+            return CredentialCheck("missing", "Enter the Cashfree app ID and secret key.")
+        resp = _check_get(
+            f"{self.api_base}/orders/bb_credential_check",
+            headers={
+                "x-client-id": self.app_id,
+                "x-client-secret": self.secret_key,
+                "x-api-version": "2023-08-01",
+            },
+        )
+        if isinstance(resp, CredentialCheck):
+            return resp
+        if resp.status_code in (200, 404):
+            return CredentialCheck("valid", "Cashfree accepted the keys.")
+        if resp.status_code in (401, 403):
+            return CredentialCheck("invalid", "Cashfree did not accept these keys. Check the app ID and secret.")
+        return CredentialCheck("unreachable", f"Cashfree answered HTTP {resp.status_code}; the keys were not checked.")
+
     def create_payment_link(self, **kwargs) -> CreateLinkResult:
         if not self.app_id or not self.secret_key:
             raise BusinessRuleError("Cashfree credentials are not configured.")
@@ -774,6 +887,15 @@ class PayUGateway:
         self._explicit_api_base = bool((credentials.get("api_base") or "").strip())
         self.api_base = (credentials.get("api_base") or default_base).rstrip("/")
 
+    def verify_credentials(self) -> CredentialCheck:
+        # PayU has no documented read-only call that tells a wrong key or salt from an unknown
+        # transaction, so keys are not checked automatically.
+        if not self.merchant_key or not self.merchant_salt:
+            return CredentialCheck("missing", "Enter the PayU merchant key and salt.")
+        return CredentialCheck(
+            "unsupported", "PayU keys cannot be checked automatically. Test with a small payment link."
+        )
+
     def create_payment_link(self, **kwargs) -> CreateLinkResult:
         from django.conf import settings
 
@@ -961,6 +1083,9 @@ class _DisabledProviderAdapter:
 
     def __init__(self, name: str):
         self.name = name
+
+    def verify_credentials(self) -> CredentialCheck:
+        return CredentialCheck("unsupported", f"Payment provider '{self.name}' is not enabled.")
 
     def create_payment_link(self, **kwargs) -> CreateLinkResult:
         raise BusinessRuleError(

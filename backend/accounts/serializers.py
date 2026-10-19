@@ -195,9 +195,10 @@ class CompanySerializer(serializers.ModelSerializer):
             "feature_flags",
             "onboarding_dismissed_at", "tax_profile_confirmed_at", "onboarding_started_at",
             "onboarding", "dismiss_onboarding", "confirm_tax_profile",
-            "mark_onboarding_started",
+            "mark_onboarding_started", "updated_at",
         ]
         read_only_fields = [
+            "updated_at",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "pan_verification_status", "pan_legal_name", "pan_verified_at",
             "udyam_verification_status", "udyam_enterprise_name", "udyam_verified_at",
@@ -335,6 +336,15 @@ class CompanySerializer(serializers.ModelSerializer):
         from core.validators import validate_gstin
 
         instance = self.instance
+        # SET-09b: the cash-flow forecast only uses the opening cash when it has BOTH a balance and a
+        # date; one without the other was accepted and silently ignored (it fell back to "relative").
+        if "opening_cash_balance" in attrs or "opening_cash_as_of" in attrs:
+            balance = attrs.get("opening_cash_balance", getattr(instance, "opening_cash_balance", None))
+            as_of = attrs.get("opening_cash_as_of", getattr(instance, "opening_cash_as_of", None))
+            if (balance is None) != (as_of is None):
+                raise serializers.ValidationError(
+                    {"opening_cash_as_of": "Give both the opening cash balance and the date it is as of, or leave both empty."}
+                )
         registration_type = attrs.get(
             "registration_type",
             getattr(instance, "registration_type", Company.RegistrationType.REGULAR),
@@ -496,11 +506,52 @@ class CompanyUserSerializer(serializers.ModelSerializer):
     phone = serializers.CharField(source="user.phone", read_only=True)
     # BB-000084: company FK is never writable — membership stays on request tenant.
     company = serializers.PrimaryKeyRelatedField(read_only=True)
+    last_login = serializers.DateTimeField(source="user.last_login", read_only=True)
+    invite_state = serializers.SerializerMethodField(
+        help_text="accepted, pending (a link still works), expired (invited, never signed in, no working link) or deactivated."
+    )
+    invite_expires_at = serializers.SerializerMethodField()
+
+    def _latest_unused_invite(self, obj):
+        from django.utils import timezone
+
+        from .models import InviteJti
+
+        cache = self.context.setdefault("_invite_cache", {})
+        if obj.pk not in cache:
+            row = (
+                InviteJti.objects.filter(membership=obj, consumed_at__isnull=True, expires_at__gt=timezone.now())
+                .order_by("-expires_at")
+                .first()
+            )
+            cache[obj.pk] = row
+        return cache[obj.pk]
+
+    def get_invite_state(self, obj) -> str:
+        if obj.is_active:
+            return "accepted"
+        if self._latest_unused_invite(obj):
+            return "pending"
+        # Switched off with no working invite: someone who has signed in, or who was never sent an
+        # invite at all (created with a password), was deactivated. Someone who was invited, never
+        # signed in and has no working link had an invite that ran out or was cancelled. Older
+        # accounts deactivated before sign-ins were recorded are told apart by the invite history.
+        if obj.user.last_login is not None:
+            return "deactivated"
+        from .models import InviteJti
+
+        ever_invited = InviteJti.objects.filter(membership=obj).exists()
+        return "expired" if ever_invited else "deactivated"
+
+    def get_invite_expires_at(self, obj):
+        row = None if obj.is_active else self._latest_unused_invite(obj)
+        return row.expires_at if row else None
 
     class Meta:
         model = CompanyUser
         fields = [
-            "id", "company", "user", "email", "full_name", "phone", "role",
+            "id", "company", "user", "email", "full_name", "phone", "last_login",
+            "invite_state", "invite_expires_at", "updated_at", "role",
             "can_manage_inventory", "can_import",
             "can_cancel_documents", "can_view_financial_reports", "can_export",
             "can_view_ai_insights", "can_use_ai_assistant",
@@ -508,7 +559,7 @@ class CompanyUserSerializer(serializers.ModelSerializer):
             "can_post_journals", "can_manage_policies",
             "is_active",
         ]
-        read_only_fields = ["company", "user"]
+        read_only_fields = ["company", "user", "last_login", "invite_state", "invite_expires_at", "updated_at"]
 
     def validate_role(self, value):
         # B6-026: never accept a direct promotion to OWNER through this generic
@@ -712,14 +763,40 @@ class CompanyStatutoryLicenceSerializer(serializers.ModelSerializer):
         fields = [
             "id", "licence_type", "licence_number", "premises_address", "premises_state",
             "premises_city", "premises_pincode", "valid_from", "valid_upto", "is_active",
-            "created_at", "updated_at",
+            "is_locked", "created_at", "updated_at",
         ]
-        read_only_fields = ["created_at", "updated_at"]
+        read_only_fields = ["created_at", "updated_at", "is_locked"]
+
+    is_locked = serializers.SerializerMethodField(
+        help_text="True once the licence has been printed on an issued invoice: renew or replace it."
+    )
+
+    def get_is_locked(self, obj) -> bool:
+        return obj.locked_at is not None
+
+    # Once a licence is on an issued invoice these cannot be edited. A renewal or a correction is
+    # a new record made with Replace; the old one is switched off and kept.
+    _LOCKED_FIELDS = ("licence_type", "licence_number", "valid_from", "valid_upto", "premises_state")
+
+    def _check_locked_edit(self, attrs):
+        instance = self.instance
+        if instance is None or instance.locked_at is None:
+            return
+        errors = {
+            field: "This licence is printed on issued invoices and cannot be changed. "
+            "Use Replace to enter the renewed or corrected licence."
+            for field in self._LOCKED_FIELDS
+            if field in attrs and attrs[field] != getattr(instance, field)
+        }
+        if errors:
+            raise serializers.ValidationError(errors)
 
     def validate(self, attrs):
         from django.core.exceptions import ValidationError as DjangoValidationError
 
         from core.validators import validate_drug_licence, validate_fssai
+
+        self._check_locked_edit(attrs)
 
         licence_type = attrs.get("licence_type", getattr(self.instance, "licence_type", None))
         licence_number = attrs.get("licence_number", getattr(self.instance, "licence_number", ""))

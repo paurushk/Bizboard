@@ -157,6 +157,9 @@ class DocumentSeries(models.Model):
     padding = models.PositiveSmallIntegerField(default=5)
     gstin_key = models.CharField(max_length=15, blank=True, default="")
     fy_label = models.CharField(max_length=8, blank=True, default="")
+    # SET-02: set when an owner changes the prefix, next number or padding (the optimistic lock on
+    # the Document Series screen). Allocating a number does not touch it: it saves only next_number.
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [
