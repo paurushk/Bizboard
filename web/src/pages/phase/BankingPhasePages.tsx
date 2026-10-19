@@ -8,15 +8,14 @@ import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import Link from '@mui/material/Link';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
-import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import LinearProgress from '@mui/material/LinearProgress';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
@@ -26,12 +25,13 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import type { Customer, SalesInvoice } from '@/types/domain';
-import { isValidIfsc } from '@/utils/gst';
 import { formatMoney, toNumber } from '@/utils/money';
 import { openShareUrl } from '@/utils/safeUrl';
 import { t } from '@/i18n';
 import { useAuth } from '@/auth/AuthContext';
-import { canCreatePayments } from '@/utils/permissions';
+import { canCreatePayments, canExport } from '@/utils/permissions';
+import { cashBookRowPath } from '@/pages/reports/ledgerLinks';
+import { useReportPeriod } from '@/utils/useReportPeriod';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import {
@@ -42,240 +42,6 @@ import {
   type Row,
 } from '@/pages/phase/phaseShared';
 
-
-export function BankAccountsPage() {
-  const { writesBlocked } = useSubscriptionGate();
-  const qc = useQueryClient();
-  const query = useQuery({ queryKey: ['bank-accounts'], queryFn: api.listBankAccounts });
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ name: '', accountType: 'CURRENT', ifsc: '', accountNumberMasked: '', isDefault: false });
-  const [error, setError] = useState('');
-  const create = useMutation({
-    mutationFn: () => {
-      const ifsc = form.ifsc.trim().toUpperCase();
-      if (ifsc && !isValidIfsc(ifsc)) {
-        throw new Error('Enter a valid IFSC (e.g. HDFC0001234).');
-      }
-      return api.createBankAccount({
-        name: form.name,
-        accountType: form.accountType,
-        ifsc: ifsc || form.ifsc,
-        accountNumberMasked: form.accountNumberMasked,
-        isDefault: form.isDefault,
-      });
-    },
-    onSuccess: () => {
-      setOpen(false);
-      setForm({ name: '', accountType: 'CURRENT', ifsc: '', accountNumberMasked: '', isDefault: false });
-      setError('');
-      void qc.invalidateQueries({ queryKey: ['bank-accounts'] });
-    },
-    onError: (e) => setError(getErrorMessage(e)),
-  });
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  return (
-    <PageShell
-      title={t('phase.bankAccounts')}
-      subtitle={t('phase.bankAccountsSubtitle')}
-      actions={
-        <Button variant="contained" onClick={() => setOpen(true)} disabled={writesBlocked}>
-          {t('sweep2.addAccount')}
-        </Button>
-      }
-    >
-      <DataTable
-        rows={asRows(query.data)}
-        empty="No bank accounts yet. Save bank details in Company settings, or add an account here."
-        columns={[
-          { key: 'name', label: 'Name' },
-          { key: 'accountType', label: 'Type' },
-          { key: 'accountNumberMasked', label: 'Account' },
-          { key: 'ifsc', label: 'IFSC' },
-          { key: 'openingBalance', label: 'Opening', money: true },
-          { key: 'isDefault', label: 'Default', bool: true },
-        ]}
-      />
-      {asRows(query.data).length === 0 ? (
-        <Button component={RouterLink} to="/settings/company#bank-section" sx={{ mt: 1, alignSelf: 'flex-start' }}>
-          {t('sweep2.openCompanyBank')}
-        </Button>
-      ) : null}
-      <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>{t('sweep2.newBankAccount')}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label={t('sweep.name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
-            <TextField select label={t('sweep.type')} value={form.accountType} onChange={(e) => setForm({ ...form, accountType: e.target.value })}>
-              <MenuItem value="CURRENT">{t('sweep2.current')}</MenuItem>
-              <MenuItem value="SAVINGS">{t('sweep2.savings')}</MenuItem>
-              <MenuItem value="CASH_BOX">{t('sweep2.cashBox')}</MenuItem>
-            </TextField>
-            <TextField label={t('sweep.maskedAccountNo')} value={form.accountNumberMasked} onChange={(e) => setForm({ ...form, accountNumberMasked: e.target.value })} />
-            <TextField label="IFSC" value={form.ifsc} onChange={(e) => setForm({ ...form, ifsc: e.target.value })} />
-            <FormControlLabel control={<Switch checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />} label={t('sweep.defaultAccount')} />
-            {error ? <HelpErrorAlert message={error} /> : null}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setOpen(false)}>{t('sweep2.cancel')}</Button>
-          <Tooltip title={!form.name.trim() ? 'Enter bank account name to save' : ''}>
-            <span>
-              <Button variant="contained" disabled={writesBlocked || !form.name.trim() || create.isPending} onClick={() => create.mutate()}>
-                {t('sweep2.save')}
-              </Button>
-            </span>
-          </Tooltip>
-        </DialogActions>
-      </Dialog>
-    </PageShell>
-  );
-}
-
-export function PaymentGatewayPage() {
-  const { writesBlocked } = useSubscriptionGate();
-  const qc = useQueryClient();
-  const q = useQuery({ queryKey: ['gateway-settings'], queryFn: api.getGatewaySettings });
-  const [provider, setProvider] = useState('');
-  const [testMode, setTestMode] = useState(true);
-  const [requireRef, setRequireRef] = useState(false);
-  const [autoMatch, setAutoMatch] = useState(false);
-  // Money In rules (owner-only, saved with the same button).
-  const [chequeOnClear, setChequeOnClear] = useState(false);
-  const [cashMode, setCashMode] = useState('warn');
-  const [advanceGst, setAdvanceGst] = useState('none');
-  const [advanceRate, setAdvanceRate] = useState('');
-  const [keyId, setKeyId] = useState('');
-  const [keySecret, setKeySecret] = useState('');
-  const [msg, setMsg] = useState('');
-  const [seenSettings, setSeenSettings] = useState<typeof q.data>(undefined);
-  if (q.data && q.data !== seenSettings) {
-    setSeenSettings(q.data);
-    setTestMode(Boolean(q.data.testMode ?? true));
-    setRequireRef(Boolean(q.data.requirePaymentReference));
-    setAutoMatch(Boolean(q.data.autoMatchBankExact));
-    setChequeOnClear(Boolean(q.data.chequeAllocationOnClearance));
-    setCashMode(String(q.data.cash269stMode ?? 'warn'));
-    setAdvanceGst(String(q.data.advanceGstTreatment ?? 'none'));
-    setAdvanceRate(q.data.advanceGstDefaultRate == null ? '' : String(q.data.advanceGstDefaultRate));
-    setProvider(String(q.data.provider ?? 'razorpay'));
-  }
-  const m = useMutation({
-    mutationFn: () =>
-      api.updateGatewaySettings({
-        provider: provider || q.data?.provider || 'razorpay',
-        test_mode: testMode,
-        require_payment_reference: requireRef,
-        auto_match_bank_exact: autoMatch,
-        cheque_allocation_on_clearance: chequeOnClear,
-        cash_269st_mode: cashMode,
-        advance_gst_treatment: advanceGst,
-        advance_gst_default_rate: advanceRate.trim() === '' ? null : advanceRate.trim(),
-        credentials: keyId || keySecret ? { key_id: keyId, key_secret: keySecret, api_key: keyId, api_secret: keySecret } : undefined,
-      }),
-    onSuccess: () => {
-      const chosen = provider || String(q.data?.provider ?? 'razorpay');
-      const storedKeys = Boolean(q.data?.credentialsConfigured) || Boolean(keyId || keySecret);
-      // Sandbox is the local/CI provider and does not store live keys.
-      setMsg(storedKeys || chosen === 'sandbox' ? t('integrations.gatewaySaved') : t('integrations.gatewayNotLive'));
-      setKeySecret('');
-      void qc.invalidateQueries({ queryKey: ['gateway-settings'] });
-    },
-    onError: (e) => setMsg(getErrorMessage(e)),
-  });
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
-  const webhooks = (q.data?.webhookPaths as Record<string, string>) || {};
-  return (
-    <PageShell title={t('phase.paymentGateway')} subtitle={t('phase.paymentGatewaySubtitle')}>
-      {msg ? <Alert severity={m.isError ? 'error' : 'success'}>{msg}</Alert> : null}
-      <Paper variant="outlined" sx={{ p: 3 }}>
-        <Stack spacing={2}>
-          <TextField
-            select
-            label={t('sweep.provider')}
-            value={provider || String(q.data?.provider ?? 'razorpay')}
-            onChange={(e) => setProvider(e.target.value)}
-          >
-            <MenuItem value="razorpay">Razorpay</MenuItem>
-            <MenuItem value="cashfree">Cashfree</MenuItem>
-            <MenuItem value="payu">PayU</MenuItem>
-            <MenuItem value="sandbox">{t('sweep2.sandboxCiLocal')}</MenuItem>
-          </TextField>
-          <FormControlLabel
-            control={<Switch checked={testMode} onChange={(e) => setTestMode(e.target.checked)} />}
-            label={t('sweep.testMode')}
-          />
-          <FormControlLabel
-            control={<Switch checked={requireRef} onChange={(e) => setRequireRef(e.target.checked)} />}
-            label={t('sweep.requireUtr')}
-          />
-          <FormControlLabel
-            control={<Switch checked={autoMatch} onChange={(e) => setAutoMatch(e.target.checked)} />}
-            label={t('sweep.autoMatchUtr')}
-          />
-          <Typography variant="subtitle2" component="h2">
-            {t('receipts.policyTitle')}
-          </Typography>
-          <FormControlLabel
-            control={<Switch checked={chequeOnClear} onChange={(e) => setChequeOnClear(e.target.checked)} />}
-            label={t('receipts.policyChequeOnClear')}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {t('receipts.policyChequeOnClearHelp')}
-          </Typography>
-          <TextField
-            select
-            label={t('receipts.policyCash269st')}
-            value={cashMode}
-            onChange={(e) => setCashMode(e.target.value)}
-            helperText={t('receipts.policyCash269stHelp')}
-          >
-            <MenuItem value="off">{t('receipts.policyCashOff')}</MenuItem>
-            <MenuItem value="warn">{t('receipts.policyCashWarn')}</MenuItem>
-            <MenuItem value="block">{t('receipts.policyCashBlock')}</MenuItem>
-          </TextField>
-          <TextField
-            select
-            label={t('receipts.policyAdvanceGst')}
-            value={advanceGst}
-            onChange={(e) => setAdvanceGst(e.target.value)}
-            helperText={t('receipts.policyAdvanceGstHelp')}
-          >
-            <MenuItem value="none">{t('receipts.policyAdvanceNone')}</MenuItem>
-            <MenuItem value="goods">{t('receipts.policyAdvanceGoods')}</MenuItem>
-            <MenuItem value="services">{t('receipts.policyAdvanceServices')}</MenuItem>
-          </TextField>
-          {advanceGst === 'services' ? (
-            <TextField
-              type="number"
-              label={t('receipts.policyAdvanceRate')}
-              value={advanceRate}
-              onChange={(e) => setAdvanceRate(e.target.value)}
-              slotProps={{ htmlInput: { min: 0, max: 40, step: '0.01' } }}
-            />
-          ) : null}
-          {!q.data?.credentialsConfigured ? (
-            <Alert severity="warning">{t('integrations.paymentGatewayClosed')}</Alert>
-          ) : (
-            <Alert severity="info">{t('integrations.paymentGatewayConfigured')}</Alert>
-          )}
-          <TextField label={t('sweep.keyAppId')} value={keyId} onChange={(e) => setKeyId(e.target.value)} />
-          <TextField label={t('sweep.secret')} type="password" value={keySecret} onChange={(e) => setKeySecret(e.target.value)} />
-          <Button variant="contained" disabled={writesBlocked || m.isPending} onClick={() => m.mutate()}>
-            {t('sweep2.saveSettings')}
-          </Button>
-          <Typography variant="subtitle2">{t('sweep2.webhookUrls')}</Typography>
-          {Object.entries(webhooks).map(([k, v]) => (
-            <Typography key={k} variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              {k}: {v}
-            </Typography>
-          ))}
-        </Stack>
-      </Paper>
-    </PageShell>
-  );
-}
 
 export function PaymentLinksPage() {
   const { writesBlocked } = useSubscriptionGate();
@@ -1012,21 +778,29 @@ export function BankReconPage() {
 }
 
 export function CashBookPage() {
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const { user } = useAuth();
+  // RPT-06: opens on this month and remembers the last choice; a backwards range is not sent.
+  const { dateFrom: from, dateTo: to, setDateFrom: setFrom, setDateTo: setTo, invalid } = useReportPeriod('cash-book', 'thisMonth');
   const [exportErr, setExportErr] = useState('');
+  // The API can narrow the book to one bank account; "All" is cash and every account together.
+  const [bankAccount, setBankAccount] = useState('');
+  const banks = useQuery({ queryKey: ['bank-accounts'], queryFn: api.listBankAccounts });
+  const rangeParams = {
+    ...(from ? { date_from: from } : {}),
+    ...(to ? { date_to: to } : {}),
+    ...(bankAccount ? { bank_account: bankAccount } : {}),
+  };
   const q = useQuery({
-    queryKey: ['cash-book', from, to],
-    queryFn: () =>
-      api.getCashBook({
-        ...(from ? { date_from: from } : {}),
-        ...(to ? { date_to: to } : {}),
-      }),
+    enabled: !invalid,
+    queryKey: ['cash-book', from, to, bankAccount],
+    queryFn: () => api.getCashBook(rangeParams),
+    // RPT-05: keep the last result and the date boxes on screen while a new range loads.
+    placeholderData: keepPreviousData,
   });
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
-  if (q.isLoading) return <LoadingState />;
-  if (q.isError) return <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />;
-  const data = q.data as Row;
+  const failed = q.isError;
+  const ready = Boolean(q.data) && !failed;
+  const data = (ready ? q.data : {}) as Row;
   const rows = (data.rows as Row[]) || [];
   return (
     <PageShell
@@ -1035,17 +809,21 @@ export function CashBookPage() {
       actions={
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <TextField type="date" size="small" label={t('sweep.from')} InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
-          <TextField type="date" size="small" label={t('sweep.to')} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
+          <TextField type="date" size="small" label={t('sweep.to')} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} error={invalid} helperText={invalid ? t('salesSummary.rangeBackwards') : undefined} />
+          <TextField select size="small" label={t('sweep.bankAccount')} value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} sx={{ minWidth: 180 }}>
+            <MenuItem value="">{t('reportLabels.allAccounts')}</MenuItem>
+            {(banks.data ?? []).map((b) => (
+              <MenuItem key={b.id} value={String(b.id)}>{b.name}</MenuItem>
+            ))}
+          </TextField>
+          {canExport(user) ? (
           <Button
             variant="outlined"
             size="small"
             onClick={async () => {
               try {
                 setExportErr('');
-                const { url } = await api.downloadCashBookXlsx({
-                  ...(from ? { date_from: from } : {}),
-                  ...(to ? { date_to: to } : {}),
-                });
+                const { url } = await api.downloadCashBookXlsx(rangeParams);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = 'cash-book.xlsx';
@@ -1058,23 +836,33 @@ export function CashBookPage() {
           >
             {t('sweep2.exportXlsx')}
           </Button>
+          ) : null}
         </Stack>
       }
     >
+      {q.isFetching ? <LinearProgress aria-label={t('common.loading')} /> : null}
+      {q.isLoading ? <LoadingState /> : null}
+      {failed ? (
+        <ErrorState message={getErrorMessage(q.error)} error={q.error} onRetry={() => void q.refetch()} />
+      ) : null}
       {exportErr ? <HelpErrorAlert message={exportErr} /> : null}
       {Array.isArray(health.data?.alerts) && (health.data.alerts as Row[]).length ? (
         <Alert severity="warning">
-          Payment health: {String((health.data.summary as Row)?.critical ?? 0)} critical,{' '}
-          {String((health.data.summary as Row)?.warning ?? 0)} warnings
+          {t('reportLabels.paymentHealth', {
+            critical: String((health.data.summary as Row)?.critical ?? 0),
+            warning: String((health.data.summary as Row)?.warning ?? 0),
+          })}
         </Alert>
       ) : null}
-      <Alert severity="info">{String(data.disclaimer || 'Cash book shows document actuals.')}</Alert>
+      {ready ? (
+        <>
+      <Alert severity="info">{String(data.disclaimer || t('reportLabels.cashDisclaimer'))}</Alert>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         {[
-          ['Opening', data.opening],
-          ['Inflow', data.inflow],
-          ['Outflow', data.outflow],
-          ['Closing', data.closing],
+          [t('reportLabels.opening'), data.opening],
+          [t('reportLabels.inflow'), data.inflow],
+          [t('reportLabels.outflow'), data.outflow],
+          [t('reportLabels.closing'), data.closing],
         ].map(([label, val]) => (
           <Paper key={String(label)} variant="outlined" sx={{ p: 2, flex: 1 }}>
             <Typography variant="caption" color="text.secondary">
@@ -1086,21 +874,31 @@ export function CashBookPage() {
       </Stack>
       <DataTable
         rows={rows}
-        empty="No cash movements in this period."
+        empty={t('reportLabels.noCashMovements')}
         // F3-016: an unbounded date range can return every cash movement —
         // window the DOM rows instead of rendering them all at once.
         virtualized
         columns={[
-          { key: 'date', label: 'Date' },
-          { key: 'type', label: 'Type' },
-          { key: 'number', label: 'Number' },
-          { key: 'party', label: 'Party' },
-          { key: 'mode', label: 'Mode' },
-          { key: 'inflow', label: 'Inflow', money: true },
-          { key: 'outflow', label: 'Outflow', money: true },
-          { key: 'reference', label: 'Ref' },
+          { key: 'date', label: t('reportLabels.date') },
+          { key: 'type', label: t('reportLabels.type') },
+          {
+            key: 'number',
+            label: t('reportLabels.number'),
+            // RPT-11: open the receipt or payment behind the row.
+            render: (row: Row) => {
+              const link = cashBookRowPath(row);
+              return link ? <Link component={RouterLink} to={link}>{String(row.number ?? '')}</Link> : String(row.number ?? '—');
+            },
+          },
+          { key: 'party', label: t('reportLabels.party') },
+          { key: 'mode', label: t('reportLabels.mode') },
+          { key: 'inflow', label: t('reportLabels.inflow'), money: true },
+          { key: 'outflow', label: t('reportLabels.outflow'), money: true },
+          { key: 'reference', label: t('reportLabels.ref') },
         ]}
       />
+        </>
+      ) : null}
     </PageShell>
   );
 }

@@ -889,3 +889,7 @@ The first run found that totals and the opening balance counted uncleared cheque
 (`test_money_hub_wp0.py`). Front-end: the hub page, every hand-off page, the menu group and the cache
 invalidation have unit tests; `web/e2e-golden/money-hub-golden.spec.ts` walks the loop in a real browser. Postgres
 adds nothing new here: the hub takes no locks.
+
+## Addendum 2026-10-19 — Customer care and Jobs & contracts
+
+Seven `test_ccj_*` backend files cover tickets, complaints, contracts, jobs, projects, links and search, plus a Postgres-only concurrency file. Each screen has a web test with axe checks, using `src/test/careHarness.tsx`. Gaps: the Postgres lane in CI and a live run of `web/e2e-golden/care-jobs-contracts-golden.spec.ts` (QOS-0134).

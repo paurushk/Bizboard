@@ -168,9 +168,19 @@ export async function getGstReturn(
 
 export async function downloadGstReturn(
   kind: 'gstr1' | 'gstr3b',
-  params: { period: string; format: 'json' | 'xlsx'; companyGstin?: string | number },
+  params: { period: string; format: 'json' | 'xlsx' | 'gstn-json'; companyGstin?: string | number },
 ): Promise<{ url: string }> {
   return withMocks(async () => {
+    if (params.format === 'gstn-json') {
+      // The API refuses this unless GSTN JSON is switched on for the company; the message comes back readable.
+      const queryParams: Record<string, string> = { period: params.period, format: 'gstn-json', persist: '1' };
+      if (params.companyGstin != null && params.companyGstin !== '') {
+        queryParams.company_gstin = String(params.companyGstin);
+      }
+      const { data } = await apiClient.get(`/reports/${kind}/`, { params: queryParams });
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      return { url: URL.createObjectURL(blob) };
+    }
     if (params.format === 'json') {
       const payload = await getGstReturn(kind, {
         period: params.period,
@@ -384,15 +394,53 @@ export async function downloadAccountingReport(
 
 // ---- Phase 6 Insights ----
 
-export async function downloadTdsWorksheet(period: string): Promise<Blob> {
-  const { data } = await apiClient.get('/reports/tds-worksheet/', { params: { period }, responseType: 'blob' });
-  return data instanceof Blob ? data : new Blob([data as BlobPart], { type: 'text/csv' });
+export type TaxWorksheetKind = 'tds' | 'tcs';
+
+export interface TaxWorksheetPreview {
+  kind: TaxWorksheetKind;
+  period: string;
+  disclaimer: string;
+  count: number;
+  rows: Array<Record<string, string>>;
+  bySection: Array<{ section: string; count: number; taxable: string; amount: string }>;
+  totals: { taxable: string; amount: string };
 }
 
-export async function downloadTcsWorksheet(period: string): Promise<Blob> {
-  const { data } = await apiClient.get('/reports/tcs-worksheet/', { params: { period }, responseType: 'blob' });
-  return data instanceof Blob ? data : new Blob([data as BlobPart], { type: 'text/csv' });
+/** A blob download hides the server's JSON error body inside a Blob: read it back out. */
+async function throwReadableBlobError(err: unknown): Promise<never> {
+  const body = (err as { response?: { data?: unknown } })?.response?.data;
+  if (body instanceof Blob) {
+    try {
+      const parsed = JSON.parse(await body.text()) as {
+        error?: { message?: string };
+        message?: string;
+        detail?: string;
+      };
+      const message = parsed.error?.message || parsed.message || parsed.detail;
+      if (message) throw new Error(message);
+    } catch (inner) {
+      if (inner instanceof Error && !(inner instanceof SyntaxError)) throw inner;
+    }
+  }
+  throw err;
 }
+
+export async function getTaxWorksheetPreview(kind: TaxWorksheetKind, period: string): Promise<TaxWorksheetPreview> {
+  const { data } = await apiClient.get(`/reports/${kind}-worksheet/`, { params: { period, preview: 1 } });
+  return unwrapData<TaxWorksheetPreview>(data);
+}
+
+async function downloadTaxWorksheet(kind: TaxWorksheetKind, period: string): Promise<Blob> {
+  try {
+    const { data } = await apiClient.get(`/reports/${kind}-worksheet/`, { params: { period }, responseType: 'blob' });
+    return data instanceof Blob ? data : new Blob([data as BlobPart], { type: 'text/csv' });
+  } catch (err) {
+    return throwReadableBlobError(err);
+  }
+}
+
+export const downloadTdsWorksheet = (period: string) => downloadTaxWorksheet('tds', period);
+export const downloadTcsWorksheet = (period: string) => downloadTaxWorksheet('tcs', period);
 
 export async function getBusinessHealth(): Promise<BusinessHealth> {
   if (shouldUseMocks()) {
@@ -497,4 +545,21 @@ export async function getGstr9FilingDate(fy: string): Promise<Gstr9FilingDate> {
 export async function setGstr9FilingDate(fy: string, filedOn: string | null): Promise<Gstr9FilingDate> {
   const { data } = await apiClient.put('/reports/gstr9/filing-date/', { fy, filed_on: filedOn });
   return toFilingDate(unwrapData<Record<string, unknown>>(data));
+}
+
+export interface GstSnapshotRow {
+  id: number;
+  returnType: string;
+  period: string;
+  contentHash: string;
+  builderVersion: string;
+  generatedAt: string;
+  generatedBy: string;
+}
+
+/** Saved GSTR-1 / GSTR-3B snapshots, newest first. */
+export async function listGstSnapshots(returnType: 'gstr1' | 'gstr3b'): Promise<GstSnapshotRow[]> {
+  const { data } = await apiClient.get('/reports/gst-snapshots/', { params: { return_type: returnType } });
+  const body = unwrapData<{ results?: GstSnapshotRow[] }>(data);
+  return body.results ?? [];
 }

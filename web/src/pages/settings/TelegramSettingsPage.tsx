@@ -6,12 +6,12 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
 import { getTelegramStatus, requestTelegramLink, unlinkTelegram } from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { t } from '@/i18n';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 export function TelegramSettingsPage() {
   const qc = useQueryClient();
@@ -43,7 +43,7 @@ export function TelegramSettingsPage() {
 
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const status = query.data;

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Paper from '@mui/material/Paper';
@@ -6,14 +7,14 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
-import { confirmPack, getPackWizard, proposePack, setNavScope } from '@/api/osPlan';
+import { confirmPack, getPackWizard, proposePack, setNavScope, type PackPreview } from '@/api/osPlan';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { fetchFeatureFlags } from '@/config/featureFlags';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 const emptyAnswers = {
   what_you_sell: '',
@@ -30,6 +31,9 @@ export function PackWizardPage() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
+  // The preview belongs to the answers it was made for; changing an answer invalidates it.
+  const [preview, setPreview] = useState<PackPreview | null>(null);
+  const [previewFor, setPreviewFor] = useState('');
   const loaded = query.data;
   // Fill the form from the saved answers each time they load.
   const [seenData, setSeenData] = useState<typeof query.data>(undefined);
@@ -48,10 +52,12 @@ export function PackWizardPage() {
     mutationFn: () => proposePack(answers),
     onSuccess: (result) => {
       setProposed(result.proposedPack);
+      setPreview(result.preview ?? null);
+      setPreviewFor(JSON.stringify(answers));
       setSaved(false);
       setError(null);
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
   const apply = useMutation({
     mutationFn: () => confirmPack(answers),
@@ -62,10 +68,11 @@ export function PackWizardPage() {
       await fetchFeatureFlags(true);
       void qc.invalidateQueries({ queryKey: ['pack-wizard'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
 
   const current = proposed || loaded?.proposedPack || '';
+  const previewFresh = preview !== null && previewFor === JSON.stringify(answers);
   const flags = current && loaded ? loaded.packs[current] ?? [] : [];
 
   return (
@@ -88,7 +95,7 @@ export function PackWizardPage() {
       </Stack>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {error ? <HelpErrorAlert message={error} /> : null}
       {loaded ? (
@@ -130,10 +137,40 @@ export function PackWizardPage() {
               <Button variant="outlined" disabled={propose.isPending} onClick={() => propose.mutate()}>
                 {t('osPlan.seePack')}
               </Button>
-              <Button variant="contained" disabled={!current || apply.isPending} onClick={() => apply.mutate()}>
+              <Button
+                variant="contained"
+                disabled={!current || !previewFresh || apply.isPending}
+                onClick={() => apply.mutate()}
+              >
                 {t('osPlan.applyPack')}
               </Button>
             </Stack>
+            {!preview ? (
+              <Typography variant="caption" color="text.secondary">{t('packPreview.seeFirst')}</Typography>
+            ) : !previewFresh ? (
+              <Alert severity="info">{t('packPreview.changed')}</Alert>
+            ) : null}
+            {preview && previewFresh ? (
+              <Stack spacing={1} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1.5 }}>
+                <Typography variant="subtitle2">{t('packPreview.title')}</Typography>
+                <Typography variant="caption" color="text.secondary">{t('packPreview.onlyOn')}</Typography>
+                {preview.wouldEnable.length === 0 ? (
+                  <Typography variant="body2">{t('packPreview.nothing')}</Typography>
+                ) : null}
+                {([
+                  ['wouldEnable', preview.wouldEnable],
+                  ['alreadyOn', preview.alreadyOn],
+                  ['keptAsSet', preview.keptAsSet],
+                  ['unavailable', preview.unavailable],
+                ] as const).map(([key, names]) =>
+                  names.length ? (
+                    <Typography key={key} variant="body2">
+                      <strong>{t(`packPreview.${key}`)}:</strong> {names.join(', ')}
+                    </Typography>
+                  ) : null,
+                )}
+              </Stack>
+            ) : null}
             {current ? (
               <Typography variant="body2">
                 {t('osPlan.proposedPack', { name: current })}

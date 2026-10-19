@@ -19,8 +19,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import RestoreIcon from '@mui/icons-material/Restore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
-import { getCompany, updateCompany } from '@/api/resources';
+import { getCompany, getCustomFieldUsage, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
@@ -41,6 +40,7 @@ import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 type FieldDef = ItemCustomFieldDef & { keyTouched?: boolean };
 
@@ -85,6 +85,8 @@ export function ItemSettingsPage() {
     queryFn: getCompany,
     enabled: allowed,
   });
+  // How many items hold a value per field, so removing one can say what it hides.
+  const usage = useQuery({ queryKey: ['custom-field-usage'], queryFn: getCustomFieldUsage, enabled: allowed });
 
   const savedKeys = useMemo(
     () => new Set((query.data?.itemCustomFieldDefs ?? []).map((row) => row.key)),
@@ -130,13 +132,13 @@ export function ItemSettingsPage() {
       setError(null);
       void qc.invalidateQueries({ queryKey: ['company'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
 
   if (!allowed) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const allRowErrors = fieldDefRowErrors(reconstruct(actives, inactives));
@@ -181,10 +183,11 @@ export function ItemSettingsPage() {
           {actives.map((row, index) => {
             const locked = savedKeys.has(row.key);
             const rowErr = activeRowErrors[index] ?? {};
+            const usedOn = usage.data?.[row.key];
             const keyHelp = rowErr.key
               ? rowErrorText(rowErr.key, 'key', row.label)
               : locked
-                ? t('customFields.keyLocked')
+                ? `${t('customFields.keyLocked')}${usedOn !== undefined ? ` · ${t('customFieldUsage.usedOn', { count: String(usedOn) })}` : ''}`
                 : t('customFields.keyHint');
             const labelHelp = rowErrorText(rowErr.label, 'label', row.label);
             const optionsHelp = rowErrorText(rowErr.options, 'options', row.label);
@@ -365,6 +368,15 @@ export function ItemSettingsPage() {
         <DialogTitle>{t('customFields.removeTitle', { label: removeTarget?.label ?? '' })}</DialogTitle>
         <DialogContent>
           <Typography>{t('customFields.removeBody')}</Typography>
+          {removeTarget && savedKeys.has(removeTarget.key) ? (
+            <Typography sx={{ mt: 1 }} color={usage.isError ? 'warning.main' : 'text.secondary'}>
+              {usage.isError
+                ? t('customFieldUsage.unavailable')
+                : (usage.data?.[removeTarget.key] ?? 0) > 0
+                  ? t('customFieldUsage.removeUsed', { count: String(usage.data?.[removeTarget.key]) })
+                  : t('customFieldUsage.removeUnused')}
+            </Typography>
+          ) : null}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRemoveTarget(null)}>{t('common.cancel')}</Button>

@@ -19,9 +19,10 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
 import { issueReferralCode } from '@/api/growth';
-import { inviteCompanyUser, listCompanyUsers, updateCompanyUser } from '@/api/resources';
+import { inviteCompanyUser, listCompanyUsers, resendCompanyUserInvite, revokeCompanyUserInvite, updateCompanyUser } from '@/api/resources';
+import type { CompanyUser } from '@/types/domain';
+import { confirmAction } from '@/utils/confirmBridge';
 import { isReferralsEnabled } from '@/config/features';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -32,6 +33,8 @@ import { PageTitle } from '@/contextHelp';
 import { t, useLocale } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useIdempotentSave } from '@/hooks/useIdempotentSave';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 const emptyInviteForm = {
   email: '',
@@ -159,9 +162,11 @@ export function UsersSettingsPage() {
   const [rewardValue, setRewardValue] = useState('0');
   const [issuingCode, setIssuingCode] = useState(false);
 
+  const idem = useIdempotentSave();
   const inviteMutation = useMutation({
-    mutationFn: () => inviteCompanyUser(form),
+    mutationFn: () => inviteCompanyUser(form, idem.headers()),
     onSuccess: (created) => {
+      idem.renew();
       const url = (created as { inviteUrl?: string; invite_url?: string }).inviteUrl
         ?? (created as { invite_url?: string }).invite_url
         ?? null;
@@ -173,7 +178,7 @@ export function UsersSettingsPage() {
       setInviteUrl(form.password.trim() ? null : url);
       void qc.invalidateQueries({ queryKey: ['company-users'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
 
   const patchMutation = useMutation({
@@ -191,9 +196,22 @@ export function UsersSettingsPage() {
       canCreatePurchases?: boolean;
       canCreatePayments?: boolean;
       isActive?: boolean;
-    }) => updateCompanyUser(id, payload),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['company-users'] }),
-    onError: (err) => setError(getErrorMessage(err)),
+    }) => {
+      // SET-11b: refused (409) if someone else changed this person since the list was loaded.
+      const row = qc.getQueryData<CompanyUser[]>(['company-users'])?.find((u) => u.id === id);
+      return updateCompanyUser(id, { ...payload, ...(row?.updatedAt ? { expected_updated_at: row.updatedAt } : {}) });
+    },
+    onSuccess: (saved) => {
+      // The answer carries the new change time; keep it so the next toggle is not seen as stale.
+      qc.setQueryData<CompanyUser[]>(['company-users'], (rows) =>
+        rows?.map((u) => (u.id === saved.id ? { ...u, ...saved } : u)),
+      );
+      void qc.invalidateQueries({ queryKey: ['company-users'] });
+    },
+    onError: (err) => {
+      setError(settingsErrorText(err));
+      void qc.invalidateQueries({ queryKey: ['company-users'] });
+    },
   });
 
   // F3-022: confirm the high-impact caps; a click no longer silently grants
@@ -203,9 +221,9 @@ export function UsersSettingsPage() {
     canCancelDocuments: 'cog.capCancel',
     canViewFinancialReports: 'cog.capReports',
   };
-  const togglePatch = (id: number, cap: string, checked: boolean) => {
+  const togglePatch = async (id: number, cap: string, checked: boolean) => {
     if (checked && SENSITIVE_CAPS[cap]) {
-      if (!window.confirm(t('cog.allowCap', { action: t(SENSITIVE_CAPS[cap]) }))) return;
+      if (!(await confirmAction(t('cog.allowCap', { action: t(SENSITIVE_CAPS[cap]) })))) return;
     }
     patchMutation.mutate({ id, [cap]: checked });
   };
@@ -215,19 +233,44 @@ export function UsersSettingsPage() {
 
   // F3-023: soft-deactivate only — revoke a member's access without a
   // destructive hard-remove. Reactivating needs no confirmation.
-  const toggleActive = (id: number, currentlyActive: boolean) => {
-    if (currentlyActive && !window.confirm(t('users.deactivateConfirm'))) return;
+  const toggleActive = async (id: number, currentlyActive: boolean) => {
+    if (currentlyActive && !(await confirmAction(t('users.deactivateConfirm')))) return;
     patchMutation.mutate({ id, isActive: !currentlyActive });
+  };
+
+  const [newLink, setNewLink] = useState<{ name: string; url: string; expires: string } | null>(null);
+  const resend = useMutation({
+    mutationFn: (m: { id: number; name: string }) => resendCompanyUserInvite(m.id).then((r) => ({ ...r, name: m.name })),
+    onSuccess: (r) => {
+      setNewLink({
+        name: r.name,
+        url: r.inviteUrl ?? r.inviteToken ?? '',
+        expires: r.inviteExpiresAt ? new Date(r.inviteExpiresAt).toLocaleString() : '',
+      });
+      void qc.invalidateQueries({ queryKey: ['company-users'] });
+    },
+    onError: (err) => setError(settingsErrorText(err)),
+  });
+  const revoke = useMutation({
+    mutationFn: (id: number) => revokeCompanyUserInvite(id),
+    onSuccess: () => {
+      setNewLink(null);
+      void qc.invalidateQueries({ queryKey: ['company-users'] });
+    },
+    onError: (err) => setError(settingsErrorText(err)),
+  });
+  const askRevoke = async (id: number) => {
+    if (await confirmAction(`${t('usersAdmin.revokeTitle')}\n\n${t('usersAdmin.revokeBody')}`)) revoke.mutate(id);
   };
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
 
-  const submitInvite = () => {
+  const submitInvite = async () => {
     if (!hasAnyWorkCap(form) && form.role === 'SALES_STAFF') {
-      const ok = window.confirm(t('cog.noWorkPermissions'));
+      const ok = await confirmAction(t('cog.noWorkPermissions'));
       if (!ok) return;
     }
-    inviteMutation.mutate();
+    idem.once(inviteMutation.mutate);
   };
 
   return (
@@ -242,6 +285,7 @@ export function UsersSettingsPage() {
             setInviteToken(null);
             setInviteUrl(null);
             setCreatedWithPassword(false);
+            idem.renew();
             setOpen(true);
           }}
         >
@@ -250,9 +294,20 @@ export function UsersSettingsPage() {
       </Stack>
       <TwoStepVerificationPanel />
       {error ? <HelpErrorAlert message={error} /> : null}
+      {newLink ? (
+        <Alert severity="success" onClose={() => setNewLink(null)}>
+          <Stack spacing={0.5}>
+            <span>{t('usersAdmin.newLink', { name: newLink.name, date: newLink.expires })}</span>
+            <code style={{ wordBreak: 'break-all' }}>{newLink.url}</code>
+            <Button size="small" sx={{ alignSelf: 'flex-start' }} onClick={() => void navigator.clipboard?.writeText(newLink.url)}>
+              {t('usersAdmin.copy')}
+            </Button>
+          </Stack>
+        </Alert>
+      ) : null}
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
-        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+        <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
       {query.data?.length === 0 ? <EmptyState /> : null}
       {query.data && query.data.length > 0 ? (
@@ -272,6 +327,7 @@ export function UsersSettingsPage() {
                 <TableCell>{t('sweep2.reports')}</TableCell>
                 <TableCell>{t('sweep2.export')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
+                <TableCell>{t('usersAdmin.colLastSignIn')}</TableCell>
                 <TableCell align="right">{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
@@ -366,9 +422,30 @@ export function UsersSettingsPage() {
                     />
                   </TableCell>
                   <TableCell>
-                    {u.isActive ? t('status.ACTIVE') : t('status.INACTIVE')}
+                    {u.isActive
+                      ? t('status.ACTIVE')
+                      : u.inviteState === 'pending'
+                        ? t('usersAdmin.invitePending', { date: u.inviteExpiresAt ? new Date(u.inviteExpiresAt).toLocaleDateString() : '' })
+                        : u.inviteState === 'expired'
+                          ? t('usersAdmin.inviteExpired')
+                          : t('status.INACTIVE')}
                   </TableCell>
+                  <TableCell>{u.lastLogin ? new Date(u.lastLogin).toLocaleString() : t('usersAdmin.never')}</TableCell>
                   <TableCell align="right">
+                    {!u.isActive && (u.inviteState === 'pending' || u.inviteState === 'expired') ? (
+                      <>
+                        <Button
+                          size="small"
+                          disabled={resend.isPending}
+                          onClick={() => resend.mutate({ id: u.id, name: u.fullName || u.email })}
+                        >
+                          {t('usersAdmin.resend')}
+                        </Button>
+                        <Button size="small" color="warning" disabled={revoke.isPending} onClick={() => void askRevoke(u.id)}>
+                          {t('usersAdmin.revoke')}
+                        </Button>
+                      </>
+                    ) : null}
                     {isReferralsEnabled() ? (
                       <Button
                         size="small"
@@ -385,7 +462,7 @@ export function UsersSettingsPage() {
                     {issuedCodes[u.id] ? (
                       <Typography variant="caption" display="block">{t('growth.issuedFor')}: {issuedCodes[u.id]}</Typography>
                     ) : null}
-                    {isOwner ? null : (
+                    {isOwner || (!u.isActive && (u.inviteState === 'pending' || u.inviteState === 'expired')) ? null : (
                       <Button
                         size="small"
                         color={u.isActive ? 'warning' : 'primary'}
@@ -409,8 +486,8 @@ export function UsersSettingsPage() {
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField select label={t('growth.rewardType')} value={rewardType} onChange={(e) => setRewardType(e.target.value)}>
-              <MenuItem value="FLAT">FLAT</MenuItem>
-              <MenuItem value="PERCENT">PERCENT</MenuItem>
+              <MenuItem value="FLAT">{t('settingsSweep.rewardFlat')}</MenuItem>
+              <MenuItem value="PERCENT">{t('settingsSweep.rewardPercent')}</MenuItem>
             </TextField>
             <TextField label={t('growth.rewardValue')} value={rewardValue} onChange={(e) => setRewardValue(e.target.value)} />
           </Stack>
@@ -432,7 +509,7 @@ export function UsersSettingsPage() {
                 setIssuedCodes((current) => ({ ...current, [userId]: row.code }));
                 setCodeFor(null);
                 setError(null);
-              }).catch((err) => setError(getErrorMessage(err)))
+              }).catch((err) => setError(settingsErrorText(err)))
                 .finally(() => setIssuingCode(false));
             }}
           >
@@ -485,7 +562,7 @@ export function UsersSettingsPage() {
               select
               label={t('cog.jobBrowser')}
               value={jobTemplate}
-              onChange={(e) => {
+              onChange={async (e) => {
                 const template = e.target.value as JobTemplate;
                 const caps = capsForJobTemplate(template);
                 // A template can grant export, cancel and financial-report rights in one pick:
@@ -496,7 +573,7 @@ export function UsersSettingsPage() {
                   );
                   if (sensitive.length > 0) {
                     const actions = sensitive.map((cap) => t(SENSITIVE_CAPS[cap])).join(', ');
-                    if (!window.confirm(t('cog.allowCap', { action: actions }))) return;
+                    if (!(await confirmAction(t('cog.allowCap', { action: actions })))) return;
                   }
                 }
                 setJobTemplate(template);

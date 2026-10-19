@@ -127,8 +127,21 @@ export async function billingOps() {
   return unwrapData<Record<string, unknown>>(data);
 }
 
-export async function suspendSubscription(churnReason: string) {
-  const { data } = await apiClient.post('/billing/subscription/', { action: 'suspend', churnReason });
+/** Suspend the workspace. The server also requires the typed company name and the owner's password
+ * (and a two-step code when the owner has one), and refuses an empty reason. */
+export async function suspendSubscription(input: {
+  reason: string;
+  companyName: string;
+  password: string;
+  code?: string;
+}) {
+  const { data } = await apiClient.post('/billing/subscription/', {
+    action: 'suspend',
+    churnReason: input.reason,
+    confirmCompanyName: input.companyName,
+    password: input.password,
+    ...(input.code ? { code: input.code } : {}),
+  });
   return unwrapData<Record<string, unknown>>(data);
 }
 

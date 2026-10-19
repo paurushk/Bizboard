@@ -82,6 +82,17 @@ export function canViewFinancialReports(user: User | null): boolean {
   return !!user && (user.canViewFinancialReports === true || isOwner(user.role));
 }
 
+/** TDS / TCS worksheets: the owner, or an accountant who may read financial reports. Mirrors the API. */
+export function canViewTaxWorksheets(user: User | null): boolean {
+  if (!user) return false;
+  return isOwner(user.role) || (isAccountant(user.role) && user.canViewFinancialReports === true);
+}
+
+/** Cost of goods and gross margin: owner, or an accountant who may read financial reports. Mirrors the API. */
+export function canViewMargins(user: User | null): boolean {
+  return canViewTaxWorksheets(user);
+}
+
 export function canViewAiInsights(user: User | null): boolean {
   if (!user) return false;
   // BB-000425: missing/undefined means AI off (default false).
@@ -105,6 +116,17 @@ export function canExport(user: User | null): boolean {
 export function canCreateSales(user: User | null): boolean {
   if (!user || isViewer(user.role)) return false;
   return isOwner(user.role) || user.canCreateSales === true;
+}
+
+/** Customer care, jobs and contracts: anyone with the sales right may work in them, and a viewer may read (D1). */
+export function canViewCareSales(user: User | null): boolean {
+  return !!user && (isViewer(user.role) || canCreateSales(user));
+}
+
+/** Supplier complaints follow the purchases right; a viewer may read. */
+export function canViewCarePurchases(user: User | null): boolean {
+  if (!user) return false;
+  return isViewer(user.role) || isOwner(user.role) || user.canCreatePurchases === true;
 }
 
 /** Create / complete sales credit & debit notes. Mirrors the backend

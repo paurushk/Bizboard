@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -13,7 +14,6 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { getErrorMessage } from '@/api/client';
 import { apiClient } from '@/api/client';
 import {
   commitTallyImport,
@@ -23,12 +23,15 @@ import {
 } from '@/api/resources';
 import { recordTallyMigrationDiff } from '@/api/osPlan';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { TallyRunsHistory } from '@/components/settings/ImportHistory';
+import { isTallyEnabled } from '@/config/features';
 import { HonestyBanner } from '@/components/HonestyBanner';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { triggerBlobDownload } from '@/utils/blob';
 import { t, useLocale } from '@/i18n';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 type PreviewParty = {
   name: string;
@@ -83,7 +86,7 @@ function TallyDifferenceSheet() {
       for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
       triggerBlobDownload(new Blob([bytes], { type: 'application/pdf' }), `tally-diff-${result.id}.pdf`);
     },
-    onError: (err) => setMessage(getErrorMessage(err)),
+    onError: (err) => setMessage(settingsErrorText(err)),
   });
   return (
     <Paper variant="outlined" sx={{ p: 2 }}>
@@ -268,6 +271,16 @@ export function TallyMigrationPage() {
     });
   };
 
+  // The sidebar hides this page when Tally is off; an old bookmark still lands here, so say why.
+  if (!isTallyEnabled()) {
+    return (
+      <Stack spacing={2}>
+        <PageHeader title={t('tally.title')} />
+        <Alert severity="info">{t('importHistory.tallyOff')}</Alert>
+      </Stack>
+    );
+  }
+
   return (
     <Stack spacing={2}>
       <PageHeader title={t('tally.title')} />
@@ -301,16 +314,19 @@ export function TallyMigrationPage() {
             }}
           />
         </Button>
-        {upload.isError ? <ErrorState message={getErrorMessage(upload.error)} error={upload.error} /> : null}
+        {upload.isError ? <ErrorState message={settingsErrorText(upload.error)} error={upload.error} /> : null}
       </Paper>
 
       {preview ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle1">{t('tally.map')}</Typography>
           <Typography variant="body2" sx={{ mb: 1 }}>
-            Customers: {counts.customers ?? preview.customers?.length ?? 0} · Suppliers:{' '}
-            {counts.suppliers ?? preview.suppliers?.length ?? 0} · Products:{' '}
-            {counts.products ?? preview.products?.length ?? 0} · Errors: {errorCount}
+            {t('settingsSweep.tallyCounts', {
+              customers: String(counts.customers ?? preview.customers?.length ?? 0),
+              suppliers: String(counts.suppliers ?? preview.suppliers?.length ?? 0),
+              products: String(counts.products ?? preview.products?.length ?? 0),
+              errors: String(errorCount),
+            })}
           </Typography>
           {/* F3-050: a Tally import can carry thousands of customers/
               suppliers/products — window the DOM rows instead of rendering
@@ -323,7 +339,7 @@ export function TallyMigrationPage() {
                     <TableRow>
                       <TableCell>{t('sweep2.typeText')}</TableCell>
                       <TableCell>{t('sweep2.name')}</TableCell>
-                      <TableCell>SKU</TableCell>
+                      <TableCell>{t('settingsSweep.sku')}</TableCell>
                       <TableCell>{t('sweep2.opening')}</TableCell>
                     </TableRow>
                   </TableHead>
@@ -382,7 +398,7 @@ export function TallyMigrationPage() {
             <Stack spacing={0.5} sx={{ mt: 1 }}>
               {preview.errors!.slice(0, 5).map((err, i) => (
                 <Typography key={i} variant="caption" color="warning.main">
-                  Row {err.row ?? '?'}: {err.error}
+                  {t('settingsSweep.rowError', { row: String(err.row ?? '?'), error: String(err.error) })}
                 </Typography>
               ))}
             </Stack>
@@ -452,11 +468,11 @@ export function TallyMigrationPage() {
               ignoreErrors.mutate();
             }}
           />
-          {saveMap.isError ? <ErrorState message={getErrorMessage(saveMap.error)} error={saveMap.error} /> : null}
-          {ignoreErrors.isError ? <ErrorState message={getErrorMessage(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
-          {commit.isError ? <ErrorState message={getErrorMessage(commit.error)} error={commit.error} /> : null}
+          {saveMap.isError ? <ErrorState message={settingsErrorText(saveMap.error)} error={saveMap.error} /> : null}
+          {ignoreErrors.isError ? <ErrorState message={settingsErrorText(ignoreErrors.error)} error={ignoreErrors.error} /> : null}
+          {commit.isError ? <ErrorState message={settingsErrorText(commit.error)} error={commit.error} /> : null}
           {downloadErrors.isError ? (
-            <ErrorState message={getErrorMessage(downloadErrors.error)} error={downloadErrors.error} />
+            <ErrorState message={settingsErrorText(downloadErrors.error)} error={downloadErrors.error} />
           ) : null}
           {created ? (
             <Stack spacing={0.5} sx={{ mt: 2 }}>
@@ -493,9 +509,10 @@ export function TallyMigrationPage() {
           {t('sweep2.downloadVoucherCsv')}
         </Button>
         {downloadExport.isError ? (
-          <ErrorState message={getErrorMessage(downloadExport.error)} error={downloadExport.error} />
+          <ErrorState message={settingsErrorText(downloadExport.error)} error={downloadExport.error} />
         ) : null}
       </Paper>
+      <TallyRunsHistory />
     </Stack>
   );
 }

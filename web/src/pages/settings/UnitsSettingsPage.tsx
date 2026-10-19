@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -15,8 +16,8 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
-import { createUnit, listUnits, updateUnit } from '@/api/resources';
+import { createUnit, deleteUnit, getUnitUsage, listUnits, updateUnit } from '@/api/resources';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GSTN_UQC_CODES } from '@/constants/uqcCodes';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
@@ -27,6 +28,8 @@ import { useAuth } from '@/auth/AuthContext';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { useIdempotentSave } from '@/hooks/useIdempotentSave';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 const emptyForm = { name: '', shortName: '', uqcCode: 'PCS' };
 
@@ -34,6 +37,20 @@ export function UnitsSettingsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['units'], queryFn: listUnits });
+  const usage = useQuery({ queryKey: ['units-usage'], queryFn: getUnitUsage });
+  const [deleting, setDeleting] = useState<Unit | null>(null);
+  const remove = useMutation({
+    mutationFn: (id: number) => deleteUnit(id),
+    onSuccess: () => {
+      setDeleting(null);
+      void qc.invalidateQueries({ queryKey: ['units'] });
+      void qc.invalidateQueries({ queryKey: ['units-usage'] });
+    },
+    onError: (err) => {
+      setDeleting(null);
+      setError(settingsErrorText(err));
+    },
+  });
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Unit | null>(null);
   const [form, setForm] = useState(emptyForm);
@@ -41,35 +58,42 @@ export function UnitsSettingsPage() {
   const [baselineFormJson, setBaselineFormJson] = useState(JSON.stringify(emptyForm));
   const [error, setError] = useState<string | null>(null);
 
+  const idem = useIdempotentSave();
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (editing) {
         return updateUnit(editing.id, {
+          expected_updated_at: editing.updatedAt,
           name: form.name,
           shortName: form.shortName || form.name,
           uqcCode: form.uqcCode,
         });
       }
-      return createUnit({
-        name: form.name,
-        shortName: form.shortName || form.name,
-        uqcCode: form.uqcCode,
-      });
+      return createUnit(
+        {
+          name: form.name,
+          shortName: form.shortName || form.name,
+          uqcCode: form.uqcCode,
+        },
+        idem.headers(),
+      );
     },
     onSuccess: () => {
+      idem.renew();
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);
       setBaselineFormJson(JSON.stringify(emptyForm));
       void qc.invalidateQueries({ queryKey: ['units'] });
+      void qc.invalidateQueries({ queryKey: ['units-usage'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
 
   const dirty = open && JSON.stringify(form) !== baselineFormJson;
@@ -82,6 +106,7 @@ export function UnitsSettingsPage() {
         <Button
           variant="contained"
           onClick={() => {
+            idem.renew();
             setEditing(null);
             setForm(emptyForm);
             setBaselineFormJson(JSON.stringify(emptyForm));
@@ -92,6 +117,7 @@ export function UnitsSettingsPage() {
         </Button>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
+      {usage.isError ? <Alert severity="warning">{t('units.usageUnavailable')}</Alert> : null}
       {query.data?.length === 0 ? <EmptyState description={t('cog.unitsEmpty')} /> : null}
       {query.data && query.data.length > 0 ? (
         <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
@@ -101,6 +127,7 @@ export function UnitsSettingsPage() {
                 <TableCell>{t('common.name')}</TableCell>
                 <TableCell>{t('sweep2.shortNameText')}</TableCell>
                 <TableCell>{t('cog.uqcCode')}</TableCell>
+                <TableCell align="right">{t('units.usedBy')}</TableCell>
                 <TableCell />
               </TableRow>
             </TableHead>
@@ -110,6 +137,9 @@ export function UnitsSettingsPage() {
                   <TableCell>{unit.name}</TableCell>
                   <TableCell>{unit.shortName ?? '—'}</TableCell>
                   <TableCell>{unit.uqcCode ?? '—'}</TableCell>
+                  <TableCell align="right">
+                    {usage.isError ? '—' : (usage.data?.[String(unit.id)] ?? 0) > 0 ? usage.data?.[String(unit.id)] : t('units.usedByNone')}
+                  </TableCell>
                   <TableCell align="right">
                     <Button
                       size="small"
@@ -129,6 +159,11 @@ export function UnitsSettingsPage() {
                     >
                       {t('common.edit')}
                     </Button>
+                    {!usage.isError && !usage.isLoading && (usage.data?.[String(unit.id)] ?? 0) === 0 ? (
+                      <Button size="small" color="error" onClick={() => setDeleting(unit)}>
+                        {t('units.delete')}
+                      </Button>
+                    ) : null}
                   </TableCell>
                 </TableRow>
               ))}
@@ -174,7 +209,7 @@ export function UnitsSettingsPage() {
               <Button
                 variant="contained"
                 disabled={!form.name.trim() || saveMutation.isPending}
-                onClick={() => saveMutation.mutate()}
+                onClick={() => idem.once(saveMutation.mutate)}
               >
                 {t('common.save')}
               </Button>
@@ -182,6 +217,16 @@ export function UnitsSettingsPage() {
           </Tooltip>
         </DialogActions>
       </Dialog>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t('units.deleteTitle')}
+        body={`${deleting?.name ?? ''}\n\n${t('units.deleteBody')}`}
+        confirmLabel={t('units.delete')}
+        confirmColor="error"
+        confirming={remove.isPending}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
     </Stack>
   );
 }

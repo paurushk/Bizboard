@@ -8,17 +8,16 @@ import {
   isSupportTicketsEnabled,
   isWorkshopEnabled,
   isProjectsEnabled,
+  isVendorCompany,
+  isCareAnyEnabled,
   isInsuranceEnabled,
-  isGstrReportsEnabled,
   isManufacturingEnabled,
   isPayrollEnabled,
   isPosEnabled,
-  isTallyEnabled,
-  isHelpV2Enabled,
-  isTdsEnabled,
 } from '@/config/features';
 import { isMoneyHubEnabled, isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { isNavMarkedNotReady } from '@/navigation/notReadyNav';
+import { SETTINGS_GROUPS, SETTINGS_ROUTES } from '@/navigation/settingsAccess';
 
 /**
  * Surfaces the frozen release hides. Each one shows only when its own runtime
@@ -67,12 +66,11 @@ import {
   canCreatePayments,
   canCreatePurchases,
   canCreateSales,
-  canImport,
+  canViewCarePurchases,
+  canViewCareSales,
   canImportPurchaseBill,
   canImportSalesBill,
   canManageCrm,
-  canManageGst,
-  canExport,
   canManageUsers,
   canUseAiAssistant,
   canViewAiInsights,
@@ -82,8 +80,8 @@ import {
   canViewSalesSurfaces,
   canViewPaymentSurfaces,
   canViewBankRecon,
-  isOwner,
 } from '@/utils/permissions';
+import { canViewAccountingReports, canViewGstrReports, canViewMarginReports, canViewTdsReports } from './reportAccess';
 
 export interface NavItem {
   id: string;
@@ -91,6 +89,10 @@ export interface NavItem {
   path?: string;
   children?: NavItem[];
   visible?: (user: User | null) => boolean;
+  /** Heading shown above this item (and the items after it) in a flat list. Not a nesting level. */
+  group?: string;
+  /** Highlight only on this exact path, not on its sub-paths. */
+  exact?: boolean;
 }
 
 function posVisible(user: User | null): boolean {
@@ -308,52 +310,71 @@ export const navigation: NavItem[] = [
     ],
   },
   {
-    id: 'complaints',
-    labelKey: 'nav.complaints',
-    path: '/complaints',
-    visible: (user) => canCreateSales(user) && isComplaintsEnabled(),
+    id: 'customer-care',
+    labelKey: 'nav.customerCare',
+    children: [
+    {
+      id: 'complaints',
+      labelKey: 'nav.complaints',
+      path: '/complaints',
+      visible: (user) => canViewCareSales(user) && isComplaintsEnabled(),
+    },
+    {
+      id: 'supplier-complaints',
+      labelKey: 'nav.supplierComplaints',
+      path: '/complaints/suppliers',
+      visible: (user) => canViewCarePurchases(user) && isComplaintsEnabled(),
+    },
+    {
+      id: 'tickets',
+      labelKey: 'nav.tickets',
+      path: '/support/tickets',
+      visible: (user) => canViewCareSales(user) && isSupportTicketsEnabled(),
+    },
+    {
+      id: 'shared-tickets',
+      labelKey: 'nav.sharedTickets',
+      path: '/support/shared',
+      // Only the vendor company has anything to show here.
+      visible: (user) => canViewCareSales(user) && isSupportTicketsEnabled() && isVendorCompany(),
+    },
+    {
+      id: 'service-quality',
+      labelKey: 'nav.serviceQuality',
+      path: '/care/quality',
+      visible: (user) => canViewCareSales(user) && isCareAnyEnabled(),
+    },
+    ],
   },
   {
-    id: 'supplier-complaints',
-    labelKey: 'nav.supplierComplaints',
-    path: '/complaints/suppliers',
-    visible: (user) => canCreatePurchases(user) && isComplaintsEnabled(),
-  },
-  {
-    id: 'tickets',
-    labelKey: 'nav.tickets',
-    path: '/support/tickets',
-    visible: (user) => canCreateSales(user) && isSupportTicketsEnabled(),
-  },
-  {
-    id: 'shared-tickets',
-    labelKey: 'nav.sharedTickets',
-    path: '/support/shared',
-    visible: (user) => canCreateSales(user) && isSupportTicketsEnabled(),
-  },
-  {
-    id: 'job-cards',
-    labelKey: 'nav.jobCards',
-    path: '/workshop/jobs',
-    visible: (user) => canCreateSales(user) && isWorkshopEnabled(),
-  },
-  {
-    id: 'projects',
-    labelKey: 'nav.projects',
-    path: '/projects',
-    visible: (user) => canCreateSales(user) && isProjectsEnabled(),
-  },
-  {
-    id: 'insurance',
-    labelKey: 'nav.insurance',
-    path: '/insurance',
-    visible: (user) => user?.canManagePolicies === true && isInsuranceEnabled(),
-  },
-  {
-    id: 'contracts',
-    labelKey: 'nav.contracts',
-    path: '/contracts',
-    visible: (user) => canCreateSales(user) && isContractsEnabled(),
+    id: 'work-contracts',
+    labelKey: 'nav.workContracts',
+    children: [
+    {
+      id: 'job-cards',
+      labelKey: 'nav.jobCards',
+      path: '/workshop/jobs',
+      visible: (user) => canViewCareSales(user) && isWorkshopEnabled(),
+    },
+    {
+      id: 'projects',
+      labelKey: 'nav.projects',
+      path: '/projects',
+      visible: (user) => canViewCareSales(user) && isProjectsEnabled(),
+    },
+    {
+      id: 'contracts',
+      labelKey: 'nav.contracts',
+      path: '/contracts',
+      visible: (user) => canViewCareSales(user) && isContractsEnabled(),
+    },
+    {
+      id: 'insurance',
+      labelKey: 'nav.insurance',
+      path: '/insurance',
+      visible: (user) => user?.canManagePolicies === true && isInsuranceEnabled(),
+    },
+    ],
   },
   {
     id: 'reports',
@@ -363,132 +384,62 @@ export const navigation: NavItem[] = [
     // canViewFinancialReports — a guaranteed dead-end click.
     visible: canViewFinancialReports,
     children: [
-      { id: 'report-sales', labelKey: 'nav.salesReports', path: '/reports/sales' },
-      { id: 'report-purchases', labelKey: 'nav.purchaseReports', path: '/reports/purchases' },
-      { id: 'report-discounts', labelKey: 'nav.discountReport', path: '/reports/discounts' },
-      { id: 'report-invoice-profit', labelKey: 'nav.invoiceProfitReport', path: '/reports/invoice-profit' },
-      { id: 'report-inventory', labelKey: 'nav.inventoryReports', path: '/reports/inventory' },
-      { id: 'customer-ledger', labelKey: 'nav.customerLedger', path: '/reports/customer-ledger' },
-      { id: 'supplier-ledger', labelKey: 'nav.supplierLedger', path: '/reports/supplier-ledger' },
+      // RPT-08: one entry point for month-end, then three groups. Item ids and paths are unchanged.
+      { id: 'report-close-month', labelKey: 'nav.closeMonth', path: '/reports/close-month' },
       {
-        id: 'report-gstr1',
-        labelKey: 'nav.gstr1',
-        path: '/reports/gstr1',
-        visible: () => isGstrReportsEnabled(),
+        id: 'reports-operational',
+        labelKey: 'nav.reportsOperational',
+        children: [
+          { id: 'report-sales', labelKey: 'nav.salesReports', path: '/reports/sales' },
+          { id: 'report-purchases', labelKey: 'nav.purchaseReports', path: '/reports/purchases' },
+          { id: 'report-discounts', labelKey: 'nav.discountReport', path: '/reports/discounts' },
+          { id: 'report-invoice-profit', labelKey: 'nav.invoiceProfitReport', path: '/reports/invoice-profit', visible: canViewMarginReports },
+          { id: 'report-inventory', labelKey: 'nav.inventoryReports', path: '/reports/inventory' },
+          { id: 'customer-ledger', labelKey: 'nav.customerLedger', path: '/reports/customer-ledger' },
+          { id: 'supplier-ledger', labelKey: 'nav.supplierLedger', path: '/reports/supplier-ledger' },
+          { id: 'cash-book', labelKey: 'nav.cashBook', path: '/reports/cash-book' },
+          { id: 'day-book', labelKey: 'nav.dayBook', path: '/reports/day-book' },
+          { id: 'stock-valuation', labelKey: 'nav.stockValuation', path: '/reports/stock-valuation' },
+        ],
       },
       {
-        id: 'report-gstr3b',
-        labelKey: 'nav.gstr3b',
-        path: '/reports/gstr3b',
-        visible: () => isGstrReportsEnabled(),
+        id: 'reports-compliance',
+        labelKey: 'nav.reportsCompliance',
+        children: [
+          { id: 'report-gstr1', labelKey: 'nav.gstr1', path: '/reports/gstr1', visible: canViewGstrReports },
+          { id: 'report-gstr3b', labelKey: 'nav.gstr3b', path: '/reports/gstr3b', visible: canViewGstrReports },
+          { id: 'report-gstr4', labelKey: 'nav.gstr4', path: '/reports/gstr4', visible: canViewGstrReports },
+          { id: 'report-cmp08', labelKey: 'nav.cmp08', path: '/reports/cmp08', visible: canViewGstrReports },
+          { id: 'report-gstr9', labelKey: 'nav.gstr9', path: '/reports/gstr9', visible: canViewGstrReports },
+          { id: 'report-gstr2b', labelKey: 'nav.gstr2b', path: '/reports/gstr2b', visible: canViewGstrReports },
+          { id: 'report-missing-docs', labelKey: 'nav.missingDocuments', path: '/reports/missing-documents', visible: canViewGstrReports },
+          { id: 'report-ca-needs', labelKey: 'nav.caNeeds', path: '/ca-needs?view=client', visible: canViewGstrReports },
+          { id: 'report-statutory-events', labelKey: 'nav.statutoryEvents', path: '/reports/statutory-events' },
+          { id: 'report-gst-health', labelKey: 'nav.gstHealth', path: '/reports/gst-health', visible: canViewGstrReports },
+          { id: 'report-gst-rate-exposure', labelKey: 'nav.gstRateExposure', path: '/reports/gst-rate-exposure', visible: canViewGstrReports },
+          { id: 'report-tds-tcs', labelKey: 'nav.tdsTcs', path: '/reports/tds-tcs', visible: canViewTdsReports },
+          { id: 'report-tds-receivable', labelKey: 'nav.tdsReceivable', path: '/reports/tds-receivable' },
+          {
+            // Placeholder pages for returns that are not supported yet. Each item keeps its own flag gate.
+            id: 'reports-more-returns',
+            labelKey: 'nav.reportsMoreReturns',
+            children: [
+              { id: 'report-gstr6', labelKey: 'nav.gstr6', path: '/reports/gstr6', visible: canViewGstrReports },
+              { id: 'report-gstr7', labelKey: 'nav.gstr7', path: '/reports/gstr7', visible: canViewGstrReports },
+              { id: 'report-gstr8', labelKey: 'nav.gstr8', path: '/reports/gstr8', visible: canViewGstrReports },
+            ],
+          },
+        ],
       },
       {
-        id: 'report-gstr4',
-        labelKey: 'nav.gstr4',
-        path: '/reports/gstr4',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-cmp08',
-        labelKey: 'nav.cmp08',
-        path: '/reports/cmp08',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gstr6',
-        labelKey: 'nav.gstr6',
-        path: '/reports/gstr6',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gstr7',
-        labelKey: 'nav.gstr7',
-        path: '/reports/gstr7',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gstr8',
-        labelKey: 'nav.gstr8',
-        path: '/reports/gstr8',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gstr9',
-        labelKey: 'nav.gstr9',
-        path: '/reports/gstr9',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gstr2b',
-        labelKey: 'nav.gstr2b',
-        path: '/reports/gstr2b',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-missing-docs',
-        labelKey: 'nav.missingDocuments',
-        path: '/reports/missing-documents',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-ca-needs',
-        labelKey: 'nav.caNeeds',
-        path: '/ca-needs?view=client',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-statutory-events',
-        labelKey: 'nav.statutoryEvents',
-        path: '/reports/statutory-events',
-      },
-      {
-        id: 'report-gst-health',
-        labelKey: 'nav.gstHealth',
-        path: '/reports/gst-health',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-gst-rate-exposure',
-        labelKey: 'nav.gstRateExposure',
-        path: '/reports/gst-rate-exposure',
-        visible: () => isGstrReportsEnabled(),
-      },
-      {
-        id: 'report-tds-tcs',
-        labelKey: 'nav.tdsTcs',
-        path: '/reports/tds-tcs',
-        visible: () => isTdsEnabled(),
-      },
-      { id: 'cash-book', labelKey: 'nav.cashBook', path: '/reports/cash-book' },
-      { id: 'day-book', labelKey: 'nav.dayBook', path: '/reports/day-book' },
-      { id: 'stock-valuation', labelKey: 'nav.stockValuation', path: '/reports/stock-valuation' },
-      {
-        id: 'trial-balance',
-        labelKey: 'nav.trialBalance',
-        path: '/reports/trial-balance',
-        visible: (user) =>
-          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
-      },
-      {
-        id: 'profit-and-loss',
-        labelKey: 'nav.profitAndLoss',
-        path: '/reports/profit-and-loss',
-        visible: (user) =>
-          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
-      },
-      {
-        id: 'balance-sheet',
-        labelKey: 'nav.balanceSheet',
-        path: '/reports/balance-sheet',
-        visible: (user) =>
-          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
-      },
-      {
-        id: 'books-health',
-        labelKey: 'nav.booksHealth',
-        path: '/reports/books-health',
-        visible: (user) =>
-          Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled),
+        id: 'reports-books',
+        labelKey: 'nav.reportsBooks',
+        children: [
+          { id: 'trial-balance', labelKey: 'nav.trialBalance', path: '/reports/trial-balance', visible: canViewAccountingReports },
+          { id: 'profit-and-loss', labelKey: 'nav.profitAndLoss', path: '/reports/profit-and-loss', visible: canViewAccountingReports },
+          { id: 'balance-sheet', labelKey: 'nav.balanceSheet', path: '/reports/balance-sheet', visible: canViewAccountingReports },
+          { id: 'books-health', labelKey: 'nav.booksHealth', path: '/reports/books-health', visible: canViewAccountingReports },
+        ],
       },
     ],
   },
@@ -496,130 +447,16 @@ export const navigation: NavItem[] = [
     id: 'settings',
     labelKey: 'nav.settings',
     visible: canAccessSettings,
+    // One list shared with the router (settingsAccess.ts), so link and route cannot drift apart.
     children: [
-      {
-        id: 'bank-accounts',
-        labelKey: 'nav.bankAccounts',
-        path: '/settings/bank-accounts',
-        visible: canManageUsers,
-      },
-      {
-        id: 'payment-gateway',
-        labelKey: 'nav.paymentGateway',
-        path: '/settings/payment-gateway',
-        visible: canManageUsers,
-      },
-      {
-        id: 'billing',
-        labelKey: 'nav.billing',
-        path: '/settings/billing',
-        visible: canManageUsers,
-      },
-      {
-        id: 'pack-wizard',
-        labelKey: 'nav.packWizard',
-        path: '/settings/packs',
-        visible: (user) => user?.role === 'OWNER' && isRuntimeFlagEnabled('ENABLE_ARCHETYPE_PACKS'),
-      },
-      {
-        id: 'price-lists',
-        labelKey: 'nav.priceLists',
-        path: '/settings/price-lists',
-        visible: canManageUsers,
-      },
-      {
-        id: 'accounting-settings',
-        labelKey: 'nav.accounting',
-        path: '/settings/accounting',
-        visible: (user) =>
-          canManageUsers(user) &&
-          (Boolean(user?.company?.accountingEnabled) || isAccountingFeatureEnabled(user?.company?.accountingEnabled)),
-      },
-      {
-        id: 'company',
-        labelKey: 'nav.company',
-        path: '/settings/company',
-        visible: canManageUsers,
-      },
-      {
-        id: 'ai-settings',
-        labelKey: 'nav.aiSettings',
-        path: '/settings/ai',
-        visible: (user) => canManageUsers(user) && isAiInsightsEnabled(),
-      },
-      {
-        id: 'gst',
-        labelKey: 'nav.gst',
-        path: '/settings/gst',
-        visible: canManageGst,
-      },
-      {
-        id: 'statutory-licences',
-        labelKey: 'nav.statutoryLicences',
-        path: '/settings/statutory-licences',
-        visible: canManageGst,
-      },
-      {
-        id: 'help-health',
-        labelKey: 'nav.helpHealth',
-        path: '/settings/help',
-        visible: (user) =>
-          Boolean(user && (isOwner(user.role) || user.isStaff) && isHelpV2Enabled()),
-      },
-      {
-        id: 'series',
-        labelKey: 'nav.seriesSettings',
-        path: '/settings/series',
-        visible: canManageUsers,
-      },
-      {
-        id: 'units',
-        labelKey: 'nav.units',
-        path: '/settings/units',
-        visible: canManageUsers,
-      },
-      {
-        id: 'item-settings',
-        labelKey: 'nav.itemSettings',
-        path: '/settings/items',
-        visible: canManageUsers,
-      },
-      {
-        id: 'templates',
-        labelKey: 'nav.invoiceTemplates',
-        path: '/settings/templates',
-        visible: canManageUsers,
-      },
-      {
-        id: 'users',
-        labelKey: 'nav.users',
-        path: '/settings/users',
-        visible: canManageUsers,
-      },
-      {
-        id: 'import',
-        labelKey: 'nav.importData',
-        path: '/settings/import',
-        visible: canImport,
-      },
-      {
-        id: 'tally',
-        labelKey: 'nav.tallyMigration',
-        path: '/settings/tally',
-        visible: (user) => canImport(user) && isTallyEnabled(),
-      },
-      {
-        id: 'backup',
-        labelKey: 'nav.backupExport',
-        path: '/settings/backup',
-        visible: canExport,
-      },
-      {
-        id: 'telegram',
-        labelKey: 'nav.telegram',
-        path: '/settings/telegram',
-        visible: (user) => canManageUsers(user),
-      },
+      { id: 'settings-hub', labelKey: 'nav.settingsOverview', path: '/settings', exact: true },
+      ...SETTINGS_ROUTES.map((def) => ({
+        id: def.id,
+        labelKey: def.labelKey,
+        path: def.path,
+        visible: def.menu,
+        group: SETTINGS_GROUPS.find((g) => g.id === def.group)?.labelKey,
+      })),
     ],
   },
   {
@@ -680,8 +517,9 @@ export function isReallyReachable(user: User | null, path: string): boolean {
   return false;
 }
 
-export function isNavPathActive(pathname: string, navPath?: string): boolean {
+export function isNavPathActive(pathname: string, navPath?: string, exact = false): boolean {
   if (!navPath) return false;
+  if (exact) return (navPath.split('?')[0] || '/') === ((pathname.split('?')[0] || '/').replace(/\/+$/, '') || '/');
   return pathMatches(navPath, pathname);
 }
 

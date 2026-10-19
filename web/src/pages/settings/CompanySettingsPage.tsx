@@ -1,391 +1,155 @@
-import { useEffect, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import FormControlLabel from '@mui/material/FormControlLabel';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
-import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
-import { Controller, useForm } from 'react-hook-form';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
-import { LoadingState, ErrorState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
+import { AsyncSection } from '@/components/settings/AsyncSection';
+import { LogoPanel } from '@/components/settings/LogoPanel';
+import { SettingsPage } from '@/components/settings/SettingsPage';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
+import { StateSelect } from '@/components/StateSelect';
+import { useSettingsForm } from '@/hooks/useSettingsForm';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
+import { InvoiceBankSummary } from '@/pages/settings/InvoiceBankSummary';
 import type { Company } from '@/types/domain';
-import { isValidIfsc, isValidUpiVpa } from '@/utils/gst';
-import { isValidIndianPincode } from '@/utils/pincode';
 import { canManageUsers } from '@/utils/permissions';
+import { savedStamp } from '@/utils/settingsStamp';
+import { isValidIndianPincode } from '@/utils/pincode';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
-import { StateSelect } from '@/components/StateSelect';
-import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+/** SET-17: who the business is. Money rules live on Bank Accounts and Money-In rules. */
+interface IdentityForm {
+  name: string;
+  legalName: string;
+  address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  email: string;
+}
 
-type CompanyForm = Pick<
-  Company,
-  | 'name'
-  | 'legalName'
-  | 'address'
-  | 'city'
-  | 'state'
-  | 'pincode'
-  | 'phone'
-  | 'email'
-  | 'upiId'
-  | 'bankName'
-  | 'bankAccount'
-  | 'bankIfsc'
-> & {
-  dunningEnabled: boolean;
-  dunningDaysText: string;
-  dunningMaxReminders: number;
-  dunningQuietHoursStart: number;
-  dunningQuietHoursEnd: number;
-  autoCreditHoldOnSevereOverdue: boolean;
-};
+function toForm(c: Company): IdentityForm {
+  return {
+    name: c.name ?? '',
+    legalName: c.legalName ?? '',
+    address: c.address ?? '',
+    city: c.city ?? '',
+    state: c.state ?? '',
+    pincode: c.pincode ?? '',
+    phone: c.phone ?? '',
+    email: c.email ?? '',
+  };
+}
 
 export function CompanySettingsPage() {
   const { user } = useAuth();
-  const queryClient = useQueryClient();
-  const query = useQuery({
-    queryKey: ['company'],
-    queryFn: getCompany,
-    // F3-014: don't silently refetch-and-reset the form (wiping unsaved edits)
-    // when the user tabs away and back.
-    refetchOnWindowFocus: false,
-  });
-  const { control, handleSubmit, reset, formState: { isDirty } } = useForm<CompanyForm>();
-  const seededRef = useRef(false);
+  // F3-014: no refetch on window focus, which would reset unsaved edits.
+  const query = useQuery({ queryKey: ['company'], queryFn: getCompany, refetchOnWindowFocus: false });
+  if (!canManageUsers(user)) return <ForbiddenPage />;
+  return (
+    <SettingsPage
+      title={t('nav.company')}
+      purpose={t('companyPage.purpose')}
+    >
+      <AsyncSection query={query}>{(company) => <IdentityEditor company={company} />}</AsyncSection>
+    </SettingsPage>
+  );
+}
 
-  useEffect(() => {
-    if (query.data && !seededRef.current) {
-      seededRef.current = true;
-      reset({
-        name: query.data.name,
-        legalName: query.data.legalName ?? '',
-        address: query.data.address ?? '',
-        city: query.data.city ?? '',
-        state: query.data.state ?? '',
-        pincode: query.data.pincode ?? '',
-        phone: query.data.phone ?? '',
-        email: query.data.email ?? '',
-        upiId: query.data.upiId ?? '',
-        bankName: query.data.bankName ?? '',
-        bankAccount: query.data.bankAccount ?? '',
-        bankIfsc: query.data.bankIfsc ?? '',
-        dunningEnabled: Boolean(query.data.dunningEnabled),
-        dunningDaysText: (query.data.dunningDays ?? [3, 7, 14]).join(', '),
-        dunningMaxReminders: query.data.dunningMaxReminders ?? 3,
-        dunningQuietHoursStart: query.data.dunningQuietHoursStart ?? 21,
-        dunningQuietHoursEnd: query.data.dunningQuietHoursEnd ?? 8,
-        autoCreditHoldOnSevereOverdue: Boolean(query.data.autoCreditHoldOnSevereOverdue),
-      });
-    }
-  }, [query.data, reset]);
-
-  const mutation = useMutation({
-    mutationFn: (values: CompanyForm) => {
-      const pin = (values.pincode ?? '').trim();
-      const loadedPin = (query.data?.pincode ?? '').trim();
-      if (pin !== loadedPin && !isValidIndianPincode(values.pincode ?? '')) {
+function IdentityEditor({ company }: { company: Company }) {
+  const { writesBlocked } = useSubscriptionGate();
+  const qc = useQueryClient();
+  const form = useSettingsForm<IdentityForm, { updatedAt?: string | null }>({
+    initial: toForm(company),
+    initialUpdatedAt: company.updatedAt ?? null,
+    save: async (values, ctx) => {
+      const pin = values.pincode.trim();
+      if (pin !== (company.pincode ?? '').trim() && !isValidIndianPincode(pin)) {
         throw new Error(t('validation.pincode'));
       }
-      const ifsc = (values.bankIfsc ?? '').trim().toUpperCase();
-      if (ifsc && !isValidIfsc(ifsc)) {
-        throw new Error('Enter a valid IFSC (e.g. HDFC0001234).');
-      }
-      const upi = (values.upiId ?? '').trim();
-      if (upi && !isValidUpiVpa(upi)) {
-        throw new Error('Enter a valid UPI ID (e.g. shopname@oksbi).');
-      }
-      const { dunningDaysText, ...rest } = values;
-      return updateCompany({
-        ...rest,
-        pincode: pin,
-        bankIfsc: ifsc || values.bankIfsc,
-        upiId: upi || values.upiId,
-        dunningEnabled: values.dunningEnabled,
-        dunningDays: dunningDaysText
-          .split(/[,\s]+/)
-          .map((p) => Number(p))
-          .filter((n) => Number.isFinite(n) && n >= 1),
-        dunningMaxReminders: values.dunningMaxReminders,
-        dunningQuietHoursStart: values.dunningQuietHoursStart,
-        dunningQuietHoursEnd: values.dunningQuietHoursEnd,
-        autoCreditHoldOnSevereOverdue: values.autoCreditHoldOnSevereOverdue,
-      });
+      if (!values.name.trim()) throw new Error(t('companyPage.nameRequired'));
+      const stamp = savedStamp(qc, ['company'], ctx.expectedUpdatedAt, company.updatedAt);
+      await updateCompany({ ...values, name: values.name.trim(), pincode: pin, ...(stamp ? { expected_updated_at: stamp } : {}) } as never);
+      await qc.invalidateQueries({ queryKey: ['company'] });
+      return {};
     },
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['company'] });
-      // F3-015: clear the dirty flag post-save so UnsavedChangesGuard doesn't
-      // warn on navigating away right after a successful save.
-      reset(variables);
+    refetch: async () => {
+      const latest = await getCompany();
+      qc.setQueryData(['company'], latest);
+      return { values: toForm(latest), updatedAt: latest.updatedAt ?? null };
     },
   });
-  // F3-073: let the "saved" banner be dismissed; it reappears on the next save
-  // because mutation.submittedAt advances with every mutate() call.
-  const [savedAck, setSavedAck] = useState(0);
-
-  if (!canManageUsers(user)) return <ForbiddenPage />;
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  }
+  const v = form.values;
+  const set = (patch: Partial<IdentityForm>) => form.setValues({ ...v, ...patch });
 
   return (
-    <Stack
-      spacing={2}
-      component="form"
-      onSubmit={handleSubmit((values) => {
-        // F3-048: enabling dunning creates a standing rule that auto-messages
-        // customers — require an explicit acknowledgement, and echo the parsed
-        // schedule so a fat-fingered day list is visible before it takes effect.
-        if (values.dunningEnabled && !query.data?.dunningEnabled) {
-          const parsedDays = values.dunningDaysText
-            .split(/[,\s]+/)
-            .map((p) => Number(p))
-            .filter((n) => Number.isFinite(n) && n >= 1);
-          if (!window.confirm(t('settings.dunningConfirm', { days: parsedDays.join(', ') || '—' }))) {
-            return;
-          }
-        }
-        mutation.mutate(values);
-      })}
-    >
-      <UnsavedChangesGuard when={isDirty} />
-      <PageTitle>{t('nav.company')}</PageTitle>
+    <>
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Chip
           component={RouterLink}
           to="/settings/gst"
           clickable
           variant="outlined"
-          color={query.data?.gstin ? 'success' : 'warning'}
+          color={company.gstin ? 'success' : 'warning'}
           label={
-            query.data?.gstin
-              ? `GSTIN ${query.data.gstin}${
-                  query.data.gstinVerificationStatus
-                    ? ` · ${query.data.gstinVerificationStatus}`
-                    : ''
-                }`
-              : 'GSTIN not set — open GST settings'
+            company.gstin
+              ? t('companyPage.gstinChip', { gstin: company.gstin, status: company.gstinVerificationStatus || '—' })
+              : t('companyPage.gstinMissing')
           }
         />
       </Stack>
-      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
-        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
-          {t('sweep2.companySaved')}
-        </Alert>
-      ) : null}
-      {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
-      <Paper sx={{ p: 3, maxWidth: 640 }}>
+      {form.error ? <Alert severity="error">{settingsErrorText(form.error)}</Alert> : null}
+      <Paper variant="outlined" sx={{ p: 3, maxWidth: 640 }}>
         <Stack spacing={2}>
-          <Typography variant="h6" fontWeight={600}>
-            1. Shop & Address Details
+          <Typography variant="h6" component="h2" fontWeight={600}>
+            {t('companyPage.identityTitle')}
           </Typography>
-          <Controller
-            name="name"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.shopDisplayName')} {...field} value={field.value ?? ''} required />
-            )}
+          <TextField
+            label={t('sweep.shopDisplayName')}
+            value={v.name}
+            required
+            onChange={(e) => set({ name: e.target.value })}
           />
-          <Controller
-            name="legalName"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.legalName')} {...field} value={field.value ?? ''} />
-            )}
+          <TextField label={t('sweep.legalName')} value={v.legalName} onChange={(e) => set({ legalName: e.target.value })} />
+          <TextField
+            label={t('sweep.shopAddress')}
+            multiline
+            minRows={2}
+            value={v.address}
+            onChange={(e) => set({ address: e.target.value })}
           />
-          <Controller
-            name="address"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.shopAddress')} multiline minRows={2} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="city"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.city')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="state"
-            control={control}
-            render={({ field }) => (
-              <StateSelect value={field.value ?? ''} onChange={field.onChange} />
-            )}
-          />
-          <Controller
-            name="pincode"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.pinCode')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="phone"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('common.phone')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="email"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('common.email')} {...field} value={field.value ?? ''} />
-            )}
-          />
+          <TextField label={t('sweep.city')} value={v.city} onChange={(e) => set({ city: e.target.value })} />
+          <StateSelect value={v.state} onChange={(next: string) => set({ state: next })} />
+          <TextField label={t('sweep.pinCode')} value={v.pincode} onChange={(e) => set({ pincode: e.target.value })} />
+          <TextField label={t('common.phone')} value={v.phone} onChange={(e) => set({ phone: e.target.value })} />
+          <TextField label={t('common.email')} value={v.email} onChange={(e) => set({ email: e.target.value })} />
         </Stack>
       </Paper>
-
-      <Paper sx={{ p: 3, maxWidth: 640 }} id="bank-section">
-        <Stack spacing={2}>
-          <Typography variant="h6" fontWeight={600}>
-            2. Bank Account & UPI QR (Printed on Bills)
-          </Typography>
+      <Paper variant="outlined" sx={{ p: 3, maxWidth: 640 }}>
+        <LogoPanel logoId={company.logo ?? null} />
+      </Paper>
+      <Paper variant="outlined" sx={{ p: 3, maxWidth: 640 }}>
+        <Stack spacing={1.5}>
+          <InvoiceBankSummary />
           <Typography variant="body2" color="text.secondary">
-            These payment details will appear on your printed A4/Thermal bills so customers can pay directly to your account.
+            {t('companyPage.movedPrefix')}{' '}
+            <Link component={RouterLink} to="/settings/money-in">
+              {t('nav.moneyInRules')}
+            </Link>
+            .
           </Typography>
-          <Controller
-            name="upiId"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('sweep.upiId')}
-                helperText={t('sweep.upiQrHelp')}
-                {...field}
-                value={field.value ?? ''}
-              />
-            )}
-          />
-          <Controller
-            name="bankName"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.bankName')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="bankAccount"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.bankAccountNumber')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Controller
-            name="bankIfsc"
-            control={control}
-            render={({ field }) => (
-              <TextField label={t('sweep.bankIfsc')} {...field} value={field.value ?? ''} />
-            )}
-          />
-          <Typography variant="h6" fontWeight={600} sx={{ pt: 1 }}>
-            {t('settings.dunningTitle')}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {t('settings.dunningHelp')}
-          </Typography>
-          <Controller
-            name="dunningEnabled"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={Boolean(field.value)}
-                    onChange={(_, v) => field.onChange(v)}
-                  />
-                }
-                label={t('settings.dunningEnabled')}
-              />
-            )}
-          />
-          <Controller
-            name="dunningDaysText"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('settings.dunningDays')}
-                helperText={t('settings.dunningDaysHelp')}
-                {...field}
-                value={field.value ?? '3, 7, 14'}
-              />
-            )}
-          />
-          <Controller
-            name="dunningMaxReminders"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                type="number"
-                label={t('settings.dunningMaxReminders')}
-                {...field}
-                value={field.value ?? 3}
-                onChange={(e) => field.onChange(Number(e.target.value))}
-              />
-            )}
-          />
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-            <Controller
-              name="dunningQuietHoursStart"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  type="number"
-                  label={t('settings.dunningQuietStart')}
-                  {...field}
-                  value={field.value ?? 21}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                />
-              )}
-            />
-            <Controller
-              name="dunningQuietHoursEnd"
-              control={control}
-              render={({ field }) => (
-                <TextField
-                  type="number"
-                  label={t('settings.dunningQuietEnd')}
-                  {...field}
-                  value={field.value ?? 8}
-                  onChange={(e) => field.onChange(Number(e.target.value))}
-                />
-              )}
-            />
-          </Stack>
-          <Controller
-            name="autoCreditHoldOnSevereOverdue"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={Boolean(field.value)}
-                    onChange={(_, v) => field.onChange(v)}
-                  />
-                }
-                label={t('settings.autoCreditHold')}
-              />
-            )}
-          />
-          <Typography variant="body2" color="text.secondary">
-            {t('settings.autoCreditHoldHelp')}
-          </Typography>
-          <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
-            {t('common.save')}
-          </Button>
         </Stack>
       </Paper>
-    </Stack>
+      <SettingsSaveBar form={form} disabled={writesBlocked} />
+    </>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Checkbox from '@mui/material/Checkbox';
@@ -9,531 +9,424 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Controller, useForm } from 'react-hook-form';
-import { getErrorMessage } from '@/api/client';
-import { HelpHint } from '@/pages/help/HelpHint';
-import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
-import {
-  getCompany,
-  updateCompany,
-  verifyCompanyGstin,
-  verifyCompanyPan,
-  verifyCompanyUdyam,
-} from '@/api/resources';
-import { BranchGstinsPanel } from '@/pages/settings/BranchGstinsPanel';
+import { getCompany, updateCompany, verifyCompanyGstin, verifyCompanyPan, verifyCompanyUdyam } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
-import { ErrorState, LoadingState } from '@/components/PageState';
+import { AsyncSection } from '@/components/settings/AsyncSection';
+import { SettingsPage } from '@/components/settings/SettingsPage';
+import { SettingsErrorAlert } from '@/components/settings/SettingsErrorAlert';
+import { SettingsSaveBar } from '@/components/settings/SettingsSaveBar';
 import { StateSelect } from '@/components/StateSelect';
+import { useSettingsForm, type SettingsForm } from '@/hooks/useSettingsForm';
+import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
+import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
-import { PageTitle } from '@/contextHelp';
-import { t, useLocale } from '@/i18n';
-import type { NegativeStockPolicy, RegistrationType } from '@/types/domain';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { HelpHint } from '@/pages/help/HelpHint';
+import { BranchGstinsPanel } from '@/pages/settings/BranchGstinsPanel';
+import type { Company, NegativeStockPolicy, RegistrationType } from '@/types/domain';
+import { confirmWithPreview } from '@/utils/settingsPreview';
 import { isValidGstin } from '@/utils/gst';
 import { canManageGst } from '@/utils/permissions';
+import { savedStamp } from '@/utils/settingsStamp';
 
-interface GstForm {
+/**
+ * SET-16: the GST page in four sections, each with its own Save, so a change to the e-invoice
+ * switch can never carry along a half-edited GSTIN or the portal keys. All four write to the
+ * company record, but each sends only its own fields.
+ */
+export function GstSettingsPage() {
+  const { user } = useAuth();
+  // F3-014: no refetch-and-reset on window focus, which would wipe unsaved edits.
+  const query = useQuery({ queryKey: ['company'], queryFn: getCompany, refetchOnWindowFocus: false });
+  if (!canManageGst(user)) return <ForbiddenPage />;
+  return (
+    <SettingsPage
+      title={t('nav.gst')}
+      purpose={t('gstPage.purpose')}
+    >
+      <AsyncSection query={query}>
+        {(company) => (
+          <>
+            <RegistrationSection company={company} />
+            <BranchGstinsPanel />
+            <StockRulesSection company={company} />
+            <EinvoiceSection company={company} />
+          </>
+        )}
+      </AsyncSection>
+    </SettingsPage>
+  );
+}
+
+function Section<TValues extends object>({
+  title,
+  help,
+  form,
+  children,
+}: {
+  title: string;
+  help?: string;
+  form: SettingsForm<TValues, { updatedAt?: string | null }>;
+  children: ReactNode;
+}) {
+  const { writesBlocked } = useSubscriptionGate();
+  return (
+    <Paper variant="outlined" sx={{ p: 3, maxWidth: 640 }} component="section" aria-label={title}>
+      <Stack spacing={2}>
+        <Typography variant="h6" component="h2" fontWeight={600}>
+          {title}
+        </Typography>
+        {help ? (
+          <Typography variant="body2" color="text.secondary">
+            {help}
+          </Typography>
+        ) : null}
+        {form.error ? <SettingsErrorAlert error={form.error} /> : null}
+        {children}
+        <SettingsSaveBar form={form} disabled={writesBlocked} sticky={false} />
+      </Stack>
+    </Paper>
+  );
+}
+
+// ---- 1. Registration -------------------------------------------------------------------------
+
+interface RegistrationForm {
   gstin: string;
   pan: string;
   udyam: string;
   state: string;
   registrationType: RegistrationType;
+}
+
+function RegistrationSection({ company }: { company: Company }) {
+  const qc = useQueryClient();
+  const [gstConfirmed, setGstConfirmed] = useState(false);
+  const [needsConfirm, setNeedsConfirm] = useState(false);
+  const form = useSettingsForm<RegistrationForm, { updatedAt?: string | null }>({
+    initial: {
+      gstin: company.gstin ?? '',
+      pan: company.pan ?? '',
+      udyam: company.udyam ?? '',
+      state: company.state ?? '',
+      registrationType: company.registrationType ?? 'REGULAR',
+    },
+    initialUpdatedAt: company.updatedAt ?? null,
+    refetch: async () => {
+      const latest = await getCompany();
+      qc.setQueryData(['company'], latest);
+      return {
+        values: {
+          gstin: latest.gstin ?? '',
+          pan: latest.pan ?? '',
+          udyam: latest.udyam ?? '',
+          state: latest.state ?? '',
+          registrationType: latest.registrationType ?? 'REGULAR',
+        },
+        updatedAt: latest.updatedAt ?? null,
+      };
+    },
+    save: async (values, ctx) => {
+      const gstin = values.gstin.trim().toUpperCase();
+      if (gstin && !isValidGstin(gstin)) throw new Error(t('gstPage.gstinInvalid'));
+      // Only a new or changed GSTIN needs the confirmation; a blocked save says why.
+      if (gstin && gstin !== (company.gstin ?? '').trim().toUpperCase() && !gstConfirmed) {
+        setNeedsConfirm(true);
+        throw new Error(t('cog.gstConfirm'));
+      }
+      setNeedsConfirm(false);
+      if (values.registrationType !== (company.registrationType ?? 'REGULAR')) {
+        const agreed = await confirmWithPreview(
+          'gst_registration',
+          { registration_type: values.registrationType, gstin },
+          t('gst.confirmRegistrationChange', { type: values.registrationType }),
+        );
+        if (!agreed) throw new Error(t('gstPage.cancelled'));
+      }
+      // These are CharFields without null=True: send '' rather than null.
+      const stamp = savedStamp(qc, ['company'], ctx.expectedUpdatedAt, company.updatedAt);
+      await updateCompany({
+        gstin,
+        pan: values.pan.trim().toUpperCase(),
+        udyam: values.udyam.trim().toUpperCase(),
+        state: values.state,
+        registrationType: values.registrationType,
+        // The tick is recorded on the server (tax profile confirmed at), not just kept on this page.
+        ...(gstin && gstin !== (company.gstin ?? '').trim().toUpperCase() ? { confirm_tax_profile: true } : {}),
+        ...(stamp ? { expected_updated_at: stamp } : {}),
+      } as never);
+      await qc.invalidateQueries({ queryKey: ['company'] });
+      void qc.invalidateQueries({ queryKey: ['company-gstins'] });
+      return {};
+    },
+  });
+  const v = form.values;
+  const set = (patch: Partial<RegistrationForm>) => form.setValues({ ...v, ...patch });
+
+  const verifyGstin = useMutation({
+    mutationFn: async () => {
+      if (!(company.gstin ?? '').trim()) throw new Error(t('gstPage.saveGstinFirst'));
+      return verifyCompanyGstin();
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['company'] }),
+  });
+  const verifyPan = useMutation({
+    mutationFn: verifyCompanyPan,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['company'] }),
+  });
+  const verifyUdyam = useMutation({
+    mutationFn: verifyCompanyUdyam,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['company'] }),
+  });
+  const gstinChanged = v.gstin.trim().toUpperCase() !== (company.gstin ?? '').trim().toUpperCase();
+
+  return (
+    <Section title={t('gstPage.registrationTitle')} help={t('gstPage.registrationHelp')} form={form}>
+      {verifyGstin.isSuccess ? (
+        <Alert severity="info">
+          {t('gst.verifyStatus', {
+            status: verifyGstin.data?.status ?? t('gst.verified'),
+            name: verifyGstin.data?.tradeName || t('gst.active'),
+          })}
+        </Alert>
+      ) : null}
+      {verifyGstin.isError ? <HelpErrorAlert error={verifyGstin.error} /> : null}
+      <HelpHint intent="add-gstin" slot="gstin">
+        <TextField
+          label={t('gstSettings.primaryGstin')}
+          placeholder="07AAAAA0000A1Z5"
+          helperText={company.gstinVerificationStatus || t('gstPage.gstinBlankHelp')}
+          value={v.gstin}
+          onChange={(e) => set({ gstin: e.target.value })}
+          fullWidth
+        />
+      </HelpHint>
+      <Button
+        variant="outlined"
+        size="small"
+        disabled={verifyGstin.isPending || !company.gstin || gstinChanged}
+        onClick={() => verifyGstin.mutate()}
+      >
+        {t('sweep2.verifyGstin')}
+      </Button>
+      <TextField
+        label={t('gstSettings.pan')}
+        placeholder="ABCDE1234F"
+        helperText={company.panVerificationStatus || t('gstPage.panHelp')}
+        value={v.pan}
+        onChange={(e) => set({ pan: e.target.value })}
+      />
+      <Button
+        variant="outlined"
+        size="small"
+        disabled={verifyPan.isPending || !company.pan || v.pan !== (company.pan ?? '')}
+        onClick={() => verifyPan.mutate()}
+      >
+        {t('sweep2.verifyPan')}
+      </Button>
+      {verifyPan.isError ? <HelpErrorAlert error={verifyPan.error} /> : null}
+      <TextField
+        label={t('gstSettings.udyam')}
+        placeholder="UDYAM-KR-00-0000000"
+        helperText={company.udyamVerificationStatus || t('gstPage.udyamHelp')}
+        value={v.udyam}
+        onChange={(e) => set({ udyam: e.target.value })}
+      />
+      <Button
+        variant="outlined"
+        size="small"
+        disabled={verifyUdyam.isPending || !company.udyam || v.udyam !== (company.udyam ?? '')}
+        onClick={() => verifyUdyam.mutate()}
+      >
+        {t('sweep2.verifyUdyam')}
+      </Button>
+      {verifyUdyam.isError ? <HelpErrorAlert error={verifyUdyam.error} /> : null}
+      <StateSelect value={v.state} onChange={(next: string) => set({ state: next })} />
+      <HelpHint intent="registration-type" slot="registration-type-settings">
+        <TextField
+          select
+          fullWidth
+          label={t('gstSettings.registrationType')}
+          value={v.registrationType}
+          onChange={(e) => set({ registrationType: e.target.value as RegistrationType })}
+        >
+          <MenuItem value="REGULAR">{t('gstSettings.regular')}</MenuItem>
+          <MenuItem value="COMPOSITION">{t('gstSettings.composition')}</MenuItem>
+          <MenuItem value="UNREGISTERED">{t('gstSettings.unregistered')}</MenuItem>
+        </TextField>
+      </HelpHint>
+      {gstinChanged && v.gstin.trim() ? (
+        <>
+          <FormControlLabel
+            control={<Checkbox checked={gstConfirmed} onChange={(_, c) => setGstConfirmed(c)} />}
+            label={t('cog.gstConfirm')}
+          />
+          {needsConfirm && !gstConfirmed ? <Alert severity="warning">{t('cog.gstConfirm')}</Alert> : null}
+        </>
+      ) : null}
+    </Section>
+  );
+}
+
+// ---- 2. Stock and tax rules ------------------------------------------------------------------
+
+interface StockForm {
   negativeStockPolicy: NegativeStockPolicy;
   valuationBusinessDateOrder: boolean;
   recomputeTaxOnComplete: boolean;
   assumeLocalStateForBlankParty: boolean;
-  einvoiceEnabled: boolean;
-  ewayEnabled: boolean;
-  ewayThresholdAmount: string;
-  aatoTurnover: string;
-  gspProvider: string;
-  gspClientId: string;
-  gspClientSecret: string;
-  gspUsername: string;
-  clearGspCredentials: boolean;
 }
 
-export function GstSettingsPage() {
-  useLocale();
-  const { user } = useAuth();
-  const queryClient = useQueryClient();
-  // F3-014: no refetch-and-reset on window focus — it wipes unsaved edits.
-  const query = useQuery({
-    queryKey: ['company'],
-    queryFn: getCompany,
-    refetchOnWindowFocus: false,
-  });
-  const { control, handleSubmit, reset, watch, formState, setError, clearErrors } = useForm<GstForm>({
-    defaultValues: {
-      gstin: '',
-      pan: '',
-      udyam: '',
-      state: '',
-      registrationType: 'REGULAR',
-      negativeStockPolicy: 'BLOCK',
-      valuationBusinessDateOrder: false,
-      recomputeTaxOnComplete: false,
-      assumeLocalStateForBlankParty: true,
-      einvoiceEnabled: false,
-      ewayEnabled: false,
-      ewayThresholdAmount: '50000',
-      aatoTurnover: '',
-      gspProvider: '',
-      gspClientId: '',
-      gspClientSecret: '',
-      gspUsername: '',
-      clearGspCredentials: false,
-    },
-  });
-
-  const gstSeededRef = useRef(false);
-  useEffect(() => {
-    if (query.data && !gstSeededRef.current) {
-      gstSeededRef.current = true;
-      const d = query.data;
-      reset({
-        gstin: d.gstin ?? '',
-        pan: d.pan ?? '',
-        udyam: d.udyam ?? '',
-        state: d.state ?? '',
-        registrationType: d.registrationType ?? 'REGULAR',
-        negativeStockPolicy: d.negativeStockPolicy ?? 'BLOCK',
-        valuationBusinessDateOrder: !!d.valuationBusinessDateOrder,
-        recomputeTaxOnComplete: !!d.recomputeTaxOnComplete,
-        assumeLocalStateForBlankParty: !!d.assumeLocalStateForBlankParty,
-        einvoiceEnabled: !!d.einvoiceEnabled,
-        ewayEnabled: !!d.ewayEnabled,
-        ewayThresholdAmount: String(d.ewayThresholdAmount ?? '50000'),
-        aatoTurnover: String(d.aatoTurnover ?? ''),
-        gspProvider: String(d.gspProvider ?? ''),
-        gspClientId: '',
-        gspClientSecret: '',
-        gspUsername: '',
-        clearGspCredentials: false,
-      });
-    }
-  }, [query.data, reset]);
-
-  const mutation = useMutation({
-    mutationFn: (values: GstForm) => {
-      const gstin = (values.gstin ?? '').trim().toUpperCase();
-      if (gstin && !isValidGstin(gstin)) {
-        setError('gstin', { message: 'Enter a valid 15-character GSTIN.' });
-        throw new Error('Enter a valid 15-character GSTIN.');
-      }
-      const payload: Record<string, unknown> = {
-        // These are CharField(blank=True) without null=True on the backend —
-        // sending null instead of '' 400s with "This field may not be null."
-        gstin,
-        pan: (values.pan ?? '').trim().toUpperCase(),
-        udyam: (values.udyam ?? '').trim().toUpperCase(),
-        state: values.state ?? '',
-        registrationType: values.registrationType,
-        negativeStockPolicy: values.negativeStockPolicy,
-        valuationBusinessDateOrder: values.valuationBusinessDateOrder,
-        recomputeTaxOnComplete: values.recomputeTaxOnComplete,
-        assumeLocalStateForBlankParty: values.assumeLocalStateForBlankParty,
-        einvoice_enabled: values.einvoiceEnabled,
-        eway_enabled: values.ewayEnabled,
-        eway_threshold_amount: values.ewayThresholdAmount || '50000',
-        aato_turnover: values.aatoTurnover || null,
-        gsp_provider: values.gspProvider || '',
+function StockRulesSection({ company }: { company: Company }) {
+  const qc = useQueryClient();
+  const initial: StockForm = {
+    negativeStockPolicy: company.negativeStockPolicy ?? 'BLOCK',
+    valuationBusinessDateOrder: !!company.valuationBusinessDateOrder,
+    recomputeTaxOnComplete: !!company.recomputeTaxOnComplete,
+    assumeLocalStateForBlankParty: !!company.assumeLocalStateForBlankParty,
+  };
+  const form = useSettingsForm<StockForm, { updatedAt?: string | null }>({
+    initial,
+    initialUpdatedAt: company.updatedAt ?? null,
+    refetch: async () => {
+      const latest = await getCompany();
+      qc.setQueryData(['company'], latest);
+      return {
+        values: {
+          negativeStockPolicy: latest.negativeStockPolicy ?? 'BLOCK',
+          valuationBusinessDateOrder: !!latest.valuationBusinessDateOrder,
+          recomputeTaxOnComplete: !!latest.recomputeTaxOnComplete,
+          assumeLocalStateForBlankParty: !!latest.assumeLocalStateForBlankParty,
+        },
+        updatedAt: latest.updatedAt ?? null,
       };
-      if (values.clearGspCredentials) {
-        payload.clear_gsp_credentials = true;
-      } else {
-        const creds: Record<string, string> = {};
-        if (values.gspClientId?.trim()) creds.client_id = values.gspClientId.trim();
-        if (values.gspClientSecret?.trim()) creds.client_secret = values.gspClientSecret.trim();
-        if (values.gspUsername?.trim()) creds.username = values.gspUsername.trim();
-        if (Object.keys(creds).length) payload.gsp_credentials = creds;
+    },
+    save: async (values, ctx) => {
+      const policyChanged = values.negativeStockPolicy !== initial.negativeStockPolicy;
+      const rulesChanged =
+        values.valuationBusinessDateOrder !== initial.valuationBusinessDateOrder ||
+        values.recomputeTaxOnComplete !== initial.recomputeTaxOnComplete;
+      if (policyChanged || rulesChanged) {
+        const agreed = await confirmWithPreview(
+          'stock_rules',
+          {
+            negative_stock_policy: values.negativeStockPolicy,
+            valuation_business_date_order: values.valuationBusinessDateOrder,
+            recompute_tax_on_complete: values.recomputeTaxOnComplete,
+          },
+          policyChanged
+            ? t('gst.confirmNegativeStockChange', { policy: values.negativeStockPolicy })
+            : t('settingsPreview.stock_confirm'),
+        );
+        if (!agreed) throw new Error(t('gstPage.cancelled'));
       }
-      return updateCompany(payload as never);
-    },
-    onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['company'] });
-      void queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
-      // F3-015: clear the dirty flag post-save (see UnsavedChangesGuard below).
-      reset(variables);
+      const stamp = savedStamp(qc, ['company'], ctx.expectedUpdatedAt, company.updatedAt);
+      await updateCompany({ ...values, ...(stamp ? { expected_updated_at: stamp } : {}) } as never);
+      await qc.invalidateQueries({ queryKey: ['company'] });
+      return {};
     },
   });
-  // F3-073: dismissable "saved" banner; reappears on the next save because
-  // mutation.submittedAt advances with every mutate() call.
-  const [savedAck, setSavedAck] = useState(0);
-  const [gstConfirmed, setGstConfirmed] = useState(false);
-  const [needsGstConfirm, setNeedsGstConfirm] = useState(false);
-
-  const verifyMutation = useMutation({
-    mutationFn: async () => {
-      const gstin = (query.data?.gstin ?? '').trim();
-      if (!gstin) throw new Error('Add and save a GSTIN first.');
-      return verifyCompanyGstin();
-    },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
-  });
-  const panVerifyMutation = useMutation({
-    mutationFn: verifyCompanyPan,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
-  });
-  const udyamVerifyMutation = useMutation({
-    mutationFn: verifyCompanyUdyam,
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['company'] }),
-  });
-
-  if (!canManageGst(user)) return <ForbiddenPage />;
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) {
-    return (
-      <ErrorState
-        message={getErrorMessage(query.error)}
-        error={query.error}
-        onRetry={() => void query.refetch()}
+  const v = form.values;
+  const set = (patch: Partial<StockForm>) => form.setValues({ ...v, ...patch });
+  const check = (key: 'valuationBusinessDateOrder' | 'recomputeTaxOnComplete' | 'assumeLocalStateForBlankParty', label: string, help?: string) => (
+    <>
+      <FormControlLabel
+        control={<Checkbox checked={v[key]} onChange={(_, c) => set({ [key]: c })} />}
+        label={label}
       />
-    );
-  }
-
-  const company = query.data;
-
+      {help ? (
+        <Typography variant="caption" color="text.secondary">
+          {help}
+        </Typography>
+      ) : null}
+    </>
+  );
   return (
-    <Stack
-      spacing={2}
-      component="form"
-      onSubmit={handleSubmit((values) => {
-        // F3-049: registration type and negative-stock policy are high-impact
-        // flips — spell out the consequence before saving the change.
-        const prev = query.data;
-        if (prev && values.registrationType !== prev.registrationType) {
-          if (
-            !window.confirm(
-              t('gst.confirmRegistrationChange', {
-                type: values.registrationType,
-              }),
-            )
-          ) {
-            return;
-          }
-        }
-        if (prev && values.negativeStockPolicy !== prev.negativeStockPolicy) {
-          if (
-            !window.confirm(
-              t('gst.confirmNegativeStockChange', {
-                policy: values.negativeStockPolicy,
-              }),
-            )
-          ) {
-            return;
-          }
-        }
-        const typed = (values.gstin ?? '').trim().toUpperCase();
-        const saved = (prev?.gstin ?? '').trim().toUpperCase();
-        // Only a new or changed GSTIN needs the confirmation. An unregistered business, or any
-        // other setting, saves without it. A blocked save says why instead of doing nothing.
-        if (typed && typed !== saved && !gstConfirmed) {
-          setNeedsGstConfirm(true);
-          return;
-        }
-        setNeedsGstConfirm(false);
-        mutation.mutate(values);
-      })}
-    >
-      <UnsavedChangesGuard when={formState.isDirty} />
-      <PageTitle>{t('nav.gst')}</PageTitle>
-      {mutation.isSuccess && mutation.submittedAt !== savedAck ? (
-        <Alert severity="success" onClose={() => setSavedAck(mutation.submittedAt)}>
-          {t('gst.settingsSaved')}
-        </Alert>
-      ) : null}
-      {mutation.isError ? <HelpErrorAlert error={mutation.error} /> : null}
-      {verifyMutation.isSuccess ? (
-        <Alert severity="info">
-          {t('gst.verifyStatus', {
-            status: verifyMutation.data?.status ?? t('gst.verified'),
-            name: verifyMutation.data?.tradeName || t('gst.active'),
-          })}
-        </Alert>
-      ) : null}
-      {verifyMutation.isError ? (
-        <HelpErrorAlert error={verifyMutation.error} />
-      ) : null}
-      <Paper sx={{ p: 3, maxWidth: 640 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6" fontWeight={600}>
-            1. Basic GST Setup
-          </Typography>
-          <Controller
-            name="gstin"
-            control={control}
-            render={({ field }) => (
-              <HelpHint intent="add-gstin" slot="gstin">
-                <TextField
-                  label={t('gstSettings.primaryGstin')}
-                  placeholder="07AAAAA0000A1Z5"
-                  error={Boolean(formState.errors.gstin)}
-                  helperText={
-                    formState.errors.gstin?.message ||
-                    String(company?.gstinVerificationStatus ?? 'Leave blank if unregistered / composite')
-                  }
-                  {...field}
-                  onChange={(e) => {
-                    field.onChange(e);
-                    if (formState.errors.gstin) {
-                      clearErrors('gstin');
-                    }
-                  }}
-                />
-              </HelpHint>
-            )}
-          />
-          <Button
-            variant="outlined"
-            size="small"
-            disabled={verifyMutation.isPending || !watch('gstin')}
-            onClick={() => verifyMutation.mutate()}
-          >
-            {t('sweep2.verifyGstin')}
-          </Button>
-          <Controller
-            name="pan"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('gstSettings.pan')}
-                placeholder="ABCDE1234F"
-                helperText={String(company?.panVerificationStatus ?? 'Optional — format check only until a live PAN provider is certified')}
-                {...field}
-              />
-            )}
-          />
-          <Button
-            variant="outlined"
-            size="small"
-            disabled={panVerifyMutation.isPending || !watch('pan')}
-            onClick={() => panVerifyMutation.mutate()}
-          >
-            {t('sweep2.verifyPan')}
-          </Button>
-          {panVerifyMutation.isError ? (
-            <HelpErrorAlert error={panVerifyMutation.error} />
-          ) : null}
-          <Controller
-            name="udyam"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('gstSettings.udyam')}
-                placeholder="UDYAM-KR-00-0000000"
-                helperText={String(company?.udyamVerificationStatus ?? 'Optional — format check only until a live UDYAM provider is certified')}
-                {...field}
-              />
-            )}
-          />
-          <Button
-            variant="outlined"
-            size="small"
-            disabled={udyamVerifyMutation.isPending || !watch('udyam')}
-            onClick={() => udyamVerifyMutation.mutate()}
-          >
-            {t('sweep2.verifyUdyam')}
-          </Button>
-          {udyamVerifyMutation.isError ? (
-            <HelpErrorAlert error={udyamVerifyMutation.error} />
-          ) : null}
-          <Controller
-            name="state"
-            control={control}
-            render={({ field }) => <StateSelect value={field.value ?? ''} onChange={field.onChange} />}
-          />
-          <Controller
-            name="registrationType"
-            control={control}
-            render={({ field }) => (
-              <HelpHint intent="registration-type" slot="registration-type-settings">
-                <TextField select label={t('gstSettings.registrationType')} {...field} value={field.value ?? 'REGULAR'}>
-                  <MenuItem value="REGULAR">{t('gstSettings.regular')}</MenuItem>
-                  <MenuItem value="COMPOSITION">{t('gstSettings.composition')}</MenuItem>
-                  <MenuItem value="UNREGISTERED">{t('gstSettings.unregistered')}</MenuItem>
-                </TextField>
-              </HelpHint>
-            )}
-          />
-          <Controller
-            name="negativeStockPolicy"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                select
-                label={t('gstSettings.stockPolicy')}
-                helperText={t('gstSettings.stockPolicyHint')}
-                {...field}
-              >
-                <MenuItem value="BLOCK">{t('gstSettings.blockBilling')}</MenuItem>
-                <MenuItem value="WARN">{t('gstSettings.allowWarn')}</MenuItem>
-              </TextField>
-            )}
-          />
-          <Controller
-            name="valuationBusinessDateOrder"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label={t('settings.valuationDateOrder')}
-              />
-            )}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {t('settings.valuationDateOrderHelp')}
-          </Typography>
-          <Controller
-            name="recomputeTaxOnComplete"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label={t('settings.recomputeTaxOnComplete')}
-              />
-            )}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {t('settings.recomputeTaxOnCompleteHelp')}
-          </Typography>
-          <Controller
-            name="assumeLocalStateForBlankParty"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label={t('gst.assumeLocalState')}
-              />
-            )}
-          />
-        </Stack>
-      </Paper>
+    <Section title={t('gstPage.stockTitle')} help={t('gstPage.stockHelp')} form={form}>
+      <TextField
+        select
+        fullWidth
+        label={t('gstSettings.stockPolicy')}
+        helperText={t('gstSettings.stockPolicyHint')}
+        value={v.negativeStockPolicy}
+        onChange={(e) => set({ negativeStockPolicy: e.target.value as NegativeStockPolicy })}
+      >
+        <MenuItem value="BLOCK">{t('gstSettings.blockBilling')}</MenuItem>
+        <MenuItem value="WARN">{t('gstSettings.allowWarn')}</MenuItem>
+      </TextField>
+      {check('valuationBusinessDateOrder', t('settings.valuationDateOrder'), t('settings.valuationDateOrderHelp'))}
+      {check('recomputeTaxOnComplete', t('settings.recomputeTaxOnComplete'), t('settings.recomputeTaxOnCompleteHelp'))}
+      {check('assumeLocalStateForBlankParty', t('gst.assumeLocalState'))}
+    </Section>
+  );
+}
 
-      <Paper sx={{ p: 3, maxWidth: 640 }}>
-        <Stack spacing={2}>
-          <Typography variant="h6" fontWeight={600}>
-            2. e-Invoice, e-Way & Portal Sync (Optional)
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Configure statutory e-Invoice and automated e-Way bill generation if your business turnover exceeds statutory thresholds.
-          </Typography>
-          <Controller
-            name="aatoTurnover"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('gstSettings.turnover')}
-                placeholder={t('sweep.turnoverExample')}
-                helperText={t('sweep.turnoverHelp')}
-                {...field}
-              />
-            )}
-          />
-          <Controller
-            name="einvoiceEnabled"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label={t('gstSettings.einvoice')}
-              />
-            )}
-          />
-          <Controller
-            name="ewayEnabled"
-            control={control}
-            render={({ field }) => (
-              <FormControlLabel
-                control={<Checkbox checked={!!field.value} onChange={(_, c) => field.onChange(c)} />}
-                label={t('gstSettings.eway')}
-              />
-            )}
-          />
-          <Controller
-            name="ewayThresholdAmount"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                label={t('gstSettings.ewayThreshold')}
-                helperText={t('gstSettings.ewayThresholdHint')}
-                {...field}
-              />
-            )}
-          />
-          <Typography variant="subtitle1" fontWeight={600} sx={{ pt: 1 }}>
-            {t('gstSettings.gspTitle')}
-          </Typography>
-          <Alert severity="info">
-            {t('gstSettings.gspWriteOnly')}{' '}
-            {company?.gspCredentialsConfigured ? t('gstSettings.gspActive') : t('gstSettings.gspNone')}
-          </Alert>
-          <Controller
-            name="gspProvider"
-            control={control}
-            render={({ field }) => (
-              <TextField select label={t('gstSettings.gspProvider')} {...field}>
-                <MenuItem value="">{t('gstSettings.gspManual')}</MenuItem>
-                <MenuItem value="sandbox">{t('gstSettings.gspSandbox')}</MenuItem>
-                <MenuItem value="cleartax">{t('gstSettings.gspCleartax')}</MenuItem>
-                <MenuItem value="mastergst">{t('gstSettings.gspMaster')}</MenuItem>
-              </TextField>
-            )}
-          />
-          <Controller
-            name="gspClientId"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                label={t('gstSettings.clientId')}
-                autoComplete="off"
-                name="gsp_client_id"
-                inputProps={{ autoComplete: 'off' }}
-              />
-            )}
-          />
-          <Controller
-            name="gspClientSecret"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                  {...field}
-                  label={t('gstSettings.clientSecret')}
-                  type="password"
-                  autoComplete="new-password"
-                  name="gsp_client_secret"
-                  inputProps={{ autoComplete: 'new-password' }}
-                />
-            )}
-          />
-          <Controller
-            name="gspUsername"
-            control={control}
-            render={({ field }) => (
-              <TextField
-                {...field}
-                label={t('gstSettings.portalUsername')}
-                autoComplete="off"
-                name="gsp_portal_username"
-                inputProps={{ autoComplete: 'off' }}
-              />
-            )}
-          />
-          <FormControlLabel
-            control={<Checkbox checked={gstConfirmed} onChange={(_, checked) => setGstConfirmed(checked)} />}
-            label={t('cog.gstConfirm')}
-          />
-          {needsGstConfirm && !gstConfirmed ? (
-            <Alert severity="warning">{t('cog.gstConfirm')}</Alert>
-          ) : null}
-          <Button type="submit" variant="contained" size="large" disabled={mutation.isPending}>
-            {t('common.save')}
-          </Button>
-        </Stack>
-      </Paper>
+// ---- 3. e-Invoice and e-way bill -------------------------------------------------------------
 
-      <BranchGstinsPanel />
+/** One read-only line: a state Bizboard controls, shown so the owner can see where they stand. */
+function StatusLine({ label, value }: { label: string; value: string }) {
+  return (
+    <Stack direction="row" spacing={1} justifyContent="space-between">
+      <Typography variant="body2">{label}</Typography>
+      <Typography variant="body2" fontWeight={600}>
+        {value}
+      </Typography>
     </Stack>
+  );
+}
+
+interface EwayForm {
+  ewayThresholdAmount: string;
+}
+
+/**
+ * e-Invoice, e-way bill and the portal connection are switched on per company by Bizboard once the
+ * registration is verified, and the company API ignores them from an owner. Showing a working
+ * switch here used to say "saved" while changing nothing, so they are status only; the e-way
+ * threshold is the one value an owner can change.
+ */
+function EinvoiceSection({ company }: { company: Company }) {
+  const qc = useQueryClient();
+  const form = useSettingsForm<EwayForm, { updatedAt?: string | null }>({
+    initial: { ewayThresholdAmount: String(company.ewayThresholdAmount ?? '50000') },
+    initialUpdatedAt: company.updatedAt ?? null,
+    refetch: async () => {
+      const latest = await getCompany();
+      qc.setQueryData(['company'], latest);
+      return { values: { ewayThresholdAmount: String(latest.ewayThresholdAmount ?? '50000') }, updatedAt: latest.updatedAt ?? null };
+    },
+    save: async (values, ctx) => {
+      const amount = Number(values.ewayThresholdAmount);
+      if (!Number.isFinite(amount) || amount < 0) throw new Error(t('gstPage.thresholdInvalid'));
+      const stamp = savedStamp(qc, ['company'], ctx.expectedUpdatedAt, company.updatedAt);
+      await updateCompany({ eway_threshold_amount: String(amount), ...(stamp ? { expected_updated_at: stamp } : {}) } as never);
+      await qc.invalidateQueries({ queryKey: ['company'] });
+      return {};
+    },
+  });
+  const onOff = (on: boolean) => (on ? t('gstPage.statusOn') : t('gstPage.statusOff'));
+  return (
+    <Section title={t('gstPage.einvoiceTitle')} help={t('gstPage.einvoiceHelp')} form={form}>
+      <Stack spacing={0.5}>
+        <StatusLine label={t('gstSettings.einvoice')} value={onOff(!!company.einvoiceEnabled)} />
+        <StatusLine label={t('gstSettings.eway')} value={onOff(!!company.ewayEnabled)} />
+        <StatusLine label={t('gstSettings.turnover')} value={String(company.aatoTurnover ?? '') || '—'} />
+        <StatusLine
+          label={t('gstSettings.gspProvider')}
+          value={company.gspProvider ? String(company.gspProvider) : t('gstSettings.gspManual')}
+        />
+        <StatusLine
+          label={t('gstSettings.gspTitle')}
+          value={company.gspCredentialsConfigured ? t('gstSettings.gspActive') : t('gstSettings.gspNone')}
+        />
+      </Stack>
+      <Alert severity="info">{t('gstPage.controlledByBizboard')}</Alert>
+      <TextField
+        label={t('gstSettings.ewayThreshold')}
+        helperText={t('gstSettings.ewayThresholdHint')}
+        value={form.values.ewayThresholdAmount}
+        onChange={(e) => form.setValues({ ewayThresholdAmount: e.target.value })}
+      />
+    </Section>
   );
 }

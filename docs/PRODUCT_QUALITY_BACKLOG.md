@@ -12,7 +12,7 @@ PRODUCT QUALITY BACKLOG - dashboard
 🟡 Usability improvements     :   4
 🟣 Persona gaps               :   1
 🔵 Business gaps              :   5
-🟤 Reliability & trust issues :  10
+🟤 Reliability & trust issues :  13
 🔗 Cross-flow consistency     :   0
 🟢 Performance improvements   :   1
 ⚫ Security & privacy fixes   :   4
@@ -22,7 +22,7 @@ PRODUCT QUALITY BACKLOG - dashboard
 Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 30 open)
+## Do next - sequenced frontier (top 12 of 33 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
@@ -108,7 +108,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0127](../qos/backlog/QOS-0127.yaml) | Credit notes: enforce the annual-return filing date in the Section 34(2) time limit | P1 | Issue a credit note late in the financial year after the annual return | P3 | M | heuristic | Low | founder | fixed |
 
-## 6. 🟤 Reliability & trust issues  (10 open / 39 tracked)
+## 6. 🟤 Reliability & trust issues  (13 open / 42 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -151,6 +151,9 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0131](../qos/backlog/QOS-0131.yaml) | Accounting screens: a native-speaker review of the new Hindi strings | P1 | Run the accounting screens in Hindi | P3 | S | heuristic | Low | founder | open |
 | [QOS-0132](../qos/backlog/QOS-0132.yaml) | Accounting screens: a real-device and screen-reader pass | P1 | Use the accounting screens on a phone and with a screen reader | P3 | S | heuristic | Low | founder | open |
 | [QOS-0133](../qos/backlog/QOS-0133.yaml) | Accounting screens: run the PostgreSQL concurrency lane and a browser pass in CI | P1 | Two people post, reconcile or close at the same time | P3 | S | heuristic | Low | founder | open |
+| [QOS-0134](../qos/backlog/QOS-0134.yaml) | Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI | P1 | Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or milestone at once | P3 | S | heuristic | Low | founder | open |
+| [QOS-0135](../qos/backlog/QOS-0135.yaml) | Customer care and jobs: Hindi wording review | P1 | A shop owner who works in Hindi uses tickets, complaints, jobs, contracts and projects | P3 | S | heuristic | Low | founder | open |
+| [QOS-0136](../qos/backlog/QOS-0136.yaml) | Customer care and jobs: warranty, commission and renewal accounting sign-off | P1 | A company gives parts free under warranty, bills a contract on a cadence, or renews it in place | P3 | S | heuristic | Low | founder | open |
 
 ## 7. 🔗 Cross-flow consistency  (0 open / 3 tracked)
 

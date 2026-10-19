@@ -105,4 +105,38 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // SET-10/SET-12: Settings screens ask through the in-app dialog and keep every visible string
+    // in the i18n catalogue. The folder is clean (SET-24), so these are errors: a new raw English
+    // string in visible text or in a label, placeholder, helper text, title, alt or aria-label fails lint.
+    files: ['src/pages/settings/**/*.{ts,tsx}', 'src/components/settings/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Identifier[name="fetchAllPages"]',
+          message:
+            'fetchAllPages is banned. Use list*Page / fetchMoneyListFirstPage for money docs, or fetchAllPagesMasters in resources.ts for masters.',
+        },
+        {
+          selector: "CallExpression[callee.object.name='window'][callee.property.name='confirm']",
+          message: 'Settings: use confirmAction() from @/utils/confirmBridge or <ConfirmDialog>, not window.confirm.',
+        },
+        {
+          selector: "CallExpression[callee.name='confirm']",
+          message: 'Settings: use confirmAction() from @/utils/confirmBridge or <ConfirmDialog>, not confirm().',
+        },
+        {
+          selector: 'JSXText[value=/[A-Za-z]{3}/]',
+          message: 'Settings: put visible text in the i18n catalogue (en.ts and hi.ts) and render it with t().',
+        },
+        {
+          selector:
+            'JSXAttribute[name.name=/^(label|placeholder|helperText|title|alt|aria-label)$/] > Literal[value=/[a-z]{3}/]',
+          message: 'Settings: put this text in the i18n catalogue (en.ts and hi.ts) and render it with t().',
+        },
+      ],
+    },
+  },
 );

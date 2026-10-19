@@ -1,10 +1,11 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactElement } from 'react';
 import { Navigate, Outlet, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { CircularProgress, Box } from '@mui/material';
 import { useAuth } from '@/auth/AuthContext';
+import { settingsRouteAllows, settingsRouteDef } from '@/navigation/settingsAccess';
 import {
-  isAccountingFeatureEnabled,
   isAiInsightsEnabled,
+  isCareAnyEnabled,
   isComplaintsEnabled,
   isContractsEnabled,
   isCrmEnabled,
@@ -13,12 +14,9 @@ import {
   isWorkshopEnabled,
   isProjectsEnabled,
   isInsuranceEnabled,
-  isGstrReportsEnabled,
   isManufacturingEnabled,
   isPayrollEnabled,
   isPosEnabled,
-  isTallyEnabled,
-  isTdsEnabled,
 } from '@/config/features';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { AppShell } from '@/layouts/AppShell';
@@ -31,18 +29,15 @@ import { HomePage } from '@/pages/HomePage';
 import { LimitedAccessLanding } from '@/pages/LimitedAccessLanding';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import {
-  canAccessSettings,
   canAdjustInventory,
   canAccessPos,
   canCreatePayments,
   canCreatePurchases,
   canCreateSales,
-  canImport,
+  canViewCarePurchases,
+  canViewCareSales,
   canImportPurchaseBill,
   canImportSalesBill,
-  canManageGst,
-  canExport,
-  canManageUsers,
   canManageManufacturing,
   canManagePayroll,
   canManageCrm,
@@ -54,8 +49,9 @@ import {
   canViewSalesSurfaces,
   canViewPaymentSurfaces,
   canViewBankRecon,
-  isOwner,
+  canAccessSettings,
 } from '@/utils/permissions';
+import { canViewAccountingReports, canViewGstrReports, canViewMarginReports, canViewTdsReports } from '@/navigation/reportAccess';
 import type { User } from '@/types/domain';
 
 const NewInvoicePage = lazy(() => import('@/pages/sales/NewInvoicePage').then((m) => ({ default: m.NewInvoicePage })));
@@ -151,6 +147,7 @@ const BackupExportPage = lazy(() => import('@/pages/settings/BackupExportPage').
 const TelegramSettingsPage = lazy(() => import('@/pages/settings/TelegramSettingsPage').then((m) => ({ default: m.TelegramSettingsPage })));
 const BillingPage = lazy(() => import('@/pages/settings/BillingPage').then((m) => ({ default: m.BillingPage })));
 const BankAccountsPage = lazy(() => import('@/pages/settings/BankAccountsPage').then((m) => ({ default: m.BankAccountsPage })));
+const MoneyInRulesPage = lazy(() => import('@/pages/settings/MoneyInRulesPage').then((m) => ({ default: m.MoneyInRulesPage })));
 const PaymentGatewayPage = lazy(() => import('@/pages/settings/PaymentGatewayPage').then((m) => ({ default: m.PaymentGatewayPage })));
 const PaymentLinksPage = lazy(() => import('@/pages/payments/PaymentLinksPage').then((m) => ({ default: m.PaymentLinksPage })));
 const BankStatementsPage = lazy(() => import('@/pages/payments/BankStatementsPage').then((m) => ({ default: m.BankStatementsPage })));
@@ -163,6 +160,7 @@ const ExpiryAlertsPage = lazy(() => import('@/pages/inventory/ExpiryAlertsPage')
 const StockCountPage = lazy(() => import('@/pages/inventory/StockCountPage').then((m) => ({ default: m.StockCountPage })));
 const SerialsPage = lazy(() => import('@/pages/inventory/SerialsPage').then((m) => ({ default: m.SerialsPage })));
 const StockValuationPage = lazy(() => import('@/pages/reports/StockValuationPage').then((m) => ({ default: m.StockValuationPage })));
+const SettingsHubPage = lazy(() => import('@/pages/settings/SettingsHubPage').then((m) => ({ default: m.SettingsHubPage })));
 const PriceListsPage = lazy(() => import('@/pages/settings/PriceListsPage').then((m) => ({ default: m.PriceListsPage })));
 const ItemSettingsPage = lazy(() => import('@/pages/settings/ItemSettingsPage').then((m) => ({ default: m.ItemSettingsPage })));
 const AccountingSettingsPage = lazy(() => import('@/pages/settings/AccountingSettingsPage').then((m) => ({ default: m.AccountingSettingsPage })));
@@ -209,6 +207,9 @@ const SharedTicketsPage = lazy(() => import('@/pages/support/SharedTicketsPage')
 const JobCardsPage = lazy(() => import('@/pages/workshop/JobCardsPage').then((m) => ({ default: m.JobCardsPage })));
 const ProjectsPage = lazy(() => import('@/pages/projects/ProjectsPage').then((m) => ({ default: m.ProjectsPage })));
 const InsurancePage = lazy(() => import('@/pages/insurance/InsurancePage').then((m) => ({ default: m.InsurancePage })));
+const ServiceQualityPage = lazy(() => import('@/pages/care/ServiceQualityPage').then((m) => ({ default: m.ServiceQualityPage })));
+const ContractCertificatePage = lazy(() => import('@/pages/contracts/ContractCertificatePage').then((m) => ({ default: m.ContractCertificatePage })));
+const JobSlipPage = lazy(() => import('@/pages/workshop/JobSlipPage').then((m) => ({ default: m.JobSlipPage })));
 const ContractsPage = lazy(() => import('@/pages/contracts/ContractsPage').then((m) => ({ default: m.ContractsPage })));
 const OpportunitiesPage = lazy(() =>
   import('@/pages/crm/OpportunitiesPage').then((m) => ({ default: m.OpportunitiesPage })),
@@ -259,9 +260,14 @@ function RoleRoute({
   return <Outlet />;
 }
 
-function allowHelpHealth(user: User | null): boolean {
-  if (!user) return false;
-  return isOwner(user.role) || Boolean(user.isStaff);
+/** One Settings route, guarded by the shared access list (navigation/settingsAccess.ts). */
+function settingsRoute(id: string, element: ReactElement) {
+  const def = settingsRouteDef(id);
+  return (
+    <Route element={<RoleRoute allow={(user) => settingsRouteAllows(id, user)} />}>
+      <Route path={def.path.replace(/^\//, '')} element={element} />
+    </Route>
+  );
 }
 
 function allowAiInsights(user: User | null): boolean {
@@ -272,13 +278,8 @@ function allowAiAssistant(user: User | null): boolean {
   return isAiInsightsEnabled() && canUseAiAssistant(user);
 }
 
-function allowGstrReports(user: User | null): boolean {
-  return isGstrReportsEnabled() && canViewFinancialReports(user);
-}
-
-function allowTdsReports(user: User | null): boolean {
-  return isTdsEnabled() && canViewFinancialReports(user);
-}
+const allowGstrReports = canViewGstrReports;
+const allowTdsReports = canViewTdsReports;
 
 function allowManufacturing(user: User | null): boolean {
   return canManageManufacturing(user) && isManufacturingEnabled();
@@ -297,57 +298,38 @@ function allowReferrals(user: User | null): boolean {
 }
 
 function allowComplaints(user: User | null): boolean {
-  return canCreateSales(user) && isComplaintsEnabled();
+  return canViewCareSales(user) && isComplaintsEnabled();
 }
 
 function allowSupplierComplaints(user: User | null): boolean {
-  return canCreatePurchases(user) && isComplaintsEnabled();
+  return canViewCarePurchases(user) && isComplaintsEnabled();
 }
 
 function allowTickets(user: User | null): boolean {
-  return canCreateSales(user) && isSupportTicketsEnabled();
+  return canViewCareSales(user) && isSupportTicketsEnabled();
 }
 
 function allowWorkshop(user: User | null): boolean {
-  return canCreateSales(user) && isWorkshopEnabled();
+  return canViewCareSales(user) && isWorkshopEnabled();
 }
 
 function allowProjects(user: User | null): boolean {
-  return canCreateSales(user) && isProjectsEnabled();
+  return canViewCareSales(user) && isProjectsEnabled();
 }
 
 function allowInsurance(user: User | null): boolean {
   return user?.canManagePolicies === true && isInsuranceEnabled();
 }
 
+function allowServiceQuality(user: User | null): boolean {
+  return canViewCareSales(user) && isCareAnyEnabled();
+}
+
 function allowContracts(user: User | null): boolean {
-  return canCreateSales(user) && isContractsEnabled();
+  return canViewCareSales(user) && isContractsEnabled();
 }
 
-function allowAccounting(user: User | null): boolean {
-  return (
-    // CR-162: company.accountingEnabled must dynamically activate this route
-    // the same way it does the nav (navigation/menu.ts) — passing it through
-    // lets a company that turned books on bypass a build/env with the
-    // static VITE_ENABLE_ACCOUNTING flag off, instead of leaving a nav item
-    // that's visible but whose route still shows "books off".
-    isAccountingFeatureEnabled(user?.company?.accountingEnabled) &&
-    Boolean(user?.company?.accountingEnabled) &&
-    canViewFinancialReports(user)
-  );
-}
-
-function allowAccountingSettings(user: User | null): boolean {
-  return canManageUsers(user);
-}
-
-function allowAiSettings(user: User | null): boolean {
-  return canManageUsers(user);
-}
-
-function allowTally(user: User | null): boolean {
-  return isTallyEnabled() && canImport(user);
-}
+const allowAccounting = canViewAccountingReports;
 
 function allowPos(user: User | null): boolean {
   return (isPosEnabled() || isRuntimeFlagEnabled('ENABLE_POS')) && canAccessPos(user);
@@ -435,9 +417,7 @@ export function App() {
             <Route path="offline-outbox" element={<OfflineOutboxPage />} />
             <Route path="help" element={<HelpPage />} />
             <Route path="help/pilot-limits" element={<PilotLimitsPage />} />
-            <Route element={<RoleRoute allow={allowHelpHealth} />}>
-              <Route path="settings/help" element={<HelpHealthPage />} />
-            </Route>
+            {settingsRoute('help-health', <HelpHealthPage />)}
             <Route element={<RoleRoute allow={allowAiInsights} />}>
               <Route path="insights" element={<InsightsHubPage />} />
               <Route path="insights/alerts" element={<InsightsAlertsPage />} />
@@ -560,8 +540,6 @@ export function App() {
               <Route path="reports/discounts" element={<DiscountReportPage />} />
               <Route path="reports/tds-receivable" element={<TdsReceivablePage />} />
               <Route path="reports/sales-discounts" element={<DiscountReportPage />} />
-              <Route path="reports/invoice-profit" element={<InvoiceProfitReportPage />} />
-              <Route path="reports/invoice-profit/rollup" element={<InvoiceProfitRollupPage />} />
               <Route path="reports/inventory" element={<InventoryReportPage />} />
               <Route path="reports/customer-ledger" element={<CustomerLedgerPage />} />
               <Route path="accounting/expenses" element={<ExpensesPage />} />
@@ -570,6 +548,10 @@ export function App() {
               <Route path="reports/cash-book" element={<CashBookPage />} />
               <Route path="reports/day-book" element={<DayBookPage />} />
               <Route path="reports/stock-valuation" element={<StockValuationPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={canViewMarginReports} />}>
+              <Route path="reports/invoice-profit" element={<InvoiceProfitReportPage />} />
+              <Route path="reports/invoice-profit/rollup" element={<InvoiceProfitRollupPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowTdsReports} />}>
               <Route path="reports/tds-tcs" element={<TdsTcsReportsPage />} />
@@ -595,43 +577,30 @@ export function App() {
               <Route path="reports/gst-health" element={<GstHealthPage />} />
               <Route path="reports/gst-rate-exposure" element={<GstRateExposurePage />} />
             </Route>
+            {/* Every Settings screen is guarded by the list the sidebar also reads (settingsAccess.ts). */}
             <Route element={<RoleRoute allow={canAccessSettings} />}>
-              <Route element={<RoleRoute allow={(user) => user?.role === 'OWNER'} />}>
-                <Route path="settings/packs" element={<PackWizardPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={canManageUsers} />}>
-                <Route path="settings/company" element={<CompanySettingsPage />} />
-                <Route path="settings/series" element={<SeriesSettingsPage />} />
-                <Route path="settings/units" element={<UnitsSettingsPage />} />
-                <Route path="settings/items" element={<ItemSettingsPage />} />
-                <Route path="settings/templates" element={<InvoiceTemplatesPage />} />
-                <Route path="settings/users" element={<UsersSettingsPage />} />
-                <Route path="settings/bank-accounts" element={<BankAccountsPage />} />
-                <Route path="settings/payment-gateway" element={<PaymentGatewayPage />} />
-                <Route path="settings/billing" element={<BillingPage />} />
-                <Route path="settings/price-lists" element={<PriceListsPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={canExport} />}>
-                <Route path="settings/backup" element={<BackupExportPage />} />
-              </Route>
-              <Route path="settings/telegram" element={<TelegramSettingsPage />} />
-              <Route element={<RoleRoute allow={allowAiSettings} />}>
-                <Route path="settings/ai" element={<AiSettingsPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={allowAccountingSettings} />}>
-                <Route path="settings/accounting" element={<AccountingSettingsPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={canManageGst} />}>
-                <Route path="settings/gst" element={<GstSettingsPage />} />
-                <Route path="settings/statutory-licences" element={<StatutoryLicencesPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={canImport} />}>
-                <Route path="settings/import" element={<ImportPage />} />
-              </Route>
-              <Route element={<RoleRoute allow={allowTally} />}>
-                <Route path="settings/tally" element={<TallyMigrationPage />} />
-              </Route>
+              <Route path="settings" element={<SettingsHubPage />} />
             </Route>
+            {settingsRoute('pack-wizard', <PackWizardPage />)}
+            {settingsRoute('company', <CompanySettingsPage />)}
+            {settingsRoute('series', <SeriesSettingsPage />)}
+            {settingsRoute('units', <UnitsSettingsPage />)}
+            {settingsRoute('item-settings', <ItemSettingsPage />)}
+            {settingsRoute('templates', <InvoiceTemplatesPage />)}
+            {settingsRoute('users', <UsersSettingsPage />)}
+            {settingsRoute('bank-accounts', <BankAccountsPage />)}
+            {settingsRoute('payment-gateway', <PaymentGatewayPage />)}
+            {settingsRoute('money-in-rules', <MoneyInRulesPage />)}
+            {settingsRoute('billing', <BillingPage />)}
+            {settingsRoute('price-lists', <PriceListsPage />)}
+            {settingsRoute('backup', <BackupExportPage />)}
+            {settingsRoute('telegram', <TelegramSettingsPage />)}
+            {settingsRoute('ai-settings', <AiSettingsPage />)}
+            {settingsRoute('accounting-settings', <AccountingSettingsPage />)}
+            {settingsRoute('gst', <GstSettingsPage />)}
+            {settingsRoute('statutory-licences', <StatutoryLicencesPage />)}
+            {settingsRoute('import', <ImportPage />)}
+            {settingsRoute('tally', <TallyMigrationPage />)}
             <Route element={<RoleRoute allow={allowAccounting} />}>
               <Route path="accounting/accounts" element={<ChartOfAccountsPage />} />
               <Route path="accounting/journals" element={<JournalsPage />} />
@@ -664,25 +633,37 @@ export function App() {
             </Route>
             <Route element={<RoleRoute allow={allowComplaints} />}>
               <Route path="complaints" element={<ComplaintsPage />} />
+              <Route path="complaints/:id" element={<ComplaintsPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowSupplierComplaints} />}>
               <Route path="complaints/suppliers" element={<SupplierComplaintsPage />} />
+              <Route path="complaints/suppliers/:id" element={<SupplierComplaintsPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowTickets} />}>
               <Route path="support/tickets" element={<TicketsPage />} />
+              <Route path="support/tickets/:id" element={<TicketsPage />} />
               <Route path="support/shared" element={<SharedTicketsPage />} />
+              <Route path="support/shared/:id" element={<SharedTicketsPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowWorkshop} />}>
               <Route path="workshop/jobs" element={<JobCardsPage />} />
+              <Route path="workshop/jobs/:id" element={<JobCardsPage />} />
+              <Route path="workshop/jobs/:id/slip" element={<JobSlipPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowProjects} />}>
               <Route path="projects" element={<ProjectsPage />} />
+              <Route path="projects/:id" element={<ProjectsPage />} />
+            </Route>
+            <Route element={<RoleRoute allow={allowServiceQuality} />}>
+              <Route path="care/quality" element={<ServiceQualityPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowInsurance} />}>
               <Route path="insurance" element={<InsurancePage />} />
             </Route>
             <Route element={<RoleRoute allow={allowContracts} />}>
               <Route path="contracts" element={<ContractsPage />} />
+              <Route path="contracts/:id" element={<ContractsPage />} />
+              <Route path="contracts/:id/certificate" element={<ContractCertificatePage />} />
             </Route>
           </Route>
         </Route>

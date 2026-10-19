@@ -52,7 +52,7 @@ export async function inviteCompanyUser(payload: {
   canCreateSales?: boolean;
   canCreatePurchases?: boolean;
   canCreatePayments?: boolean;
-}): Promise<CompanyUser & { inviteUrl?: string; inviteToken?: string }> {
+}, headers: Record<string, string> = {}): Promise<CompanyUser & { inviteUrl?: string; inviteToken?: string }> {
   return withMocks(async () => {
     const body: Record<string, unknown> = {
       email: payload.email,
@@ -71,7 +71,7 @@ export async function inviteCompanyUser(payload: {
     if (payload.password) {
       body.password = payload.password;
     }
-    const { data } = await apiClient.post('/company/users/', body);
+    const { data } = await apiClient.post('/company/users/', body, { headers });
     return unwrapData<CompanyUser>(data);
   }, {
     id: Date.now(),
@@ -85,9 +85,21 @@ export async function inviteCompanyUser(payload: {
   });
 }
 
+/** A fresh invite link for someone who has not accepted; earlier links stop working. */
+export async function resendCompanyUserInvite(id: number): Promise<{ inviteUrl?: string; inviteToken?: string; inviteExpiresAt?: string | null }> {
+  const { data } = await apiClient.post(`/company/users/${id}/resend-invite/`, {});
+  return unwrapData(data);
+}
+
+/** Cancel an invite that has not been accepted. */
+export async function revokeCompanyUserInvite(id: number): Promise<{ revoked: number }> {
+  const { data } = await apiClient.post(`/company/users/${id}/revoke-invite/`, {});
+  return unwrapData(data);
+}
+
 export async function updateCompanyUser(
   id: number,
-  payload: Partial<CompanyUser>,
+  payload: Partial<CompanyUser> & { expected_updated_at?: string },
 ): Promise<CompanyUser> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/company/users/${id}/`, payload);
@@ -150,6 +162,31 @@ export interface CompanyStatutoryLicenceRow {
   valid_upto?: string | null;
   isActive?: boolean;
   is_active?: boolean;
+  /** True once the licence is printed on an issued invoice (renew or replace only). */
+  isLocked?: boolean;
+  is_locked?: boolean;
+  /** Same licence types as `licenceType`; POSP and AGENCY exist on the server. */
+}
+
+export interface StatutoryLicenceStatus {
+  enforcement: boolean;
+  regulatedProducts: number;
+  activeLicences: number;
+  expired: number;
+  expiringSoon: number;
+}
+
+export async function getStatutoryLicenceStatus(): Promise<StatutoryLicenceStatus> {
+  const { data } = await apiClient.get('/company/statutory-licences/status/');
+  return unwrapData<StatutoryLicenceStatus>(data);
+}
+
+export async function replaceCompanyStatutoryLicence(
+  id: number,
+  payload: Record<string, unknown>,
+): Promise<CompanyStatutoryLicenceRow> {
+  const { data } = await apiClient.post(`/company/statutory-licences/${id}/replace/`, payload);
+  return unwrapData<CompanyStatutoryLicenceRow>(data);
 }
 
 export async function listCompanyStatutoryLicences(): Promise<CompanyStatutoryLicenceRow[]> {
@@ -219,10 +256,42 @@ export async function unlinkTelegram(): Promise<void> {
   await apiClient.post('/telegram/unlink/', {});
 }
 
+export interface TenantBackupStatus {
+  lastExport: null | {
+    exportedAt: string;
+    bytes: number | null;
+    version: number | string | null;
+    by: string;
+    summary: null | {
+      sections: number;
+      records: number;
+      customers: number;
+      suppliers: number;
+      products: number;
+      salesInvoices: number;
+      purchaseInvoices: number;
+      receipts: number;
+      journals: number;
+      filesWithBytes: number;
+      filesListedOnly: number;
+      fileWarnings: number;
+    };
+  };
+  restoreIntoLiveEnabled: boolean;
+  maxSandboxes: number;
+}
+
+/** When the last encrypted backup was taken and what it held, from the audit trail. */
+export async function getTenantBackupStatus(): Promise<TenantBackupStatus> {
+  const { data } = await apiClient.get('/company/export/last/');
+  return unwrapData<TenantBackupStatus>(data);
+}
+
 export async function restoreTenantSandbox(file: File): Promise<{
   companyId: number;
   mode: string;
   name: string;
+  sandboxExpiresAt: string | null;
 }> {
   const form = new FormData();
   form.append('file', file);
@@ -231,11 +300,131 @@ export async function restoreTenantSandbox(file: File): Promise<{
     timeout: LONG_TIMEOUT_MS,
     headers: idempotencyHeaders(),
   });
-  const body = unwrapData<{ company_id?: number; companyId?: number; mode?: string; name?: string }>(data);
+  const body = unwrapData<{
+    company_id?: number;
+    companyId?: number;
+    mode?: string;
+    name?: string;
+    sandbox_expires_at?: string | null;
+    sandboxExpiresAt?: string | null;
+  }>(data);
   return {
     companyId: Number(body.company_id ?? body.companyId),
     mode: body.mode || 'sandbox',
     name: body.name || '',
+    sandboxExpiresAt: body.sandbox_expires_at ?? body.sandboxExpiresAt ?? null,
   };
 }
 
+
+
+/** SET-18: one row of the Settings health checklist. */
+export interface SettingsHealthItem {
+  id: 'gstin' | 'taxprofile' | 'bank' | 'licences' | 'gateway' | 'users' | 'backup' | 'webhook' | 'plan';
+  status: 'ok' | 'todo' | 'warn';
+  path: string;
+  count?: number;
+  expired?: number;
+  expiring?: number;
+  pending?: number;
+  metrics?: string[];
+}
+
+export async function getSettingsHealth(): Promise<{ items: SettingsHealthItem[]; needsAttention: number }> {
+  const { data } = await apiClient.get('/company/settings-health/');
+  return unwrapData<{ items: SettingsHealthItem[]; needsAttention: number }>(data);
+}
+
+/** SET-02: one document number series for the chosen GSTIN and financial year. */
+export interface NumberSeriesRow {
+  docType: string;
+  prefix: string;
+  nextNumber: number;
+  padding: number;
+  preview: string;
+  length: number;
+  lengthWarning: string | null;
+  updatedAt: string;
+}
+
+export interface NumberSeriesList {
+  gstin: string;
+  fyLabel: string;
+  items: NumberSeriesRow[];
+  gstins: string[];
+  fyOptions: string[];
+  hasSeries: boolean;
+}
+
+export async function getNumberSeries(gstin = '', fy = ''): Promise<NumberSeriesList> {
+  const { data } = await apiClient.get('/company/number-series/', { params: { gstin: gstin || undefined, fy: fy || undefined } });
+  return unwrapData<NumberSeriesList>(data);
+}
+
+export async function saveNumberSeries(
+  body: { gstin: string; fy: string; items: Array<Record<string, unknown>> },
+  headers: Record<string, string> = {},
+): Promise<NumberSeriesList> {
+  const { data } = await apiClient.patch('/company/number-series/', body, { headers });
+  return unwrapData<NumberSeriesList>(data);
+}
+
+/** SET-17: upload a logo image and return its file id (the company then points at it). */
+export async function uploadCompanyLogo(file: File): Promise<number> {
+  const form = new FormData();
+  form.append('kind', 'LOGO');
+  form.append('file', file);
+  const { data } = await apiClient.post('/files/', form);
+  return unwrapData<{ id: number }>(data).id;
+}
+
+/** SET-08: the weekly automatic backup. */
+export interface BackupSchedule {
+  enabled: boolean;
+  keep: number;
+  schedule: string;
+  backups: Array<{ id: number; createdAt: string; size: number; name: string }>;
+  lastRun: null | { at: string; ok: boolean; error: string };
+}
+
+export async function getBackupSchedule(): Promise<BackupSchedule> {
+  const { data } = await apiClient.get('/company/export/schedule/');
+  return unwrapData<BackupSchedule>(data);
+}
+
+export async function setBackupSchedule(enabled: boolean): Promise<BackupSchedule> {
+  const { data } = await apiClient.patch('/company/export/schedule/', { enabled });
+  return unwrapData<BackupSchedule>(data);
+}
+
+export async function takeBackupNow(): Promise<BackupSchedule> {
+  const { data } = await apiClient.post('/company/export/schedule/', {}, { timeout: LONG_TIMEOUT_MS });
+  return unwrapData<BackupSchedule>(data);
+}
+
+/** SET-21: recent changes to one Settings area, read from the audit trail. */
+export interface SettingsHistoryItem {
+  id: number;
+  at: string;
+  who: string;
+  action: string;
+  entity: string;
+  what: string;
+  changes: Array<{ field: string; from?: unknown; to?: unknown; changed?: boolean }>;
+}
+
+export async function getSettingsHistory(area: string, limit = 30): Promise<{ area: string; items: SettingsHistoryItem[] }> {
+  const { data } = await apiClient.get('/company/settings-history/', { params: { area, limit } });
+  return unwrapData<{ area: string; items: SettingsHistoryItem[] }>(data);
+}
+
+/** SET-22: what a high-impact settings change would touch, before it is saved (changes nothing). */
+export interface SettingsPreviewLine {
+  key: string;
+  params: Record<string, string | number | boolean>;
+}
+
+export async function previewSettingsChange(area: string, proposed: Record<string, unknown>): Promise<SettingsPreviewLine[]> {
+  const { data } = await apiClient.post('/company/settings-preview/', { area, proposed });
+  return unwrapData<{ lines: SettingsPreviewLine[] }>(data).lines;
+}

@@ -2,6 +2,8 @@ import { roundMoney, toNumber } from '@/utils/money';
 
 export type PriceListSlab = {
   product: number;
+  productName?: string;
+  productSku?: string;
   unitPrice?: string | number;
   unit_price?: string | number;
   minQty?: string | number;
@@ -16,6 +18,10 @@ export type PriceListRow = {
   id: number;
   name?: string;
   isActive?: boolean;
+  updatedAt?: string;
+  /** Slabs in the list, and customers assigned to it (the second is why switching it off needs care). */
+  itemCount?: number;
+  customerCount?: number;
   items?: PriceListSlab[];
 };
 

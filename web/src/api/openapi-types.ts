@@ -76,6 +76,40 @@ export interface paths {
         patch: operations["accounting_accounts_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/accounts/{id}/transfer-balance/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-50: draft a journal that moves this account's balance to another, so it can then be deactivated. */
+        post: operations["accounting_accounts_transfer_balance_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/accounts/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-50: the chart (with balances when asked) as CSV or XLSX. */
+        get: operations["accounting_accounts_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/backfill/": {
         parameters: {
             query?: never;
@@ -144,6 +178,83 @@ export interface paths {
         patch: operations["accounting_bank_recon_sessions_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/bank-recon-sessions/{id}/accept-suggestions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_accept_suggestions_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/create-entry/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_create_entry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/finalise/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_finalise_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/ledger-lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-42: the ledger side of the workspace: this bank's unreconciled lines, filterable and paged. */
+        get: operations["accounting_bank_recon_sessions_ledger_lines_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/bank-recon-sessions/{id}/match/": {
         parameters: {
             query?: never;
@@ -158,6 +269,120 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["accounting_bank_recon_sessions_match_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/match-many/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_match_many_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-46: the reconciliation statement as JSON (default), XLSX or PDF. */
+        get: operations["accounting_bank_recon_sessions_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/statement-lines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-42: the statement side of the workspace, filterable and paged. */
+        get: operations["accounting_bank_recon_sessions_statement_lines_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/suggestions/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["accounting_bank_recon_sessions_suggestions_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/bank-recon-sessions/{id}/unmatch/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["accounting_bank_recon_sessions_unmatch_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -343,6 +568,23 @@ export interface paths {
         patch: operations["accounting_cost_centers_partial_update"];
         trace?: never;
     };
+    "/api/v1/accounting/cost-centers/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-51: income, expense and net by cost centre for a date range, with an unallocated bucket. */
+        get: operations["accounting_cost_centers_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/expense-category-accounts/": {
         parameters: {
             query?: never;
@@ -469,6 +711,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/expenses/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-17: the filtered register as CSV or XLSX. */
+        get: operations["accounting_expenses_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/expenses/post-pending/": {
         parameters: {
             query?: never;
@@ -560,6 +819,91 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/fixed-assets/{id}/schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-52: every month of this asset: charged, missing, or still to come. */
+        get: operations["accounting_fixed_assets_schedule_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/fixed-assets/presets/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-55: starting points for life and rates. These are suggestions; confirm the rates with your CA. */
+        get: operations["accounting_fixed_assets_presets_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/fixed-assets/register-check/draft/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-53: draft (not post) the journal that brings 1600/1650 in line with the register. */
+        post: operations["accounting_fixed_assets_register_check_draft_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/fixed-assets/run-depreciation/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-54: preview (dry_run) or post depreciation for every missing month up to a chosen month. */
+        post: operations["accounting_fixed_assets_run_depreciation_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/fixed-assets/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-52: totals for the cards, and the register against the ledger (ACS-53). */
+        get: operations["accounting_fixed_assets_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/fy-close/": {
         parameters: {
             query?: never;
@@ -644,6 +988,23 @@ export interface paths {
         put?: never;
         /** @description BB-000085: company-scoped journals (was bare ModelViewSet). */
         post: operations["accounting_journals_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/journals/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-23: the filtered register as CSV (or XLSX with ?file=xlsx), one row per line. */
+        get: operations["accounting_journals_export_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -765,6 +1126,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/periods/{id}/close-readiness/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-30: why this month can or cannot close, with a fix link for each blocker. */
+        get: operations["accounting_periods_close_readiness_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/periods/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-32: step a closed month back (Closed to Soft-closed, Soft-closed to Open). Owner only, reason required. */
+        post: operations["accounting_periods_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/periods/{id}/soft-close/": {
         parameters: {
             query?: never;
@@ -779,6 +1174,112 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["accounting_periods_soft_close_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/periods/close-summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-31: one cheap row per month for the Periods table. */
+        get: operations["accounting_periods_close_summary_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/periods/generate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-33: create the twelve months of a financial year in one go. */
+        post: operations["accounting_periods_generate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/recurring-expenses/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        get: operations["accounting_recurring_expenses_list"];
+        put?: never;
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        post: operations["accounting_recurring_expenses_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/recurring-expenses/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        get: operations["accounting_recurring_expenses_retrieve"];
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        put: operations["accounting_recurring_expenses_update"];
+        post?: never;
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        delete: operations["accounting_recurring_expenses_destroy"];
+        options?: never;
+        head?: never;
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        patch: operations["accounting_recurring_expenses_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/accounting/recurring-expenses/create-due/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        post: operations["accounting_recurring_expenses_create_due_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/recurring-expenses/due/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
+        get: operations["accounting_recurring_expenses_due_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -801,6 +1302,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/settings/disable-preflight/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /accounting/settings/disable-preflight/: what switching the books off would do. */
+        get: operations["accounting_settings_disable_preflight_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -809,6 +1327,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["audit_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit-timeline/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /audit-timeline/?entity=Ticket&id=12 */
+        get: operations["audit_timeline_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1353,7 +1888,13 @@ export interface paths {
         };
         get: operations["billing_subscription_retrieve"];
         put?: never;
-        /** @description Owner suspends the subscription and records a churn reason. */
+        /**
+         * @description Owner suspends the subscription and records a churn reason.
+         *
+         *     The most destructive action on this screen, so it asks for: a reason, the company name typed
+         *     out, and the owner's password (plus a two-step code when that is on). It is refused if the
+         *     subscription is already suspended, and it is written to the audit trail.
+         */
         post: operations["billing_subscription_create"];
         delete?: never;
         options?: never;
@@ -1370,6 +1911,23 @@ export interface paths {
         };
         /** @description P13 reads redacted snapshots stored in the vendor company. */
         get: operations["billing_vendor_tenants_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/care-kpis/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /care-kpis/?days=90 */
+        get: operations["care_kpis_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1443,6 +2001,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/company/export/last/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET /company/export/last/: when the last encrypted backup was taken, by whom, and what it held.
+         *
+         *     Read from the audit trail, so it reflects downloads that really happened. `null` means none yet.
+         *     Also says what the Restore button can and cannot do on this server.
+         */
+        get: operations["company_export_last_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/export/schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET the schedule and kept copies; PATCH ``{"enabled": bool}``; POST takes one copy now. */
+        get: operations["company_export_schedule_retrieve"];
+        put?: never;
+        /** @description GET the schedule and kept copies; PATCH ``{"enabled": bool}``; POST takes one copy now. */
+        post: operations["company_export_schedule_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description GET the schedule and kept copies; PATCH ``{"enabled": bool}``; POST takes one copy now. */
+        patch: operations["company_export_schedule_partial_update"];
+        trace?: never;
+    };
     "/api/v1/company/gstins/": {
         parameters: {
             query?: never;
@@ -1502,6 +2101,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/company/number-series/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner only. */
+        get: operations["company_number_series_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Owner only. */
+        patch: operations["company_number_series_partial_update"];
+        trace?: never;
+    };
     "/api/v1/company/packs/": {
         parameters: {
             query?: never;
@@ -1533,6 +2150,55 @@ export interface paths {
          *     The SPA only posts restore=sandbox. Destroy-in-place remains API-only for ops.
          */
         post: operations["company_restore_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/settings-health/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/company/settings-health/ — owner only. */
+        get: operations["company_settings_health_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/settings-history/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["company_settings_history_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/settings-preview/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["company_settings_preview_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1576,6 +2242,46 @@ export interface paths {
         patch: operations["company_statutory_licences_partial_update"];
         trace?: never;
     };
+    "/api/v1/company/statutory-licences/{id}/replace/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Renew or correct a licence: enter the new record and switch this one off, in one step.
+         *
+         *     A renewal usually keeps the licence number and moves the end date; a correction changes
+         *     the number. Either way the old record is kept exactly as it was (it may be printed on issued
+         *     invoices) and the new one copies the type and premises unless the request overrides them.
+         */
+        post: operations["company_statutory_licences_replace_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/statutory-licences/status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What the invoice licence check is doing for this company, and what needs attention. */
+        get: operations["company_statutory_licences_status_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/company/users/": {
         parameters: {
             query?: never;
@@ -1611,6 +2317,40 @@ export interface paths {
         head?: never;
         /** @description Owner manages staff users (E1.9). */
         patch: operations["company_users_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/company/users/{id}/resend-invite/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Issue a fresh invite link for someone who has not accepted yet; earlier links stop working. */
+        post: operations["company_users_resend_invite_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/company/users/{id}/revoke-invite/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Cancel an invite that has not been accepted: its links stop working. */
+        post: operations["company_users_revoke_invite_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/company/verify-gstin/": {
@@ -1668,16 +2408,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         get: operations["complaints_list"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_create"];
         delete?: never;
         options?: never;
@@ -1692,29 +2426,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         get: operations["complaints_retrieve"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         put: operations["complaints_update"];
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         delete: operations["complaints_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         patch: operations["complaints_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
+        get: operations["complaints_activity_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/complaints/{id}/attachments/": {
@@ -1724,21 +2463,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         get: operations["complaints_attachments_retrieve"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_attachments_create"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         delete: operations["complaints_attachments_destroy"];
         options?: never;
         head?: never;
@@ -1754,10 +2484,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_create_credit_note_create"];
         delete?: never;
         options?: never;
@@ -1774,10 +2501,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_create_replacement_order_create"];
         delete?: never;
         options?: never;
@@ -1794,11 +2518,42 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_create_return_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/create-ticket/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Open a support ticket for this complaint and link the two (XLK-01). */
+        post: operations["complaints_create_ticket_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/save-notes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
+        post: operations["complaints_save_notes_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1814,11 +2569,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         post: operations["complaints_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/{id}/unlink-document/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
+        post: operations["complaints_unlink_document_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1832,10 +2601,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mixin for ``CompanyScopedViewSet`` subclasses. The class sets the hooks below. */
         get: operations["complaints_report_retrieve"];
         put?: never;
         post?: never;
@@ -1852,16 +2618,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         get: operations["complaints_supplier_list"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         post: operations["complaints_supplier_create"];
         delete?: never;
         options?: never;
@@ -1876,29 +2636,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         get: operations["complaints_supplier_retrieve"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         put: operations["complaints_supplier_update"];
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         delete: operations["complaints_supplier_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         patch: operations["complaints_supplier_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
+        get: operations["complaints_supplier_activity_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/complaints/supplier/{id}/attachments/": {
@@ -1908,21 +2673,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         get: operations["complaints_supplier_attachments_retrieve"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         post: operations["complaints_supplier_attachments_create"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         delete: operations["complaints_supplier_attachments_destroy"];
         options?: never;
         head?: never;
@@ -1938,11 +2694,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         post: operations["complaints_supplier_create_debit_note_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/save-notes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
+        post: operations["complaints_supplier_save_notes_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1958,11 +2728,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         post: operations["complaints_supplier_transition_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/complaints/supplier/{id}/unlink-document/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
+        post: operations["complaints_supplier_unlink_document_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1976,10 +2760,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A supplier complaint has one remedy document, the purchase debit note (decision D12). */
         get: operations["complaints_supplier_report_retrieve"];
         put?: never;
         post?: never;
@@ -2045,6 +2826,26 @@ export interface paths {
         patch: operations["contracts_partial_update"];
         trace?: never;
     };
+    "/api/v1/contracts/{id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_activity_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contracts/{id}/attachments/": {
         parameters: {
             query?: never;
@@ -2093,6 +2894,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contracts/{id}/pause-schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_pause_schedule_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/renew/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_renew_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/resume-schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_resume_schedule_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/service-event/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Edit or remove one visit; the visit id travels as ``event`` (body or query). */
+        delete: operations["contracts_service_event_destroy"];
+        options?: never;
+        head?: never;
+        /** @description Edit or remove one visit; the visit id travels as ``event`` (body or query). */
+        patch: operations["contracts_service_event_partial_update"];
+        trace?: never;
+    };
     "/api/v1/contracts/{id}/service-events/": {
         parameters: {
             query?: never;
@@ -2111,6 +2990,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["contracts_service_events_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/{id}/sync-schedule/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["contracts_sync_schedule_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2137,6 +3036,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/contracts/coverage/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Which active contracts cover this product for this customer on a date (XLK-02). */
+        get: operations["contracts_coverage_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contracts/report/": {
         parameters: {
             query?: never;
@@ -2149,6 +3065,43 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         get: operations["contracts_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/report/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["contracts_report_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/contracts/summary/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Expiries by month (next 12) and the value billed per month by live schedules. */
+        get: operations["contracts_summary_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4458,6 +5411,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integrations/tally/runs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /integrations/tally/runs/: the company's recent Tally imports, newest first (SET-09). */
+        get: operations["integrations_tally_runs_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integrations/tally/runs/{id}/errors/": {
         parameters: {
             query?: never;
@@ -5366,6 +6336,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/links/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /links/?entity=ticket&id=12 — the records connected to this one. */
+        get: operations["links_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/manufacturing/boms/": {
         parameters: {
             query?: never;
@@ -5769,16 +6756,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["masters_price_lists_list"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         post: operations["masters_price_lists_create"];
         delete?: never;
         options?: never;
@@ -5793,29 +6774,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["masters_price_lists_retrieve"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         put: operations["masters_price_lists_update"];
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         delete: operations["masters_price_lists_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         patch: operations["masters_price_lists_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/masters/price-lists/{id}/customers/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Who is on this list, so a warning can name them (first 50). */
+        get: operations["masters_price_lists_customers_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/masters/tax-rates/": {
@@ -5881,16 +6867,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["masters_units_list"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         post: operations["masters_units_create"];
         delete?: never;
         options?: never;
@@ -5905,29 +6885,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["masters_units_retrieve"];
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         put: operations["masters_units_update"];
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description A unit that items use is not deleted: deleting it would silently blank their unit. */
         delete: operations["masters_units_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         patch: operations["masters_units_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/masters/units/usage/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description How many live items use each unit. Not cached: the units list is, and would go stale. */
+        get: operations["masters_units_usage_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/metrics/": {
@@ -6161,16 +7146,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["payments_bank_accounts_list"];
         put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         post: operations["payments_bank_accounts_create"];
         delete?: never;
         options?: never;
@@ -6185,25 +7164,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         get: operations["payments_bank_accounts_retrieve"];
         put?: never;
         post?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         delete: operations["payments_bank_accounts_destroy"];
         options?: never;
         head?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Mix into a ModelViewSet (before the viewset base class). */
         patch: operations["payments_bank_accounts_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/payments/bank-accounts/{id}/reveal-number/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The full account number, on demand, for the owner only. Every look is audited. */
+        get: operations["payments_bank_accounts_reveal_number_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/payments/collection-risk/": {
@@ -6340,6 +7327,28 @@ export interface paths {
         patch: operations["payments_gateway_settings_partial_update"];
         trace?: never;
     };
+    "/api/v1/payments/gateway-settings/verify/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description SET-05: ask the provider whether the saved keys are accepted (a read-only call).
+         *
+         *     The result is shown to the owner and, when the provider accepts the keys, remembered with the
+         *     provider name until the keys change. Nothing here moves money or changes provider settings.
+         */
+        post: operations["payments_gateway_settings_verify_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/payments/health/": {
         parameters: {
             query?: never;
@@ -6458,6 +7467,30 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payments/money-in-rules/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description SET-05: how receipts are recorded and matched. Separate from the gateway keys, so saving one
+         *     can never change the other.
+         */
+        get: operations["payments_money_in_rules_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * @description SET-05: how receipts are recorded and matched. Separate from the gateway keys, so saving one
+         *     can never change the other.
+         */
+        patch: operations["payments_money_in_rules_partial_update"];
         trace?: never;
     };
     "/api/v1/payments/promises/": {
@@ -7845,6 +8878,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/products/custom-field-usage/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Items holding a value for each custom field key, so removing a field can say what it hides. */
+        get: operations["products_custom_field_usage_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/products/custom-field-values/": {
         parameters: {
             query?: never;
@@ -8031,6 +9081,50 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["projects_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["projects_activity_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
         patch?: never;
         trace?: never;
     };
@@ -8048,6 +9142,23 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["projects_close_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/milestone-unready/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Take a READY milestone back to PLANNED; the milestone id travels as ``milestone``. */
+        post: operations["projects_milestone_unready_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8148,6 +9259,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["projects_milestones_ready_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{id}/milestones/reorder/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["projects_milestones_reorder_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9450,6 +10581,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports/day-book/ledger/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description ACS-60: every ledger line posted in a date range, with a tie-out to the trial balance. */
+        get: operations["reports_day_book_ledger_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reports/gst-ca-pack/": {
         parameters: {
             query?: never;
@@ -9545,6 +10693,23 @@ export interface paths {
             cookie?: never;
         };
         get: operations["reports_gst_rate_exposure_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/gst-snapshots/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description RPT-07: the saved GSTR-1 / GSTR-3B snapshots, newest first, so a saved month can be found again. */
+        get: operations["reports_gst_snapshots_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10110,7 +11275,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description BB-000670: 27EQ worksheet aid CSV. Not a live IT portal upload. */
+        /** @description BB-000670: 27EQ worksheet aid. */
         get: operations["reports_tcs_worksheet_retrieve"];
         put?: never;
         post?: never;
@@ -10161,7 +11326,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description BB-000670: 26Q worksheet aid CSV. Not a live IT portal upload. */
+        /** @description BB-000670: 26Q worksheet aid. */
         get: operations["reports_tds_worksheet_retrieve"];
         put?: never;
         post?: never;
@@ -13066,13 +14231,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description The vendor company's inbox of tickets other companies shared with it. */
         get: operations["support_shared_list"];
         put?: never;
-        post?: never;
+        /** @description The vendor company's inbox of tickets other companies shared with it. */
+        post: operations["support_shared_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13086,13 +14249,28 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description The vendor company's inbox of tickets other companies shared with it. */
         get: operations["support_shared_retrieve"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/shared/{id}/replies/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The vendor company's inbox of tickets other companies shared with it. */
+        get: operations["support_shared_replies_retrieve"];
+        put?: never;
+        /** @description The vendor company's inbox of tickets other companies shared with it. */
+        post: operations["support_shared_replies_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13274,10 +14452,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
+        /** @description Counts cover every ticket that matches the filters, not just the visible page. */
         get: operations["support_tickets_report_retrieve"];
         put?: never;
         post?: never;
@@ -13377,6 +14552,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workshop/bays/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        get: operations["workshop_bays_list"];
+        put?: never;
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        post: operations["workshop_bays_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/bays/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        get: operations["workshop_bays_retrieve"];
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        put: operations["workshop_bays_update"];
+        post?: never;
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        delete: operations["workshop_bays_destroy"];
+        options?: never;
+        head?: never;
+        /** @description Bays the workshop books jobs into (JOB-12). */
+        patch: operations["workshop_bays_partial_update"];
+        trace?: never;
+    };
     "/api/v1/workshop/job-cards/": {
         parameters: {
             query?: never;
@@ -13413,6 +14626,34 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         get: operations["workshop_job_cards_retrieve"];
+        put?: never;
+        post?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        delete: operations["workshop_job_cards_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        patch: operations["workshop_job_cards_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/activity/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        get: operations["workshop_job_cards_activity_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13461,6 +14702,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workshop/job-cards/{id}/line/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Edit or remove one line; the line id travels as ``line`` (body or query). */
+        delete: operations["workshop_job_cards_line_destroy"];
+        options?: never;
+        head?: never;
+        /** @description Edit or remove one line; the line id travels as ``line`` (body or query). */
+        patch: operations["workshop_job_cards_line_partial_update"];
+        trace?: never;
+    };
     "/api/v1/workshop/job-cards/{id}/lines/": {
         parameters: {
             query?: never;
@@ -13475,6 +14734,26 @@ export interface paths {
          *     requesting user's company; created rows stamped with company + audit fields.
          */
         post: operations["workshop_job_cards_lines_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Base viewset enforcing tenant isolation: querysets filtered by the
+         *     requesting user's company; created rows stamped with company + audit fields.
+         */
+        post: operations["workshop_job_cards_reopen_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13521,6 +14800,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workshop/job-cards/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Counts by status and how much of the billed work was free of charge (warranty/AMC). */
+        get: operations["workshop_job_cards_report_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workshop/job-cards/stock-options/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Serials and batches a part line can be filled from, for people without the inventory right. */
+        get: operations["workshop_job_cards_stock_options_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/metrics/": {
         parameters: {
             query?: never;
@@ -13530,524 +14843,6 @@ export interface paths {
         };
         /** @description BB-000753: minimal Prometheus-style text counters (request count). */
         get: operations["metrics_retrieve_2"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/accounts/{id}/transfer-balance/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-50: draft a journal that moves this account's balance to another, so it can then be deactivated. */
-        post: operations["accounting_accounts_transfer_balance_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/accounts/export/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-50: the chart (with balances when asked) as CSV or XLSX. */
-        get: operations["accounting_accounts_export_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/accept-suggestions/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_accept_suggestions_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/create-entry/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_create_entry_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/finalise/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_finalise_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/ledger-lines/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-42: the ledger side of the workspace: this bank's unreconciled lines, filterable and paged. */
-        get: operations["accounting_bank_recon_sessions_ledger_lines_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/match-many/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_match_many_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/reopen/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_reopen_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/report/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-46: the reconciliation statement as JSON (default), XLSX or PDF. */
-        get: operations["accounting_bank_recon_sessions_report_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/statement-lines/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-42: the statement side of the workspace, filterable and paged. */
-        get: operations["accounting_bank_recon_sessions_statement_lines_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/suggestions/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        get: operations["accounting_bank_recon_sessions_suggestions_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/bank-recon-sessions/{id}/unmatch/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
-         */
-        post: operations["accounting_bank_recon_sessions_unmatch_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/cost-centers/report/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-51: income, expense and net by cost centre for a date range, with an unallocated bucket. */
-        get: operations["accounting_cost_centers_report_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/expenses/export/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-17: the filtered register as CSV or XLSX. */
-        get: operations["accounting_expenses_export_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/fixed-assets/{id}/schedule/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-52: every month of this asset: charged, missing, or still to come. */
-        get: operations["accounting_fixed_assets_schedule_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/fixed-assets/presets/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-55: starting points for life and rates. These are suggestions; confirm the rates with your CA. */
-        get: operations["accounting_fixed_assets_presets_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/fixed-assets/register-check/draft/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-53: draft (not post) the journal that brings 1600/1650 in line with the register. */
-        post: operations["accounting_fixed_assets_register_check_draft_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/fixed-assets/run-depreciation/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-54: preview (dry_run) or post depreciation for every missing month up to a chosen month. */
-        post: operations["accounting_fixed_assets_run_depreciation_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/fixed-assets/summary/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-52: totals for the cards, and the register against the ledger (ACS-53). */
-        get: operations["accounting_fixed_assets_summary_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/journals/export/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-23: the filtered register as CSV (or XLSX with ?file=xlsx), one row per line. */
-        get: operations["accounting_journals_export_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/periods/{id}/close-readiness/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-30: why this month can or cannot close, with a fix link for each blocker. */
-        get: operations["accounting_periods_close_readiness_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/periods/{id}/reopen/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-32: step a closed month back (Closed to Soft-closed, Soft-closed to Open). Owner only, reason required. */
-        post: operations["accounting_periods_reopen_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/periods/close-summary/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-31: one cheap row per month for the Periods table. */
-        get: operations["accounting_periods_close_summary_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/periods/generate/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-33: create the twelve months of a financial year in one go. */
-        post: operations["accounting_periods_generate_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/recurring-expenses/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        get: operations["accounting_recurring_expenses_list"];
-        put?: never;
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        post: operations["accounting_recurring_expenses_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/recurring-expenses/{id}/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        get: operations["accounting_recurring_expenses_retrieve"];
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        put: operations["accounting_recurring_expenses_update"];
-        post?: never;
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        delete: operations["accounting_recurring_expenses_destroy"];
-        options?: never;
-        head?: never;
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        patch: operations["accounting_recurring_expenses_partial_update"];
-        trace?: never;
-    };
-    "/api/v1/accounting/recurring-expenses/create-due/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        post: operations["accounting_recurring_expenses_create_due_create"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/accounting/recurring-expenses/due/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-17: templates for expenses that repeat, and the one-click "create what is due". */
-        get: operations["accounting_recurring_expenses_due_retrieve"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/reports/day-book/ledger/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description ACS-60: every ledger line posted in a date range, with a tie-out to the trial balance. */
-        get: operations["reports_day_book_ledger_retrieve"];
         put?: never;
         post?: never;
         delete?: never;
@@ -14178,20 +14973,35 @@ export interface components {
             /** Format: date-time */
             readonly createdAt: string;
         };
+        /**
+         * @description Bank account with its full number sealed away.
+         *
+         *     `account_number` is write-only: the full number is never returned here (the owner can ask for
+         *     it on demand, which is audited). `account_number_masked` is derived from it, so a typed-in
+         *     "masked" value can no longer drift away from the real number.
+         */
         BankAccount: {
             readonly id: number;
             name: string;
-            accountNumberMasked?: string;
+            accountNumber?: string;
+            readonly accountNumberMasked: string;
+            readonly hasFullNumber: boolean;
             ifsc?: string;
+            upiId?: string;
             accountType?: components["schemas"]["AccountTypeEnum"];
             /** Format: decimal */
             openingBalance?: string;
             /** Format: date */
             openingAsOf?: string | null;
+            /** @description True once money has moved through the account; the opening balance can then only be adjusted. */
+            readonly openingLocked: boolean;
             isDefault?: boolean;
             isActive?: boolean;
+            printOnInvoices?: boolean;
             /** Format: date-time */
             readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
         };
         BankReconSession: {
             readonly id: number;
@@ -14220,6 +15030,15 @@ export interface components {
             readonly matchKind: string;
             readonly otherReconPath: string;
         };
+        /**
+         * @description * `OPEN` - Open
+         *     * `IN_PROGRESS` - In Progress
+         *     * `RECONCILED` - Reconciled
+         *     * `FINALISED` - Finalised
+         *     * `CLOSED` - Closed
+         * @enum {string}
+         */
+        BankReconSessionStatusEnum: "OPEN" | "IN_PROGRESS" | "RECONCILED" | "FINALISED" | "CLOSED";
         BankStatement: {
             readonly id: number;
             bankAccount: number;
@@ -14478,6 +15297,12 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        /**
+         * @description * `OPEN` - Open
+         *     * `CLOSED` - Closed
+         * @enum {string}
+         */
+        CashShiftRegisterStatusEnum: "OPEN" | "CLOSED";
         Category: {
             readonly id: number;
             name: string;
@@ -14586,6 +15411,8 @@ export interface components {
             /** Format: date */
             validUpto?: string | null;
             isActive?: boolean;
+            /** @description True once the licence has been printed on an issued invoice: renew or replace it. */
+            readonly isLocked: boolean;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -14599,6 +15426,13 @@ export interface components {
             readonly email: string;
             readonly fullName: string;
             readonly phone: string;
+            /** Format: date-time */
+            readonly lastLogin: string;
+            /** @description accepted, pending (a link still works), expired (invited, never signed in, no working link) or deactivated. */
+            readonly inviteState: string;
+            readonly inviteExpiresAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
             role?: components["schemas"]["CompanyUserRoleEnum"];
             canManageInventory?: boolean;
             canImport?: boolean;
@@ -14626,19 +15460,26 @@ export interface components {
          * @enum {string}
          */
         CompanyUserRoleEnum: "OWNER" | "MANAGER" | "SALES_STAFF" | "INVENTORY_STAFF" | "ACCOUNTANT" | "AUDITOR" | "VIEWER" | "POLICY_DESK";
+        /** @description Edit rules shared by customer and supplier complaints. */
         Complaint: {
             readonly id: number;
             readonly number: string;
             customer: number;
+            readonly customerName: string;
             sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber: string;
             category: components["schemas"]["Category5e0Enum"];
             description: string;
             readonly status: components["schemas"]["StatusBbdEnum"];
             inspectionNotes?: string;
+            readonly resolutionNote: string;
             readonly salesReturn: number | null;
             readonly salesCreditNote: number | null;
             readonly replacementOrder: number | null;
             assignedTo?: number | null;
+            readonly assigneeName: string;
+            ticket?: number | null;
+            readonly ticketNumber: string;
             /** Format: date-time */
             readonly resolvedAt: string | null;
             /** Format: date-time */
@@ -14656,6 +15497,7 @@ export interface components {
             readonly id: number;
             readonly number: string;
             customer: number;
+            readonly customerName: string;
             product?: number | null;
             products?: number[];
             contractType: components["schemas"]["ContractTypeEnum"];
@@ -15345,6 +16187,21 @@ export interface components {
          * @enum {string}
          */
         FixedAssetStatusEnum: "ACTIVE" | "DISPOSED";
+        /**
+         * @description * `MONTHLY` - Monthly
+         *     * `QUARTERLY` - Quarterly
+         *     * `YEARLY` - Yearly
+         * @enum {string}
+         */
+        FrequencyEnum: "MONTHLY" | "QUARTERLY" | "YEARLY";
+        /**
+         * @description * `ALREADY_BOOKED` - Already booked
+         *     * `CASH` - Paid from cash
+         *     * `BANK` - Paid from bank
+         *     * `SUPPLIER` - On credit from a supplier
+         * @enum {string}
+         */
+        FundingEnum: "ALREADY_BOOKED" | "CASH" | "BANK" | "SUPPLIER";
         GatewayPayment: {
             readonly id: number;
             provider: string;
@@ -15489,6 +16346,10 @@ export interface components {
             readonly fileType: string;
             /** Format: date-time */
             readonly extractionHeartbeatAt: string | null;
+            /** @description Who uploaded it. */
+            readonly createdByName: string;
+            /** @description Product and opening-stock imports can be undone while their stock is unused; bills while still a draft. Customer and supplier imports cannot be undone. */
+            readonly canUndo: boolean;
         };
         /**
          * @description * `CUSTOMERS` - Customers
@@ -15561,28 +16422,46 @@ export interface components {
             readonly id: number;
             readonly number: string;
             customer: number;
+            readonly customerName: string;
             technician?: number | null;
-            readonly status: components["schemas"]["JobCardStatusEnum"];
+            readonly technicianName: string;
+            readonly status: components["schemas"]["Status53bEnum"];
             complaint?: string;
             registrationNo?: string;
             vehicleModel?: string;
             /** Format: decimal */
             odometerReading?: string | null;
             serviceBay?: number | null;
+            readonly serviceBayName: string;
             /** Format: date-time */
             scheduledStart?: string | null;
             /** Format: date-time */
             scheduledEnd?: string | null;
             readonly salesInvoice: number | null;
-            readonly lines: components["schemas"]["JobCardLine"][];
-            readonly serialHistory: string;
+            readonly invoiceNumber: string;
+            readonly invoiceStatus: string;
+            contract?: number | null;
+            readonly contractNumber: string;
+            ticket?: number | null;
+            readonly ticketNumber: string;
+            sourceComplaint?: number | null;
+            readonly complaintNumber: string;
+            warehouse?: number | null;
+            readonly subtotal: string;
+            readonly gstTotal: string;
+            readonly total: string;
             /** Format: date-time */
             readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+            readonly lines: components["schemas"]["JobCardLine"][];
+            readonly serialHistory: string;
         };
         JobCardLine: {
             readonly id: number;
             kind: components["schemas"]["JobCardLineKindEnum"];
             product: number;
+            readonly productName: string;
             /** Format: decimal */
             quantity: string;
             /** Format: decimal */
@@ -15595,6 +16474,7 @@ export interface components {
             serial?: number | null;
             batch?: number | null;
             batchNo?: string;
+            coveredByContract?: boolean;
         };
         /**
          * @description * `PART` - Part
@@ -15602,14 +16482,45 @@ export interface components {
          * @enum {string}
          */
         JobCardLineKindEnum: "PART" | "LABOUR";
-        /**
-         * @description * `DRAFT` - Draft
-         *     * `IN_PROGRESS` - In Progress
-         *     * `INVOICED` - Invoiced
-         *     * `CANCELLED` - Cancelled
-         * @enum {string}
-         */
-        JobCardStatusEnum: "DRAFT" | "IN_PROGRESS" | "INVOICED" | "CANCELLED";
+        /** @description List rows: no nested lines and no serial history (those ran a query per row). */
+        JobCardList: {
+            readonly id: number;
+            readonly number: string;
+            readonly customer: number;
+            readonly customerName: string;
+            readonly technician: number | null;
+            readonly technicianName: string;
+            readonly status: components["schemas"]["Status53bEnum"];
+            readonly complaint: string;
+            readonly registrationNo: string;
+            readonly vehicleModel: string;
+            /** Format: decimal */
+            readonly odometerReading: string | null;
+            readonly serviceBay: number | null;
+            readonly serviceBayName: string;
+            /** Format: date-time */
+            readonly scheduledStart: string | null;
+            /** Format: date-time */
+            readonly scheduledEnd: string | null;
+            readonly salesInvoice: number | null;
+            readonly invoiceNumber: string;
+            readonly invoiceStatus: string;
+            readonly contract: number | null;
+            readonly contractNumber: string;
+            readonly ticket: number | null;
+            readonly ticketNumber: string;
+            readonly sourceComplaint: number | null;
+            readonly complaintNumber: string;
+            readonly warehouse: number | null;
+            readonly subtotal: string;
+            readonly gstTotal: string;
+            readonly total: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+            readonly lineCount: string;
+        };
         JournalEntry: {
             readonly id: number;
             number?: string;
@@ -16415,7 +17326,7 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["ImportJob"][];
         };
-        PaginatedJobCardList: {
+        PaginatedJobCardListList: {
             /** @example 123 */
             count: number;
             /**
@@ -16428,7 +17339,7 @@ export interface components {
              * @example http://api.example.org/accounts/?page=2
              */
             previous?: string | null;
-            results: components["schemas"]["JobCard"][];
+            results: components["schemas"]["JobCardList"][];
         };
         PaginatedJournalEntryList: {
             /** @example 123 */
@@ -16670,7 +17581,7 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Product"][];
         };
-        PaginatedProjectList: {
+        PaginatedProjectListList: {
             /** @example 123 */
             count: number;
             /**
@@ -16683,7 +17594,7 @@ export interface components {
              * @example http://api.example.org/accounts/?page=2
              */
             previous?: string | null;
-            results: components["schemas"]["Project"][];
+            results: components["schemas"]["ProjectList"][];
         };
         PaginatedPurchaseCreditNoteList: {
             /** @example 123 */
@@ -16789,6 +17700,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Quotation"][];
+        };
+        PaginatedRecurringExpenseList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["RecurringExpense"][];
         };
         PaginatedRecurringInvoiceRunList: {
             /** @example 123 */
@@ -16954,6 +17880,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["SerialNumber"][];
+        };
+        PaginatedServiceBayList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ServiceBay"][];
         };
         PaginatedStatutoryDocumentEventList: {
             /** @example 123 */
@@ -17205,20 +18146,35 @@ export interface components {
             readonly status?: components["schemas"]["AccountingPeriodStatusEnum"];
             readonly gstPeriodStatus?: string;
         };
+        /**
+         * @description Bank account with its full number sealed away.
+         *
+         *     `account_number` is write-only: the full number is never returned here (the owner can ask for
+         *     it on demand, which is audited). `account_number_masked` is derived from it, so a typed-in
+         *     "masked" value can no longer drift away from the real number.
+         */
         PatchedBankAccount: {
             readonly id?: number;
             name?: string;
-            accountNumberMasked?: string;
+            accountNumber?: string;
+            readonly accountNumberMasked?: string;
+            readonly hasFullNumber?: boolean;
             ifsc?: string;
+            upiId?: string;
             accountType?: components["schemas"]["AccountTypeEnum"];
             /** Format: decimal */
             openingBalance?: string;
             /** Format: date */
             openingAsOf?: string | null;
+            /** @description True once money has moved through the account; the opening balance can then only be adjusted. */
+            readonly openingLocked?: boolean;
             isDefault?: boolean;
             isActive?: boolean;
+            printOnInvoices?: boolean;
             /** Format: date-time */
             readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedBankReconSession: {
             readonly id?: number;
@@ -17447,6 +18403,8 @@ export interface components {
             /** Format: date */
             validUpto?: string | null;
             isActive?: boolean;
+            /** @description True once the licence has been printed on an issued invoice: renew or replace it. */
+            readonly isLocked?: boolean;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -17460,6 +18418,13 @@ export interface components {
             readonly email?: string;
             readonly fullName?: string;
             readonly phone?: string;
+            /** Format: date-time */
+            readonly lastLogin?: string;
+            /** @description accepted, pending (a link still works), expired (invited, never signed in, no working link) or deactivated. */
+            readonly inviteState?: string;
+            readonly inviteExpiresAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
             role?: components["schemas"]["CompanyUserRoleEnum"];
             canManageInventory?: boolean;
             canImport?: boolean;
@@ -17475,19 +18440,26 @@ export interface components {
             canManagePolicies?: boolean;
             isActive?: boolean;
         };
+        /** @description Edit rules shared by customer and supplier complaints. */
         PatchedComplaint: {
             readonly id?: number;
             readonly number?: string;
             customer?: number;
+            readonly customerName?: string;
             sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber?: string;
             category?: components["schemas"]["Category5e0Enum"];
             description?: string;
             readonly status?: components["schemas"]["StatusBbdEnum"];
             inspectionNotes?: string;
+            readonly resolutionNote?: string;
             readonly salesReturn?: number | null;
             readonly salesCreditNote?: number | null;
             readonly replacementOrder?: number | null;
             assignedTo?: number | null;
+            readonly assigneeName?: string;
+            ticket?: number | null;
+            readonly ticketNumber?: string;
             /** Format: date-time */
             readonly resolvedAt?: string | null;
             /** Format: date-time */
@@ -17499,6 +18471,7 @@ export interface components {
             readonly id?: number;
             readonly number?: string;
             customer?: number;
+            readonly customerName?: string;
             product?: number | null;
             products?: number[];
             contractType?: components["schemas"]["ContractTypeEnum"];
@@ -17988,6 +18961,73 @@ export interface components {
             readonly fileType?: string;
             /** Format: date-time */
             readonly extractionHeartbeatAt?: string | null;
+            /** @description Who uploaded it. */
+            readonly createdByName?: string;
+            /** @description Product and opening-stock imports can be undone while their stock is unused; bills while still a draft. Customer and supplier imports cannot be undone. */
+            readonly canUndo?: boolean;
+        };
+        PatchedJobCard: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            readonly customerName?: string;
+            technician?: number | null;
+            readonly technicianName?: string;
+            readonly status?: components["schemas"]["Status53bEnum"];
+            complaint?: string;
+            registrationNo?: string;
+            vehicleModel?: string;
+            /** Format: decimal */
+            odometerReading?: string | null;
+            serviceBay?: number | null;
+            readonly serviceBayName?: string;
+            /** Format: date-time */
+            scheduledStart?: string | null;
+            /** Format: date-time */
+            scheduledEnd?: string | null;
+            readonly salesInvoice?: number | null;
+            readonly invoiceNumber?: string;
+            readonly invoiceStatus?: string;
+            contract?: number | null;
+            readonly contractNumber?: string;
+            ticket?: number | null;
+            readonly ticketNumber?: string;
+            sourceComplaint?: number | null;
+            readonly complaintNumber?: string;
+            warehouse?: number | null;
+            readonly subtotal?: string;
+            readonly gstTotal?: string;
+            readonly total?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+            readonly lines?: components["schemas"]["JobCardLine"][];
+            readonly serialHistory?: string;
+        };
+        PatchedJournalEntry: {
+            readonly id?: number;
+            number?: string;
+            /** Format: date */
+            entryDate?: string;
+            readonly status?: components["schemas"]["JournalEntryStatusEnum"];
+            readonly sourceType?: string;
+            readonly sourceId?: number | null;
+            readonly purpose?: string;
+            narration?: string;
+            reference?: string;
+            clientToken?: string;
+            /** Format: date-time */
+            readonly postedAt?: string | null;
+            readonly postedByName?: string;
+            readonly reversedEntry?: number | null;
+            readonly reversalOf?: string;
+            lines?: components["schemas"]["JournalLine"][];
+            readonly sourceLabel?: string;
+            readonly sourcePath?: string;
+            readonly canReverse?: string;
+            readonly canEdit?: string;
+            readonly totalDebit?: string;
         };
         PatchedLead: {
             readonly id?: number;
@@ -18095,6 +19135,9 @@ export interface components {
             name?: string;
             isActive?: boolean;
             items?: components["schemas"]["PriceListItem"][];
+            readonly itemCount?: number;
+            /** @description Customers assigned to this list. They are charged the normal selling price when it is off. */
+            readonly customerCount?: number;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -18159,6 +19202,34 @@ export interface components {
             drugSchedule?: string;
             rackCode?: string;
             needsReview?: boolean;
+        };
+        PatchedProject: {
+            readonly id?: number;
+            readonly number?: string;
+            customer?: number;
+            readonly customerName?: string;
+            name?: string;
+            readonly status?: components["schemas"]["Status796Enum"];
+            notes?: string;
+            /** Format: date */
+            startDate?: string | null;
+            /** Format: date */
+            endDate?: string | null;
+            /** Format: decimal */
+            contractValue?: string | null;
+            contract?: number | null;
+            readonly contractNumber?: string;
+            readonly plannedTotal?: string;
+            readonly invoicedTotal?: string;
+            readonly readyTotal?: string;
+            readonly remainingTotal?: string;
+            readonly percentComplete?: string;
+            readonly overBudget?: string;
+            /** Format: date-time */
+            readonly createdAt?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
+            readonly milestones?: components["schemas"]["ProjectMilestone"][];
         };
         PatchedPurchaseCreditNote: {
             readonly id?: number;
@@ -18506,6 +19577,27 @@ export interface components {
             readonly roundOff?: string;
             /** Format: decimal */
             readonly grandTotal?: string;
+        };
+        PatchedRecurringExpense: {
+            readonly id?: number;
+            category?: number;
+            readonly categoryName?: string;
+            partyName?: string;
+            /** Format: decimal */
+            amount?: string;
+            notes?: string;
+            paymentMode?: components["schemas"]["PaymentModeEnum"];
+            bankAccount?: number | null;
+            expenseAccount?: number | null;
+            costCenter?: number | null;
+            frequency?: components["schemas"]["FrequencyEnum"];
+            /** Format: date */
+            nextDate?: string;
+            /** Format: date */
+            endDate?: string | null;
+            isActive?: boolean;
+            /** Format: date */
+            readonly lastCreatedDate?: string | null;
         };
         PatchedRecurringInvoiceSchedule: {
             readonly id?: number;
@@ -18946,6 +20038,11 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        PatchedServiceBay: {
+            readonly id?: number;
+            name?: string;
+            isActive?: boolean;
+        };
         PatchedStockCountSession: {
             readonly id?: number;
             warehouse?: number;
@@ -19009,17 +20106,22 @@ export interface components {
             taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
             readonly outstanding?: string;
         };
+        /** @description Edit rules shared by customer and supplier complaints. */
         PatchedSupplierComplaint: {
             readonly id?: number;
             readonly number?: string;
             supplier?: number;
+            readonly supplierName?: string;
             sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber?: string;
             category?: components["schemas"]["Category5e0Enum"];
             description?: string;
             readonly status?: components["schemas"]["StatusBbdEnum"];
             inspectionNotes?: string;
+            readonly resolutionNote?: string;
             readonly purchaseDebitNote?: number | null;
             assignedTo?: number | null;
+            readonly assigneeName?: string;
             /** Format: date-time */
             readonly resolvedAt?: string | null;
             /** Format: date-time */
@@ -19037,6 +20139,7 @@ export interface components {
             readonly id?: number;
             readonly number?: string;
             customer?: number;
+            readonly customerName?: string;
             subject?: string;
             description?: string;
             category?: components["schemas"]["TicketCategoryEnum"];
@@ -19045,8 +20148,17 @@ export interface components {
             assignedTo?: number | null;
             readonly assigneeName?: string;
             readonly shareAvailable?: string;
+            readonly shared?: string;
+            readonly sharedAt?: string;
+            readonly shareIncludesDescription?: string;
+            sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber?: string;
+            contract?: number | null;
+            readonly contractNumber?: string;
             /** Format: date-time */
             readonly slaDueAt?: string | null;
+            readonly slaState?: string;
+            readonly slaRemainingSeconds?: string;
             /** Format: date-time */
             readonly waitingSince?: string | null;
             /** Format: date-time */
@@ -19061,6 +20173,8 @@ export interface components {
             name?: string;
             shortName?: string;
             uqcCode?: string;
+            /** Format: date-time */
+            readonly updatedAt?: string;
         };
         PatchedWarehouse: {
             readonly id?: number;
@@ -19314,6 +20428,9 @@ export interface components {
             name: string;
             isActive?: boolean;
             items?: components["schemas"]["PriceListItem"][];
+            readonly itemCount: number;
+            /** @description Customers assigned to this list. They are charged the normal selling price when it is off. */
+            readonly customerCount: number;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
@@ -19322,6 +20439,8 @@ export interface components {
         PriceListItem: {
             readonly id: number;
             product: number;
+            readonly productName: string;
+            readonly productSku: string;
             /** Format: decimal */
             unitPrice: string;
             /** Format: decimal */
@@ -19415,11 +20534,58 @@ export interface components {
             readonly id: number;
             readonly number: string;
             customer: number;
+            readonly customerName: string;
             name: string;
-            readonly status: components["schemas"]["ProjectStatusEnum"];
-            readonly milestones: components["schemas"]["ProjectMilestone"][];
+            readonly status: components["schemas"]["Status796Enum"];
+            notes?: string;
+            /** Format: date */
+            startDate?: string | null;
+            /** Format: date */
+            endDate?: string | null;
+            /** Format: decimal */
+            contractValue?: string | null;
+            contract?: number | null;
+            readonly contractNumber: string;
+            readonly plannedTotal: string;
+            readonly invoicedTotal: string;
+            readonly readyTotal: string;
+            readonly remainingTotal: string;
+            readonly percentComplete: string;
+            readonly overBudget: string;
             /** Format: date-time */
             readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+            readonly milestones: components["schemas"]["ProjectMilestone"][];
+        };
+        /** @description List rows carry milestone totals and a count, not the milestone array. */
+        ProjectList: {
+            readonly id: number;
+            readonly number: string;
+            readonly customer: number;
+            readonly customerName: string;
+            readonly name: string;
+            readonly status: components["schemas"]["Status796Enum"];
+            readonly notes: string;
+            /** Format: date */
+            readonly startDate: string | null;
+            /** Format: date */
+            readonly endDate: string | null;
+            /** Format: decimal */
+            readonly contractValue: string | null;
+            readonly contract: number | null;
+            readonly contractNumber: string;
+            readonly plannedTotal: string;
+            readonly invoicedTotal: string;
+            readonly readyTotal: string;
+            readonly remainingTotal: string;
+            readonly percentComplete: string;
+            readonly overBudget: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
+            readonly milestoneCount: string;
         };
         ProjectMilestone: {
             readonly id: number;
@@ -19431,8 +20597,14 @@ export interface components {
             /** Format: date */
             targetCompletionDate?: string | null;
             serviceProduct: number;
+            readonly serviceProductName: string;
             readonly status: components["schemas"]["ProjectMilestoneStatusEnum"];
             readonly salesInvoice: number | null;
+            readonly invoiceNumber: string;
+            readonly invoiceStatus: string;
+            readonly gstRate: string;
+            readonly gstAmount: string;
+            readonly amountInclGst: string;
         };
         /**
          * @description * `PLANNED` - Planned
@@ -19441,13 +20613,6 @@ export interface components {
          * @enum {string}
          */
         ProjectMilestoneStatusEnum: "PLANNED" | "READY" | "INVOICED";
-        /**
-         * @description * `OPEN` - Open
-         *     * `CLOSED` - Closed
-         *     * `CANCELLED` - Cancelled
-         * @enum {string}
-         */
-        ProjectStatusEnum: "OPEN" | "CLOSED" | "CANCELLED";
         PurchaseCreditNote: {
             readonly id: number;
             readonly number: string;
@@ -20189,6 +21354,27 @@ export interface components {
              * @description Advances handed back to customers (live refunds).
              */
             refunded: string;
+        };
+        RecurringExpense: {
+            readonly id: number;
+            category: number;
+            readonly categoryName: string;
+            partyName?: string;
+            /** Format: decimal */
+            amount: string;
+            notes?: string;
+            paymentMode?: components["schemas"]["PaymentModeEnum"];
+            bankAccount?: number | null;
+            expenseAccount?: number | null;
+            costCenter?: number | null;
+            frequency?: components["schemas"]["FrequencyEnum"];
+            /** Format: date */
+            nextDate: string;
+            /** Format: date */
+            endDate?: string | null;
+            isActive?: boolean;
+            /** Format: date */
+            readonly lastCreatedDate: string | null;
         };
         RecurringInvoiceRun: {
             readonly id: number;
@@ -20978,6 +22164,11 @@ export interface components {
          * @enum {string}
          */
         SerialNumberStatusEnum: "AVAILABLE" | "SOLD" | "RETURNED" | "SCRAPPED";
+        ServiceBay: {
+            readonly id: number;
+            name: string;
+            isActive?: boolean;
+        };
         /**
          * @description * `critical` - Critical
          *     * `warning` - Warning
@@ -21020,18 +22211,27 @@ export interface components {
         Status372Enum: "ACTIVE" | "INACTIVE";
         /**
          * @description * `DRAFT` - Draft
+         *     * `IN_PROGRESS` - In Progress
+         *     * `INVOICED` - Invoiced
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        Status53bEnum: "DRAFT" | "IN_PROGRESS" | "INVOICED" | "CANCELLED";
+        /**
+         * @description * `OPEN` - Open
+         *     * `CLOSED` - Closed
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        Status796Enum: "OPEN" | "CLOSED" | "CANCELLED";
+        /**
+         * @description * `DRAFT` - Draft
          *     * `COMPLETED` - Completed
          *     * `CANCELLED` - Cancelled
          *     * `RETURNED` - Returned
          * @enum {string}
          */
         StatusA38Enum: "DRAFT" | "COMPLETED" | "CANCELLED" | "RETURNED";
-        /**
-         * @description * `OPEN` - Open
-         *     * `CLOSED` - Closed
-         * @enum {string}
-         */
-        StatusAa5Enum: "OPEN" | "CLOSED";
         /**
          * @description * `OPEN` - Open
          *     * `INSPECTING` - Inspecting
@@ -21239,17 +22439,22 @@ export interface components {
             taxpayerType?: components["schemas"]["TaxpayerTypeEnum"] | components["schemas"]["BlankEnum"];
             readonly outstanding: string;
         };
+        /** @description Edit rules shared by customer and supplier complaints. */
         SupplierComplaint: {
             readonly id: number;
             readonly number: string;
             supplier: number;
+            readonly supplierName: string;
             sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber: string;
             category: components["schemas"]["Category5e0Enum"];
             description: string;
             readonly status: components["schemas"]["StatusBbdEnum"];
             inspectionNotes?: string;
+            readonly resolutionNote: string;
             readonly purchaseDebitNote: number | null;
             assignedTo?: number | null;
+            readonly assigneeName: string;
             /** Format: date-time */
             readonly resolvedAt: string | null;
             /** Format: date-time */
@@ -21390,6 +22595,7 @@ export interface components {
             readonly id: number;
             readonly number: string;
             customer: number;
+            readonly customerName: string;
             subject: string;
             description?: string;
             category?: components["schemas"]["TicketCategoryEnum"];
@@ -21398,8 +22604,17 @@ export interface components {
             assignedTo?: number | null;
             readonly assigneeName: string;
             readonly shareAvailable: string;
+            readonly shared: string;
+            readonly sharedAt: string;
+            readonly shareIncludesDescription: string;
+            sourceInvoice?: number | null;
+            readonly sourceInvoiceNumber: string;
+            contract?: number | null;
+            readonly contractNumber: string;
             /** Format: date-time */
             readonly slaDueAt: string | null;
+            readonly slaState: string;
+            readonly slaRemainingSeconds: string;
             /** Format: date-time */
             readonly waitingSince: string | null;
             /** Format: date-time */
@@ -21444,6 +22659,8 @@ export interface components {
             name: string;
             shortName: string;
             uqcCode?: string;
+            /** Format: date-time */
+            readonly updatedAt: string;
         };
         VendorTicketShare: {
             readonly id: number;
@@ -21454,6 +22671,7 @@ export interface components {
             readonly description: string;
             /** Format: date-time */
             readonly sharedAt: string;
+            readonly replyCount: string;
         };
         Warehouse: {
             readonly id: number;
@@ -21551,117 +22769,6 @@ export interface components {
          * @enum {string}
          */
         _ZipSkippedReasonEnum: "not_completed" | "unavailable";
-        /**
-         * @description * `OPEN` - Open
-         *     * `IN_PROGRESS` - In Progress
-         *     * `RECONCILED` - Reconciled
-         *     * `FINALISED` - Finalised
-         *     * `CLOSED` - Closed
-         * @enum {string}
-         */
-        BankReconSessionStatusEnum: "OPEN" | "IN_PROGRESS" | "RECONCILED" | "FINALISED" | "CLOSED";
-        /**
-         * @description * `OPEN` - Open
-         *     * `CLOSED` - Closed
-         * @enum {string}
-         */
-        CashShiftRegisterStatusEnum: "OPEN" | "CLOSED";
-        /**
-         * @description * `MONTHLY` - Monthly
-         *     * `QUARTERLY` - Quarterly
-         *     * `YEARLY` - Yearly
-         * @enum {string}
-         */
-        FrequencyEnum: "MONTHLY" | "QUARTERLY" | "YEARLY";
-        /**
-         * @description * `ALREADY_BOOKED` - Already booked
-         *     * `CASH` - Paid from cash
-         *     * `BANK` - Paid from bank
-         *     * `SUPPLIER` - On credit from a supplier
-         * @enum {string}
-         */
-        FundingEnum: "ALREADY_BOOKED" | "CASH" | "BANK" | "SUPPLIER";
-        PaginatedRecurringExpenseList: {
-            /** @example 123 */
-            count: number;
-            /**
-             * Format: uri
-             * @example http://api.example.org/accounts/?page=4
-             */
-            next?: string | null;
-            /**
-             * Format: uri
-             * @example http://api.example.org/accounts/?page=2
-             */
-            previous?: string | null;
-            results: components["schemas"]["RecurringExpense"][];
-        };
-        PatchedJournalEntry: {
-            readonly id?: number;
-            number?: string;
-            /** Format: date */
-            entryDate?: string;
-            readonly status?: components["schemas"]["JournalEntryStatusEnum"];
-            readonly sourceType?: string;
-            readonly sourceId?: number | null;
-            readonly purpose?: string;
-            narration?: string;
-            reference?: string;
-            clientToken?: string;
-            /** Format: date-time */
-            readonly postedAt?: string | null;
-            readonly postedByName?: string;
-            readonly reversedEntry?: number | null;
-            readonly reversalOf?: string;
-            lines?: components["schemas"]["JournalLine"][];
-            readonly sourceLabel?: string;
-            readonly sourcePath?: string;
-            readonly canReverse?: string;
-            readonly canEdit?: string;
-            readonly totalDebit?: string;
-        };
-        PatchedRecurringExpense: {
-            readonly id?: number;
-            category?: number;
-            readonly categoryName?: string;
-            partyName?: string;
-            /** Format: decimal */
-            amount?: string;
-            notes?: string;
-            paymentMode?: components["schemas"]["PaymentModeEnum"];
-            bankAccount?: number | null;
-            expenseAccount?: number | null;
-            costCenter?: number | null;
-            frequency?: components["schemas"]["FrequencyEnum"];
-            /** Format: date */
-            nextDate?: string;
-            /** Format: date */
-            endDate?: string | null;
-            isActive?: boolean;
-            /** Format: date */
-            readonly lastCreatedDate?: string | null;
-        };
-        RecurringExpense: {
-            readonly id: number;
-            category: number;
-            readonly categoryName: string;
-            partyName?: string;
-            /** Format: decimal */
-            amount: string;
-            notes?: string;
-            paymentMode?: components["schemas"]["PaymentModeEnum"];
-            bankAccount?: number | null;
-            expenseAccount?: number | null;
-            costCenter?: number | null;
-            frequency?: components["schemas"]["FrequencyEnum"];
-            /** Format: date */
-            nextDate: string;
-            /** Format: date */
-            endDate?: string | null;
-            isActive?: boolean;
-            /** Format: date */
-            readonly lastCreatedDate: string | null;
-        };
     };
     responses: never;
     parameters: never;
@@ -21839,6 +22946,53 @@ export interface operations {
             };
         };
     };
+    accounting_accounts_transfer_balance_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this account. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Account"];
+                "multipart/form-data": components["schemas"]["Account"];
+                "application/x-www-form-urlencoded": components["schemas"]["Account"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+        };
+    };
+    accounting_accounts_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Account"];
+                };
+            };
+        };
+    };
     accounting_backfill_retrieve: {
         parameters: {
             query?: never;
@@ -21974,7 +23128,263 @@ export interface operations {
             };
         };
     };
+    accounting_bank_recon_sessions_accept_suggestions_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_create_entry_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_finalise_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_ledger_lines_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
     accounting_bank_recon_sessions_match_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_match_many_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BankReconSession"];
+                "multipart/form-data": components["schemas"]["BankReconSession"];
+                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_statement_lines_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_suggestions_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank recon session. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankReconSession"];
+                };
+            };
+        };
+    };
+    accounting_bank_recon_sessions_unmatch_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -22414,6 +23824,25 @@ export interface operations {
             };
         };
     };
+    accounting_cost_centers_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostCenter"];
+                };
+            };
+        };
+    };
     accounting_expense_category_accounts_list: {
         parameters: {
             query?: {
@@ -22701,6 +24130,25 @@ export interface operations {
             };
         };
     };
+    accounting_expenses_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Expense"];
+                };
+            };
+        };
+    };
     accounting_expenses_post_pending_retrieve: {
         parameters: {
             query?: never;
@@ -22910,6 +24358,116 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["FixedAsset"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixedAsset"];
+                };
+            };
+        };
+    };
+    accounting_fixed_assets_schedule_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this fixed asset. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixedAsset"];
+                };
+            };
+        };
+    };
+    accounting_fixed_assets_presets_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixedAsset"];
+                };
+            };
+        };
+    };
+    accounting_fixed_assets_register_check_draft_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FixedAsset"];
+                "multipart/form-data": components["schemas"]["FixedAsset"];
+                "application/x-www-form-urlencoded": components["schemas"]["FixedAsset"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixedAsset"];
+                };
+            };
+        };
+    };
+    accounting_fixed_assets_run_depreciation_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FixedAsset"];
+                "multipart/form-data": components["schemas"]["FixedAsset"];
+                "application/x-www-form-urlencoded": components["schemas"]["FixedAsset"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FixedAsset"];
+                };
+            };
+        };
+    };
+    accounting_fixed_assets_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -23161,6 +24719,25 @@ export interface operations {
             };
         };
     };
+    accounting_journals_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalEntry"];
+                };
+            };
+        };
+    };
     accounting_journals_unreconciled_lines_retrieve: {
         parameters: {
             query?: never;
@@ -23384,6 +24961,56 @@ export interface operations {
             };
         };
     };
+    accounting_periods_close_readiness_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this accounting period. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingPeriod"];
+                };
+            };
+        };
+    };
+    accounting_periods_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this accounting period. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountingPeriod"];
+                "multipart/form-data": components["schemas"]["AccountingPeriod"];
+                "application/x-www-form-urlencoded": components["schemas"]["AccountingPeriod"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingPeriod"];
+                };
+            };
+        };
+    };
     accounting_periods_soft_close_create: {
         parameters: {
             query?: never;
@@ -23408,6 +25035,242 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountingPeriod"];
+                };
+            };
+        };
+    };
+    accounting_periods_close_summary_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingPeriod"];
+                };
+            };
+        };
+    };
+    accounting_periods_generate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountingPeriod"];
+                "multipart/form-data": components["schemas"]["AccountingPeriod"];
+                "application/x-www-form-urlencoded": components["schemas"]["AccountingPeriod"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingPeriod"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedRecurringExpenseList"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringExpense"];
+                "multipart/form-data": components["schemas"]["RecurringExpense"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringExpense"];
+                "multipart/form-data": components["schemas"]["RecurringExpense"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_recurring_expenses_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this recurring expense. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedRecurringExpense"];
+                "multipart/form-data": components["schemas"]["PatchedRecurringExpense"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedRecurringExpense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_create_due_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecurringExpense"];
+                "multipart/form-data": components["schemas"]["RecurringExpense"];
+                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
+                };
+            };
+        };
+    };
+    accounting_recurring_expenses_due_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecurringExpense"];
                 };
             };
         };
@@ -23456,6 +25319,24 @@ export interface operations {
             };
         };
     };
+    accounting_settings_disable_preflight_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     audit_list: {
         parameters: {
             query?: {
@@ -23477,6 +25358,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PaginatedAuditEventList"];
                 };
+            };
+        };
+    };
+    audit_timeline_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -24101,6 +26000,24 @@ export interface operations {
             };
         };
     };
+    care_kpis_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     company_retrieve: {
         parameters: {
             query?: never;
@@ -24189,6 +26106,78 @@ export interface operations {
         };
     };
     company_export_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_export_last_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_export_schedule_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_export_schedule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_export_schedule_partial_update: {
         parameters: {
             query?: never;
             header?: never;
@@ -24344,6 +26333,42 @@ export interface operations {
             };
         };
     };
+    company_number_series_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_number_series_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     company_packs_retrieve: {
         parameters: {
             query?: never;
@@ -24381,6 +26406,60 @@ export interface operations {
         };
     };
     company_restore_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_settings_health_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_settings_history_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    company_settings_preview_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -24518,6 +26597,53 @@ export interface operations {
             };
         };
     };
+    company_statutory_licences_replace_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company statutory licence. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                "multipart/form-data": components["schemas"]["CompanyStatutoryLicence"];
+                "application/x-www-form-urlencoded": components["schemas"]["CompanyStatutoryLicence"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                };
+            };
+        };
+    };
+    company_statutory_licences_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyStatutoryLicence"];
+                };
+            };
+        };
+    };
     company_users_list: {
         parameters: {
             query?: {
@@ -24625,6 +26751,62 @@ export interface operations {
                 "application/json": components["schemas"]["PatchedCompanyUser"];
                 "multipart/form-data": components["schemas"]["PatchedCompanyUser"];
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedCompanyUser"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyUser"];
+                };
+            };
+        };
+    };
+    company_users_resend_invite_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company user. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CompanyUser"];
+                "multipart/form-data": components["schemas"]["CompanyUser"];
+                "application/x-www-form-urlencoded": components["schemas"]["CompanyUser"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CompanyUser"];
+                };
+            };
+        };
+    };
+    company_users_revoke_invite_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this company user. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CompanyUser"];
+                "multipart/form-data": components["schemas"]["CompanyUser"];
+                "application/x-www-form-urlencoded": components["schemas"]["CompanyUser"];
             };
         };
         responses: {
@@ -24840,6 +27022,28 @@ export interface operations {
             };
         };
     };
+    complaints_activity_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
     complaints_attachments_retrieve: {
         parameters: {
             query?: never;
@@ -24995,7 +27199,91 @@ export interface operations {
             };
         };
     };
+    complaints_create_ticket_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_save_notes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
     complaints_transition_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Complaint"];
+                "multipart/form-data": components["schemas"]["Complaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["Complaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Complaint"];
+                };
+            };
+        };
+    };
+    complaints_unlink_document_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -25190,6 +27478,28 @@ export interface operations {
             };
         };
     };
+    complaints_supplier_activity_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
     complaints_supplier_attachments_retrieve: {
         parameters: {
             query?: never;
@@ -25289,7 +27599,63 @@ export interface operations {
             };
         };
     };
+    complaints_supplier_save_notes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
     complaints_supplier_transition_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this supplier complaint. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SupplierComplaint"];
+                "multipart/form-data": components["schemas"]["SupplierComplaint"];
+                "application/x-www-form-urlencoded": components["schemas"]["SupplierComplaint"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SupplierComplaint"];
+                };
+            };
+        };
+    };
+    complaints_supplier_unlink_document_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -25484,6 +27850,28 @@ export interface operations {
             };
         };
     };
+    contracts_activity_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
     contracts_attachments_retrieve: {
         parameters: {
             query?: never;
@@ -25583,6 +27971,139 @@ export interface operations {
             };
         };
     };
+    contracts_pause_schedule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_renew_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_resume_schedule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_service_event_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    contracts_service_event_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedContract"];
+                "multipart/form-data": components["schemas"]["PatchedContract"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedContract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
     contracts_service_events_retrieve: {
         parameters: {
             query?: never;
@@ -25633,6 +28154,34 @@ export interface operations {
             };
         };
     };
+    contracts_sync_schedule_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this contract. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Contract"];
+                "multipart/form-data": components["schemas"]["Contract"];
+                "application/x-www-form-urlencoded": components["schemas"]["Contract"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
     contracts_timeline_retrieve: {
         parameters: {
             query?: never;
@@ -25655,7 +28204,64 @@ export interface operations {
             };
         };
     };
+    contracts_coverage_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
     contracts_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_report_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Contract"];
+                };
+            };
+        };
+    };
+    contracts_summary_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -29371,6 +31977,24 @@ export interface operations {
             };
         };
     };
+    integrations_tally_runs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     integrations_tally_runs_errors_retrieve: {
         parameters: {
             query?: never;
@@ -31079,6 +33703,24 @@ export interface operations {
             };
         };
     };
+    links_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     manufacturing_boms_list: {
         parameters: {
             query?: {
@@ -32199,6 +34841,28 @@ export interface operations {
             };
         };
     };
+    masters_price_lists_customers_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this price list. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceList"];
+                };
+            };
+        };
+    };
     masters_tax_rates_list: {
         parameters: {
             query?: {
@@ -32484,6 +35148,25 @@ export interface operations {
                 "application/x-www-form-urlencoded": components["schemas"]["PatchedUnit"];
             };
         };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unit"];
+                };
+            };
+        };
+    };
+    masters_units_usage_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             200: {
                 headers: {
@@ -32930,6 +35613,28 @@ export interface operations {
             };
         };
     };
+    payments_bank_accounts_reveal_number_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this bank account. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BankAccount"];
+                };
+            };
+        };
+    };
     payments_collection_risk_retrieve: {
         parameters: {
             query?: never;
@@ -33131,6 +35836,24 @@ export interface operations {
             };
         };
     };
+    payments_gateway_settings_verify_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     payments_health_retrieve: {
         parameters: {
             query?: never;
@@ -33301,6 +36024,42 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["PaymentLink"];
                 };
+            };
+        };
+    };
+    payments_money_in_rules_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    payments_money_in_rules_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -35417,6 +38176,25 @@ export interface operations {
             };
         };
     };
+    products_custom_field_usage_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Product"];
+                };
+            };
+        };
+    };
     products_custom_field_values_retrieve: {
         parameters: {
             query?: never;
@@ -35600,7 +38378,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedProjectList"];
+                    "application/json": components["schemas"]["PaginatedProjectListList"];
                 };
             };
         };
@@ -35652,7 +38430,113 @@ export interface operations {
             };
         };
     };
+    projects_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedProject"];
+                "multipart/form-data": components["schemas"]["PatchedProject"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedProject"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_activity_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
     projects_close_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_milestone_unready_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -35803,6 +38687,34 @@ export interface operations {
                 /** @description A unique integer value identifying this project. */
                 id: number;
                 milestone_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Project"];
+                "multipart/form-data": components["schemas"]["Project"];
+                "application/x-www-form-urlencoded": components["schemas"]["Project"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    projects_milestones_reorder_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this project. */
+                id: number;
             };
             cookie?: never;
         };
@@ -38168,6 +41080,24 @@ export interface operations {
             };
         };
     };
+    reports_day_book_ledger_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     reports_gst_ca_pack_retrieve: {
         parameters: {
             query?: never;
@@ -38259,6 +41189,24 @@ export interface operations {
         };
     };
     reports_gst_rate_exposure_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    reports_gst_snapshots_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -44168,6 +47116,31 @@ export interface operations {
             };
         };
     };
+    support_shared_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VendorTicketShare"];
+                "multipart/form-data": components["schemas"]["VendorTicketShare"];
+                "application/x-www-form-urlencoded": components["schemas"]["VendorTicketShare"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorTicketShare"];
+                };
+            };
+        };
+    };
     support_shared_retrieve: {
         parameters: {
             query?: never;
@@ -44179,6 +47152,56 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorTicketShare"];
+                };
+            };
+        };
+    };
+    support_shared_replies_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this vendor ticket share. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorTicketShare"];
+                };
+            };
+        };
+    };
+    support_shared_replies_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this vendor ticket share. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["VendorTicketShare"];
+                "multipart/form-data": components["schemas"]["VendorTicketShare"];
+                "application/x-www-form-urlencoded": components["schemas"]["VendorTicketShare"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -44654,6 +47677,154 @@ export interface operations {
             };
         };
     };
+    workshop_bays_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedServiceBayList"];
+                };
+            };
+        };
+    };
+    workshop_bays_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceBay"];
+                "multipart/form-data": components["schemas"]["ServiceBay"];
+                "application/x-www-form-urlencoded": components["schemas"]["ServiceBay"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceBay"];
+                };
+            };
+        };
+    };
+    workshop_bays_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this service bay. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceBay"];
+                };
+            };
+        };
+    };
+    workshop_bays_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this service bay. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ServiceBay"];
+                "multipart/form-data": components["schemas"]["ServiceBay"];
+                "application/x-www-form-urlencoded": components["schemas"]["ServiceBay"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceBay"];
+                };
+            };
+        };
+    };
+    workshop_bays_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this service bay. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workshop_bays_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this service bay. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedServiceBay"];
+                "multipart/form-data": components["schemas"]["PatchedServiceBay"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedServiceBay"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceBay"];
+                };
+            };
+        };
+    };
     workshop_job_cards_list: {
         parameters: {
             query?: {
@@ -44673,7 +47844,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginatedJobCardList"];
+                    "application/json": components["schemas"]["PaginatedJobCardListList"];
                 };
             };
         };
@@ -44704,6 +47875,77 @@ export interface operations {
         };
     };
     workshop_job_cards_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workshop_job_cards_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedJobCard"];
+                "multipart/form-data": components["schemas"]["PatchedJobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedJobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_activity_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -44781,7 +48023,84 @@ export interface operations {
             };
         };
     };
+    workshop_job_cards_line_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workshop_job_cards_line_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedJobCard"];
+                "multipart/form-data": components["schemas"]["PatchedJobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedJobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
     workshop_job_cards_lines_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this job card. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_reopen_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -44865,781 +48184,45 @@ export interface operations {
             };
         };
     };
+    workshop_job_cards_report_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    workshop_job_cards_stock_options_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
     metrics_retrieve_2: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No response body */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    accounting_accounts_transfer_balance_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this account. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["Account"];
-                "multipart/form-data": components["schemas"]["Account"];
-                "application/x-www-form-urlencoded": components["schemas"]["Account"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Account"];
-                };
-            };
-        };
-    };
-    accounting_accounts_export_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Account"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_accept_suggestions_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_create_entry_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_finalise_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_ledger_lines_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_match_many_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_reopen_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_report_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_statement_lines_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_suggestions_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_bank_recon_sessions_unmatch_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this bank recon session. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["BankReconSession"];
-                "multipart/form-data": components["schemas"]["BankReconSession"];
-                "application/x-www-form-urlencoded": components["schemas"]["BankReconSession"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["BankReconSession"];
-                };
-            };
-        };
-    };
-    accounting_cost_centers_report_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CostCenter"];
-                };
-            };
-        };
-    };
-    accounting_expenses_export_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["Expense"];
-                };
-            };
-        };
-    };
-    accounting_fixed_assets_schedule_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this fixed asset. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixedAsset"];
-                };
-            };
-        };
-    };
-    accounting_fixed_assets_presets_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixedAsset"];
-                };
-            };
-        };
-    };
-    accounting_fixed_assets_register_check_draft_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FixedAsset"];
-                "multipart/form-data": components["schemas"]["FixedAsset"];
-                "application/x-www-form-urlencoded": components["schemas"]["FixedAsset"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixedAsset"];
-                };
-            };
-        };
-    };
-    accounting_fixed_assets_run_depreciation_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["FixedAsset"];
-                "multipart/form-data": components["schemas"]["FixedAsset"];
-                "application/x-www-form-urlencoded": components["schemas"]["FixedAsset"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixedAsset"];
-                };
-            };
-        };
-    };
-    accounting_fixed_assets_summary_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FixedAsset"];
-                };
-            };
-        };
-    };
-    accounting_journals_export_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["JournalEntry"];
-                };
-            };
-        };
-    };
-    accounting_periods_close_readiness_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this accounting period. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountingPeriod"];
-                };
-            };
-        };
-    };
-    accounting_periods_reopen_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this accounting period. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AccountingPeriod"];
-                "multipart/form-data": components["schemas"]["AccountingPeriod"];
-                "application/x-www-form-urlencoded": components["schemas"]["AccountingPeriod"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountingPeriod"];
-                };
-            };
-        };
-    };
-    accounting_periods_close_summary_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountingPeriod"];
-                };
-            };
-        };
-    };
-    accounting_periods_generate_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AccountingPeriod"];
-                "multipart/form-data": components["schemas"]["AccountingPeriod"];
-                "application/x-www-form-urlencoded": components["schemas"]["AccountingPeriod"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountingPeriod"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_list: {
-        parameters: {
-            query?: {
-                /** @description A page number within the paginated result set. */
-                page?: number;
-                /** @description Number of results to return per page. */
-                page_size?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PaginatedRecurringExpenseList"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecurringExpense"];
-                "multipart/form-data": components["schemas"]["RecurringExpense"];
-                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
-            };
-        };
-        responses: {
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this recurring expense. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this recurring expense. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecurringExpense"];
-                "multipart/form-data": components["schemas"]["RecurringExpense"];
-                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_destroy: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this recurring expense. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No response body */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    accounting_recurring_expenses_partial_update: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description A unique integer value identifying this recurring expense. */
-                id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["PatchedRecurringExpense"];
-                "multipart/form-data": components["schemas"]["PatchedRecurringExpense"];
-                "application/x-www-form-urlencoded": components["schemas"]["PatchedRecurringExpense"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_create_due_create: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RecurringExpense"];
-                "multipart/form-data": components["schemas"]["RecurringExpense"];
-                "application/x-www-form-urlencoded": components["schemas"]["RecurringExpense"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    accounting_recurring_expenses_due_retrieve: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecurringExpense"];
-                };
-            };
-        };
-    };
-    reports_day_book_ledger_retrieve: {
         parameters: {
             query?: never;
             header?: never;

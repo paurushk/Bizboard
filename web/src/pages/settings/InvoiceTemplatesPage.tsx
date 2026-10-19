@@ -9,7 +9,6 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
-import { getErrorMessage } from '@/api/client';
 import { getCompany, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -19,6 +18,7 @@ import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 const LAYOUT_LEGEND = [
   'Seller header with GSTIN, phone, and address',
@@ -56,13 +56,13 @@ export function InvoiceTemplatesPage() {
       setMessage('Invoice terms saved');
       void qc.invalidateQueries({ queryKey: ['company'] });
     },
-    onError: (err) => setError(getErrorMessage(err)),
+    onError: (err) => setError(settingsErrorText(err)),
   });
 
   if (!allowed) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
   if (query.isError) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
+    return <ErrorState message={settingsErrorText(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
   }
   if (!query.data) return <EmptyState />;
 
@@ -91,12 +91,10 @@ export function InvoiceTemplatesPage() {
               {t('sweep2.defaultTemplate')}
             </Typography>
             <Typography variant="h5" sx={{ mt: 0.5 }}>
-              GST Tax Invoice (A4)
+              {t('settingsSweep.templateName')}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 1, maxWidth: 480 }}>
-              Production layout matching GST tax invoice practice: party blocks, item code (SKU), HSN/MRP columns,
-              tax-by-rate footer, UPI QR, and amount in words. Used for all completed GST and Tax
-              invoices. Terms below print on every copy.
+              {t('settingsSweep.templateAbout')}
             </Typography>
             <Button
               component={RouterLink}
@@ -134,7 +132,7 @@ export function InvoiceTemplatesPage() {
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6">{t('sweep2.termsAndConditions')}</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Printed on every invoice PDF. Leave blank to use the system default.
+          {t('settingsSweep.termsHelp')}
         </Typography>
         <TextField
           label={t('sweep.invoiceTerms')}

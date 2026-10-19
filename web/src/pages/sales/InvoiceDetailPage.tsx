@@ -1,3 +1,4 @@
+import { CareLinksPanel } from '@/care/CareLinksPanel';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
@@ -1561,6 +1562,7 @@ export function InvoiceDetailPage() {
           )}
         </Paper>
       ) : null}
+      {invoiceIdValid ? <CareLinksPanel entity="invoice" id={invoiceId} /> : null}
     </Stack>
   );
 }

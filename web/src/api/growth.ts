@@ -112,6 +112,7 @@ export type TicketRow = {
   slaDueAt: string | null;
   createdAt?: string;
   waitingSince?: string | null;
+  resolvedAt?: string | null;
 };
 
 export type TicketComment = {

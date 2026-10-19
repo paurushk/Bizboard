@@ -215,7 +215,18 @@ export async function getPackWizard(): Promise<PackState> {
   return unwrapData<PackState>(data);
 }
 
-export async function proposePack(answers: Record<string, string>): Promise<{ proposedPack: string; applied: boolean }> {
+/** What confirming a pack would do. A pack only ever turns features on. */
+export interface PackPreview {
+  pack: string;
+  wouldEnable: string[];
+  alreadyOn: string[];
+  /** Changed by hand since a pack last set it, so left as it is. */
+  keptAsSet: string[];
+  /** Not part of this plan or deployment, so skipped. */
+  unavailable: string[];
+}
+
+export async function proposePack(answers: Record<string, string>): Promise<{ proposedPack: string; applied: boolean; preview?: PackPreview }> {
   const { data } = await apiClient.post('/company/packs/', { answers, confirm: false });
   return unwrapData(data);
 }

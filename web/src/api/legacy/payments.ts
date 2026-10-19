@@ -445,8 +445,61 @@ export const bulkAcceptExactMatches = () =>
   );
 export const unmatchRecon = (line: number) => apiClient.post('/payments/recon/unmatch/', { line }).then(({ data }) => unwrapData(data));
 export const createReceiptFromReconLine = (payload: Record<string, unknown>) => apiClient.post('/payments/recon/create-receipt-from-line/', payload).then(({ data }) => unwrapData(data));
-export const getGatewaySettings = () => apiClient.get('/payments/gateway-settings/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
-export const updateGatewaySettings = (payload: Record<string, unknown>) => apiClient.patch('/payments/gateway-settings/', payload).then(({ data }) => unwrapData(data));
+export interface GatewaySettings {
+  provider: string;
+  testMode: boolean;
+  /** The test-mode switch is only offered where the server allows it (development and CI). */
+  testModeAvailable: boolean;
+  credentialsConfigured: boolean;
+  /** Last four characters of the public key id; never the secret. */
+  credentialsHint: string;
+  credentialsMode: 'test' | 'live' | 'unknown';
+  credentialsVerified: boolean;
+  credentialsVerifiedAt: string | null;
+  verificationSupported: boolean;
+  enabledProviders: string[];
+  disabledProviders: string[];
+  webhookPaths: Record<string, string>;
+  /** Whether the secret that signs the provider's payment notifications is saved. */
+  webhookSecretConfigured?: boolean;
+  /** When a payment notification from the provider was last accepted; null if none yet. */
+  lastWebhookAt?: string | null;
+}
+
+export interface GatewayKeyCheck {
+  status: 'valid' | 'invalid' | 'missing' | 'unreachable' | 'unsupported';
+  detail: string;
+  verifiedAt: string | null;
+  provider: string;
+}
+
+export interface MoneyInRules {
+  updatedAt?: string;
+  requirePaymentReference: boolean;
+  autoMatchBankExact: boolean;
+  chequeAllocationOnClearance: boolean;
+  cash269stMode: 'off' | 'warn' | 'block';
+  advanceGstTreatment: 'none' | 'goods' | 'services';
+  advanceGstDefaultRate: string | null;
+  dunningEnabled: boolean;
+  dunningDays: number[];
+  dunningMaxReminders: number;
+  dunningQuietHoursStart: number;
+  dunningQuietHoursEnd: number;
+  autoCreditHoldOnSevereOverdue: boolean;
+}
+
+export const getGatewaySettings = () =>
+  apiClient.get('/payments/gateway-settings/').then(({ data }) => unwrapData<GatewaySettings>(data));
+export const updateGatewaySettings = (payload: Record<string, unknown>) =>
+  apiClient.patch('/payments/gateway-settings/', payload).then(({ data }) => unwrapData<GatewaySettings>(data));
+/** Ask the provider whether the saved keys are accepted (a read-only call). */
+export const verifyGatewayKeys = () =>
+  apiClient.post('/payments/gateway-settings/verify/', {}).then(({ data }) => unwrapData<GatewayKeyCheck>(data));
+export const getMoneyInRules = () =>
+  apiClient.get('/payments/money-in-rules/').then(({ data }) => unwrapData<MoneyInRules>(data));
+export const updateMoneyInRules = (payload: Record<string, unknown>) =>
+  apiClient.patch('/payments/money-in-rules/', payload).then(({ data }) => unwrapData<MoneyInRules>(data));
 export const getPublicPaymentLink = (token: string) => apiClient.get(`/public/pay/${token}/`).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 
 export function requestCustomerPortalLink(body: { email?: string; phone?: string }) {

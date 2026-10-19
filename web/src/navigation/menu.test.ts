@@ -200,8 +200,9 @@ describe('flag-gated release surfaces (full-demo profile)', () => {
     canCreatePurchases: true,
     canImport: true,
   } as unknown as User;
-  const allIds = (user: User): string[] =>
-    filterNav(user).flatMap((s) => [s.id, ...(s.children ?? []).map((c) => c.id)]);
+  const flatIds = (items: Array<{ id: string; children?: unknown[] }>): string[] =>
+    items.flatMap((i) => [i.id, ...flatIds((i.children ?? []) as Array<{ id: string; children?: unknown[] }>)]);
+  const allIds = (user: User): string[] => flatIds(filterNav(user));
   const ff = (flags: Record<string, boolean>) => {
     (globalThis as { __ff?: Record<string, boolean> }).__ff = flags;
   };
@@ -345,5 +346,42 @@ describe('Money group', () => {
   it('reaches the overview for an owner', () => {
     (globalThis as { __ff?: Record<string, boolean> }).__ff = {};
     expect(isReallyReachable(owner, '/money')).toBe(true);
+  });
+});
+
+describe('Customer care menu (CCJ plan)', () => {
+  const owner = { ...mockSalesUser, id: 90, role: 'OWNER', canCreateSales: true, canCreatePurchases: true } as User;
+  const viewer = { ...mockSalesUser, id: 91, role: 'VIEWER', canCreateSales: false, canCreatePurchases: false } as User;
+  const ids = (user: User): string[] => {
+    const out: string[] = [];
+    const walk = (items: ReturnType<typeof filterNav>) => items.forEach((i) => { out.push(i.id); if (i.children) walk(i.children); });
+    walk(filterNav(user));
+    return out;
+  };
+  const careFlags = { ENABLE_COMPLAINTS: true, ENABLE_SUPPORT_TICKETS: true, ENABLE_CONTRACTS: true, ENABLE_WORKSHOP: true, ENABLE_PROJECTS: true };
+  const set = (flags: Record<string, boolean>) => { (globalThis as { __ff?: Record<string, boolean> }).__ff = flags; };
+  afterEach(() => set({}));
+
+  it('shows Shared tickets only to the vendor company, never as an empty page for everyone else', () => {
+    set(careFlags);
+    expect(ids(owner)).toContain('tickets');
+    expect(ids(owner)).not.toContain('shared-tickets');
+    set({ ...careFlags, IS_VENDOR_COMPANY: true });
+    expect(ids(owner)).toContain('shared-tickets');
+  });
+
+  it('lets a viewer read the care and job screens but not see anything they cannot open', () => {
+    set(careFlags);
+    const seen = ids(viewer);
+    for (const id of ['complaints', 'supplier-complaints', 'tickets', 'job-cards', 'projects', 'contracts']) {
+      expect(seen).toContain(id);
+    }
+  });
+
+  it('shows Service quality when any care module is on, and not when none is', () => {
+    set({ ENABLE_WORKSHOP: true });
+    expect(ids(owner)).toContain('service-quality');
+    set({});
+    expect(ids(owner)).not.toContain('service-quality');
   });
 });

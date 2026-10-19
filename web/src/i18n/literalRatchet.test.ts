@@ -20,7 +20,6 @@ const SWEPT = [
   'src/pages/inventory/StockAdjustmentPage.tsx',
   'src/pages/phase/AccountingExtraPages.tsx',
   'src/pages/phase/AccountingReportsPages.tsx',
-  'src/pages/phase/InventoryPhasePages.tsx',
   'src/pages/public/LeadFormPage.tsx',
   'src/pages/purchases/NewPurchasePage.tsx',
   'src/pages/purchases/PurchaseDetailPage.tsx',

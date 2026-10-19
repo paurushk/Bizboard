@@ -473,6 +473,78 @@ export async function downloadImportErrorsCsv(id: number | string, kind: string)
   URL.revokeObjectURL(url);
 }
 
+/** The company's recent imports, newest first (all kinds), for the history list. */
+export interface ImportHistoryQuery {
+  page?: number;
+  pageSize?: number;
+  kind?: string;
+  status?: string;
+  mine?: boolean;
+}
+
+export interface ImportHistoryPage {
+  rows: ImportJob[];
+  count: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+}
+
+export async function listImportHistory(query: ImportHistoryQuery = {}): Promise<ImportHistoryPage> {
+  return withMocks(async () => {
+    const params: Record<string, string> = {
+      page: String(query.page ?? 1),
+      page_size: String(query.pageSize ?? 20),
+    };
+    if (query.kind) params.kind = query.kind;
+    if (query.status) params.status = query.status;
+    if (query.mine) params.mine = '1';
+    const { data } = await apiClient.get('/imports/', { params });
+    const body = unwrapData<ImportJob[] | { results: ImportJob[]; count?: number; next?: string | null; previous?: string | null }>(data);
+    if (Array.isArray(body)) return { rows: body, count: body.length, hasNext: false, hasPrevious: false };
+    return {
+      rows: body.results ?? [],
+      count: typeof body.count === 'number' ? body.count : (body.results ?? []).length,
+      hasNext: Boolean(body.next),
+      hasPrevious: Boolean(body.previous),
+    };
+  }, { rows: [], count: 0, hasNext: false, hasPrevious: false } as ImportHistoryPage);
+}
+
+export interface TallyRunRow {
+  id: number;
+  status: string;
+  createdAt: string;
+  by: string;
+  fileName: string;
+  customers: number;
+  suppliers: number;
+  products: number;
+  errorCount: number;
+  failureReason: string;
+}
+
+/** Recent Tally imports. Answers 404 when Tally is not switched on for the company. */
+export async function listTallyRuns(): Promise<TallyRunRow[]> {
+  const { data } = await apiClient.get('/integrations/tally/runs/');
+  return unwrapData<TallyRunRow[]>(data);
+}
+
+export async function downloadTallyErrorsCsv(id: number): Promise<void> {
+  const response = await apiClient.get(`/integrations/tally/runs/${id}/errors/`, {
+    params: { as: 'csv' },
+    responseType: 'blob',
+    transformResponse: [(d) => d],
+  });
+  const blob =
+    response.data instanceof Blob ? response.data : new Blob([response.data as BlobPart], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tally_import_${id}_errors.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function downloadImportTemplate(kind = 'PRODUCTS', format: 'xlsx' | 'csv' = 'xlsx'): Promise<void> {
   const response = await apiClient.get('/imports/template/', {
     params: { kind, as: format === 'csv' ? 'csv' : undefined },
@@ -503,8 +575,24 @@ export const listBankAccounts = () =>
     () => fetchAllPagesMasters<import('@/types/domain').BankAccount>('/payments/bank-accounts/'),
     mockBankAccounts,
   );
-export const createBankAccount = (payload: Record<string, unknown>) =>
-  apiClient.post('/payments/bank-accounts/', payload).then(({ data }) => unwrapData<import('@/types/domain').BankAccount>(data));
+/** Every account including the switched-off ones, for the Bank Accounts screen. */
+export const listAllBankAccounts = () =>
+  withMocks(
+    () =>
+      fetchAllPagesMasters<import('@/types/domain').BankAccount>('/payments/bank-accounts/', {
+        include_inactive: '1',
+      }),
+    mockBankAccounts,
+  );
+/** Switch an account off (the server keeps it: receipts and payments point at it). */
+export const deactivateBankAccount = (id: number) => apiClient.delete(`/payments/bank-accounts/${id}/`);
+/** The full account number, owner only; each look is recorded in the audit trail. */
+export const revealBankAccountNumber = (id: number) =>
+  apiClient
+    .get(`/payments/bank-accounts/${id}/reveal-number/`)
+    .then(({ data }) => unwrapData<{ accountNumber: string }>(data));
+export const createBankAccount = (payload: Record<string, unknown>, headers: Record<string, string> = {}) =>
+  apiClient.post('/payments/bank-accounts/', payload, { headers }).then(({ data }) => unwrapData<import('@/types/domain').BankAccount>(data));
 export const updateBankAccount = (id: number, payload: Record<string, unknown>) =>
   apiClient.patch(`/payments/bank-accounts/${id}/`, payload).then(({ data }) => unwrapData<import('@/types/domain').BankAccount>(data));
 
@@ -529,6 +617,23 @@ export const postAccountingBackfill = (payload: { dry_run?: boolean; confirm?: b
   apiClient.post('/accounting/backfill/', payload).then(({ data }) => unwrapData<Record<string, unknown>>(data));
 export const getAccountingBackfillStatus = () =>
   apiClient.get('/accounting/backfill/').then(({ data }) => unwrapData<Record<string, unknown>>(data));
+export interface AccountingDisablePreflight {
+  accountingEnabled: boolean;
+  postedJournals: number;
+  firstEntryDate: string | null;
+  lastEntryDate: string | null;
+  closedPeriods: number;
+  softClosedPeriods: number;
+  latestClosedPeriodEnd: string | null;
+  backfillRunning: boolean;
+  /** Reasons the books cannot be switched off right now: closed_period, backfill_running. */
+  blockers: string[];
+  canDisable: boolean;
+}
+export const getAccountingDisablePreflight = () =>
+  apiClient
+    .get('/accounting/settings/disable-preflight/')
+    .then(({ data }) => unwrapData<AccountingDisablePreflight>(data));
 export const updateAccountingSettings = (payload: Record<string, unknown>) => apiClient.post('/accounting/settings/', payload).then(({ data }) => unwrapData(data));
 export const closeFinancialYear = (payload: { fyEnd: string; confirm: boolean }) =>
   apiClient.post('/accounting/fy-close/', payload).then(({ data }) => unwrapData(data));

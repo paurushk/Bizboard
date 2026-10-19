@@ -170,6 +170,27 @@ export async function listUnits(): Promise<Unit[]> {
   return withMocks(async () => fetchAllPagesMasters<Unit>('/masters/units/'), []);
 }
 
+/** How many items hold a value for each custom field key (removed fields included). */
+export async function getCustomFieldUsage(): Promise<Record<string, number>> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/products/custom-field-usage/');
+    return unwrapData<Record<string, number>>(data);
+  }, {});
+}
+
+/** How many items use each unit, keyed by unit id (not cached on the server). */
+export async function getUnitUsage(): Promise<Record<string, number>> {
+  return withMocks(async () => {
+    const { data } = await apiClient.get('/masters/units/usage/');
+    return unwrapData<Record<string, number>>(data);
+  }, {});
+}
+
+/** The server refuses when items still use the unit. */
+export async function deleteUnit(id: number): Promise<void> {
+  await apiClient.delete(`/masters/units/${id}/`);
+}
+
 export async function listCategories(): Promise<Array<{ id: number; name: string }>> {
   return withMocks(async () => fetchAllPagesMasters<{ id: number; name: string }>('/masters/categories/'), []);
 }
@@ -178,14 +199,14 @@ export async function listBrands(): Promise<Array<{ id: number; name: string }>>
   return withMocks(async () => fetchAllPagesMasters<{ id: number; name: string }>('/masters/brands/'), []);
 }
 
-export async function createUnit(payload: Partial<Unit>): Promise<Unit> {
+export async function createUnit(payload: Partial<Unit>, headers: Record<string, string> = {}): Promise<Unit> {
   return withMocks(async () => {
-    const { data } = await apiClient.post('/masters/units/', payload);
+    const { data } = await apiClient.post('/masters/units/', payload, { headers });
     return unwrapData<Unit>(data);
   }, { id: Date.now(), name: payload.name ?? '', shortName: payload.shortName, uqcCode: payload.uqcCode } as Unit);
 }
 
-export async function updateUnit(id: number, payload: Partial<Unit>): Promise<Unit> {
+export async function updateUnit(id: number, payload: Partial<Unit> & { expected_updated_at?: string }): Promise<Unit> {
   return withMocks(async () => {
     const { data } = await apiClient.patch(`/masters/units/${id}/`, payload);
     return unwrapData<Unit>(data);
@@ -597,9 +618,14 @@ export const listBatches = (product?: number, warehouse?: number) =>
       : undefined,
   );
 export const listPriceLists = () => fetchAllPagesMasters<import('@/utils/priceList').PriceListRow>('/masters/price-lists/');
-export const createPriceList = (payload: Record<string, unknown>) => apiClient.post('/masters/price-lists/', payload).then(({ data }) => unwrapData(data));
+export const createPriceList = (payload: Record<string, unknown>, headers: Record<string, string> = {}) => apiClient.post('/masters/price-lists/', payload, { headers }).then(({ data }) => unwrapData(data));
 export const updatePriceList = (id: number, payload: Record<string, unknown>) =>
   apiClient.patch(`/masters/price-lists/${id}/`, payload).then(({ data }) => unwrapData(data));
+/** Customers assigned to a list (first 50), to name them before it is switched off. */
+export const listPriceListCustomers = (id: number) =>
+  apiClient
+    .get(`/masters/price-lists/${id}/customers/`)
+    .then(({ data }) => unwrapData<Array<{ id: number; name: string }>>(data));
 
 export async function listExpenseCategoriesPage(params?: PageParams) {
   return fetchPage<Record<string, unknown>>('/masters/expense-categories/', params);

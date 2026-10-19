@@ -120,6 +120,22 @@ export function isWorkshopEnabled(): boolean {
   return resolveOptionalModuleFlag(false, 'ENABLE_WORKSHOP');
 }
 
+/** True when any customer care, job or contract module is on for this company. */
+export function isCareAnyEnabled(): boolean {
+  return (
+    isComplaintsEnabled() ||
+    isSupportTicketsEnabled() ||
+    isContractsEnabled() ||
+    isWorkshopEnabled() ||
+    isProjectsEnabled()
+  );
+}
+
+/** Only the vendor company has a shared-ticket inbox; everyone else never sees the menu item. */
+export function isVendorCompany(): boolean {
+  return resolveOptionalModuleFlag(false, 'IS_VENDOR_COMPANY');
+}
+
 export function isProjectsEnabled(): boolean {
   return resolveOptionalModuleFlag(false, 'ENABLE_PROJECTS');
 }

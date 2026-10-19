@@ -9,7 +9,6 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { getErrorMessage } from '@/api/client';
 import {
   createCompanyGstin,
   listCompanyGstins,
@@ -21,6 +20,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { isValidGstin } from '@/utils/gst';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 function flag(row: CompanyGstinRow, camel: 'isPrimary' | 'isActive'): boolean {
   if (camel === 'isPrimary') return row.isPrimary ?? row.is_primary ?? false;
@@ -45,7 +45,7 @@ export function BranchGstinsPanel() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['company-gstins'] });
 
-  const fail = (err: unknown) => setBranchError(getErrorMessage(err));
+  const fail = (err: unknown) => setBranchError(settingsErrorText(err));
 
   const openEdit = (row: CompanyGstinRow) => {
     setEditing(row);
@@ -62,7 +62,7 @@ export function BranchGstinsPanel() {
         {branchError ? <HelpErrorAlert message={branchError} /> : null}
         {gstinsQuery.isLoading ? <LoadingState /> : null}
         {gstinsQuery.isError ? (
-          <ErrorState message={getErrorMessage(gstinsQuery.error)} error={gstinsQuery.error} onRetry={() => void gstinsQuery.refetch()} />
+          <ErrorState message={settingsErrorText(gstinsQuery.error)} error={gstinsQuery.error} onRetry={() => void gstinsQuery.refetch()} />
         ) : null}
         {(gstinsQuery.data ?? []).map((row) => {
           const primary = flag(row, 'isPrimary');

@@ -4,12 +4,20 @@ export interface BankAccount {
   id: number;
   name: string;
   accountNumberMasked?: string;
+  /** The full number is saved (sealed); it is never in the list, the owner can ask to see it. */
+  hasFullNumber?: boolean;
   ifsc?: string;
+  upiId?: string;
   accountType?: string;
   openingBalance?: string | number;
-  openingAsOf?: string;
+  openingAsOf?: string | null;
+  /** True once money has moved through the account: the opening balance can no longer be edited. */
+  openingLocked?: boolean;
   isDefault?: boolean;
   isActive?: boolean;
+  /** The account whose details and UPI QR are printed on invoices. */
+  printOnInvoices?: boolean;
+  updatedAt?: string;
 }
 
 export interface PaymentLink {
@@ -222,6 +230,8 @@ export interface ItemCustomFieldDef {
 
 export interface Company {
   id: number;
+  /** Last change to the record; sent back as `expected_updated_at` so two owners cannot overwrite each other. */
+  updatedAt?: string;
   name: string;
   legalName?: string;
   gstin?: string;
@@ -368,6 +378,7 @@ export interface Supplier {
 
 export interface Unit {
   id: number;
+  updatedAt?: string;
   name: string;
   shortName?: string;
   uqcCode?: string;
@@ -1499,6 +1510,10 @@ export interface ImportJob {
   fileName?: string;
   fileType?: string;
   extractionHeartbeatAt?: string | null;
+  /** Who uploaded it. */
+  createdByName?: string;
+  /** Committed product, opening-stock and bill imports can be undone (while stock is unused / bill is a draft). */
+  canUndo?: boolean;
 }
 
 export interface PurchaseBillCommitResult {
@@ -1512,6 +1527,7 @@ export interface PurchaseBillCommitResult {
 
 export interface CompanyUser {
   id: number;
+  updatedAt?: string;
   user: number;
   email: string;
   fullName: string;
@@ -1527,6 +1543,11 @@ export interface CompanyUser {
   canCreatePayments?: boolean;
   canPostJournals?: boolean;
   isActive: boolean;
+  /** When this person last signed in; null until they do. */
+  lastLogin?: string | null;
+  /** accepted, pending (a link still works), expired (invited, never signed in, no working link) or deactivated. */
+  inviteState?: 'accepted' | 'pending' | 'expired' | 'deactivated';
+  inviteExpiresAt?: string | null;
   inviteUrl?: string;
   inviteToken?: string;
 }

@@ -233,12 +233,28 @@ export function slaChipModel(args: {
   status: string;
   slaDueAt?: string | null;
   createdAt?: string | null;
+  resolvedAt?: string | null;
   now: number;
-}): { kind: 'none' | 'paused' | 'remaining' | 'breached'; minutes: number; elapsedMinutes: number } {
+}): {
+  kind: 'none' | 'paused' | 'remaining' | 'breached' | 'met' | 'breached_resolved';
+  minutes: number;
+  elapsedMinutes: number;
+} {
   if (!args.slaDueAt) return { kind: 'none', minutes: 0, elapsedMinutes: 0 };
   const due = Date.parse(args.slaDueAt);
   const opened = args.createdAt ? Date.parse(args.createdAt) : args.now;
-  const elapsedMinutes = Number.isFinite(opened) ? Math.max(0, Math.round((args.now - opened) / 60000)) : 0;
+  const closed = args.resolvedAt ? Date.parse(args.resolvedAt) : NaN;
+  const finished = args.status === 'RESOLVED' || args.status === 'CLOSED';
+  // A finished ticket stops the clock at its resolve time, so a late reply never turns it red again.
+  const clockEnd = finished && Number.isFinite(closed) ? closed : args.now;
+  const elapsedMinutes = Number.isFinite(opened) ? Math.max(0, Math.round((clockEnd - opened) / 60000)) : 0;
+  if (finished) {
+    if (!Number.isFinite(due) || !Number.isFinite(closed)) return { kind: 'none', minutes: 0, elapsedMinutes };
+    const minutes = Math.round((due - closed) / 60000);
+    return minutes < 0
+      ? { kind: 'breached_resolved', minutes: Math.abs(minutes), elapsedMinutes }
+      : { kind: 'met', minutes, elapsedMinutes };
+  }
   if (args.status === 'WAITING') return { kind: 'paused', minutes: 0, elapsedMinutes };
   if (!Number.isFinite(due)) return { kind: 'none', minutes: 0, elapsedMinutes };
   const minutes = Math.round((due - args.now) / 60000);

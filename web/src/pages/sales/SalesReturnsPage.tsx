@@ -144,6 +144,16 @@ export function SalesReturnsPage() {
   const [gstGuardOverrideReason, setGstGuardOverrideReason] = useState('');
 
   const [detailReturn, setDetailReturn] = useState<SalesReturn | null>(null);
+  // A link from a complaint or credit note opens its return directly (?return=ID).
+  const deepLinkId = Number(searchParams.get('return')) || null;
+  const [deepDismissed, setDeepDismissed] = useState(false);
+  const deepLinked = useQuery({
+    queryKey: ['sales-return-deeplink', deepLinkId],
+    queryFn: () => getSalesReturn(deepLinkId!),
+    enabled: Boolean(deepLinkId) && !deepDismissed,
+    retry: false,
+  });
+  const shownReturn = detailReturn ?? (deepLinkId && !deepDismissed ? deepLinked.data ?? null : null);
 
   // Show the return as it is on the server now, not the (possibly stale) list row.
   const detailQuery = useQuery({
@@ -153,7 +163,7 @@ export function SalesReturnsPage() {
     staleTime: 0,
     retry: false,
   });
-  const detail = detailQuery.data ?? detailReturn;
+  const detail = detailQuery.data ?? shownReturn;
   const [confirmCancelReturn, setConfirmCancelReturn] = useState<SalesReturn | null>(null);
   const [confirmDeleteDraft, setConfirmDeleteDraft] = useState<SalesReturn | null>(null);
   const [rowGuard, setRowGuard] = useState<{
@@ -1026,7 +1036,15 @@ export function SalesReturnsPage() {
       </Dialog>
 
       {/* Sales Return Detail Dialog */}
-      <Dialog open={Boolean(detailReturn)} onClose={() => setDetailReturn(null)} fullWidth maxWidth="md">
+      <Dialog
+        open={Boolean(shownReturn)}
+        onClose={() => {
+          setDetailReturn(null);
+          setDeepDismissed(true);
+        }}
+        fullWidth
+        maxWidth="md"
+      >
         <DialogTitle>
           {detail?.number || `#${detail?.id ?? ''}`} — {t('nav.salesReturns')}
         </DialogTitle>
@@ -1141,7 +1159,14 @@ export function SalesReturnsPage() {
           ) : null}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDetailReturn(null)}>{t('common.close')}</Button>
+          <Button
+            onClick={() => {
+              setDetailReturn(null);
+              setDeepDismissed(true);
+            }}
+          >
+            {t('common.close')}
+          </Button>
         </DialogActions>
       </Dialog>
 

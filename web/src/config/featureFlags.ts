@@ -62,6 +62,7 @@ const MOCK_FLAGS: RuntimeFeatureFlags = {
   ENABLE_WHATSAPP_CLOUD: false,
   ENABLE_ACCOUNT_AGGREGATOR: false,
   ENABLE_AA_CONSENT: false,
+  IS_VENDOR_COMPANY: false,
   ENABLE_CASHFREE: false,
   ENABLE_PAYU: false,
   ENABLE_POS: true,

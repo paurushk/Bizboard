@@ -21,21 +21,23 @@ import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import { useMutation } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate, useSearchParams } from 'react-router-dom';
-import { getErrorCode, getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { getErrorCode, newIdempotencyKey } from '@/api/client';
 import { confirmAction } from '@/utils/confirmBridge';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpWhyLink } from '@/pages/help/HelpWhyLink';
 import { commitImport, downloadImportErrorsCsv, downloadImportTemplate, uploadImport, voidImport, voidImportRows } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { ImportHistory } from '@/components/settings/ImportHistory';
 import { StatusChip } from '@/components/StatusChip';
 import { EmptyState } from '@/components/PageState';
 import { t, useLocale } from '@/i18n';
 import { PageTitle } from '@/contextHelp';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import type { ImportJob, ImportKind } from '@/types/domain';
-import { canImport } from '@/utils/permissions';
+import { canImport, canManageUsers } from '@/utils/permissions';
 import { statusLabelKey } from '@/utils/status';
+import { settingsErrorText } from '@/utils/settingsErrors';
 
 const KIND_OPTIONS: ImportKind[] = ['PRODUCTS', 'CUSTOMERS', 'SUPPLIERS', 'OPENING_STOCK'];
 
@@ -225,7 +227,7 @@ export function ImportPage() {
       setCommitKey(newIdempotencyKey());
     },
     onError: (err) => {
-      setError(getErrorMessage(err));
+      setError(settingsErrorText(err));
       setErrorSource(err);
     },
   });
@@ -247,7 +249,7 @@ export function ImportPage() {
       }
     },
     onError: (err) => {
-      setError(getErrorMessage(err));
+      setError(settingsErrorText(err));
       setErrorSource(err);
     },
   });
@@ -274,7 +276,7 @@ export function ImportPage() {
       setErrorSource(null);
     },
     onError: (err) => {
-      setError(getErrorMessage(err));
+      setError(settingsErrorText(err));
       setErrorSource(err);
     },
   });
@@ -292,7 +294,7 @@ export function ImportPage() {
     },
     onError: (err) => {
       setVoidingSku(null);
-      setError(getErrorMessage(err));
+      setError(settingsErrorText(err));
     },
   });
 
@@ -458,7 +460,7 @@ export function ImportPage() {
               {t('import.downloadXlsx')}
             </Button>
           </Stack>
-          {file ? <Typography variant="body2">Selected: {file.name}</Typography> : null}
+          {file ? <Typography variant="body2">{t('settingsSweep.selectedFile', { name: file.name })}</Typography> : null}
 
           <Stack direction="row" spacing={1} flexWrap="wrap" alignItems="center">
             <Button
@@ -745,6 +747,7 @@ export function ImportPage() {
           ) : null}
         </Paper>
       ) : null}
+      <ImportHistory canUndo={canManageUsers(user)} />
     </Stack>
   );
 }

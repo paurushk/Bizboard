@@ -3,11 +3,9 @@ import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { BankReconPage, PaymentGatewayPage } from '@/pages/phase/BankingPhasePages';
+import { BankReconPage } from '@/pages/phase/BankingPhasePages';
 
 const m = vi.hoisted(() => ({
-  getGatewaySettings: vi.fn(),
-  updateGatewaySettings: vi.fn(async (..._args: unknown[]) => ({})),
   getPaymentHealth: vi.fn(async () => ({ unmatchedAging: {}, alerts: [] })),
   listRecon: vi.fn(),
   listReconNeedsReview: vi.fn(),
@@ -15,8 +13,6 @@ const m = vi.hoisted(() => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  getGatewaySettings: () => m.getGatewaySettings(),
-  updateGatewaySettings: (...args: unknown[]) => m.updateGatewaySettings(...args),
   getPaymentHealth: () => m.getPaymentHealth(),
   listRecon: () => m.listRecon(),
   listReconNeedsReview: () => m.listReconNeedsReview(),
@@ -48,31 +44,6 @@ function wrap(ui: React.ReactElement, path = '/') {
 
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-describe('Payments settings: Money In rules', () => {
-  it('shows the saved rules and saves a change', async () => {
-    m.getGatewaySettings.mockResolvedValue({
-      provider: 'razorpay', testMode: true, credentialsConfigured: false,
-      chequeAllocationOnClearance: false, cash269stMode: 'warn', advanceGstTreatment: 'none', advanceGstDefaultRate: null,
-    });
-    wrap(<PaymentGatewayPage />);
-    const hold = await screen.findByRole('checkbox', { name: /hold cheques as advances until they clear/i });
-    expect((hold as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByLabelText(/cash limit check/i).textContent).toBe('Warn');
-    await userEvent.click(hold);
-    await userEvent.click(screen.getByLabelText(/gst on advances/i));
-    await userEvent.click(await screen.findByRole('option', { name: /services/i }));
-    await userEvent.type(await screen.findByLabelText(/default gst rate on advances/i), '18');
-    await userEvent.click(screen.getByRole('button', { name: /save settings/i }));
-    await waitFor(() => expect(m.updateGatewaySettings).toHaveBeenCalledTimes(1));
-    expect(m.updateGatewaySettings.mock.calls[0][0]).toMatchObject({
-      cheque_allocation_on_clearance: true,
-      cash_269st_mode: 'warn',
-      advance_gst_treatment: 'services',
-      advance_gst_default_rate: '18',
-    });
-  });
 });
 
 describe('Bank reconciliation: bounced cheques', () => {

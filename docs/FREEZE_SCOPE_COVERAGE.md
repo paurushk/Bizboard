@@ -803,3 +803,18 @@ Sales credit notes (`/sales/credit-notes`) and debit notes (`/sales/debit-notes`
 | Concurrency: double post, dispose, void, match; close racing a post | ✅ | `backend/tests/test_acs_concurrency_postgres.py` (Postgres-only, 6 pass on Postgres 17 locally; the double-void race it found is fixed); running it in CI is open: QOS-0133 |
 | CA sign-off on expense posting, GST/TDS, acquisition, year-end reversal, write-off | 🟡 | open: QOS-0130 |
 | Hindi wording; real-device and screen-reader pass | 🟡 | open: QOS-0131, QOS-0132 |
+
+## Customer care and Jobs & contracts (2026-10-19)
+
+| Item | Status | Evidence |
+|---|---|---|
+| Support tickets: SLA, assignment, share, attachments, audit trail | ✅ | `backend/tests/test_ccj_tickets.py`, web `pages/support/*.test.tsx` |
+| Complaints and supplier complaints: remedy documents, resolution note, debit note | ✅ | `backend/tests/test_ccj_complaints.py`, web `pages/complaints/*.test.tsx` |
+| Job cards: warehouse, parts, warranty lines, invoice | ✅ | `backend/tests/test_ccj_jobs.py`, web `pages/workshop/*.test.tsx` |
+| Contracts: billing cadence, renew in place, status filters | ✅ | `backend/tests/test_ccj_contracts.py`, web `pages/contracts/*.test.tsx` |
+| Projects and milestones | ✅ | `backend/tests/test_ccj_projects.py`, web `pages/projects/*.test.tsx` |
+| Links, search, service quality KPIs | ✅ | `backend/tests/test_ccj_links_search.py`, web `pages/care/ServiceQualityPage.test.tsx` |
+| Concurrency (claim, complete, invoice races) | 🟡 | `backend/tests/test_ccj_concurrency_postgres.py` passed on Postgres locally; CI lane and live browser run open: QOS-0134 |
+| Hindi wording | 🟡 | open: QOS-0135, sheet `docs/reviews/CARE_JOBS_CONTRACTS_HINDI_REVIEW.md` |
+| CA sign-off on warranty, billing cadence, supplier debit notes | 🟡 | open: QOS-0136 |
+| Sales register column for the project or job an invoice came from (PRJ-06) | ❌ not built | Dropped on purpose: it changed the accountant's CSV and its snapshot. The invoice page shows the link instead (`CareLinksPanel`). |

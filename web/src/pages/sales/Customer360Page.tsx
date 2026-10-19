@@ -30,6 +30,7 @@ import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
 import { useAuth } from '@/auth/AuthContext';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { isComplaintsEnabled, isContractsEnabled, isCrmEnabled, isReferralsEnabled, isSupportTicketsEnabled } from '@/config/features';
+import { CareLinksPanel } from '@/care/CareLinksPanel';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
@@ -425,6 +426,7 @@ export function Customer360Page() {
               ) : null}
             </Paper>
           ) : <OffSection title={t('customer360.opportunities')} />}
+          <CareLinksPanel entity="customer" id={customerId} always />
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography variant="subtitle2">{t('osPlan.products')}</Typography>
             <Typography variant="body2">

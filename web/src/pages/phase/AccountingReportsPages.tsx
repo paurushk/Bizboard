@@ -2,19 +2,25 @@ import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import MenuItem from '@mui/material/MenuItem';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
 import { t } from '@/i18n';
-import { triggerBlobDownload } from '@/utils/blob';
+import { useAuth } from '@/auth/AuthContext';
+import { canExport } from '@/utils/permissions';
 import { AccountingBackfillBanner, useBooksState } from '@/components/AccountingBackfillBanner';
+import { dateRangeForPreset } from '@/components/HistoryFilterBar';
+import { trialBalanceRowPath } from '@/pages/reports/ledgerLinks';
+import { BalanceSheetView } from '@/pages/reports/statements/BalanceSheetView';
+import { ProfitLossView } from '@/pages/reports/statements/ProfitLossView';
 import {
   DataTable,
   PageShell,
@@ -26,32 +32,17 @@ function AccountingReportPage({
   report,
 }: {
   title: string;
-  report: 'trial-balance' | 'profit-and-loss' | 'balance-sheet' | 'books-health';
+  report: 'trial-balance' | 'books-health';
 }) {
-  const [from, setFrom] = useState('');
+  const { user } = useAuth();
   const [to, setTo] = useState('');
-  const [costCenter, setCostCenter] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [dlError, setDlError] = useState<string | null>(null);
-  const costCenters = useQuery({
-    queryKey: ['cost-centers'],
-    queryFn: api.listCostCenters,
-    enabled: report === 'profit-and-loss',
-  });
-  const reportParams = useMemo((): Record<string, string> => {
-    if (report === 'profit-and-loss') {
-      const params: Record<string, string> = {};
-      if (from) params.from = from;
-      if (to) params.to = to;
-      if (costCenter) params.cost_center = costCenter;
-      return params;
-    }
-    return to ? { as_of: to } : {};
-  }, [report, from, to, costCenter]);
+  const reportParams = useMemo((): Record<string, string> => (to ? { as_of: to } : {}), [to]);
   const q = useQuery({
-    queryKey: ['accounting-report', report, from, to, costCenter],
+    queryKey: ['accounting-report', report, to],
     queryFn: () => api.getAccountingReport(report, reportParams),
-    // F3-069: keep the prior report on screen while a date/cost-center change
+    // F3-069: keep the prior report on screen while a date change
     // refetches, so the page does not flash a full-height spinner each edit.
     placeholderData: keepPreviousData,
   });
@@ -61,8 +52,13 @@ function AccountingReportPage({
     setDlError(null);
     try {
       const { url } = await api.downloadAccountingReport(report, reportParams);
-      triggerBlobDownload(await fetch(url).then((r) => r.blob()), `${report}.xlsx`);
-      URL.revokeObjectURL(url);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${report}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
     } catch (err) {
       setDlError(getErrorMessage(err));
     } finally {
@@ -90,6 +86,14 @@ function AccountingReportPage({
     credit: r.credit,
     balance: r.balance,
   }));
+  // RPT-01: the trial balance ends with its own totals, and untrusted books mask the table like the banner.
+  const tableRows = report === 'trial-balance' && rows.length
+    ? [...rows, { id: 'total', code: '', name: t('statements.total'), type: '', debit: data.totalDebit, credit: data.totalCredit, balance: '' }]
+    : rows;
+  const moneyColumn = (key: string, label: string) =>
+    books.trusted ? { key, label, money: true } : { key, label, render: () => '—' };
+  // The ledger lines behind a trial balance row: this financial year up to the as-of date (or today).
+  const ledgerRange = dateRangeForPreset('currentFY');
   const ar = data.ar as Row | undefined;
   const ap = data.ap as Row | undefined;
   return (
@@ -97,30 +101,12 @@ function AccountingReportPage({
       title={title}
       actions={report !== 'books-health' ? (
         <Stack direction="row" spacing={1} alignItems="center">
-          {report === 'profit-and-loss' ? (
-            <>
-              <TextField type="date" size="small" label={t('sweep.from')} InputLabelProps={{ shrink: true }} value={from} onChange={(e) => setFrom(e.target.value)} />
-              <TextField
-                select
-                size="small"
-                label={t('sweep.costCenter')}
-                value={costCenter}
-                onChange={(e) => setCostCenter(e.target.value)}
-                sx={{ minWidth: 140 }}
-              >
-                <MenuItem value="">{t('sweep2.all')}</MenuItem>
-                {(costCenters.data ?? []).map((cc) => (
-                  <MenuItem key={String(cc.id)} value={String(cc.id)}>
-                    {String(cc.code ?? cc.name ?? cc.id)}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </>
+          <TextField type="date" size="small" label={t('statements.asOf')} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
+          {canExport(user) ? (
+            <Button size="small" variant="outlined" disabled={downloading} onClick={() => void handleDownload()}>
+              {t('sweep2.downloadXlsx')}
+            </Button>
           ) : null}
-          <TextField type="date" size="small" label={report === 'profit-and-loss' ? 'To' : 'As of'} InputLabelProps={{ shrink: true }} value={to} onChange={(e) => setTo(e.target.value)} />
-          <Button size="small" variant="outlined" disabled={downloading} onClick={() => void handleDownload()}>
-            {t('sweep2.downloadXlsx')}
-          </Button>
           {dlError ? <ErrorState message={dlError} error={new Error(dlError)} /> : null}
         </Stack>
       ) : undefined}
@@ -133,17 +119,17 @@ function AccountingReportPage({
               {ar ? (
                 <Paper sx={{ p: 2, flex: 1 }}>
                   <Typography variant="subtitle2" gutterBottom>{t('sweep2.accountsReceivable')}</Typography>
-                  <Typography variant="body2">GL {money(ar.gl)}</Typography>
-                  <Typography variant="body2">Ledger {money(ar.ledger)}</Typography>
-                  <Chip size="small" label={ar.healthy ? 'Healthy' : 'Mismatch'} color={ar.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
+                  <Typography variant="body2">{t('statements.gl')} {money(ar.gl)}</Typography>
+                  <Typography variant="body2">{t('statements.ledger')} {money(ar.ledger)}</Typography>
+                  <Chip size="small" label={ar.healthy ? t('statements.healthy') : t('statements.mismatch')} color={ar.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
                 </Paper>
               ) : null}
               {ap ? (
                 <Paper sx={{ p: 2, flex: 1 }}>
                   <Typography variant="subtitle2" gutterBottom>{t('sweep2.accountsPayable')}</Typography>
-                  <Typography variant="body2">GL {money(ap.gl)}</Typography>
-                  <Typography variant="body2">Ledger {money(ap.ledger)}</Typography>
-                  <Chip size="small" label={ap.healthy ? 'Healthy' : 'Mismatch'} color={ap.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
+                  <Typography variant="body2">{t('statements.gl')} {money(ap.gl)}</Typography>
+                  <Typography variant="body2">{t('statements.ledger')} {money(ap.ledger)}</Typography>
+                  <Chip size="small" label={ap.healthy ? t('statements.healthy') : t('statements.mismatch')} color={ap.healthy ? 'success' : 'warning'} sx={{ mt: 1 }} />
                 </Paper>
               ) : null}
             </Stack>
@@ -161,32 +147,27 @@ function AccountingReportPage({
       ) : null}
       {report === 'trial-balance' ? (
         <Alert severity={(data.balanced as boolean) ? 'success' : 'warning'}>
-          Total debit {money(data.totalDebit)} · Total credit {money(data.totalCredit)}
-        </Alert>
-      ) : null}
-      {report === 'profit-and-loss' ? (
-        <Alert severity="info">
-          Income {money(data.income)} · Expenses {money(data.expenses)} · Net {money(data.netProfit ?? data.net)}
-        </Alert>
-      ) : null}
-      {report === 'balance-sheet' ? (
-        <Alert severity="info">
-          Inventory GL {money(data.inventoryGl ?? data.inventory_gl)} ·
-          Valuation {money(data.inventoryValuation ?? data.inventory_valuation)}
-          {' — '}
-          {String(data.inventoryNote ?? data.inventory_note ?? '')}
+          {t('statements.totalDebit')} {money(data.totalDebit)} · {t('statements.totalCredit')} {money(data.totalCredit)}
         </Alert>
       ) : null}
       <DataTable
-        rows={rows}
-        empty="No rows — post documents with accounting enabled."
+        rows={tableRows}
+        empty={t('statements.noRows')}
         columns={[
-          { key: 'code', label: 'Code' },
-          { key: 'name', label: 'Account' },
-          { key: 'type', label: 'Type' },
-          { key: 'debit', label: 'Debit', money: true },
-          { key: 'credit', label: 'Credit', money: true },
-          { key: 'balance', label: 'Balance', money: true },
+          {
+            key: 'code',
+            label: t('statements.code'),
+            // RPT-11: an account code opens the ledger lines behind it.
+            render: (row: Row) => {
+              const link = report === 'trial-balance' ? trialBalanceRowPath(row.accountId, ledgerRange.dateFrom, to || ledgerRange.dateTo) : null;
+              return link ? <Link component={RouterLink} to={link}>{String(row.code ?? '')}</Link> : String(row.code ?? '—');
+            },
+          },
+          { key: 'name', label: t('statements.account') },
+          { key: 'type', label: t('statements.type') },
+          moneyColumn('debit', t('statements.debit')),
+          moneyColumn('credit', t('statements.credit')),
+          moneyColumn('balance', t('statements.balance')),
         ]}
       />
     </PageShell>
@@ -194,6 +175,6 @@ function AccountingReportPage({
 }
 
 export const TrialBalancePage = () => <AccountingReportPage title={t('phase.trialBalance')} report="trial-balance" />;
-export const ProfitAndLossPage = () => <AccountingReportPage title={t('phase.profitAndLoss')} report="profit-and-loss" />;
-export const BalanceSheetPage = () => <AccountingReportPage title={t('phase.balanceSheet')} report="balance-sheet" />;
+export const ProfitAndLossPage = () => <ProfitLossView title={t('phase.profitAndLoss')} />;
+export const BalanceSheetPage = () => <BalanceSheetView title={t('phase.balanceSheet')} />;
 export const BooksHealthPage = () => <AccountingReportPage title={t('phase.booksHealth')} report="books-health" />;

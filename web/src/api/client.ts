@@ -1,4 +1,5 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import { announceWrite } from '@/utils/settingsSaveSignal';
 import { clearTokens, setAccessToken } from '@/auth/session';
 import { t } from '@/i18n';
 
@@ -399,7 +400,10 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    announceWrite(response.config?.method, response.config?.url);
+    return response;
+  },
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;

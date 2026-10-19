@@ -185,6 +185,18 @@ describe('access, actions, sla, window, focus', () => {
     }).kind).toBe('breached');
   });
 
+  it('stops the clock when a ticket is resolved or closed', () => {
+    const now = Date.parse('2026-04-20T12:00:00Z');
+    const base = { slaDueAt: '2026-04-10T13:00:00Z', createdAt: '2026-04-10T10:00:00Z', now };
+    expect(slaChipModel({ ...base, status: 'RESOLVED', resolvedAt: '2026-04-10T12:30:00Z' }).kind).toBe('met');
+    expect(slaChipModel({ ...base, status: 'CLOSED', resolvedAt: '2026-04-10T12:30:00Z' }).kind).toBe('met');
+    const late = slaChipModel({ ...base, status: 'RESOLVED', resolvedAt: '2026-04-10T14:00:00Z' });
+    expect(late.kind).toBe('breached_resolved');
+    expect(late.minutes).toBe(60);
+    expect(late.elapsedMinutes).toBe(240);
+    expect(slaChipModel({ ...base, status: 'RESOLVED' }).kind).toBe('none');
+  });
+
   it('paints a window of a 5000-row table', () => {
     expect(visibleRowSlice(5000, 100, 20)).toHaveLength(20);
     expect(visibleRowSlice(5000, 100, 20)[0]).toBe(100);

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { SettingsContinuity } from '@/components/settings/SettingsContinuity';
 import MenuIcon from '@mui/icons-material/Menu';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
@@ -11,6 +12,7 @@ import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
+import ListSubheader from '@mui/material/ListSubheader';
 import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemText from '@mui/material/ListItemText';
@@ -42,8 +44,8 @@ import { STOCK_FLUSHED_EVENT, useStockOffline } from '@/pages/inventory/useStock
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
 
-function navPathSelected(pathname: string, path?: string): boolean {
-  return isNavPathActive(pathname, path);
+function navPathSelected(pathname: string, path?: string, exact = false): boolean {
+  return isNavPathActive(pathname, path, exact);
 }
 
 /** Re-render shell copy when locale changes without a full reload (FE-18). */
@@ -54,7 +56,7 @@ function useLocaleTick() {
 }
 
 function navBranchActive(item: NavItem, pathname: string): boolean {
-  if (navPathSelected(pathname, item.path)) return true;
+  if (navPathSelected(pathname, item.path, item.exact)) return true;
   return Boolean(item.children?.some((child) => navBranchActive(child, pathname)));
 }
 
@@ -105,22 +107,36 @@ function NavSection({
       </ListItemButton>
       <Collapse in={open} timeout="auto" unmountOnExit id={`nav-section-${item.id}`}>
         <List component="div" disablePadding>
-          {item.children.map((child) =>
-            child.children?.length ? (
+          {item.children.map((child, index) => {
+            // Group headings are plain labels in the flat list, shown when the group changes.
+            const heading =
+              child.group && child.group !== item.children?.[index - 1]?.group ? (
+                <ListSubheader
+                  key={`${child.id}-heading`}
+                  component="div"
+                  disableSticky
+                  sx={{ pl: 4, lineHeight: '28px', mt: 0.5, bgcolor: 'transparent' }}
+                >
+                  {t(child.group)}
+                </ListSubheader>
+              ) : null;
+            return child.children?.length ? (
               <NavSection key={child.id} item={child} onNavigate={onNavigate} nested />
             ) : (
-              <ListItemButton
-                key={child.id}
-                component={NavLink}
-                to={child.path ?? '/'}
-                selected={navPathSelected(location.pathname, child.path)}
-                sx={{ pl: nested ? 6 : 4 }}
-                onClick={onNavigate}
-              >
-                <ListItemText primary={t(child.labelKey)} />
-              </ListItemButton>
-            ),
-          )}
+              <Fragment key={child.id}>
+                {heading}
+                <ListItemButton
+                  component={NavLink}
+                  to={child.path ?? '/'}
+                  selected={navPathSelected(location.pathname, child.path, child.exact)}
+                  sx={{ pl: nested ? 6 : 4 }}
+                  onClick={onNavigate}
+                >
+                  <ListItemText primary={t(child.labelKey)} />
+                </ListItemButton>
+              </Fragment>
+            );
+          })}
         </List>
       </Collapse>
     </>
@@ -434,6 +450,7 @@ export function AppShell() {
               {stockOutboxMessage}
             </Alert>
           ) : null}
+          <SettingsContinuity />
           <Outlet />
         </ErrorBoundary>
         <CommandPalette />

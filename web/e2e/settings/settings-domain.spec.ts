@@ -14,6 +14,7 @@ const ROUTES = [
   '/settings/units',
   '/settings/bank-accounts',
   '/settings/payment-gateway',
+  '/settings/money-in',
   '/settings/billing',
   '/settings/price-lists',
   '/settings/backup',
