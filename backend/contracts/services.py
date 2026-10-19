@@ -27,7 +27,7 @@ def log_contract_created(contract):
     log_flag_event(contract.company, "ENABLE_CONTRACTS", "contract_created", contract_id=contract.id)
 
 
-def create_contract_schedule(contract, user):
+def create_contract_schedule(contract, user, cadence=None):
     """One recurring schedule whose line copies the contract value.
 
     Saving a contract does not call this. A second call returns the schedule
@@ -38,6 +38,9 @@ def create_contract_schedule(contract, user):
     from core.exceptions import BusinessRuleError
     from sales.models import RecurringInvoiceSchedule
 
+    cadence = cadence or RecurringInvoiceSchedule.Cadence.MONTHLY
+    if cadence not in RecurringInvoiceSchedule.Cadence.values:
+        raise BusinessRuleError("Unknown billing cadence.")
     with transaction.atomic():
         contract = type(contract).objects.select_for_update().get(pk=contract.pk)
         if contract.recurring_schedule_id:
@@ -59,11 +62,11 @@ def create_contract_schedule(contract, user):
             # The first automatic invoice is the following month.
             from sales.recurring import advance_next_run
 
-            next_run = advance_next_run(timezone.now(), RecurringInvoiceSchedule.Cadence.MONTHLY)
+            next_run = advance_next_run(timezone.now(), cadence)
         schedule = RecurringInvoiceSchedule.objects.create(
             company=contract.company,
             customer=contract.customer,
-            cadence=RecurringInvoiceSchedule.Cadence.MONTHLY,
+            cadence=cadence,
             next_run_at=next_run,
             auto_complete=False,
             line_template={

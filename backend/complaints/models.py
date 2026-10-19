@@ -39,6 +39,11 @@ class Complaint(CompanyScopedModel):
         "accounts.CompanyUser", null=True, blank=True, on_delete=models.SET_NULL, related_name="complaints",
     )
     resolved_at = models.DateTimeField(null=True, blank=True)
+    # Why a complaint was closed without a remedy document (CMP-04).
+    resolution_note = models.TextField(blank=True)
+    ticket = models.ForeignKey(
+        "support.Ticket", null=True, blank=True, on_delete=models.SET_NULL, related_name="complaints",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -105,6 +110,7 @@ class SupplierComplaint(CompanyScopedModel):
         related_name="supplier_complaints",
     )
     resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]

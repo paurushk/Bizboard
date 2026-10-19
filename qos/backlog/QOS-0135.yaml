@@ -1,0 +1,26 @@
+id: "QOS-0135"
+category: "RELIABILITY_TRUST"
+title: "Customer care and jobs: Hindi wording review"
+persona: ["P1"]
+journey: "A shop owner who works in Hindi uses tickets, complaints, jobs, contracts and projects"
+problem: "The Hindi for the care and jobs screens in web/src/i18n/care.hi.ts was written by an AI assistant and has not been read by a native reviewer."
+evidence:
+  strength: "heuristic"
+  source: ["CUSTOMER_CARE_JOBS_CONTRACTS_PLAN.md"]
+  detail: "Every key in care.hi.ts has an English twin and a parity test, but no person has checked the wording."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human sign-off."
+effort: "S"
+recommendation: "Read docs/reviews/CARE_JOBS_CONTRACTS_HINDI_REVIEW.md against the screens and correct anything that sounds wrong."
+test_required: "web/src/i18n/care.hi.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-19"
+closed: null

@@ -1,13 +1,13 @@
 from rest_framework import serializers
 
 from accounts.models import CompanyUser
+from contracts.models import Contract
 from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer
+from sales.models import SalesInvoice
 
-from .models import Ticket, TicketComment, VendorTicketShare
-from django.utils import timezone
-
-from .tickets import SLA_OFFSETS, effective_sla_due_at
+from .models import Ticket, TicketComment, VendorTicketShare, VendorTicketShareComment
+from .tickets import effective_sla_due_at, reprioritise, sla_state
 
 
 class TicketSerializer(serializers.ModelSerializer):
@@ -15,8 +15,20 @@ class TicketSerializer(serializers.ModelSerializer):
     assigned_to = CompanyPrimaryKeyRelatedField(
         queryset=CompanyUser.objects.all(), allow_null=True, required=False
     )
+    source_invoice = CompanyPrimaryKeyRelatedField(
+        queryset=SalesInvoice.objects.all(), allow_null=True, required=False
+    )
+    contract = CompanyPrimaryKeyRelatedField(
+        queryset=Contract.objects.all(), allow_null=True, required=False
+    )
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
     assignee_name = serializers.SerializerMethodField()
     share_available = serializers.SerializerMethodField()
+    shared = serializers.SerializerMethodField()
+    shared_at = serializers.SerializerMethodField()
+    share_includes_description = serializers.SerializerMethodField()
+    source_invoice_number = serializers.SerializerMethodField()
+    contract_number = serializers.SerializerMethodField()
 
     def get_assignee_name(self, obj):
         member = getattr(obj, "assigned_to", None)
@@ -30,33 +42,95 @@ class TicketSerializer(serializers.ModelSerializer):
 
         return vendor_company_id() is not None
 
+    def _share(self, obj):
+        shares = (self.context or {}).get("share_map")
+        if shares is None:
+            from .share import share_map
+
+            shares = share_map(obj.company_id, [obj.pk])
+        return shares.get(obj.pk)
+
+    def get_shared(self, obj):
+        return self._share(obj) is not None
+
+    def get_shared_at(self, obj):
+        share = self._share(obj)
+        return share[0].isoformat() if share else None
+
+    def get_share_includes_description(self, obj):
+        share = self._share(obj)
+        return bool(share[1]) if share else False
+
+    def get_source_invoice_number(self, obj):
+        invoice = obj.source_invoice
+        return (invoice.number or f"#{invoice.pk}") if invoice else ""
+
+    def get_contract_number(self, obj):
+        contract = obj.contract
+        return (contract.number or f"#{contract.pk}") if contract else ""
+
     class Meta:
         model = Ticket
         fields = [
-            "id", "number", "customer", "subject", "description", "category", "priority", "status",
-            "assigned_to", "assignee_name", "share_available", "sla_due_at", "waiting_since",
+            "id", "number", "customer", "customer_name", "subject", "description", "category", "priority",
+            "status", "assigned_to", "assignee_name", "share_available", "shared", "shared_at",
+            "share_includes_description", "source_invoice", "source_invoice_number", "contract",
+            "contract_number", "sla_due_at", "sla_state", "sla_remaining_seconds", "waiting_since",
             "resolved_at", "created_at", "updated_at",
         ]
         read_only_fields = [
             "number", "status", "sla_due_at", "waiting_since", "resolved_at", "created_at", "updated_at",
         ]
 
+    sla_state = serializers.SerializerMethodField()
+    sla_remaining_seconds = serializers.SerializerMethodField()
+
+    def get_sla_state(self, obj):
+        return sla_state(obj)["state"]
+
+    def get_sla_remaining_seconds(self, obj):
+        return sla_state(obj)["remaining_seconds"]
+
+    def validate_subject(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("A ticket needs a subject.")
+        return value
+
+    def validate(self, attrs):
+        if self.instance is not None:
+            if self.instance.status == Ticket.Status.CLOSED:
+                raise serializers.ValidationError("A closed ticket cannot be edited. Re-open it first.")
+            if "customer" in attrs and attrs["customer"].id != self.instance.customer_id:
+                raise serializers.ValidationError({"customer": "The customer of a ticket cannot be changed."})
+        customer = attrs.get("customer") or getattr(self.instance, "customer", None)
+        invoice = attrs.get("source_invoice", getattr(self.instance, "source_invoice", None))
+        contract = attrs.get("contract", getattr(self.instance, "contract", None))
+        if invoice is not None and customer is not None and invoice.customer_id != customer.id:
+            raise serializers.ValidationError({"source_invoice": "The invoice must belong to the ticket's customer."})
+        if contract is not None and customer is not None and contract.customer_id != customer.id:
+            raise serializers.ValidationError({"contract": "The contract must belong to the ticket's customer."})
+        return attrs
+
     def update(self, instance, validated_data):
-        previous = instance.priority
+        new_priority = validated_data.pop("priority", None)
         row = super().update(instance, validated_data)
-        if row.priority != previous and row.priority in SLA_OFFSETS:
-            base = row.created_at or timezone.now()
-            row.sla_due_at = base + SLA_OFFSETS[row.priority]
-            row.save(update_fields=["sla_due_at", "updated_at"])
+        if new_priority is not None and new_priority != row.priority:
+            request = self.context.get("request")
+            reprioritise(row, getattr(request, "user", None), new_priority)
+        from .share import sync_share
+
+        sync_share(row)
         return row
 
     def to_representation(self, instance):
         original = instance.sla_due_at
         instance.sla_due_at = effective_sla_due_at(instance)
         try:
-            return super().to_representation(instance)
+            data = super().to_representation(instance)
         finally:
             instance.sla_due_at = original
+        return data
 
 
 def live_ticket_statuses(shares) -> dict:
@@ -83,14 +157,21 @@ def live_ticket_statuses(shares) -> dict:
 
 class VendorTicketShareSerializer(serializers.ModelSerializer):
     source_company_name = serializers.CharField(source="source_company.name", read_only=True)
+    reply_count = serializers.SerializerMethodField()
 
     class Meta:
         model = VendorTicketShare
         fields = [
             "id", "source_company_name", "source_number", "subject", "status",
-            "description", "shared_at",
+            "description", "shared_at", "reply_count",
         ]
         read_only_fields = fields
+
+    def get_reply_count(self, obj):
+        counts = (self.context or {}).get("reply_counts")
+        if counts is not None:
+            return counts.get(obj.pk, 0)
+        return obj.comments.count()
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -107,8 +188,31 @@ class VendorTicketShareSerializer(serializers.ModelSerializer):
         return data
 
 
+class VendorReplySerializer(serializers.ModelSerializer):
+    author_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VendorTicketShareComment
+        fields = ["id", "body", "author_name", "created_at"]
+        read_only_fields = fields
+
+    def get_author_name(self, obj):
+        user = obj.created_by
+        return (getattr(user, "full_name", "") or getattr(user, "email", "") or "").strip()
+
+
 class TicketCommentSerializer(serializers.ModelSerializer):
+    author_name = serializers.SerializerMethodField()
+
     class Meta:
         model = TicketComment
-        fields = ["id", "body", "is_internal", "created_by", "created_at"]
-        read_only_fields = ["id", "created_by", "created_at"]
+        fields = [
+            "id", "body", "is_internal", "from_vendor", "author_name", "created_by", "created_at",
+        ]
+        read_only_fields = ["id", "created_by", "created_at", "from_vendor", "author_name"]
+
+    def get_author_name(self, obj):
+        if obj.from_vendor:
+            return obj.author_label or "Vendor"
+        user = obj.created_by
+        return (getattr(user, "full_name", "") or getattr(user, "email", "") or "").strip()

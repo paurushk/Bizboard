@@ -1,56 +1,47 @@
 from django.db import transaction
-from django.http import Http404
-from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.exceptions import BusinessRuleError
-from core.permissions import CanCreateSales, HasCompany, get_company_user
-from core.services.attachments import create_attachment, delete_join_row
-from core.services.feature_flags import flag_enabled
+from core.idempotency import wrap_idempotent
+from core.care import CareSalesAccess
+from core.permissions import HasCompany
+from core.services.audit import AuditService
 from core.viewsets import CompanyScopedViewSet
 from sales.phase1_serializers import SalesCreditNoteSerializer, SalesOrderSerializer
 from sales.serializers import SalesReturnSerializer
 
+from .common import ComplaintCommon
 from .models import Complaint, ComplaintAttachment
 from .serializers import ComplaintAttachmentSerializer, ComplaintSerializer
-from .services import assert_document_status, create_complaint, transition_status
+from .services import (
+    assert_document_status,
+    assert_within_returnable,
+    create_complaint,
+    transition_status,
+)
 
 
-_CLOSED_COMPLAINT = {Complaint.Status.RESOLVED, Complaint.Status.REJECTED}
-
-
-class ComplaintViewSet(CompanyScopedViewSet):
+class ComplaintViewSet(ComplaintCommon, CompanyScopedViewSet):
     queryset = Complaint.objects.all()
     serializer_class = ComplaintSerializer
-    permission_classes = [IsAuthenticated, HasCompany, CanCreateSales]
+    permission_classes = [IsAuthenticated, HasCompany, CareSalesAccess]
+    owner_only_actions = ("destroy",)
     audit_entity = "Complaint"
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if not flag_enabled(get_company_user(request).company, "ENABLE_COMPLAINTS"):
-            raise Http404()
-
-    def perform_update(self, serializer):
-        if serializer.instance.status in _CLOSED_COMPLAINT:
-            raise BusinessRuleError("A closed complaint cannot be edited.")
-        super().perform_update(serializer)
-
-    def perform_destroy(self, instance):
-        if instance.status in _CLOSED_COMPLAINT:
-            raise BusinessRuleError("A closed complaint cannot be deleted.")
-        super().perform_destroy(instance)
+    search_fields = ("number", "description", "customer__name", "source_invoice__number")
+    party_field = "customer"
+    document_attrs = ("sales_return", "sales_credit_note", "replacement_order")
+    attachment_model = ComplaintAttachment
+    attachment_serializer = ComplaintAttachmentSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
-        if params.get("category"):
-            qs = qs.filter(category=params["category"])
-        if params.get("customer"):
-            qs = qs.filter(customer_id=params["customer"])
+        qs = super().get_queryset().select_related(
+            "customer", "source_invoice", "assigned_to__user", "ticket",
+        )
+        qs = self.filter_complaints(qs)
+        if self.request.query_params.get("ticket"):
+            qs = qs.filter(ticket_id=self.request.query_params["ticket"])
         return qs
 
     def create(self, request, *args, **kwargs):
@@ -62,12 +53,18 @@ class ComplaintViewSet(CompanyScopedViewSet):
             request.user,
             customer=data["customer"],
             category=data["category"],
-            description=data["description"],
+            description=data["description"].strip(),
             source_invoice=data.get("source_invoice"),
         )
+        extra = []
         if data.get("assigned_to"):
             row.assigned_to = data["assigned_to"]
-            row.save(update_fields=["assigned_to", "updated_at"])
+            extra.append("assigned_to")
+        if data.get("ticket"):
+            row.ticket = data["ticket"]
+            extra.append("ticket")
+        if extra:
+            row.save(update_fields=[*extra, "updated_at"])
         self._audit("CREATE", row)
         return Response(ComplaintSerializer(row, context={"request": request}).data, status=201)
 
@@ -78,52 +75,70 @@ class ComplaintViewSet(CompanyScopedViewSet):
             request.user,
             new_status=request.data.get("status") or "",
             inspection_notes=request.data.get("inspection_notes"),
+            resolution_note=request.data.get("resolution_note"),
         )
         return Response(ComplaintSerializer(row, context={"request": request}).data)
 
     def _link_document(self, request, attr, serializer_cls, extra):
-        with transaction.atomic():
-            complaint = Complaint.objects.select_for_update().get(pk=self.get_object().pk, company=self.company)
-            assert_document_status(complaint)
-            existing = getattr(complaint, attr)
-            if existing is not None:
-                return Response({"id": existing.id, "existing": True})
-            if attr == "sales_credit_note" and complaint.sales_return_id:
-                raise BusinessRuleError(
-                    "This complaint already has a sales return. Do not add a separate credit note."
+        def _build():
+            with transaction.atomic():
+                complaint = Complaint.objects.select_for_update().get(
+                    pk=self.get_object().pk, company=self.company,
                 )
-            if attr == "sales_return" and complaint.sales_credit_note_id:
-                raise BusinessRuleError(
-                    "This complaint already has a credit note. Do not add a sales return."
+                assert_document_status(complaint)
+                existing = getattr(complaint, attr)
+                if existing is not None:
+                    return Response({"id": existing.id, "existing": True})
+                if attr == "sales_credit_note" and complaint.sales_return_id:
+                    raise BusinessRuleError(
+                        "This complaint already has a sales return. Do not add a separate credit note."
+                    )
+                if attr == "sales_return" and complaint.sales_credit_note_id:
+                    raise BusinessRuleError(
+                        "This complaint already has a credit note. Do not add a sales return."
+                    )
+                if attr != "replacement_order" and complaint.source_invoice_id is None:
+                    return Response({"detail": "Set a source invoice before creating this document."}, status=400)
+                items = request.data.get("items") or []
+                if not items:
+                    return Response({"detail": "Select at least one item."}, status=400)
+                if attr != "replacement_order":
+                    assert_within_returnable(complaint.source_invoice, items)
+                payload = {
+                    "customer": complaint.customer_id,
+                    "items": items,
+                    **extra,
+                }
+                if attr != "replacement_order":
+                    payload["sales_invoice"] = complaint.source_invoice_id
+                serializer = serializer_cls(data=payload, context={"request": request})
+                serializer.is_valid(raise_exception=True)
+                document = serializer.save(
+                    company=self.company, created_by=request.user, updated_by=request.user,
                 )
-            if attr != "replacement_order" and complaint.source_invoice_id is None:
-                return Response({"detail": "Set a source invoice before creating this document."}, status=400)
-            items = request.data.get("items") or []
-            if not items:
-                return Response({"detail": "Select at least one item."}, status=400)
-            payload = {
-                "customer": complaint.customer_id,
-                "items": items,
-                **extra,
-            }
-            if attr != "replacement_order":
-                payload["sales_invoice"] = complaint.source_invoice_id
-            serializer = serializer_cls(data=payload, context={"request": request})
-            serializer.is_valid(raise_exception=True)
-            document = serializer.save(
-                company=self.company, created_by=request.user, updated_by=request.user,
-            )
-            setattr(complaint, attr, document)
-            complaint.updated_by = request.user
-            complaint.save(update_fields=[attr, "updated_by", "updated_at"])
-        warning = None
-        if attr == "sales_return":
-            if Complaint.objects.filter(company=self.company, sales_return=document).exclude(pk=complaint.pk).exists():
-                warning = "Another complaint already links this return."
-        body = {"id": document.id, "existing": False}
-        if warning:
-            body["warning"] = warning
-        return Response(body, status=201)
+                setattr(complaint, attr, document)
+                complaint.updated_by = request.user
+                complaint.save(update_fields=[attr, "updated_by", "updated_at"])
+                AuditService.log(
+                    action="complaint_document_linked", company=self.company, user=request.user,
+                    entity_type="Complaint", entity_id=complaint.pk,
+                    metadata={"document": attr, "document_id": document.pk},
+                )
+            warning = None
+            if attr == "sales_return":
+                if Complaint.objects.filter(
+                    company=self.company, sales_return=document,
+                ).exclude(pk=complaint.pk).exists():
+                    warning = "Another complaint already links this return."
+            body = {"id": document.id, "existing": False}
+            if warning:
+                body["warning"] = warning
+            return Response(body, status=201)
+
+        return wrap_idempotent(
+            request=request, company=self.company,
+            scope=f"complaint_document:{self.kwargs.get('pk')}:{attr}", build=_build,
+        )
 
     @action(detail=True, methods=["post"], url_path="create-return")
     def create_return(self, request, pk=None):
@@ -137,44 +152,26 @@ class ComplaintViewSet(CompanyScopedViewSet):
     def create_replacement_order(self, request, pk=None):
         return self._link_document(request, "replacement_order", SalesOrderSerializer, {})
 
+    @action(detail=True, methods=["post"], url_path="create-ticket")
+    def create_ticket(self, request, pk=None):
+        """Open a support ticket for this complaint and link the two (XLK-01)."""
+        from support.models import Ticket
+        from support.tickets import create_ticket as make_ticket
+
+        complaint = self.get_object()
+        if complaint.ticket_id:
+            return Response({"id": complaint.ticket_id, "existing": True})
+        ticket = make_ticket(
+            self.company, request.user, customer=complaint.customer,
+            subject=f"{complaint.number}: {complaint.description[:120]}",
+            description=complaint.description, priority=Ticket.Priority.MEDIUM,
+            source_invoice=complaint.source_invoice,
+        )
+        complaint.ticket = ticket
+        complaint.updated_by = request.user
+        complaint.save(update_fields=["ticket", "updated_by", "updated_at"])
+        return Response({"id": ticket.id, "existing": False}, status=201)
+
     @action(detail=False, methods=["get"])
     def report(self, request):
-        from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F
-
-        resolved = self.get_queryset().filter(status=Complaint.Status.RESOLVED)
-        duration = ExpressionWrapper(F("resolved_at") - F("created_at"), output_field=DurationField())
-        average = resolved.aggregate(avg=Avg(duration))["avg"]
-        by_category = list(
-            self.get_queryset().values("category").annotate(count=Count("id")).order_by("category")
-        )
-        with_doc = resolved.exclude(
-            sales_return__isnull=True, sales_credit_note__isnull=True, replacement_order__isnull=True,
-        ).count()
-        return Response({
-            "by_category": by_category,
-            "resolved": resolved.count(),
-            "resolved_with_document": with_doc,
-            "resolved_without_document": resolved.count() - with_doc,
-            "average_resolution_seconds": None if average is None else int(average.total_seconds()),
-        })
-
-    @action(detail=True, methods=["get", "post", "delete"])
-    def attachments(self, request, pk=None):
-        complaint = self.get_object()
-        rows = complaint.attachments.select_related("file")
-        if request.method == "GET":
-            return Response(ComplaintAttachmentSerializer(rows, many=True).data)
-        if request.method == "DELETE":
-            delete_join_row(rows, request.query_params.get("attachment"))
-            return Response(status=204)
-        asset = create_attachment(self.company, request.user, request.FILES.get("file"))
-        row = ComplaintAttachment.objects.create(
-            company=self.company, complaint=complaint, file=asset,
-            created_by=request.user, updated_by=request.user,
-        )
-        return Response(ComplaintAttachmentSerializer(row).data, status=201)
-
-    def handle_exception(self, exc):
-        if isinstance(exc, BusinessRuleError):
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return super().handle_exception(exc)
+        return Response(self.build_report())

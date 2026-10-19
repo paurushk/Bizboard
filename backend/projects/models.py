@@ -13,6 +13,13 @@ class Project(CompanyScopedModel):
     customer = models.ForeignKey("masters.Customer", on_delete=models.PROTECT, related_name="projects")
     name = models.CharField(max_length=200)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.OPEN)
+    notes = models.TextField(blank=True)
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+    contract_value = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+    contract = models.ForeignKey(
+        "contracts.Contract", null=True, blank=True, on_delete=models.SET_NULL, related_name="projects",
+    )
 
     class Meta:
         ordering = ["-created_at"]

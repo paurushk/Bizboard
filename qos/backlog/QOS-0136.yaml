@@ -1,0 +1,26 @@
+id: "QOS-0136"
+category: "RELIABILITY_TRUST"
+title: "Customer care and jobs: warranty, commission and renewal accounting sign-off"
+persona: ["P1"]
+journey: "A company gives parts free under warranty, bills a contract on a cadence, or renews it in place"
+problem: "Free warranty lines, contract billing cadence, renew-in-place history and supplier debit notes touch stock and GST, and no accountant has signed them off."
+evidence:
+  strength: "heuristic"
+  source: ["CUSTOMER_CARE_JOBS_CONTRACTS_PLAN.md"]
+  detail: "Rules were set from the plan defaults (warranty value shown at list price, supplier complaints debit-note only, commission fields hidden). They have not been reviewed by a chartered accountant."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human sign-off."
+effort: "S"
+recommendation: "Have the accountant walk one warranty job, one billed contract and one supplier debit note and confirm the stock and GST effect."
+test_required: "backend/tests/test_ccj_jobs.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-19"
+closed: null

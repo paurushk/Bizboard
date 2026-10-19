@@ -1,59 +1,43 @@
 from django.db import transaction
-from django.http import Http404
-from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from core.exceptions import BusinessRuleError
-from core.permissions import CanCreatePurchases, HasCompany, get_company_user
-from core.services.attachments import create_attachment, delete_join_row
-from core.services.feature_flags import flag_enabled
+from core.idempotency import wrap_idempotent
+from core.care import CarePurchaseAccess
+from core.permissions import HasCompany
+from core.services.audit import AuditService
 from core.viewsets import CompanyScopedViewSet
 from purchases.phase1_serializers import PurchaseDebitNoteSerializer
 
+from .common import ComplaintCommon
 from .models import SupplierComplaint, SupplierComplaintAttachment
 from .serializers import SupplierComplaintAttachmentSerializer, SupplierComplaintSerializer
-from .services import assert_document_status, create_supplier_complaint, transition_supplier_status
+from .services import (
+    assert_document_status,
+    assert_within_billed,
+    create_supplier_complaint,
+    transition_supplier_status,
+)
 
 
-_CLOSED_SUPPLIER_COMPLAINT = {
-    SupplierComplaint.Status.RESOLVED,
-    SupplierComplaint.Status.REJECTED,
-}
+class SupplierComplaintViewSet(ComplaintCommon, CompanyScopedViewSet):
+    """A supplier complaint has one remedy document, the purchase debit note (decision D12)."""
 
-
-class SupplierComplaintViewSet(CompanyScopedViewSet):
     queryset = SupplierComplaint.objects.all()
     serializer_class = SupplierComplaintSerializer
-    permission_classes = [IsAuthenticated, HasCompany, CanCreatePurchases]
+    permission_classes = [IsAuthenticated, HasCompany, CarePurchaseAccess]
+    owner_only_actions = ("destroy",)
     audit_entity = "SupplierComplaint"
-
-    def perform_update(self, serializer):
-        if serializer.instance.status in _CLOSED_SUPPLIER_COMPLAINT:
-            raise BusinessRuleError("A closed complaint cannot be edited.")
-        super().perform_update(serializer)
-
-    def perform_destroy(self, instance):
-        if instance.status in _CLOSED_SUPPLIER_COMPLAINT:
-            raise BusinessRuleError("A closed complaint cannot be deleted.")
-        super().perform_destroy(instance)
-
-    def initial(self, request, *args, **kwargs):
-        super().initial(request, *args, **kwargs)
-        if not flag_enabled(get_company_user(request).company, "ENABLE_COMPLAINTS"):
-            raise Http404()
+    search_fields = ("number", "description", "supplier__name", "source_invoice__number")
+    party_field = "supplier"
+    document_attrs = ("purchase_debit_note",)
+    attachment_model = SupplierComplaintAttachment
+    attachment_serializer = SupplierComplaintAttachmentSerializer
 
     def get_queryset(self):
-        qs = super().get_queryset()
-        params = self.request.query_params
-        if params.get("status"):
-            qs = qs.filter(status=params["status"])
-        if params.get("category"):
-            qs = qs.filter(category=params["category"])
-        if params.get("supplier"):
-            qs = qs.filter(supplier_id=params["supplier"])
-        return qs
+        qs = super().get_queryset().select_related("supplier", "source_invoice", "assigned_to__user")
+        return self.filter_complaints(qs)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -64,7 +48,7 @@ class SupplierComplaintViewSet(CompanyScopedViewSet):
             request.user,
             supplier=data["supplier"],
             category=data["category"],
-            description=data["description"],
+            description=data["description"].strip(),
             source_invoice=data.get("source_invoice"),
         )
         if data.get("assigned_to"):
@@ -80,87 +64,64 @@ class SupplierComplaintViewSet(CompanyScopedViewSet):
             request.user,
             new_status=request.data.get("status") or "",
             inspection_notes=request.data.get("inspection_notes"),
+            resolution_note=request.data.get("resolution_note"),
         )
         return Response(SupplierComplaintSerializer(row, context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="create-debit-note")
     def create_debit_note(self, request, pk=None):
-        with transaction.atomic():
-            complaint = SupplierComplaint.objects.select_for_update().get(
-                pk=self.get_object().pk, company=self.company,
-            )
-            assert_document_status(complaint)
-            if complaint.purchase_debit_note_id is not None:
-                return Response({"id": complaint.purchase_debit_note_id, "existing": True})
-            if complaint.source_invoice_id is None:
-                return Response(
-                    {"detail": "Set a source purchase bill before creating a debit note."},
-                    status=400,
+        def _build():
+            with transaction.atomic():
+                complaint = SupplierComplaint.objects.select_for_update().get(
+                    pk=self.get_object().pk, company=self.company,
                 )
-            items = request.data.get("items") or []
-            if not items:
-                return Response({"detail": "Select at least one item."}, status=400)
-            serializer = PurchaseDebitNoteSerializer(
-                data={
-                    "supplier": complaint.supplier_id,
-                    "purchase_invoice": complaint.source_invoice_id,
-                    "items": items,
-                },
-                context={"request": request},
-            )
-            serializer.is_valid(raise_exception=True)
-            document = serializer.save(
-                company=self.company, created_by=request.user, updated_by=request.user,
-            )
-            complaint.purchase_debit_note = document
-            complaint.updated_by = request.user
-            complaint.save(update_fields=["purchase_debit_note", "updated_by", "updated_at"])
-        warning = None
-        if SupplierComplaint.objects.filter(
-            company=self.company, purchase_debit_note=document,
-        ).exclude(pk=complaint.pk).exists():
-            warning = "Another supplier complaint already links this debit note."
-        body = {"id": document.id, "existing": False}
-        if warning:
-            body["warning"] = warning
-        return Response(body, status=201)
+                assert_document_status(complaint)
+                if complaint.purchase_debit_note_id is not None:
+                    return Response({"id": complaint.purchase_debit_note_id, "existing": True})
+                if complaint.source_invoice_id is None:
+                    return Response(
+                        {"detail": "Set a source purchase bill before creating a debit note."},
+                        status=400,
+                    )
+                items = request.data.get("items") or []
+                if not items:
+                    return Response({"detail": "Select at least one item."}, status=400)
+                assert_within_billed(complaint.source_invoice, items)
+                serializer = PurchaseDebitNoteSerializer(
+                    data={
+                        "supplier": complaint.supplier_id,
+                        "purchase_invoice": complaint.source_invoice_id,
+                        "items": items,
+                    },
+                    context={"request": request},
+                )
+                serializer.is_valid(raise_exception=True)
+                document = serializer.save(
+                    company=self.company, created_by=request.user, updated_by=request.user,
+                )
+                complaint.purchase_debit_note = document
+                complaint.updated_by = request.user
+                complaint.save(update_fields=["purchase_debit_note", "updated_by", "updated_at"])
+                AuditService.log(
+                    action="complaint_document_linked", company=self.company, user=request.user,
+                    entity_type="SupplierComplaint", entity_id=complaint.pk,
+                    metadata={"document": "purchase_debit_note", "document_id": document.pk},
+                )
+            warning = None
+            if SupplierComplaint.objects.filter(
+                company=self.company, purchase_debit_note=document,
+            ).exclude(pk=complaint.pk).exists():
+                warning = "Another supplier complaint already links this debit note."
+            body = {"id": document.id, "existing": False}
+            if warning:
+                body["warning"] = warning
+            return Response(body, status=201)
+
+        return wrap_idempotent(
+            request=request, company=self.company,
+            scope=f"supplier_complaint_document:{self.kwargs.get('pk')}", build=_build,
+        )
 
     @action(detail=False, methods=["get"])
     def report(self, request):
-        from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F
-
-        resolved = self.get_queryset().filter(status=SupplierComplaint.Status.RESOLVED)
-        duration = ExpressionWrapper(F("resolved_at") - F("created_at"), output_field=DurationField())
-        average = resolved.aggregate(avg=Avg(duration))["avg"]
-        by_category = list(
-            self.get_queryset().values("category").annotate(count=Count("id")).order_by("category")
-        )
-        with_doc = resolved.exclude(purchase_debit_note__isnull=True).count()
-        return Response({
-            "by_category": by_category,
-            "resolved": resolved.count(),
-            "resolved_with_document": with_doc,
-            "resolved_without_document": resolved.count() - with_doc,
-            "average_resolution_seconds": None if average is None else int(average.total_seconds()),
-        })
-
-    @action(detail=True, methods=["get", "post", "delete"])
-    def attachments(self, request, pk=None):
-        complaint = self.get_object()
-        rows = complaint.attachments.select_related("file")
-        if request.method == "GET":
-            return Response(SupplierComplaintAttachmentSerializer(rows, many=True).data)
-        if request.method == "DELETE":
-            delete_join_row(rows, request.query_params.get("attachment"))
-            return Response(status=204)
-        asset = create_attachment(self.company, request.user, request.FILES.get("file"))
-        row = SupplierComplaintAttachment.objects.create(
-            company=self.company, complaint=complaint, file=asset,
-            created_by=request.user, updated_by=request.user,
-        )
-        return Response(SupplierComplaintAttachmentSerializer(row).data, status=201)
-
-    def handle_exception(self, exc):
-        if isinstance(exc, BusinessRuleError):
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        return super().handle_exception(exc)
+        return Response(self.build_report())

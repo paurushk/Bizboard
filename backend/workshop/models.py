@@ -7,6 +7,7 @@ from core.models import CompanyScopedModel
 
 class ServiceBay(CompanyScopedModel):
     name = models.CharField(max_length=80)
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["name"]
@@ -39,6 +40,18 @@ class JobCard(CompanyScopedModel):
     scheduled_end = models.DateTimeField(null=True, blank=True)
     sales_invoice = models.ForeignKey(
         "sales.SalesInvoice", null=True, blank=True, on_delete=models.PROTECT, related_name="job_cards",
+    )
+    contract = models.ForeignKey(
+        "contracts.Contract", null=True, blank=True, on_delete=models.SET_NULL, related_name="job_cards",
+    )
+    ticket = models.ForeignKey(
+        "support.Ticket", null=True, blank=True, on_delete=models.SET_NULL, related_name="job_cards",
+    )
+    source_complaint = models.ForeignKey(
+        "complaints.Complaint", null=True, blank=True, on_delete=models.SET_NULL, related_name="job_cards",
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse", null=True, blank=True, on_delete=models.SET_NULL, related_name="job_cards",
     )
 
     class Meta:
@@ -73,6 +86,7 @@ class JobCardLine(CompanyScopedModel):
     serial = models.ForeignKey(
         "inventory.SerialNumber", null=True, blank=True, on_delete=models.PROTECT, related_name="job_card_lines",
     )
+    covered_by_contract = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["id"]

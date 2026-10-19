@@ -36,6 +36,12 @@ class Ticket(CompanyScopedModel):
     sla_due_at = models.DateTimeField(null=True, blank=True)
     waiting_since = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    source_invoice = models.ForeignKey(
+        "sales.SalesInvoice", null=True, blank=True, on_delete=models.SET_NULL, related_name="support_tickets",
+    )
+    contract = models.ForeignKey(
+        "contracts.Contract", null=True, blank=True, on_delete=models.SET_NULL, related_name="support_tickets",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -58,6 +64,9 @@ class TicketComment(CompanyScopedModel):
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="comments")
     body = models.TextField()
     is_internal = models.BooleanField(default=True)
+    # A reply written by the vendor company on a shared ticket (SHR-03).
+    from_vendor = models.BooleanField(default=False)
+    author_label = models.CharField(max_length=120, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -83,6 +92,7 @@ class VendorTicketShare(CompanyScopedModel):
     description = models.TextField(blank=True)
     shared_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
+    include_description = models.BooleanField(default=False)
 
     class Meta:
         constraints = [
@@ -96,3 +106,14 @@ class VendorTicketShare(CompanyScopedModel):
 class TicketAttachment(CompanyScopedModel):
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name="attachments")
     file = models.ForeignKey("core.FileAsset", on_delete=models.PROTECT, related_name="+")
+
+
+class VendorTicketShareComment(CompanyScopedModel):
+    """A vendor reply on a shared ticket. ``company`` is the vendor, so the vendor reads its own
+    replies; the same text is written to the source ticket as a TicketComment in one bypass block."""
+
+    share = models.ForeignKey(VendorTicketShare, on_delete=models.CASCADE, related_name="comments")
+    body = models.TextField()
+
+    class Meta:
+        ordering = ["created_at"]

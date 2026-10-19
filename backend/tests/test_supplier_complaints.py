@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 
 from payments.models import CustomerReceipt, SupplierPayment
-from purchases.models import PurchaseDebitNote, PurchaseInvoice
+from purchases.models import PurchaseDebitNote, PurchaseInvoice, PurchaseItem
 
 from .conftest import make_product, make_supplier
 
@@ -71,6 +71,8 @@ def test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it(tenan
     )
     assert linked.status_code == 200
     product = make_product(tenant_a.company, sku="SCN-1")
+    # the bill must carry the product for a debit-note line to be accepted
+    PurchaseItem.objects.create(company=tenant_a.company, invoice=bill, product=product, quantity=5, unit_price=10)
     receipts_before = CustomerReceipt.objects.count()
     payments_before = SupplierPayment.objects.count()
     tenant_a.client.post(
@@ -199,7 +201,8 @@ def test_rejected_supplier_complaint_stays_closed_and_a_bare_resolve_is_separate
     for status_name in ("INSPECTING", "APPROVED", "RESOLVED"):
         moved = tenant_a.client.post(
             f"/api/v1/complaints/supplier/{bare_id}/transition/",
-            {"status": status_name},
+            # Resolving without a debit note needs a written reason (CMP-04).
+            {"status": status_name, "resolution_note": "Supplier credited the amount on the next bill"},
             format="json",
         )
         assert moved.status_code == 200, moved.data

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.utils import timezone
 
@@ -39,6 +41,8 @@ class Contract(CompanyScopedModel):
     )
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     notes = models.TextField(blank=True)
+    # end_date minus the reminder window. Stored so EXPIRING is a plain date comparison on any database.
+    expiring_from_date = models.DateField(null=True, blank=True)
 
     class Meta:
         ordering = ["end_date", "-id"]
@@ -53,13 +57,22 @@ class Contract(CompanyScopedModel):
             models.Index(fields=["company", "status"], name="contract_company_status_idx"),
             models.Index(fields=["company", "end_date"], name="contract_company_end_idx"),
             models.Index(fields=["company", "customer"], name="contract_company_customer_idx"),
+            models.Index(fields=["company", "expiring_from_date"], name="contract_company_expiring_idx"),
         ]
 
     def save(self, *args, **kwargs):
+        derived = []
+        if self.end_date:
+            self.expiring_from_date = self.end_date - timedelta(days=int(self.renewal_reminder_days or 0))
+            derived.append("expiring_from_date")
         if self.status != self.Status.CANCELLED:
             self.status = compute_contract_status(
                 self.end_date, self.renewal_reminder_days, timezone.localdate(),
             )
+            derived.append("status")
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            kwargs["update_fields"] = list(dict.fromkeys([*update_fields, *derived]))
         super().save(*args, **kwargs)
 
 
@@ -96,3 +109,17 @@ class ContractServiceEvent(CompanyScopedModel):
 class ContractDocument(CompanyScopedModel):
     contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="documents")
     file = models.ForeignKey("core.FileAsset", on_delete=models.PROTECT, related_name="+")
+
+
+class ContractRenewal(CompanyScopedModel):
+    """One extension of a contract term. The contract itself is extended in place."""
+
+    contract = models.ForeignKey(Contract, on_delete=models.CASCADE, related_name="renewals")
+    previous_end_date = models.DateField()
+    new_end_date = models.DateField()
+    previous_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    new_value = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]

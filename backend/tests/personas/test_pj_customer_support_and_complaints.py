@@ -150,7 +150,7 @@ def test_pj_support_agent_and_claims_inspector_lifecycle(boundary):
 
     resolve_comp = sc.post(
         f"/api/v1/complaints/{comp_id}/transition/",
-        {"status": Complaint.Status.RESOLVED},
+        {"status": Complaint.Status.RESOLVED, "resolution_note": "Replaced under warranty at the counter"},
         format="json",
     )
     assert resolve_comp.status_code == 200

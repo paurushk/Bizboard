@@ -13,12 +13,17 @@ test('a job card is created in the browser after the workshop flag is granted', 
   grantRolloutFlag(email, 'ENABLE_WORKSHOP');
   await createCustomer(page, { name: customerName });
   await page.goto('/workshop/jobs');
-  const create = page.getByRole('button', { name: 'Create' });
+  await page.getByRole('button', { name: 'Create job card' }).first().click();
+  const dialog = page.getByRole('dialog');
+  const create = dialog.getByRole('button', { name: 'Create job card' });
   await expect(create).toBeDisabled();
-  await page.getByRole('combobox', { name: 'Customer', exact: true }).fill(customerName);
+  await dialog.getByRole('combobox', { name: 'Customer', exact: true }).fill(customerName);
   await page.getByRole('option', { name: new RegExp(customerName) }).click();
-  await page.getByLabel('Complaint').fill('Brake noise');
+  await dialog.getByLabel('Complaint').fill('Brake noise');
   await expect(create).toBeEnabled();
   await create.click();
-  await expect(page.getByText(/JOB-.*DRAFT/)).toBeVisible({ timeout: 20_000 });
+  // The job opens on its own page, as a draft.
+  await expect(page).toHaveURL(/\/workshop\/jobs\/\d+/, { timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: /JOB-/ })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText('Draft', { exact: true }).first()).toBeVisible();
 });
