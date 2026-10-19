@@ -1,21 +1,21 @@
 import { useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
-import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { chaseMissingPhoto, chaseMissingWhatsApp, fetchMissingDocuments } from '@/api/gstr2b';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { PageHeader } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { openShareUrl } from '@/utils/safeUrl';
 import { DataTable } from '@/pages/phase/phaseShared';
+import { showEmpty } from '@/utils/queryState';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 function currentPeriod() {
   const d = new Date();
@@ -31,6 +31,8 @@ export function MissingDocumentsPage() {
   const query = useQuery({
     queryKey: ['missing-documents', period],
     queryFn: () => fetchMissingDocuments(period),
+    // Keep the month picker and the last list on screen while another month loads.
+    placeholderData: keepPreviousData,
   });
   const wa = useMutation({
     mutationFn: () => chaseMissingWhatsApp(period),
@@ -51,18 +53,8 @@ export function MissingDocumentsPage() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['missing-documents', period] }),
   });
 
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError) {
-    return (
-      <ErrorState
-        message={getErrorMessage(query.error)}
-        error={query.error}
-        onRetry={() => void query.refetch()}
-      />
-    );
-  }
-
-  const items = query.data?.items ?? [];
+  // A failed refetch must not keep showing the previous month's list as if it were this month's.
+  const items = query.isError ? [] : (query.data?.items ?? []);
   // F3-017: normalize the camelCase/snake_case field fallbacks once so
   // DataTable's generic column lookup can key straight into each row.
   const rows = items.map((row) => ({
@@ -74,10 +66,7 @@ export function MissingDocumentsPage() {
   }));
 
   return (
-    <Stack spacing={2}>
-      <PageHeader
-        title={clientView ? t('chase.clientTitle') : t('chase.title')}
-        actions={
+    <PageShell title={clientView ? t('chase.clientTitle') : t('chase.title')} actions={
           <Button
             variant="contained"
             onClick={() => setConfirmSend(true)}
@@ -85,9 +74,7 @@ export function MissingDocumentsPage() {
           >
             {t('chase.sendWhatsApp')}
           </Button>
-        }
-      />
-      <ConfirmDialog
+}>      <ConfirmDialog
         open={confirmSend}
         title={t('chase.sendWhatsApp')}
         body={t('chase.sendBody', { count: String(items.length), period })}
@@ -121,15 +108,18 @@ export function MissingDocumentsPage() {
         label={t('chase.period')}
         size="small"
         value={period}
-        onChange={(e) => setPeriod(e.target.value)}
+        onChange={(e) => { if (e.target.value) setPeriod(e.target.value); }}
         InputLabelProps={{ shrink: true }}
         sx={{ maxWidth: 180 }}
       />
       {wa.error ? <Alert severity="error">{getErrorMessage(wa.error)}</Alert> : null}
       {photo.error ? <Alert severity="error">{getErrorMessage(photo.error)}</Alert> : null}
-      {items.length === 0 ? (
-        <EmptyState description={t('chase.empty')} />
-      ) : (
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? (
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {showEmpty(query, items.length) ? <EmptyState description={t('chase.empty')} /> : null}
+      {!query.isError && items.length > 0 ? (
         <DataTable
           rows={rows}
           empty={t('chase.empty')}
@@ -140,7 +130,7 @@ export function MissingDocumentsPage() {
             { key: 'supplierGstin', label: t('chase.supplierGstin') },
             { key: 'invoiceNumber', label: t('chase.invoiceNumber') },
             { key: 'invoiceDate', label: t('chase.date') },
-            { key: 'taxableValue', label: t('chase.taxable') },
+            { key: 'taxableValue', label: t('chase.taxable'), money: true },
             { key: 'status', label: t('chase.status') },
           ]}
           actions={(row) => (
@@ -158,10 +148,10 @@ export function MissingDocumentsPage() {
             </Button>
           )}
         />
-      )}
+      ) : null}
       <Typography variant="caption" color="text.secondary">
         {t('chase.count', { count: String(items.length) })}
       </Typography>
-    </Stack>
+    </PageShell>
   );
 }

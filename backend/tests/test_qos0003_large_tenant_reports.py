@@ -123,3 +123,34 @@ def test_csv_export_of_a_realistic_window_completes_on_a_50k_tenant(large_tenant
 
     assert 0 < len(rows) < MAX_REGISTER_ROWS_HARD_CAP
     assert elapsed < 5.0, f"sales-register CSV row-build for a month on a 50k-invoice tenant took {elapsed:.2f}s (budget 5s)"
+
+
+@pytest.mark.slow
+@pytest.mark.no_invariant_check  # bulk_create bypasses ledger/GL posting on purpose - a raw report fixture, not a real financial write path
+def test_sales_summary_for_a_month_is_fast_and_a_whole_year_is_refused(large_tenant):
+    """RPT-04 / RPT-14: the Sales summary screen reads one month in a few seconds on a 50k-invoice tenant,
+    and a range holding more invoices than the summary cap is refused with a clear message."""
+    from reporting.views import MAX_SUMMARY_INVOICES
+
+    client = large_tenant.client
+    start = time.perf_counter()
+    with CaptureQueriesContext(connection) as month:
+        resp = client.get(
+            "/api/v1/reports/sales-summary/",
+            {"date_from": MONTH_START.isoformat(), "date_to": MONTH_END.isoformat()},
+        )
+    elapsed = time.perf_counter() - start
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    body = body.get("data", body)
+    assert body["totals"]["invoiceCount"] > 0
+    assert elapsed < 8.0, f"one month's sales summary on a 50k-invoice tenant took {elapsed:.2f}s (budget 8s)"
+    # a bounded handful of statements (totals, notes, by-date, payment split, tops), not one per invoice
+    assert len(month.captured_queries) < 60, f"{len(month.captured_queries)} queries for one month"
+
+    year = client.get(
+        "/api/v1/reports/sales-summary/",
+        {"date_from": YEAR_START.isoformat(), "date_to": (YEAR_START + timedelta(days=364)).isoformat()},
+    )
+    assert year.status_code == 400
+    assert str(MAX_SUMMARY_INVOICES) in year.content.decode()

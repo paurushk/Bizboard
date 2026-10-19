@@ -635,7 +635,10 @@ class ReportService:
             }
             for i in qs.select_related("supplier")
         ]
-        totals = qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"))
+        totals = qs.aggregate(
+            taxable=Sum("taxable_total"), grand=Sum("grand_total"),
+            cgst=Sum("cgst_total"), sgst=Sum("sgst_total"), igst=Sum("igst_total"),
+        )
         cn_qs = PurchaseCreditNote.objects.filter(
             company=company, status=PurchaseCreditNote.Status.COMPLETED
         )
@@ -691,11 +694,20 @@ class ReportService:
                 "doc_type": "PURCHASE_DEBIT_NOTE",
             })
         rows.sort(key=lambda r: (_as_sort_date(r["date"]), r["number"] or ""))
-        cn_tot = cn_qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"))
-        dn_tot = dn_qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"))
+        tax_fields = dict(cgst=Sum("cgst_total"), sgst=Sum("sgst_total"), igst=Sum("igst_total"))
+        cn_tot = cn_qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"), **tax_fields)
+        dn_tot = dn_qs.aggregate(taxable=Sum("taxable_total"), grand=Sum("grand_total"), **tax_fields)
+
+        def _tax(t):
+            return (t["cgst"] or 0) + (t["sgst"] or 0) + (t["igst"] or 0)
+
         return {
             "rows": rows,
             "totals": {
+                # RPT-14: the screen shows these instead of adding up the rows it happens to hold,
+                # so credit notes net off correctly and a partial list cannot give a partial total.
+                "count": len(rows),
+                "tax": _tax(totals) - _tax(cn_tot) + _tax(dn_tot),
                 "taxable": (totals["taxable"] or 0)
                 - (cn_tot["taxable"] or 0)
                 + (dn_tot["taxable"] or 0),
@@ -928,7 +940,7 @@ class ReportService:
         assert_report_date_span(date_from, date_to, kind="Customer sales")
         from collections import defaultdict
 
-        qs = SalesInvoice.objects.filter(company=company, status__in=NET_SALES)
+        qs = SalesInvoice.objects.filter(company=company, status__in=NET_SALES, is_opening_balance=False)
         if date_from:
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
@@ -982,6 +994,60 @@ class ReportService:
         return {"rows": rows}
 
     @staticmethod
+    def sales_totals(company, date_from=None, date_to=None):
+        """RPT-04: one definition of sales for every figure on the Sales screen.
+
+        Invoices (completed and returned) plus completed debit notes, minus completed credit
+        notes, all inside the same date window. ``revenue`` is the figure including GST;
+        ``net_taxable`` is the same figure without GST, which is what GSTR-1 reports.
+        """
+        from collections import defaultdict
+
+        # Opening-balance invoices are dues brought in from before, not sales: the dashboard leaves them out too.
+        invoices = SalesInvoice.objects.filter(company=company, status__in=NET_SALES, is_opening_balance=False)
+        credits = SalesCreditNote.objects.filter(company=company, status=SalesCreditNote.Status.COMPLETED)
+        debits = SalesDebitNote.objects.filter(company=company, status=SalesDebitNote.Status.COMPLETED)
+        if date_from:
+            invoices = invoices.filter(invoice_date__gte=date_from)
+            credits = credits.filter(note_date__gte=date_from)
+            debits = debits.filter(note_date__gte=date_from)
+        if date_to:
+            invoices = invoices.filter(invoice_date__lte=date_to)
+            credits = credits.filter(note_date__lte=date_to)
+            debits = debits.filter(note_date__lte=date_to)
+        zero = Decimal("0")
+        inv = invoices.aggregate(count=Count("id"), gross=Sum("grand_total"), taxable=Sum("taxable_total"))
+        cn = credits.aggregate(gross=Sum("grand_total"), taxable=Sum("taxable_total"))
+        dn = debits.aggregate(gross=Sum("grand_total"), taxable=Sum("taxable_total"))
+        gross = inv["gross"] or zero
+        credit_gross = cn["gross"] or zero
+        debit_gross = dn["gross"] or zero
+        taxable = (inv["taxable"] or zero) - (cn["taxable"] or zero) + (dn["taxable"] or zero)
+        revenue = gross - credit_gross + debit_gross
+
+        by_date: dict = defaultdict(lambda: {"revenue": zero, "count": 0})
+        for r in invoices.values("invoice_date").annotate(amount=Sum("grand_total"), count=Count("id")):
+            by_date[r["invoice_date"]]["revenue"] += r["amount"] or zero
+            by_date[r["invoice_date"]]["count"] += r["count"] or 0
+        for r in credits.values("note_date").annotate(amount=Sum("grand_total")):
+            by_date[r["note_date"]]["revenue"] -= r["amount"] or zero
+        for r in debits.values("note_date").annotate(amount=Sum("grand_total")):
+            by_date[r["note_date"]]["revenue"] += r["amount"] or zero
+        return {
+            "invoice_count": inv["count"] or 0,
+            "gross_invoiced": gross,
+            "credit_notes": credit_gross,
+            "debit_notes": debit_gross,
+            "revenue": revenue,
+            "net_taxable": taxable,
+            "gst_and_other": revenue - taxable,
+            "by_date": [
+                {"invoice_date": d, "revenue": v["revenue"], "count": v["count"]}
+                for d, v in sorted(by_date.items(), key=lambda kv: _as_sort_date(kv[0]))
+            ],
+        }
+
+    @staticmethod
     def cash_book(company, date_from=None, date_to=None, bank_account_id=None):
         """Actual cash/bank movements from receipts and supplier payments (Phase 3.3)."""
         from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
@@ -1029,6 +1095,7 @@ class ReportService:
                     "outflow": Decimal("0"),
                     "reference": r.utr or r.reference,
                     "id": r.id,
+                    "party_id": r.customer_id,
                 }
             )
         for p in payments.order_by("payment_date", "id"):
@@ -1050,6 +1117,7 @@ class ReportService:
                     "outflow": p.amount,
                     "reference": p.utr or p.reference,
                     "id": p.id,
+                    "party_id": p.supplier_id,
                 }
             )
         rows.sort(key=lambda x: (x["date"], x["type"], x["id"]))

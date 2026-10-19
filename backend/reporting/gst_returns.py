@@ -1127,6 +1127,28 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
             stamp_gstin = stamp_row.get("gstin") or stamp_gstin
             stamp_state = stamp_row.get("state") or stamp_state
 
+    # RPT-07: let the screen open the document behind a row. Kept out of the rows themselves so the
+    # worksheet columns and the GSTN-shaped JSON stay exactly as they were.
+    invoice_numbers = {
+        r["invoice_number"]
+        for section in (b2b, b2cl, exp, sez)
+        for r in section
+        if r.get("invoice_number")
+    }
+    credit_numbers = {r["note_number"] for r in [*cdnr, *cdnur] if r.get("note_kind") == "CREDIT" and r.get("note_number")}
+    debit_numbers = {r["note_number"] for r in [*cdnr, *cdnur] if r.get("note_kind") == "DEBIT" and r.get("note_number")}
+
+    def _ids(model, numbers):
+        if not numbers:
+            return {}
+        return dict(model.objects.filter(company=company, number__in=numbers).values_list("number", "id"))
+
+    document_ids = {
+        "sales_invoice": _ids(SalesInvoice, invoice_numbers),
+        "sales_credit_note": _ids(SalesCreditNote, credit_numbers),
+        "sales_debit_note": _ids(SalesDebitNote, debit_numbers),
+    }
+
     return {
         "return_type": "GSTR-1",
         "builder_version": BUILDER_VERSION_GSTR1,
@@ -1134,6 +1156,7 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         "date_from": date_from.isoformat(),
         "date_to": date_to.isoformat(),
         "company_gstin_id": stamp_id,
+        "document_ids": document_ids,
         "company": {
             "name": company.name,
             "gstin": stamp_gstin,
@@ -1934,6 +1957,61 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
             "not GSTR-2B matched. Do not auto-claim."
         ),
     }
+    # RPT-07 / D8: numeric 4(B) block. The books flag a purchase REVERSED or INELIGIBLE; the
+    # amounts are summed per tax head here so the page can show them. Which 4(B) sub-row each
+    # belongs to (rules 38/42/43, section 17(5), others) is a CA decision the books do not hold.
+    def _itc_flagged(status) -> dict:
+        rows = [p for p in non_rcm if getattr(p, "itc_eligibility", "") == status]
+        cess = sum((Decimal(str(getattr(p, "cess_total", 0) or 0)) for p in rows), Decimal("0"))
+        igst = sum((p.igst_total for p in rows), Decimal("0"))
+        cgst = sum((p.cgst_total for p in rows), Decimal("0"))
+        sgst = sum((p.sgst_total for p in rows), Decimal("0"))
+        return {
+            "count": len(rows),
+            "igst": _money(igst),
+            "cgst": _money(cgst),
+            "sgst": _money(sgst),
+            "cess": _money(cess),
+            "total_tax": _money(igst + cgst + sgst + cess),
+        }
+
+    flagged_reversed = _itc_flagged(PurchaseInvoice.ItcEligibility.REVERSED)
+    flagged_ineligible = _itc_flagged(PurchaseInvoice.ItcEligibility.INELIGIBLE)
+    from reporting.models import Gstr2bIngest as _Gstr2bIngest
+
+    gstr2b_flagged_rows = list(
+        _Gstr2bIngest.objects.filter(
+            company=company,
+            period=period,
+            itc_eligibility__in=[
+                _Gstr2bIngest.ItcEligibility.INELIGIBLE,
+                _Gstr2bIngest.ItcEligibility.REVERSED,
+            ],
+        )
+    )
+    gstr2b_flagged_total = sum(
+        (r.igst + r.cgst + r.sgst + r.cess for r in gstr2b_flagged_rows), Decimal("0")
+    )
+    reversed_ineligible = {
+        "section": "4(B) ITC reversed / ineligible",
+        "reversed": flagged_reversed,
+        "ineligible": flagged_ineligible,
+        "total_tax": _money(
+            Decimal(flagged_reversed["total_tax"]) + Decimal(flagged_ineligible["total_tax"])
+        ),
+        "gstr2b_flagged": {
+            "count": len(gstr2b_flagged_rows),
+            "total_tax": _money(gstr2b_flagged_total),
+            "note": "Flagged on the 2B rows. Informational: do not add to the books figures above.",
+        },
+        "source": "purchase_invoice.itc_eligibility",
+        "note": (
+            "Purchase bills marked Reversed or Ineligible in the books, by tax head. They are "
+            "already left out of the claimable ITC above. Which 4(B) sub-row each belongs to "
+            "(rules 38/42/43, section 17(5), others) is for your CA to confirm."
+        ),
+        "needs_ca_confirmation": True,
+    }
     manual_review = [
         {
             "section": "4(A)(5) ITC on import of services",
@@ -1993,6 +2071,7 @@ def build_gstr3b(company, period: str, gstr1: dict | None = None, *, company_gst
         "rcm_provisional": rcm_itc_provisional,
         "unreviewed_itc": unreviewed_itc,
         "import_itc": import_itc,
+        "reversed_ineligible": reversed_ineligible,
         "manual_review": manual_review,
         # R4-004: the safe amount to actually claim is the lower of books ITC and
         # 2B-matched ITC per head — surface it explicitly rather than leaving the
@@ -2789,6 +2868,26 @@ def gstr_return_to_xlsx(payload: dict) -> bytes:
         itc_sheet = workbook.create_sheet("ITC")
         for key, value in payload.get("itc", {}).get("available_from_purchases", {}).items():
             itc_sheet.append([key, value])
+        # RPT-07: the figures the page shows, so the file and the screen cannot disagree.
+        payable = payload.get("tax_payable_summary") or {}
+        pay_sheet = workbook.create_sheet("Payable")
+        pay_sheet.append(["item", "value"])
+        pay_sheet.append(["Tax on outward supplies", payable.get("outward_tax")])
+        pay_sheet.append(["ITC available (books)", payable.get("itc_available")])
+        pay_sheet.append(["ITC claimable (matched 2B)", payable.get("itc_claimable")])
+        pay_sheet.append(["Net payable (worksheet)", payable.get("net_payable_hint")])
+        pay_sheet.append(["Note", payable.get("note")])
+        block = (payload.get("itc") or {}).get("reversed_ineligible") or {}
+        b_sheet = workbook.create_sheet("ITC 4B")
+        b_sheet.append(["kind", "bills", "igst", "cgst", "sgst", "cess", "total_tax"])
+        for kind in ("reversed", "ineligible"):
+            row = block.get(kind) or {}
+            b_sheet.append([
+                kind, row.get("count"), row.get("igst"), row.get("cgst"),
+                row.get("sgst"), row.get("cess"), row.get("total_tax"),
+            ])
+        b_sheet.append(["total", "", "", "", "", "", block.get("total_tax")])
+        b_sheet.append(["note", block.get("note")])
         review_sheet = workbook.create_sheet("ManualReview")
         review_sheet.append(["section", "status", "note"])
         for row in payload.get("itc", {}).get("manual_review", []):

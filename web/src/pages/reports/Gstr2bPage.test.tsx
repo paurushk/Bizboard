@@ -4,6 +4,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { Gstr2bPage } from '@/pages/reports/Gstr2bPage';
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'O', role: 'OWNER', canExport: true, companyId: 9 } }),
+}));
+
 vi.mock('@/api/gstr2b', async () => {
   const actual = await vi.importActual<typeof import('@/api/gstr2b')>('@/api/gstr2b');
   return {

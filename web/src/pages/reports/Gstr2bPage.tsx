@@ -40,13 +40,17 @@ import {
 } from '@/api/gstr2b';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
-import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
+import { DisclaimerBanner, KpiStat } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { t } from '@/i18n';
 import { enumLabel } from '@/utils/enumLabels';
 import { formatMoney } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { showEmpty } from '@/utils/queryState';
+import { useAuth } from '@/auth/AuthContext';
+import { canExport } from '@/utils/permissions';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 function currentPeriod(): string {
   const now = new Date();
@@ -56,6 +60,7 @@ function currentPeriod(): string {
 const COLS = 8;
 
 export function Gstr2bPage() {
+  const { user } = useAuth();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [period, setPeriod] = useState(currentPeriod());
@@ -174,8 +179,7 @@ export function Gstr2bPage() {
   };
 
   return (
-    <Stack spacing={2}>
-      <PageHeader title={t('nav.gstr2b')} subtitle={t('ims.subtitle')} />
+    <PageShell title={t('nav.gstr2b')} subtitle={t('ims.subtitle')}>
       <GstHonestyHeader />
       <DisclaimerBanner>{t('ims.disclaimer')}</DisclaimerBanner>
       {error ? <HelpErrorAlert message={error} /> : null}
@@ -273,9 +277,11 @@ export function Gstr2bPage() {
             void onPickFile(file);
           }}
         />
-        <Button variant="outlined" onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}>
-          {t('ims.exportOffline')}
-        </Button>
+        {canExport(user) ? (
+          <Button variant="outlined" onClick={() => exportMutation.mutate()} disabled={exportMutation.isPending}>
+            {t('ims.exportOffline')}
+          </Button>
+        ) : null}
       </Stack>
 
       <Alert severity="info">{t('ims.noAutoAccept')}</Alert>
@@ -287,7 +293,7 @@ export function Gstr2bPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
+      {showEmpty(query, rows.length) ? <EmptyState /> : null}
       {rows.length > 0 ? (
         <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={64}>
@@ -561,6 +567,6 @@ export function Gstr2bPage() {
           bulkMutation.mutate();
         }}
       />
-    </Stack>
+    </PageShell>
   );
 }

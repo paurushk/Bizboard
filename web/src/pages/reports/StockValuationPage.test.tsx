@@ -8,6 +8,10 @@ import { buildValuationCsv, normalizeValuationRow } from '@/pages/reports/valuat
 
 const getStockValuation = vi.hoisted(() => vi.fn());
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'O', role: 'OWNER', canExport: true, companyId: 9 } }),
+}));
+
 vi.mock('@/api/resources', () => ({
   getStockValuation: (...a: unknown[]) => getStockValuation(...a),
   listWarehouses: async () => [{ id: 1, name: 'Main' }],

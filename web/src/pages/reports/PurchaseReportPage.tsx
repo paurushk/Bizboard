@@ -2,24 +2,26 @@ import { useMemo, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Link from '@mui/material/Link';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Checkbox from '@mui/material/Checkbox';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { exportReport, getPurchaseRegister } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { dateRangeForPreset } from '@/components/HistoryFilterBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { formatMoney, toNumber } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
 import { downloadReportUrl, formatColumnHeader, isMoneyColumn } from '@/utils/reportFormat';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-import { DataTable } from '@/pages/phase/phaseShared';
+import { DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { registerRowPath } from '@/pages/reports/ledgerLinks';
 
 /** The columns a person reads a purchase register by, in reading order. */
 const CORE_COLUMNS: Array<{ key: string; label: string; money?: boolean; status?: boolean }> = [
@@ -68,16 +70,30 @@ export function PurchaseReportPage() {
   // F3-017: an unbounded date range can return the entire register —
   // window the DOM rows via phaseShared.DataTable's virtualized mode.
   const columns = useMemo(() => {
-    if (!allColumns) {
-      return CORE_COLUMNS.map((c) => ({ ...c, label: t(c.label) }));
-    }
-    return (rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id') : []).map((key) => ({
-      key,
-      label: formatColumnHeader(key),
-      money: isMoneyColumn(key),
-    }));
+    const base = !allColumns
+      ? CORE_COLUMNS.map((c) => ({ ...c, label: t(c.label) }))
+      : (rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id') : []).map((key) => ({
+          key,
+          label: formatColumnHeader(key),
+          money: isMoneyColumn(key),
+        }));
+    // RPT-11: the document number opens the invoice, credit note or debit note.
+    return base.map((col) =>
+      col.key === 'number'
+        ? {
+            ...col,
+            render: (row: Record<string, unknown>) => {
+              const to = registerRowPath('purchases', row);
+              return to ? <Link component={RouterLink} to={to}>{String(row.number ?? '')}</Link> : String(row.number ?? '—');
+            },
+          }
+        : col,
+    );
   }, [allColumns, rows]);
 
+  // RPT-14: the server's totals net credit notes off correctly and cover the whole range. Adding up the
+  // rows here is only the fallback for an older server; ITC has no server total yet.
+  const serverTotals = (query.data as { totals?: Record<string, unknown> } | undefined)?.totals;
   const totals = useMemo(() => {
     let taxable = 0;
     let tax = 0;
@@ -89,8 +105,16 @@ export function PurchaseReportPage() {
       tax += toNumber(r.cgst as string | number) + toNumber(r.sgst as string | number) + toNumber(r.igst as string | number);
       grand += toNumber(r.grand_total as string | number);
     }
-    return { count: rows.length, taxable, tax, grand, itc };
-  }, [rows]);
+    const pick = (key: string, fallback: number) =>
+      serverTotals && serverTotals[key] !== undefined ? toNumber(serverTotals[key] as string | number) : fallback;
+    return {
+      count: serverTotals && serverTotals.count !== undefined ? Number(serverTotals.count) : rows.length,
+      taxable: pick('taxable', taxable),
+      tax: pick('tax', tax),
+      grand: pick('grandTotal', pick('grand_total', grand)),
+      itc,
+    };
+  }, [rows, serverTotals]);
 
   const applyRange = (range: { dateFrom: string; dateTo: string }) => {
     setDateFrom(range.dateFrom);
@@ -98,10 +122,8 @@ export function PurchaseReportPage() {
   };
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.purchaseReports')}</PageTitle>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+    <PageShell title={t('nav.purchaseReports')} actions={
+<Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
           <Chip size="small" label={t('history.preset.thisMonth')} onClick={() => applyRange(dateRangeForPreset('thisMonth'))} />
           <Chip size="small" label={t('history.preset.lastMonth')} onClick={() => applyRange(lastMonthRange())} />
           {(['currentFY', 'previousFY', 'q1', 'q2', 'q3', 'q4'] as const).map((preset) => (
@@ -136,7 +158,7 @@ export function PurchaseReportPage() {
             </Button>
           ) : null}
         </Stack>
-      </Stack>
+}>
       {notice ? (
         <Alert severity="success" onClose={() => setNotice(null)}>
           {notice}
@@ -176,6 +198,6 @@ export function PurchaseReportPage() {
           <DataTable rows={rows} columns={columns} empty={t('empty.reports')} virtualized />
         </>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

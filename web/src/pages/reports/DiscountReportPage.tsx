@@ -8,11 +8,11 @@ import { useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { getPurchaseDiscountReport, getSalesDiscountReport } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import type { DiscountReportResponse } from '@/types/domain';
 import { formatMoney } from '@/utils/money';
-import { DataTable, DateRangeFields } from '@/pages/phase/phaseShared';
+import { DataTable, DateRangeFields, PageShell } from '@/pages/phase/phaseShared';
+import { useReportPeriod } from '@/utils/useReportPeriod';
 
 type DocType = 'sales' | 'purchases';
 type BreakdownView = 'party' | 'product' | 'period';
@@ -31,8 +31,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 export function DiscountReportPage() {
   const [docType, setDocType] = useState<DocType>('sales');
   const [breakdown, setBreakdown] = useState<BreakdownView>('party');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const { dateFrom, dateTo, setDateFrom, setDateTo, invalid } = useReportPeriod('discounts', 'currentFY');
 
   const query = useQuery({
     queryKey: ['discount-report', docType, dateFrom, dateTo],
@@ -41,6 +40,7 @@ export function DiscountReportPage() {
         ...(dateFrom ? { date_from: dateFrom } : {}),
         ...(dateTo ? { date_to: dateTo } : {}),
       }) as Promise<DiscountReportResponse>,
+    enabled: !invalid,
   });
 
   const data = query.data;
@@ -77,10 +77,8 @@ export function DiscountReportPage() {
   }, [breakdown, partyLabel]);
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.discountReport')}</PageTitle>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+    <PageShell title={t('nav.discountReport')} actions={
+<Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <ToggleButtonGroup
             value={docType}
             exclusive
@@ -92,7 +90,7 @@ export function DiscountReportPage() {
           </ToggleButtonGroup>
           <DateRangeFields from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
         </Stack>
-      </Stack>
+}>
 
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
@@ -128,6 +126,6 @@ export function DiscountReportPage() {
           )}
         </>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

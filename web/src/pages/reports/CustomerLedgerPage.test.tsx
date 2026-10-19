@@ -8,6 +8,10 @@ import { CustomerLedgerPage } from '@/pages/reports/CustomerLedgerPage';
 
 const downloadCustomerLedgerXlsx = vi.fn(async () => new Blob(['PK']));
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'O', role: 'OWNER', canExport: true, companyId: 9 } }),
+}));
+
 vi.mock('@/api/resources', () => ({
   getCompany: async () => ({ id: 9, name: 'Shop', customFieldDefs: [] }),
   getCustomer: async () => ({ id: 3, name: 'Ravi Traders', phone: '9876543210', status: 'ACTIVE' }),

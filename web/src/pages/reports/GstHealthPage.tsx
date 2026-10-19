@@ -12,9 +12,10 @@ import { useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { getGstHealth } from '@/api/resources';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
-import { AlertInboxRow, PageHeader, SeverityChip } from '@/components/insights';
+import { AlertInboxRow, SeverityChip } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 function currentPeriod(): string {
   const now = new Date();
@@ -33,20 +34,19 @@ export function GstHealthPage() {
   const alerts = query.data?.alerts ?? [];
 
   return (
-    <Stack spacing={2}>
-      <PageHeader
-        title={t('nav.gstHealth')}
-        controls={
-          <TextField
-            type="month"
-            size="small"
-            label={t('reports.period')}
-            InputLabelProps={{ shrink: true }}
-            value={period}
-            onChange={(e) => setPeriod(e.target.value)}
-          />
-        }
-      />
+    <PageShell
+      title={t('nav.gstHealth')}
+      actions={
+        <TextField
+          type="month"
+          size="small"
+          label={t('reports.period')}
+          InputLabelProps={{ shrink: true }}
+          value={period}
+          onChange={(e) => { if (e.target.value) setPeriod(e.target.value); }}
+        />
+      }
+    >
       <GstHonestyHeader />
 
       {query.isLoading ? <LoadingState /> : null}
@@ -85,6 +85,6 @@ export function GstHealthPage() {
           </Table>
         </Paper>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

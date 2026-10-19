@@ -6,7 +6,7 @@ import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
@@ -22,11 +22,16 @@ import { useAuth } from '@/auth/AuthContext';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
-import { PageTitle } from '@/contextHelp';
-import { formatMoney, toNumber } from '@/utils/money';
+import { formatMoney } from '@/utils/money';
 import { AdvanceGstAlert } from '@/pages/reports/AdvanceGstAlert';
 import { canExport } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { GstIssuesList, type GstIssue } from '@/pages/reports/GstIssuesList';
+import { Gstr1Sections } from '@/pages/reports/Gstr1Sections';
+import { GstSnapshotList } from '@/pages/reports/GstSnapshotList';
+import { Gstr3bPanel } from '@/pages/reports/Gstr3bPanel';
+import { summarizeGstr3b } from '@/pages/reports/gstr3bSummary';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 type GstReturnKind = 'gstr1' | 'gstr3b';
 
@@ -86,15 +91,6 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function isProvisionalOrNo2b(basis: string, itcProvisional?: boolean): boolean {
-  if (itcProvisional) return true;
-  const b = basis.toLowerCase();
-  if (!b) return true;
-  if (b.includes('provisional')) return true;
-  if (!b.includes('2b')) return true;
-  return false;
-}
-
 function CompositionAidsAlert() {
   return (
     <Alert
@@ -138,7 +134,7 @@ function CompositionOnlyAlert() {
 function GstReturnPage({ kind }: { kind: GstReturnKind }) {
   const { user } = useAuth();
   const [period, setPeriod] = useState(currentPeriod());
-  const [format, setFormat] = useState<'json' | 'xlsx'>('xlsx');
+  const [format, setFormat] = useState<'json' | 'xlsx' | 'gstn-json'>('xlsx');
   const [companyGstin, setCompanyGstin] = useState<string>('');
   const title = kind === 'gstr1' ? t('nav.gstr1') : t('nav.gstr3b');
   const gstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
@@ -164,8 +160,14 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       }),
     onSuccess: (result) => {
       const ext = format === 'xlsx' ? 'xlsx' : 'json';
-      downloadBlobUrl(result.url, `${kind}-${period}.${ext}`);
+      downloadBlobUrl(result.url, `${kind}-${period}${format === 'gstn-json' ? '-gstn' : ''}.${ext}`);
     },
+  });
+
+  const queryClient = useQueryClient();
+  const snapshotMutation = useMutation({
+    mutationFn: () => getGstReturn(kind, { period, persist: true, companyGstin: companyGstin || undefined }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['gst-snapshots', kind] }),
   });
 
   const caPackMutation = useMutation({
@@ -175,7 +177,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
     onError: () => undefined, // surfaced by the isError alert below (F3-031)
   });
 
-  const issues = (query.data?.issues as Array<{ code?: string; message?: string; number?: string }> | undefined) ?? [];
+  const issues = (query.data?.issues as GstIssue[] | undefined) ?? [];
   const queryErrorMessage = query.isError ? getErrorMessage(query.error) : '';
 
   const outward = useMemo(() => {
@@ -189,17 +191,15 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
   }, [query.data, kind]);
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{title}</PageTitle>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+    <PageShell title={title} actions={
+<Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <TextField
             type="month"
             size="small"
             label={t('reports.period')}
             InputLabelProps={{ shrink: true }}
             value={period}
-            onChange={(e) => setPeriod(e.target.value)}
+            onChange={(e) => { if (e.target.value) setPeriod(e.target.value); }}
           />
           <TextField
             select
@@ -223,11 +223,13 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                 size="small"
                 label={t('reports.format')}
                 value={format}
-                onChange={(e) => setFormat(e.target.value as 'json' | 'xlsx')}
+                onChange={(e) => setFormat(e.target.value as 'json' | 'xlsx' | 'gstn-json')}
+                helperText={format === 'gstn-json' ? t('gstr3b.gstnJsonHelp') : undefined}
                 sx={{ minWidth: 120 }}
               >
                 <MenuItem value="json">JSON</MenuItem>
                 <MenuItem value="xlsx">XLSX</MenuItem>
+                <MenuItem value="gstn-json">{t('gstr3b.gstnJson')}</MenuItem>
               </TextField>
               <Button
                 variant="outlined"
@@ -235,6 +237,13 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
                 onClick={() => exportMutation.mutate()}
               >
                 {t('common.export')}
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={snapshotMutation.isPending || isComposition}
+                onClick={() => snapshotMutation.mutate()}
+              >
+                {t('gstr3b.saveSnapshot')}
               </Button>
               <Button
                 variant="contained"
@@ -246,26 +255,16 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
             </>
           ) : null}
         </Stack>
-      </Stack>
+}>
 
       <GstHonestyHeader />
       {query.data ? <RegisterTieAlert data={query.data as Record<string, unknown>} /> : null}
       {query.data ? <AdvanceGstAlert data={query.data as Record<string, unknown>} /> : null}
       {kind === 'gstr1' ? <Alert severity="warning">{t('reports.supecomWarning')}</Alert> : null}
-      {issues.length > 0 ? (
-        <Alert severity="warning">
-          {t('reports.issuesStrip')}: {issues.length}
-          <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-            {issues.slice(0, 8).map((issue, idx) => (
-              <li key={idx}>
-                {issue.number ? `${issue.number}: ` : ''}
-                {issue.message ?? issue.code}
-              </li>
-            ))}
-          </ul>
-        </Alert>
-      ) : null}
+      <GstIssuesList issues={issues as GstIssue[]} />
 
+      {snapshotMutation.isSuccess ? <Alert severity="success">{t('gstr3b.snapshotSaved', { period })}</Alert> : null}
+      {snapshotMutation.isError ? <HelpErrorAlert error={snapshotMutation.error} /> : null}
       {exportMutation.isError ? (
         <HelpErrorAlert error={exportMutation.error} />
       ) : null}
@@ -283,74 +282,7 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
       {query.data && outward && !isComposition ? (
         <Paper sx={{ p: 2 }}>
           <Stack spacing={2}>
-            {kind === 'gstr3b' ? (
-              (() => {
-                const outwardRec = outward as Record<string, string | number>;
-                const itcData = ((query.data?.itc ?? query.data?.inwardSupplies ?? {}) as Record<string, string | number>);
-                const totalTaxLiability = toNumber(outwardRec.cgst ?? 0) + toNumber(outwardRec.sgst ?? 0) + toNumber(outwardRec.igst ?? 0);
-                // R4-004: prefer the backend's recommended claimable ITC
-                // (min(books, GSTR-2B matched) per head) when it is provided —
-                // that is the amount safe to actually claim.
-                const rec = (itcData.recommendedClaimable ?? itcData.recommended_claimable) as unknown as
-                  | Record<string, string | number>
-                  | undefined;
-                const recTotal = rec
-                  ? toNumber(rec.cgst ?? 0) + toNumber(rec.sgst ?? 0) + toNumber(rec.igst ?? 0)
-                  : null;
-                const totalItc = recTotal != null
-                  ? recTotal
-                  : toNumber(itcData.cgst ?? itcData.available_cgst ?? itcData.availableCgst ?? 0) +
-                    toNumber(itcData.sgst ?? itcData.available_sgst ?? itcData.availableSgst ?? 0) +
-                    toNumber(itcData.igst ?? itcData.available_igst ?? itcData.availableIgst ?? 0);
-                // F3-007: prefer a backend-computed figure; otherwise fall back
-                // to the arithmetic but DON'T clamp — a negative result is a
-                // real ITC credit carried to next month, not ₹0.
-                const beNet = (outwardRec.netPayable ??
-                  outwardRec.net_payable ??
-                  (query.data as Record<string, unknown>)?.netPayable ??
-                  (query.data as Record<string, unknown>)?.net_payable) as
-                  | string
-                  | number
-                  | undefined;
-                const netRaw =
-                  beNet != null ? toNumber(beNet) : totalTaxLiability - totalItc;
-                const worksheetNet = Math.max(0, netRaw);
-                const creditCarryForward = netRaw < 0 ? -netRaw : 0;
-                const basis = String(rec?.basis ?? itcData.basis ?? '');
-                const itcMeta = query.data?.itc as { provisional?: boolean } | undefined;
-                const showProvisional = isProvisionalOrNo2b(basis, itcMeta?.provisional);
-
-                return (
-                  <Paper variant="outlined" sx={{ p: 2, borderRadius: 1 }}>
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      {t('gstHonesty.worksheetNet')}
-                    </Typography>
-                    {showProvisional ? (
-                      <Alert severity="warning" sx={{ mt: 1 }}>
-                        {t('gstHonesty.provisionalNo2b')}
-                      </Alert>
-                    ) : null}
-                    <Typography variant="h4" fontWeight={700} sx={{ my: 1 }}>
-                      {formatMoney(worksheetNet)}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {t('gstHonesty.booksAidNotChallan')}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                      {t('gstHonesty.taxMinusItc', {
-                        tax: formatMoney(totalTaxLiability),
-                        itc: formatMoney(totalItc),
-                      })}
-                    </Typography>
-                    {creditCarryForward > 0 ? (
-                      <Typography variant="body2" color="text.secondary" fontWeight={600} sx={{ mt: 0.5 }}>
-                        {t('gstHonesty.itcCreditCarry', { amount: formatMoney(creditCarryForward) })}
-                      </Typography>
-                    ) : null}
-                  </Paper>
-                );
-              })()
-            ) : null}
+            {kind === 'gstr3b' ? <Gstr3bPanel summary={summarizeGstr3b(query.data as Record<string, unknown>)} /> : null}
 
             <Typography variant="h6">{t('reports.summary')}</Typography>
             {kind === 'gstr1' ? (
@@ -399,7 +331,11 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
           </Stack>
         </Paper>
       ) : null}
-    </Stack>
+      {!isComposition ? <GstSnapshotList kind={kind} /> : null}
+      {kind === 'gstr1' && query.data && !isComposition && !query.isError ? (
+        <Gstr1Sections data={query.data as Record<string, unknown>} />
+      ) : null}
+    </PageShell>
   );
 }
 
@@ -415,8 +351,8 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
   const title =
     kind === 'gstr6' ? t('nav.gstr6') : kind === 'gstr7' ? t('nav.gstr7') : t('nav.gstr8');
   return (
-    <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center', py: 8, maxWidth: 480, mx: 'auto' }}>
-      <PageTitle>{title}</PageTitle>
+    <PageShell title={title}>
+    <Stack spacing={2} alignItems="center" sx={{ textAlign: 'center', py: 4, maxWidth: 480, mx: 'auto' }}>
       <GstHonestyHeader />
       <Alert severity="warning" sx={{ width: '100%', textAlign: 'left' }}>
         <Typography fontWeight={600}>{t('gstHonesty.stubTitle')}</Typography>
@@ -424,6 +360,7 @@ function GstStubPage({ kind }: { kind: 'gstr6' | 'gstr7' | 'gstr8' }) {
       </Alert>
       <Button component={RouterLink} to="/reports/gstr1" variant="contained">{t('gstHonesty.openGstr1')}</Button>
     </Stack>
+    </PageShell>
   );
 }
 
@@ -440,19 +377,17 @@ function Cmp08WorksheetPage() {
   });
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.cmp08')}</PageTitle>
-        <TextField
+    <PageShell title={t('nav.cmp08')} actions={
+<TextField
           type="month"
           size="small"
           label={t('reports.period')}
           InputLabelProps={{ shrink: true }}
           value={period}
-          onChange={(e) => setPeriod(e.target.value)}
+          onChange={(e) => { if (e.target.value) setPeriod(e.target.value); }}
           disabled={!isComposition}
         />
-      </Stack>
+}>
       <GstHonestyHeader />
       {companyQuery.isLoading ? <LoadingState /> : null}
       {companyQuery.isSuccess && !isComposition ? <CompositionOnlyAlert /> : null}
@@ -496,7 +431,7 @@ function Cmp08WorksheetPage() {
           </Stack>
         </Paper>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }
 
@@ -514,10 +449,8 @@ function Gstr4WorksheetPage() {
   const tables = (query.data?.tables ?? {}) as Record<string, { note?: string } | string>;
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.gstr4')}</PageTitle>
-        <TextField
+    <PageShell title={t('nav.gstr4')} actions={
+<TextField
           size="small"
           label={t('reports.fy')}
           value={fy}
@@ -525,7 +458,7 @@ function Gstr4WorksheetPage() {
           helperText={t('sweep.fyExample')}
           disabled={!isComposition}
         />
-      </Stack>
+}>
       <GstHonestyHeader />
       {companyQuery.isLoading ? <LoadingState /> : null}
       {companyQuery.isSuccess && !isComposition ? <CompositionOnlyAlert /> : null}
@@ -564,7 +497,7 @@ function Gstr4WorksheetPage() {
           </Stack>
         </Paper>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }
 

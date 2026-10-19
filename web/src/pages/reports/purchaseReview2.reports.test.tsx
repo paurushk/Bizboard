@@ -158,6 +158,23 @@ describe('purchase register (H-04/H-05/C-11/G-07)', () => {
     expect(screen.getByRole('button', { name: 'Last Month' })).toBeInTheDocument();
   });
 
+  it('shows the totals the server worked out, credit notes netted off', async () => {
+    api.getPurchaseRegister.mockResolvedValue({
+      rows: [
+        { id: 1, number: 'PUR-1', date: '2026-09-01', supplier: 'Acme', status: 'COMPLETED', taxable: '1000', cgst: '90', sgst: '90', igst: '0', grand_total: '1180' },
+        { id: 2, number: 'PCN-1', date: '2026-09-02', supplier: 'Acme', status: 'COMPLETED', taxable: '200', cgst: '18', sgst: '18', igst: '0', grand_total: '-236', doc_type: 'PURCHASE_CREDIT_NOTE' },
+      ],
+      totals: { count: 2, taxable: '800.00', tax: '144.00', grandTotal: '944.00' },
+    });
+    wrap(<PurchaseReportPage />);
+    await screen.findByText('PUR-1');
+    // adding the rows up would give 1,200 taxable: the credit note's taxable value is not negative
+    expect(screen.getByText(/Taxable value:/).textContent).toMatch(/800\.00/);
+    expect(screen.getByText(/GST:/).textContent).toMatch(/144\.00/);
+    expect(screen.getByText('PCN-1').closest('a')?.getAttribute('href')).toBe('/purchases/credit-notes/2');
+    expect(screen.getByText('PUR-1').closest('a')?.getAttribute('href')).toBe('/purchases/history/1');
+  });
+
   it('confirms the export started', async () => {
     api.getPurchaseRegister.mockResolvedValue({ rows: [], totals: {} });
     api.exportReport.mockResolvedValue({ url: 'blob:x' });

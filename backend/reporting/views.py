@@ -19,11 +19,19 @@ class Echo:
 
 from core.csv_utils import csv_safe
 from core.exceptions import BusinessRuleError
-from core.permissions import CanExport, CanViewFinancialReports, HasCompany, IsOwner, get_company_user
+from core.permissions import (
+    CanExport,
+    CanViewFinancialReports,
+    CanViewMargins,
+    CanViewTaxWorksheets,
+    HasCompany,
+    IsOwner,
+    get_company_user,
+)
 from core.services.feature_flags import build_feature_flags
 from core.throttles import CompanyRateThrottle
 
-from masters.models import Customer, Supplier
+from masters.models import Customer, Product, Supplier
 
 from .annual_filing import note_deadline
 from .gst_health import build_gst_health
@@ -42,6 +50,9 @@ from .models import Gstr2bIngest
 from .permissions import assert_gstr_enabled
 from .serializers import Gstr2bIngestSerializer
 from .services import ReportService, assert_report_date_span
+
+
+MAX_SUMMARY_INVOICES = 20000
 
 
 def _tds_worksheets_readable(company) -> bool:
@@ -395,6 +406,8 @@ class TdsReceivableExportView(BaseReportView):
 class InvoiceProfitReportView(BaseReportView):
     throttle_classes = [CompanyRateThrottle]
     throttle_scope = "heavy_reports"
+    # RPT-12 / D4: cost and margin are for the owner and accountants, not everyone with report access.
+    permission_classes = [IsAuthenticated, HasCompany, CanViewMargins]
 
     def get(self, request):
         date_from = _parse_date(request.query_params.get("date_from"))
@@ -414,6 +427,8 @@ class InvoiceProfitReportView(BaseReportView):
 class InvoiceProfitRollupView(BaseReportView):
     throttle_classes = [CompanyRateThrottle]
     throttle_scope = "heavy_reports"
+    # RPT-12 / D4: cost and margin are for the owner and accountants, not everyone with report access.
+    permission_classes = [IsAuthenticated, HasCompany, CanViewMargins]
 
     def get(self, request):
         date_from = _parse_date(request.query_params.get("date_from"))
@@ -612,12 +627,15 @@ class SalesSummaryView(BaseReportView):
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
     def get(self, request):
-        from django.db.models import Count, Sum
 
         from sales.models import SalesInvoice
 
         date_from = _parse_date(request.query_params.get("date_from"))
         date_to = _parse_date(request.query_params.get("date_to"))
+        assert_report_date_span(date_from, date_to, kind="Sales summary")
+        # RPT-04: every figure below (headline, by-date, tops) uses one definition of sales;
+        # see ReportService.sales_totals. The payment split stays on completed invoices only.
+        sales = ReportService.sales_totals(self.company, date_from, date_to)
         qs = SalesInvoice.objects.filter(
             company=self.company, status=SalesInvoice.Status.COMPLETED,
         )
@@ -625,21 +643,25 @@ class SalesSummaryView(BaseReportView):
             qs = qs.filter(invoice_date__gte=date_from)
         if date_to:
             qs = qs.filter(invoice_date__lte=date_to)
-        totals = qs.aggregate(
-            invoice_count=Count("id"),
-            revenue=Sum("grand_total"),
-            taxable=Sum("taxable_total"),
-        )
+        if qs.count() > MAX_SUMMARY_INVOICES:
+            raise BusinessRuleError(
+                f"More than {MAX_SUMMARY_INVOICES} invoices in this range. Choose a shorter date range."
+            )
+        totals = {
+            "invoice_count": sales["invoice_count"],
+            "revenue": sales["revenue"],
+            "taxable": sales["net_taxable"],
+            "gross_invoiced": sales["gross_invoiced"],
+            "credit_notes": sales["credit_notes"],
+            "debit_notes": sales["debit_notes"],
+            "gst_and_other": sales["gst_and_other"],
+        }
         # Reuse the existing, CN/DN-netted reports (CR-066/CR-150) rather than
         # a fresh unnetted aggregation, so "top customers/products" here can't
         # disagree with the dedicated Customer Sales / Product Sales reports.
         top_customers = ReportService.customer_sales(self.company, date_from, date_to)["rows"][:10]
         top_products = ReportService.product_sales(self.company, date_from, date_to)["rows"][:10]
-        by_date = list(
-            qs.values("invoice_date")
-            .annotate(revenue=Sum("grand_total"), count=Count("id"))
-            .order_by("invoice_date")
-        )
+        by_date = sales["by_date"]
         from decimal import Decimal
 
         from ledgers.services import LedgerService
@@ -866,9 +888,10 @@ def _customer_export(company, params):
 
 def _supplier_export(company, params):
     qs = Supplier.objects.filter(company=company).order_by("name")
-    status = params.get("status")
-    if status:
-        qs = qs.filter(status=status)
+    # `status` used to name a column suppliers do not have, which made this export fail outright.
+    status = (params.get("status") or "").upper()
+    if status in ("ACTIVE", "INACTIVE"):
+        qs = qs.filter(is_active=(status == "ACTIVE"))
     return [
         {
             "id": s.id,
@@ -877,9 +900,9 @@ def _supplier_export(company, params):
             "email": s.email,
             "gstin": s.gstin,
             "state": s.state,
-            "status": s.status,
-            "billing_address": s.billing_address,
-            "shipping_address": s.shipping_address,
+            "taxpayer_type": s.taxpayer_type,
+            "status": "ACTIVE" if s.is_active else "INACTIVE",
+            "address": s.address,
             "gstin_verification_status": s.gstin_verification_status,
         }
         for s in qs
@@ -895,7 +918,69 @@ def _inventory_export(company, params):
     return rows
 
 
+def _product_export(company, params):
+    """The item master. Purchase price is dropped by the view for anyone who may not see margins."""
+    qs = (
+        Product.objects.filter(company=company, is_deleted=False)
+        .select_related("unit", "category", "brand")
+        .order_by("name", "id")
+    )
+    return [
+        {
+            "id": p.id,
+            "sku": p.sku,
+            "barcode": p.barcode,
+            "name": p.name,
+            "category": p.category.name if p.category_id else "",
+            "brand": p.brand.name if p.brand_id else "",
+            "unit": p.unit.short_name if p.unit_id else "",
+            "hsn_code": p.hsn_code,
+            "gst_rate": p.gst_rate,
+            "selling_price": p.selling_price,
+            "mrp": p.mrp,
+            "wholesale_price": p.wholesale_price,
+            "purchase_price": p.purchase_price,
+            "reorder_level": p.reorder_level,
+            "track_inventory": p.track_inventory,
+            "track_batch": p.track_batch,
+            "track_serial": p.track_serial,
+            "regulated_category": p.regulated_category,
+        }
+        for p in qs
+    ]
+
+
+def _price_list_export(company, params):
+    """One row per price list slab."""
+    from masters.models import PriceListItem
+
+    qs = (
+        PriceListItem.objects.filter(company=company, price_list__is_deleted=False)
+        .select_related("price_list", "product")
+        .order_by("price_list__name", "product__name", "min_qty", "id")
+    )
+    return [
+        {
+            "price_list": item.price_list.name,
+            "price_list_active": item.price_list.is_active,
+            "sku": item.product.sku,
+            "product": item.product.name,
+            "min_qty": item.min_qty,
+            "max_qty": item.max_qty if item.max_qty is not None else "",
+            "unit_price": item.unit_price,
+            "discount_pct": item.discount_pct,
+        }
+        for item in qs
+    ]
+
+
+# Columns a user may only see with margin access (owner, or an accountant who may read reports).
+MARGIN_ONLY_COLUMNS = {"products": {"purchase_price"}, "items": {"purchase_price"}}
+
 EXPORTS = {
+    "products": lambda company, params: _product_export(company, params),
+    "items": lambda company, params: _product_export(company, params),
+    "price-lists": lambda company, params: _price_list_export(company, params),
     "sales-register": lambda company, params: ReportService.sales_register(
         company,
         date_from=_parse_date(params.get("date_from")),
@@ -937,6 +1022,19 @@ EXPORTS = {
 # BUG-323: known column names per export, used as a CSV header fallback
 # when a filter narrows the result down to zero rows.
 EXPORT_FIELDS = {
+    "products": [
+        "id", "sku", "barcode", "name", "category", "brand", "unit", "hsn_code", "gst_rate",
+        "selling_price", "mrp", "wholesale_price", "purchase_price", "reorder_level",
+        "track_inventory", "track_batch", "track_serial", "regulated_category",
+    ],
+    "items": [
+        "id", "sku", "barcode", "name", "category", "brand", "unit", "hsn_code", "gst_rate",
+        "selling_price", "mrp", "wholesale_price", "purchase_price", "reorder_level",
+        "track_inventory", "track_batch", "track_serial", "regulated_category",
+    ],
+    "price-lists": [
+        "price_list", "price_list_active", "sku", "product", "min_qty", "max_qty", "unit_price", "discount_pct",
+    ],
     "sales-register": [
         "id", "number", "date", "customer", "invoice_type", "status",
         "taxable", "cgst", "sgst", "igst", "grand_total",
@@ -974,16 +1072,16 @@ EXPORT_FIELDS = {
         "status", "billing_address", "shipping_address", "credit_limit", "credit_days", "gstin_verification_status",
     ],
     "suppliers": [
-        "id", "name", "phone", "email", "gstin", "state", "status",
-        "billing_address", "shipping_address", "gstin_verification_status",
+        "id", "name", "phone", "email", "gstin", "state", "taxpayer_type", "status",
+        "address", "gstin_verification_status",
     ],
     "suppliers-register": [
-        "id", "name", "phone", "email", "gstin", "state", "status",
-        "billing_address", "shipping_address", "gstin_verification_status",
+        "id", "name", "phone", "email", "gstin", "state", "taxpayer_type", "status",
+        "address", "gstin_verification_status",
     ],
     "supplier-list": [
-        "id", "name", "phone", "email", "gstin", "state", "status",
-        "billing_address", "shipping_address", "gstin_verification_status",
+        "id", "name", "phone", "email", "gstin", "state", "taxpayer_type", "status",
+        "address", "gstin_verification_status",
     ],
 }
 
@@ -1003,7 +1101,8 @@ class GstReturnView(BaseReportView):
 
     def get_permissions(self):
         export_format = (self.request.query_params.get("format") or "json").lower()
-        if export_format == "xlsx":
+        # RPT-09: every file format needs export rights, GSTN-shaped JSON included.
+        if export_format in ("xlsx", "gstn-json", "gstn_json"):
             return [IsAuthenticated(), HasCompany(), CanExport()]
         return [IsAuthenticated(), HasCompany(), CanViewFinancialReports()]
 
@@ -1025,18 +1124,26 @@ class GstReturnView(BaseReportView):
             "companyGstin"
         )
         payload = self.build_fn(self.company, period, company_gstin=company_gstin or None)
-        from core.models import AuditEvent
+        persist = request.query_params.get("persist") in ("1", "true", "True")
+        # RPT-10: a plain JSON preview is a view, not a download. Only files and saved
+        # snapshots are audited, so the trail does not say "downloaded" on every page load.
+        if export_format != "json" or persist:
+            from core.models import AuditEvent
 
-        AuditEvent.objects.create(
-            company=self.company,
-            user=request.user,
-            action=AuditEvent.Action.CREATE,
-            entity_type="GstReturnJson",
-            entity_id=period,
-            description=f"{payload.get('return_type', 'GSTR')} downloaded",
-            metadata={"format": export_format, "period": period},
-        )
-        if request.query_params.get("persist") in ("1", "true", "True"):
+            AuditEvent.objects.create(
+                company=self.company,
+                user=request.user,
+                action=AuditEvent.Action.CREATE,
+                entity_type="GstReturnJson",
+                entity_id=period,
+                description=(
+                    f"{payload.get('return_type', 'GSTR')} snapshot saved"
+                    if export_format == "json"
+                    else f"{payload.get('return_type', 'GSTR')} downloaded"
+                ),
+                metadata={"format": export_format, "period": period, "persist": persist},
+            )
+        if persist:
             persist_snapshot(
                 self.company,
                 payload.get("return_type", "GSTR-1"),
@@ -1068,6 +1175,36 @@ class Gstr1View(GstReturnView):
 
 class Gstr3bView(GstReturnView):
     build_fn = staticmethod(build_gstr3b)
+
+
+class GstSnapshotListView(BaseReportView):
+    """RPT-07: the saved GSTR-1 / GSTR-3B snapshots, newest first, so a saved month can be found again."""
+
+    def get(self, request):
+        from .models import GstReturnSnapshot
+        from .permissions import assert_gstr_enabled
+
+        assert_gstr_enabled(self.company)
+        qs = GstReturnSnapshot.objects.filter(company=self.company).select_related("generated_by")
+        wanted = (request.query_params.get("return_type") or "").upper().replace("-", "")
+        if wanted in {"GSTR1", "GSTR3B", "GSTR9"}:
+            qs = qs.filter(return_type=wanted)
+        period = request.query_params.get("period")
+        if period:
+            qs = qs.filter(period=period)
+        rows = [
+            {
+                "id": snap.id,
+                "return_type": snap.return_type,
+                "period": snap.period,
+                "content_hash": snap.content_hash[:12],
+                "builder_version": snap.builder_version,
+                "generated_at": snap.generated_at,
+                "generated_by": (getattr(snap.generated_by, "full_name", "") or getattr(snap.generated_by, "email", "")) if snap.generated_by_id else "",
+            }
+            for snap in qs[:50]
+        ]
+        return Response({"results": rows, "count": len(rows)})
 
 
 class Gstr9View(BaseReportView):
@@ -1909,74 +2046,111 @@ class GstFilingSandboxView(BaseReportView):
         })
 
 
-class TdsWorksheetView(APIView):
-    """BB-000670: 26Q worksheet aid CSV. Not a live IT portal upload."""
+class _TaxWorksheetView(APIView):
+    """26Q / 27EQ worksheet aids. ``?preview=1`` returns JSON; otherwise a CSV download.
 
-    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+    RPT-03: the owner or an accountant who reads financial reports may preview; the CSV file
+    additionally needs export rights. Not a live IT portal upload.
+    """
+
+    kind = ""  # "tds" | "tcs"
+    banner = ""
+    filename = ""
+    fieldnames: list[str] = []
+    party_key = ""
+    amount_key = ""
+    rows_fn_name = ""
+
+    def get_permissions(self):
+        if self.request.query_params.get("preview") in ("1", "true", "True"):
+            return [IsAuthenticated(), HasCompany(), CanViewTaxWorksheets()]
+        return [IsAuthenticated(), HasCompany(), CanViewTaxWorksheets(), CanExport()]
+
+    def _rows(self, company, period):
+        from . import tds_worksheets
+
+        return getattr(tds_worksheets, self.rows_fn_name)(company, period)
 
     def get(self, request):
         company = get_company_user(request).company
         if not _tds_worksheets_readable(company):
-            raise Http404()
+            raise BusinessRuleError(
+                "TDS/TCS is not switched on for this company and no TDS/TCS has been posted yet.",
+                code="tds_not_enabled",
+            )
         period = request.query_params.get("period")
         if not period:
             raise BusinessRuleError("Query parameter 'period' is required (YYYY-MM).")
         from .gst_returns import parse_period
-        from .tds_worksheets import tds_worksheet_rows
 
         try:
             parse_period(period)
         except ValueError as exc:
             raise BusinessRuleError(str(exc)) from exc
-        rows = tds_worksheet_rows(company, period)
-        fieldnames = [
-            "date", "invoice", "supplier", "supplier_gstin", "section", "rate",
-            "taxable", "grand_total", "tds_amount", "net_payable", "source",
-        ]
-        def stream_tds():
+        rows = self._rows(company, period)
+        if request.query_params.get("preview") in ("1", "true", "True"):
+            by_section: dict[str, dict] = {}
+            for row in rows:
+                bucket = by_section.setdefault(
+                    row.get("section") or "", {"section": row.get("section") or "", "count": 0,
+                                               "taxable": Decimal("0"), "amount": Decimal("0")},
+                )
+                bucket["count"] += 1
+                bucket["taxable"] += Decimal(str(row.get("taxable") or "0"))
+                bucket["amount"] += Decimal(str(row.get(self.amount_key) or "0"))
+            return Response({
+                "kind": self.kind,
+                "period": period,
+                "disclaimer": self.banner,
+                "count": len(rows),
+                "rows": rows,
+                "by_section": list(by_section.values()),
+                "totals": {
+                    "taxable": sum((b["taxable"] for b in by_section.values()), Decimal("0")),
+                    "amount": sum((b["amount"] for b in by_section.values()), Decimal("0")),
+                },
+            })
+        fieldnames = self.fieldnames
+        banner = self.banner
+
+        def stream():
             writer = csv.DictWriter(Echo(), fieldnames=fieldnames, extrasaction="ignore")
             yield writer.writeheader()
-            yield writer.writerow({"date": "# 26Q worksheet aid — not a live IT portal upload", "invoice": ""})
+            yield writer.writerow({"date": f"# {banner}", "invoice": ""})
             for row in rows:
                 yield writer.writerow({k: csv_safe(v) for k, v in row.items()})
-        response = StreamingHttpResponse(stream_tds(), content_type="text/csv")
-        response["Content-Disposition"] = f'attachment; filename="tds-26q-{period}.csv"'
+
+        response = StreamingHttpResponse(stream(), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{self.filename.format(period=period)}"'
         return response
 
 
-class TcsWorksheetView(APIView):
-    """BB-000670: 27EQ worksheet aid CSV. Not a live IT portal upload."""
+class TdsWorksheetView(_TaxWorksheetView):
+    """BB-000670: 26Q worksheet aid."""
 
-    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+    kind = "tds"
+    banner = "26Q worksheet aid — not a live IT portal upload"
+    filename = "tds-26q-{period}.csv"
+    fieldnames = [
+        "date", "invoice", "supplier", "supplier_gstin", "section", "rate",
+        "taxable", "grand_total", "tds_amount", "net_payable", "source",
+    ]
+    amount_key = "tds_amount"
+    rows_fn_name = "tds_worksheet_rows"
 
-    def get(self, request):
-        company = get_company_user(request).company
-        if not _tds_worksheets_readable(company):
-            raise Http404()
-        period = request.query_params.get("period")
-        if not period:
-            raise BusinessRuleError("Query parameter 'period' is required (YYYY-MM).")
-        from .gst_returns import parse_period
-        from .tds_worksheets import tcs_worksheet_rows
 
-        try:
-            parse_period(period)
-        except ValueError as exc:
-            raise BusinessRuleError(str(exc)) from exc
-        rows = tcs_worksheet_rows(company, period)
-        fieldnames = [
-            "date", "invoice", "customer", "customer_gstin", "section", "rate",
-            "taxable", "grand_total", "tcs_amount", "receivable", "source",
-        ]
-        def stream_tcs():
-            writer = csv.DictWriter(Echo(), fieldnames=fieldnames, extrasaction="ignore")
-            yield writer.writeheader()
-            yield writer.writerow({"date": "# 27EQ worksheet aid — not a live IT portal upload", "invoice": ""})
-            for row in rows:
-                yield writer.writerow({k: csv_safe(v) for k, v in row.items()})
-        response = StreamingHttpResponse(stream_tcs(), content_type="text/csv")
-        response["Content-Disposition"] = f'attachment; filename="tcs-27eq-{period}.csv"'
-        return response
+class TcsWorksheetView(_TaxWorksheetView):
+    """BB-000670: 27EQ worksheet aid."""
+
+    kind = "tcs"
+    banner = "27EQ worksheet aid — not a live IT portal upload"
+    filename = "tcs-27eq-{period}.csv"
+    fieldnames = [
+        "date", "invoice", "customer", "customer_gstin", "section", "rate",
+        "taxable", "grand_total", "tcs_amount", "receivable", "source",
+    ]
+    amount_key = "tcs_amount"
+    rows_fn_name = "tcs_worksheet_rows"
 
 
 # Backwards-compatible alias — prefer core.csv_utils.csv_safe.
@@ -2007,10 +2181,15 @@ class ExportView(BaseReportView):
                 kind=f"Export '{report}'",
             )
         rows = EXPORTS[report](self.company, request.query_params)
+        hidden = MARGIN_ONLY_COLUMNS.get(report, set())
+        if hidden and not CanViewMargins().has_permission(request, self):
+            rows = [{k: v for k, v in row.items() if k not in hidden} for row in rows]
         # BUG-323: a filtered-to-zero-rows export used to produce a
         # completely empty file with no header, which some spreadsheet
         # tools mis-render as a corrupt/blank CSV.
         fieldnames = EXPORT_FIELDS.get(report) or (list(rows[0].keys()) if rows else [])
+        if hidden:
+            fieldnames = [f for f in fieldnames if f not in hidden or CanViewMargins().has_permission(request, self)]
         fmt = (request.query_params.get("format") or "csv").strip().lower()
         if fmt in ("xlsx", "excel"):
             import io

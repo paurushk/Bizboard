@@ -21,13 +21,15 @@ import { getErrorMessage } from '@/api/client';
 import { exportLedgerDayBook, getDayBook, getLedgerDayBook, listAccounts } from '@/api/resources';
 import { AccountSelect } from '@/components/accounting/AccountSelect';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { t } from '@/i18n';
-import { asRows, DataTable } from '@/pages/phase/phaseShared';
+import { asRows, DataTable, PageShell } from '@/pages/phase/phaseShared';
 import { formatMoney, toNumber } from '@/utils/money';
 import { todayIso } from '@/components/billing';
+import { useAuth } from '@/auth/AuthContext';
+import { canExport } from '@/utils/permissions';
+import { showEmpty } from '@/utils/queryState';
 
 function shiftDay(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -48,22 +50,22 @@ function saveBlob(blob: Blob, name: string) {
 export function DayBookPage() {
   const [tab, setTab] = useState<'ledger' | 'cash'>('ledger');
   return (
-    <Stack spacing={2}>
-      <PageTitle>{t('nav.dayBook')}</PageTitle>
+    <PageShell title={t('nav.dayBook')}>
       <Tabs value={tab} onChange={(_e, v) => setTab(v)} aria-label={t('nav.dayBook')}>
         <Tab value="ledger" label={t('dayBook.tabLedger')} />
         <Tab value="cash" label={t('dayBook.tabCash')} />
       </Tabs>
       {tab === 'ledger' ? <LedgerTab /> : <CashSummaryTab />}
-    </Stack>
+    </PageShell>
   );
 }
 
 function LedgerTab() {
+  const { user } = useAuth();
   const [search, setSearch] = useSearchParams();
   const today = todayIso();
-  const [dateFrom, setDateFrom] = useState(search.get('date') ?? today);
-  const [dateTo, setDateTo] = useState(search.get('date') ?? today);
+  const [dateFrom, setDateFrom] = useState(search.get('from') ?? search.get('date') ?? today);
+  const [dateTo, setDateTo] = useState(search.get('to') ?? search.get('date') ?? today);
   const [voucherType, setVoucherType] = useState('');
   const [account, setAccount] = useState(search.get('account') ?? '');
   const [text, setText] = useState('');
@@ -104,11 +106,9 @@ function LedgerTab() {
     }
   };
 
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError && !query.data) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  }
-  const data = query.data;
+  // The date boxes and filters stay on screen while loading and when the load fails, so a bad link or a
+  // bad date can be corrected on the spot; a failed load never keeps showing the previous day's rows.
+  const data = query.isError ? undefined : query.data;
   const rows = data?.results ?? [];
   const unbalancedDays = (data?.dayTotals ?? []).filter((d) => !d.balanced);
 
@@ -126,10 +126,12 @@ function LedgerTab() {
         <AccountSelect accounts={accounts.data} label={t('phase.journalAccount')} value={account} onChange={(id) => { setAccount(id); setPage(0); }} size="small" sx={{ minWidth: 220 }} />
         <TextField size="small" label={t('dayBook.search')} value={text} onChange={(e) => { setText(e.target.value); setPage(0); }} sx={{ flex: 1 }} />
       </Stack>
-      <Stack direction="row" spacing={1}>
-        <Button onClick={() => void runExport('csv')}>{t('phase.journalExportCsv')}</Button>
-        <Button onClick={() => void runExport('xlsx')}>{t('phase.journalExportXlsx')}</Button>
-      </Stack>
+      {canExport(user) ? (
+        <Stack direction="row" spacing={1}>
+          <Button onClick={() => void runExport('csv')}>{t('phase.journalExportCsv')}</Button>
+          <Button onClick={() => void runExport('xlsx')}>{t('phase.journalExportXlsx')}</Button>
+        </Stack>
+      ) : null}
       {error ? <HelpErrorAlert message={error} /> : null}
       {data ? (
         <Alert severity={data.tieOut.ties ? 'success' : 'error'} data-testid="day-book-tie-out">
@@ -139,9 +141,12 @@ function LedgerTab() {
       {unbalancedDays.length > 0 ? (
         <Alert severity="error">{t('dayBook.unbalancedDays', { days: unbalancedDays.map((d) => d.date).join(', ') })}</Alert>
       ) : null}
-      {rows.length === 0 ? (
-        <EmptyState description={t('dayBook.empty')} />
-      ) : (
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? (
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {showEmpty(query, data ? rows.length : -1) ? <EmptyState description={t('dayBook.empty')} /> : null}
+      {data && rows.length > 0 ? (
         <Paper variant="outlined" sx={{ overflowX: 'auto' }}>
           <Table size="small" aria-label={t('dayBook.tabLedger')}>
             <TableHead>
@@ -187,7 +192,7 @@ function LedgerTab() {
             onPageChange={(_e, p) => setPage(p)} onRowsPerPageChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}
           />
         </Paper>
-      )}
+      ) : null}
     </Stack>
   );
 }
@@ -200,12 +205,9 @@ function CashSummaryTab() {
     placeholderData: keepPreviousData,
     retry: false,
   });
-  const rows = useMemo(() => (query.data?.rows as Record<string, unknown>[]) ?? [], [query.data]);
-  if (query.isLoading) return <LoadingState />;
-  if (query.isError && !query.data) {
-    return <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />;
-  }
-  const adjustments = (query.data?.adjustments ?? {}) as Record<string, string>;
+  const cashData = query.isError ? undefined : query.data;
+  const rows = useMemo(() => (cashData?.rows as Record<string, unknown>[]) ?? [], [cashData]);
+  const adjustments = (cashData?.adjustments ?? {}) as Record<string, string>;
   return (
     <Stack spacing={2}>
       <Stack direction="row" spacing={1} alignItems="center">
@@ -214,13 +216,18 @@ function CashSummaryTab() {
         <Button onClick={() => setOnDate(shiftDay(onDate, 1))}>{t('dayBook.nextDay')}</Button>
       </Stack>
       <Typography variant="body2" color="text.secondary">
-        {String(query.data?.disclaimer ?? t('reports.dayBookDisclaimer'))}
+        {String(cashData?.disclaimer ?? t('reports.dayBookDisclaimer'))}
       </Typography>
+      {query.isLoading ? <LoadingState /> : null}
+      {query.isError ? (
+        <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
+      ) : null}
+      {cashData ? (
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         {[
-          [t('reports.inflow'), query.data?.inflow],
-          [t('reports.outflow'), query.data?.outflow],
-          [t('reports.net'), query.data?.net],
+          [t('reports.inflow'), cashData.inflow],
+          [t('reports.outflow'), cashData.outflow],
+          [t('reports.net'), cashData.net],
         ].map(([label, val]) => (
           <Paper key={String(label)} variant="outlined" sx={{ p: 2, flex: 1 }}>
             <Typography variant="caption" color="text.secondary">{String(label)}</Typography>
@@ -228,6 +235,7 @@ function CashSummaryTab() {
           </Paper>
         ))}
       </Stack>
+      ) : null}
       {Object.values(adjustments).some((v) => toNumber(v) > 0) ? (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Typography variant="subtitle2">{t('dayBook.adjustments')}</Typography>
@@ -240,7 +248,7 @@ function CashSummaryTab() {
           </Typography>
         </Paper>
       ) : null}
-      {rows.length === 0 ? <EmptyState description={t('reports.dayBookEmpty')} /> : null}
+      {showEmpty(query, cashData ? rows.length : -1) ? <EmptyState description={t('reports.dayBookEmpty')} /> : null}
       {rows.length > 0 ? (
         <DataTable
           rows={asRows(rows)}

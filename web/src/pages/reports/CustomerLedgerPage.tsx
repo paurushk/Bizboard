@@ -26,7 +26,6 @@ import {
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { activeCustomFieldDefs } from '@/pages/inventory/itemCustomFieldDefaults';
 import type { Customer, ShippingAddress } from '@/types/domain';
@@ -34,6 +33,9 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { openShareUrl } from '@/utils/safeUrl';
 import { triggerBlobDownload } from '@/utils/blob';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useAuth } from '@/auth/AuthContext';
+import { canExport } from '@/utils/permissions';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 export function CustomerLedgerPage() {
   const qc = useQueryClient();
@@ -45,6 +47,8 @@ export function CustomerLedgerPage() {
   const [txnStatus, setTxnStatus] = useState('');
   const [searchParams] = useSearchParams();
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     const id = searchParams.get('customer') || searchParams.get('customerId');
@@ -171,8 +175,7 @@ export function CustomerLedgerPage() {
   };
 
   return (
-    <Stack spacing={2}>
-      <PageTitle>{t('nav.customerLedger')}</PageTitle>
+    <PageShell title={t('nav.customerLedger')}>
       <Stack className="no-print" direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }}>
         <Autocomplete
           options={customerSearch.options}
@@ -195,24 +198,28 @@ export function CustomerLedgerPage() {
             <Button variant="outlined" startIcon={<PrintIcon />} onClick={() => window.print()}>
               {t('common.print')}
             </Button>
-            <Button
-              variant="outlined"
-              onClick={() => {
-                void downloadCustomerLedgerXlsx(customer.id, {
-                  date_from: filters.dateFrom || undefined,
-                  date_to: filters.dateTo || undefined,
-                  txn_type: txnType || undefined,
-                  status: txnStatus || undefined,
-                })
-                  .then((blob) => triggerBlobDownload(blob, `${customer.name || customer.id}-ledger.xlsx`))
-                  .catch(() => {});
-              }}
-            >
-              {t('ledger.downloadExcel')}
-            </Button>
+            {canExport(user) ? (
+              <Button
+                variant="outlined"
+                onClick={() => {
+                  setExportError(null);
+                  void downloadCustomerLedgerXlsx(customer.id, {
+                    date_from: filters.dateFrom || undefined,
+                    date_to: filters.dateTo || undefined,
+                    txn_type: txnType || undefined,
+                    status: txnStatus || undefined,
+                  })
+                    .then((blob) => triggerBlobDownload(blob, `${customer.name || customer.id}-ledger.xlsx`))
+                    .catch((e: unknown) => setExportError(getErrorMessage(e)));
+                }}
+              >
+                {t('ledger.downloadExcel')}
+              </Button>
+            ) : null}
           </Stack>
         ) : null}
       </Stack>
+      {exportError ? <HelpErrorAlert message={exportError} /> : null}
       <HistoryFilterBar
         value={filters}
         onChange={setFilters}
@@ -220,7 +227,7 @@ export function CustomerLedgerPage() {
         searchPlaceholder={t('common.search')}
       />
 
-      {!customer ? <EmptyState description="Select a customer to view ledger transactions and outstanding balance." /> : null}
+      {!customer ? <EmptyState description={t('reportLabels.selectCustomer')} /> : null}
       {customer && ledger.isLoading ? <LoadingState /> : null}
       {ledger.isError ? (
         <ErrorState message={getErrorMessage(ledger.error)} error={ledger.error} onRetry={() => void ledger.refetch()} />
@@ -274,7 +281,7 @@ export function CustomerLedgerPage() {
               </TextField>
               </Stack>
               {transactions.length === 0 ? (
-                <EmptyState description="No transactions found for the selected date range." />
+                <EmptyState description={t('reportLabels.noTransactions')} />
               ) : (
                 <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
                   <Table size="small">
@@ -388,7 +395,7 @@ export function CustomerLedgerPage() {
 
           {tab === 3 ? (
             statementEntries.length === 0 ? (
-              <EmptyState description="No transactions found for the selected date range." />
+              <EmptyState description={t('reportLabels.noTransactions')} />
             ) : (
               <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
                 <Table size="small">
@@ -424,6 +431,6 @@ export function CustomerLedgerPage() {
           ) : null}
         </>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

@@ -16,7 +16,7 @@ import { getErrorMessage } from '@/api/client';
 import { exportTdsReceivableCsv, getTdsReceivableReport, setReceiptTdsCertificate } from '@/api/resources';
 import { MoneyHandoffBar } from '@/components/MoneyHandoffBar';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
+import { PageShell } from '@/pages/phase/phaseShared';
 import { t } from '@/i18n';
 import { DataTable, DateRangeFields } from '@/pages/phase/phaseShared';
 import { triggerBlobDownload } from '@/utils/blob';
@@ -72,10 +72,8 @@ export function TdsReceivablePage() {
   const data = query.data;
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.tdsReceivable')}</PageTitle>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+    <PageShell title={t('nav.tdsReceivable')} actions={
+<Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <TextField
             select
             size="small"
@@ -95,7 +93,7 @@ export function TdsReceivablePage() {
             </Button>
           ) : null}
         </Stack>
-      </Stack>
+}>
       <MoneyHandoffBar
         filterLabel={t('money.filters.tdsAwaiting')}
         onShowAll={() => {
@@ -221,6 +219,6 @@ export function TdsReceivablePage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Stack>
+    </PageShell>
   );
 }

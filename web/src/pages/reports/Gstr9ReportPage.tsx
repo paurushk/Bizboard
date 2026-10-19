@@ -12,7 +12,7 @@ import { downloadGstr9, getGstr9, getGstr9FilingDate, setGstr9FilingDate } from 
 import { useAuth } from '@/auth/AuthContext';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
 import { ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
+import { PageShell } from '@/pages/phase/phaseShared';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
 import { canExport } from '@/utils/permissions';
@@ -39,6 +39,8 @@ export function Gstr9ReportPage() {
   const query = useQuery({
     queryKey: ['gstr9', fy],
     queryFn: () => getGstr9({ fy }),
+    // Only ask once the year looks like 2025-26, not on every keystroke while it is being typed.
+    enabled: /^\d{4}-\d{2}$/.test(fy),
   });
   const queryClient = useQueryClient();
   const filing = useQuery({
@@ -63,8 +65,10 @@ export function Gstr9ReportPage() {
       const a = document.createElement('a');
       a.href = result.url;
       a.download = `gstr9-${fy}.xlsx`;
+      document.body.appendChild(a);
       a.click();
-      URL.revokeObjectURL(result.url);
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(result.url), 10_000);
     },
     onError: () => undefined, // surfaced by the isError alert (F3-031)
   });
@@ -75,15 +79,14 @@ export function Gstr9ReportPage() {
   const compositionBlocked = query.isError && isCompositionUnavailableError(queryErrorMessage);
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.gstr9')}</PageTitle>
-        <Stack direction="row" spacing={1}>
+    <PageShell title={t('nav.gstr9')} actions={
+<Stack direction="row" spacing={1}>
           <TextField
             size="small"
             label={t('reports.fy')}
             value={fy}
             onChange={(e) => setFy(e.target.value)}
+            error={!/^\d{4}-\d{2}$/.test(fy)}
             helperText={t('sweep.fyExample')}
           />
           {canExport(user) ? (
@@ -96,7 +99,7 @@ export function Gstr9ReportPage() {
             </Button>
           ) : null}
         </Stack>
-      </Stack>
+}>
       <GstHonestyHeader />
       <Alert severity="info">{t('reports.gstr9Disclaimer')}</Alert>
       <Alert severity="warning">{t('reports.gstr9Tables67Worksheet')}</Alert>
@@ -169,24 +172,22 @@ export function Gstr9ReportPage() {
             {t('reports.inwardTax')}: {formatMoney(annual.inward_tax ?? annual.inwardTax ?? '0')}
           </Typography>
           <Typography sx={{ mt: 1 }}>
-            Table 6 ITC (claimable books):{' '}
-            {formatMoney(tables['6']?.tax ?? '0')}
+            {t('gstr9.table6')}: {formatMoney(tables['6']?.tax ?? '0')}
           </Typography>
           <Typography>
-            Table 7 ITC reversal (purchase CN):{' '}
-            {formatMoney(tables['7']?.tax ?? '0')}
+            {t('gstr9.table7')}: {formatMoney(tables['7']?.tax ?? '0')}
           </Typography>
           <Typography>
-            Table 8 ITC as per 2B: {formatMoney(tables['8']?.itc_as_per_2b ?? tables['8']?.itcAsPer2b ?? '0')}
+            {t('gstr9.table8Gstr2b')}: {formatMoney(tables['8']?.itc_as_per_2b ?? tables['8']?.itcAsPer2b ?? '0')}
           </Typography>
           <Typography>
-            Table 8 ITC as per books: {formatMoney(tables['8']?.itc_as_per_books ?? tables['8']?.itcAsPerBooks ?? '0')}
+            {t('gstr9.table8Books')}: {formatMoney(tables['8']?.itc_as_per_books ?? tables['8']?.itcAsPerBooks ?? '0')}
           </Typography>
           <Typography>
-            Table 8 imports IGST: {formatMoney(tables['8']?.imports_igst ?? tables['8']?.importsIgst ?? '0')}
+            {t('gstr9.table8Imports')}: {formatMoney(tables['8']?.imports_igst ?? tables['8']?.importsIgst ?? '0')}
           </Typography>
         </Paper>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

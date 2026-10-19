@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Table from '@mui/material/Table';
@@ -9,13 +10,17 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
 import { GstHonestyHeader } from '@/components/GstHonestyHeader';
-import { DisclaimerBanner, KpiStat, PageHeader } from '@/components/insights';
+import { DisclaimerBanner, KpiStat } from '@/components/insights';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
+import { showEmpty } from '@/utils/queryState';
+import { rateScanRowPath } from '@/pages/reports/ledgerLinks';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 type ExposureRow = {
   invoiceId?: number;
@@ -67,9 +72,7 @@ export function GstRateExposurePage() {
   const exposure = query.data?.estimatedExposure ?? query.data?.estimated_exposure ?? '0';
 
   return (
-    <Stack spacing={2}>
-      <PageHeader title={t('nav.gstRateExposure')} />
-      <GstHonestyHeader />
+    <PageShell title={t('nav.gstRateExposure')}>      <GstHonestyHeader />
       <DisclaimerBanner>{query.data?.disclaimer || t('ims.rateDisclaimer')}</DisclaimerBanner>
       <Stack direction="row" spacing={2}>
         <TextField
@@ -94,7 +97,7 @@ export function GstRateExposurePage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {!query.isLoading && rows.length === 0 ? <EmptyState description={t('ims.rateScanEmpty')} /> : null}
+      {showEmpty(query, rows.length) ? <EmptyState description={t('ims.rateScanEmpty')} /> : null}
       {rows.length > 0 ? (
         // F3-017: the date range defaults to the whole fiscal year to date —
         // window the DOM rows instead of rendering them all at once.
@@ -126,7 +129,11 @@ export function GstRateExposurePage() {
                         ref={measureElement}
                       >
                         <TableCell>
-                          {row.invoiceNumber || row.invoice_number}
+                          {(() => {
+                            const to = rateScanRowPath(row as Record<string, unknown>);
+                            const text = row.invoiceNumber || row.invoice_number;
+                            return to ? <Link component={RouterLink} to={to}>{text}</Link> : text;
+                          })()}
                           <Typography variant="caption" display="block" color="text.secondary">
                             {row.invoiceDate || row.invoice_date}
                           </Typography>
@@ -152,6 +159,6 @@ export function GstRateExposurePage() {
           </VirtualizedTable>
         </Paper>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

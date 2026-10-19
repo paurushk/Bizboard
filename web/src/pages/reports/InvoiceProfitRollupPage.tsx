@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import Stack from '@mui/material/Stack';
 import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/api/client';
 import { getInvoiceProfitRollup } from '@/api/resources';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
-import { DataTable, DateRangeFields } from '@/pages/phase/phaseShared';
+import { DataTable, DateRangeFields, PageShell } from '@/pages/phase/phaseShared';
+import { showEmpty } from '@/utils/queryState';
+import { useReportPeriod } from '@/utils/useReportPeriod';
 
 type GroupBy = 'customer' | 'product' | 'period' | 'cost_center';
 
@@ -19,40 +20,23 @@ const GROUP_BY_LABEL: Record<GroupBy, string> = {
   cost_center: 'reports.costCenter',
 };
 
-const COLUMNS_BY_GROUP: Record<GroupBy, Array<{ key: string; label: string; money?: boolean }>> = {
-  customer: [
-    { key: 'name', label: t('common.customer') },
-    { key: 'invoices', label: t('common.invoices') },
+/** Built per render so the labels follow a language switch (a module-level t() is read once at import). */
+function columnsFor(group: GroupBy): Array<{ key: string; label: string; money?: boolean }> {
+  const money = [
     { key: 'revenue', label: t('common.revenue'), money: true },
     { key: 'cogs', label: t('reports.cogs'), money: true },
     { key: 'margin', label: t('reports.grossMargin'), money: true },
-  ],
-  product: [
-    { key: 'name', label: t('common.product') },
-    { key: 'revenue', label: t('common.revenue'), money: true },
-    { key: 'cogs', label: t('reports.cogs'), money: true },
-    { key: 'margin', label: t('reports.grossMargin'), money: true },
-  ],
-  period: [
-    { key: 'period', label: t('common.period') },
-    { key: 'invoices', label: t('common.invoices') },
-    { key: 'revenue', label: t('common.revenue'), money: true },
-    { key: 'cogs', label: t('reports.cogs'), money: true },
-    { key: 'margin', label: t('reports.grossMargin'), money: true },
-  ],
-  cost_center: [
-    { key: 'name', label: t('reports.costCenter') },
-    { key: 'invoices', label: t('common.invoices') },
-    { key: 'revenue', label: t('common.revenue'), money: true },
-    { key: 'cogs', label: t('reports.cogs'), money: true },
-    { key: 'margin', label: t('reports.grossMargin'), money: true },
-  ],
-};
+  ];
+  const invoices = { key: 'invoices', label: t('common.invoices') };
+  if (group === 'customer') return [{ key: 'name', label: t('common.customer') }, invoices, ...money];
+  if (group === 'product') return [{ key: 'name', label: t('common.product') }, ...money];
+  if (group === 'period') return [{ key: 'period', label: t('common.period') }, invoices, ...money];
+  return [{ key: 'name', label: t('reports.costCenter') }, invoices, ...money];
+}
 
 export function InvoiceProfitRollupPage() {
   const [groupBy, setGroupBy] = useState<GroupBy>('customer');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const { dateFrom, dateTo, setDateFrom, setDateTo, invalid } = useReportPeriod('invoice-profit-rollup', 'currentFY');
 
   const query = useQuery({
     queryKey: ['invoice-profit-rollup', groupBy, dateFrom, dateTo],
@@ -61,15 +45,15 @@ export function InvoiceProfitRollupPage() {
         ...(dateFrom ? { date_from: dateFrom } : {}),
         ...(dateTo ? { date_to: dateTo } : {}),
       }),
+    enabled: !invalid,
+    placeholderData: keepPreviousData,
   });
 
-  const columns = useMemo(() => COLUMNS_BY_GROUP[groupBy], [groupBy]);
+  const columns = columnsFor(groupBy);
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('reports.invoiceProfitRollup')}</PageTitle>
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+    <PageShell title={t('reports.invoiceProfitRollup')} actions={
+<Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <ToggleButtonGroup
             value={groupBy}
             exclusive
@@ -84,15 +68,15 @@ export function InvoiceProfitRollupPage() {
           </ToggleButtonGroup>
           <DateRangeFields from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} />
         </Stack>
-      </Stack>
+}>
       {query.isLoading ? <LoadingState /> : null}
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
-      {query.data && query.data.rows.length > 0 ? (
+      {showEmpty(query, query.data?.rows?.length ?? -1) ? <EmptyState description={t('empty.reports')} /> : null}
+      {!query.isError && query.data && query.data.rows.length > 0 ? (
         <DataTable rows={query.data.rows} columns={columns} empty={t('empty.reports')} virtualized />
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

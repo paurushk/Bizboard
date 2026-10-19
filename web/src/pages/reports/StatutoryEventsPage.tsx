@@ -15,25 +15,12 @@ import { getErrorMessage } from '@/api/client';
 import { listStatutoryEventsPage } from '@/api/statutory';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { VirtualizedTable } from '@/components/VirtualizedTable';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
+import { payloadSummary } from '@/pages/reports/statutoryPayload';
+import { showEmpty } from '@/utils/queryState';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 const PAGE_SIZE = 50;
-
-function payloadSummary(payload: unknown): string {
-  if (!payload || typeof payload !== 'object') return '—';
-  const obj = payload as Record<string, unknown>;
-  const keys = Object.keys(obj).slice(0, 4);
-  if (!keys.length) return '—';
-  return keys
-    .map((key) => {
-      const value = obj[key];
-      if (value == null) return `${key}=`;
-      if (typeof value === 'object') return `${key}={…}`;
-      return `${key}=${String(value)}`;
-    })
-    .join(', ');
-}
 
 export function StatutoryEventsPage() {
   const [entityType, setEntityType] = useState('');
@@ -54,8 +41,7 @@ export function StatutoryEventsPage() {
   const rows = query.data?.results ?? [];
 
   return (
-    <Stack spacing={2}>
-      <PageTitle>{t('nav.statutoryEvents')}</PageTitle>
+    <PageShell title={t('nav.statutoryEvents')}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
         <TextField
           label={t('reports.entityType')}
@@ -90,7 +76,7 @@ export function StatutoryEventsPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {!query.isLoading && rows.length === 0 ? <EmptyState /> : null}
+      {showEmpty(query, rows.length) ? <EmptyState /> : null}
       {rows.length > 0 ? (
         <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} sx={{ overflow: 'auto' }}>
           <VirtualizedTable rowCount={rows.length} rowHeight={48}>
@@ -174,6 +160,6 @@ export function StatutoryEventsPage() {
           </Button>
         </Stack>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

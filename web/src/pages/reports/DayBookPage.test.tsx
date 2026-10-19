@@ -8,6 +8,10 @@ import { DayBookPage } from '@/pages/reports/DayBookPage';
 
 const state = vi.hoisted(() => ({ ties: true, balanced: true, ledgerCalls: [] as unknown[] }));
 
+vi.mock('@/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'O', role: 'OWNER', canExport: true, companyId: 9 } }),
+}));
+
 vi.mock('@/components/billing', () => ({ todayIso: () => '2026-09-21' }));
 vi.mock('@/api/resources', () => ({
   getDayBook: async () => ({

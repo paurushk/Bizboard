@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import Stack from '@mui/material/Stack';
@@ -13,12 +13,12 @@ import {
   HistoryFilterBar,
   type HistoryFilters,
 } from '@/components/HistoryFilterBar';
-import { PageTitle } from '@/contextHelp';
 import { t } from '@/i18n';
 import { canExport } from '@/utils/permissions';
 import { formatMoney, toNumber } from '@/utils/money';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
-import { DataTable } from '@/pages/phase/phaseShared';
+import { DataTable, PageShell } from '@/pages/phase/phaseShared';
+import { showEmpty } from '@/utils/queryState';
 
 function downloadBlobUrl(url: string, filename: string) {
   const a = document.createElement('a');
@@ -90,6 +90,18 @@ const COLUMNS: {
 export function InventoryReportPage() {
   const { user } = useAuth();
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_HISTORY_FILTERS);
+  // RPT-13: a windowed table only holds the rows on screen, so print from a full, unwindowed one.
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return undefined;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done);
+    const frame = window.requestAnimationFrame(() => window.print());
+    return () => {
+      window.removeEventListener('afterprint', done);
+      window.cancelAnimationFrame(frame);
+    };
+  }, [printing]);
   const query = useQuery({ queryKey: ['inventory-summary'], queryFn: getInventorySummary });
   const exportMutation = useMutation({
     mutationFn: () => exportReport('inventory'),
@@ -134,10 +146,8 @@ export function InventoryReportPage() {
   }, [rows]);
 
   return (
-    <Stack spacing={2}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" gap={1}>
-        <PageTitle>{t('nav.inventoryReports')}</PageTitle>
-        <Stack direction="row" spacing={1}>
+    <PageShell title={t('nav.inventoryReports')} actions={
+<Stack direction="row" spacing={1}>
           {canExport(user) ? (
             <Button
               variant="outlined"
@@ -147,11 +157,11 @@ export function InventoryReportPage() {
               {t('inventory.downloadCsv')}
             </Button>
           ) : null}
-          <Button variant="outlined" onClick={() => window.print()}>
+          <Button variant="outlined" onClick={() => setPrinting(true)}>
             {t('common.print')}
           </Button>
         </Stack>
-      </Stack>
+}>
       <HistoryFilterBar value={filters} onChange={setFilters} showDateRange={false} />
       <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
         <Chip label={t('inventory.reportRows', { count: String(kpis.count) })} />
@@ -165,7 +175,7 @@ export function InventoryReportPage() {
       {query.isError ? (
         <ErrorState message={getErrorMessage(query.error)} error={query.error} onRetry={() => void query.refetch()} />
       ) : null}
-      {query.data?.rows?.length === 0 ? <EmptyState description={t('empty.reports')} /> : null}
+      {showEmpty(query, query.data?.rows?.length ?? -1) ? <EmptyState description={t('empty.reports')} /> : null}
       {rows.length > 0 ? (
         // F3-017: one row per product/warehouse company-wide — window the
         // DOM rows via phaseShared.DataTable's virtualized mode.
@@ -173,9 +183,9 @@ export function InventoryReportPage() {
           rows={rows}
           columns={COLUMNS.map((column) => ({ ...column, label: t(column.labelKey) }))}
           empty={t('empty.reports')}
-          virtualized
+          virtualized={!printing}
         />
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }

@@ -19,7 +19,6 @@ import { Link as RouterLink } from 'react-router-dom';
 import { getSupplierLedger, getSupplierLedgerPdf } from '@/api/resources';
 import { triggerBlobDownload } from '@/utils/blob';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
-import { PageTitle } from '@/contextHelp';
 import { useSupplierSearch } from '@/hooks/usePartySearch';
 import { t } from '@/i18n';
 import type { LedgerEntry, Supplier } from '@/types/domain';
@@ -28,6 +27,12 @@ import { toCsv } from '@/utils/csv';
 import { enumLabel } from '@/utils/enumLabels';
 import { formatMoney } from '@/utils/money';
 import { openShareUrl } from '@/utils/safeUrl';
+import { getErrorMessage } from '@/api/client';
+import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
+import { useAuth } from '@/auth/AuthContext';
+import { canExport } from '@/utils/permissions';
+import { useReportPeriod } from '@/utils/useReportPeriod';
+import { PageShell } from '@/pages/phase/phaseShared';
 
 function downloadLedgerCsv(supplierName: string, opening: number | null, entries: LedgerEntry[]): void {
   const rows: unknown[][] = [
@@ -53,11 +58,14 @@ function downloadLedgerCsv(supplierName: string, opening: number | null, entries
 }
 
 export function SupplierLedgerPage() {
+  const { user } = useAuth();
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   // Server-searched: a company with thousands of suppliers must not load them all to pick one.
   const supplierSearch = useSupplierSearch({ selected: supplier ?? undefined });
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  // RPT-06: opens on this financial year with the opening balance carried in (it shows below);
+  // clear both dates for the whole history.
+  const { dateFrom, dateTo, setDateFrom, setDateTo, invalid } = useReportPeriod('supplier-ledger', 'currentFY');
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const ledger = useQuery({
     queryKey: ['supplier-ledger', supplier?.id, dateFrom, dateTo],
@@ -66,7 +74,7 @@ export function SupplierLedgerPage() {
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
       }),
-    enabled: Boolean(supplier?.id),
+    enabled: Boolean(supplier?.id) && !invalid,
   });
 
   const entries = useMemo(() => ledger.data?.entries ?? [], [ledger.data?.entries]);
@@ -86,8 +94,7 @@ export function SupplierLedgerPage() {
   };
 
   return (
-    <Stack spacing={2}>
-      <PageTitle>{t('nav.supplierLedger')}</PageTitle>
+    <PageShell title={t('nav.supplierLedger')}>
       <Stack
         className="no-print"
         direction={{ xs: 'column', md: 'row' }}
@@ -130,6 +137,8 @@ export function SupplierLedgerPage() {
         />
         {supplier && ledger.data ? (
           <Stack direction="row" spacing={1}>
+            {canExport(user) ? (
+              <>
             <Button
               variant="outlined"
               startIcon={<DownloadIcon />}
@@ -141,13 +150,16 @@ export function SupplierLedgerPage() {
               variant="outlined"
               startIcon={<DownloadIcon />}
               onClick={() => {
-                void getSupplierLedgerPdf(supplier.id, { date_from: dateFrom || undefined, date_to: dateTo || undefined }).then(
-                  (blob) => triggerBlobDownload(blob, `supplier-ledger-${supplier.id}.pdf`),
-                );
+                setExportError(null);
+                void getSupplierLedgerPdf(supplier.id, { date_from: dateFrom || undefined, date_to: dateTo || undefined })
+                  .then((blob) => triggerBlobDownload(blob, `supplier-ledger-${supplier.id}.pdf`))
+                  .catch((e: unknown) => setExportError(getErrorMessage(e)));
               }}
             >
               {t('reports.ledgerExportPdf')}
             </Button>
+              </>
+            ) : null}
             <Button
               variant="outlined"
               color="success"
@@ -167,10 +179,11 @@ export function SupplierLedgerPage() {
         ) : null}
       </Stack>
 
+      {exportError ? <HelpErrorAlert message={exportError} /> : null}
       {!supplier ? <EmptyState description={t('reports.ledgerSelectSupplier')} /> : null}
       {supplier && ledger.isLoading ? <LoadingState /> : null}
       {ledger.isError ? (
-        <ErrorState message={ledger.error.message} error={ledger.error} onRetry={() => void ledger.refetch()} />
+        <ErrorState message={getErrorMessage(ledger.error)} error={ledger.error} onRetry={() => void ledger.refetch()} />
       ) : null}
       {ledger.data ? (
         <>
@@ -260,6 +273,6 @@ export function SupplierLedgerPage() {
           )}
         </>
       ) : null}
-    </Stack>
+    </PageShell>
   );
 }
