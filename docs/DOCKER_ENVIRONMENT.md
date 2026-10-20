@@ -75,10 +75,17 @@ Open **http://127.0.0.1** (or http://localhost). Demo login after `seed_demo`:
 
 ```sh
 copy .env.staging.example .env.staging
+.\scripts\compose-env.ps1 staging --profile migrate build        # builds migrate too (it is profile-gated)
+.\scripts\compose-env.ps1 staging up -d db redis
 .\scripts\compose-env.ps1 staging --profile migrate run --rm migrate
+scripts/staging-db-role.sh                                          # app role: NOSUPERUSER NOBYPASSRLS (STG-17)
 .\scripts\compose-env.ps1 staging up -d
-.\scripts\compose-env.ps1 staging exec api python manage.py seed_staging
+.\scripts\compose-env.ps1 staging --profile migrate run --rm migrate python manage.py seed_staging
 ```
+
+`api`/`worker`/`beat` connect as `APP_DB_USER`; `migrate`/`backup`/`restore`/seed use the owner
+`POSTGRES_USER` (a superuser, which bypasses RLS). Re-run `scripts/staging-db-role.sh` after every
+migrate. See [STAGING_DEPLOYMENT_IMPLEMENTATION_PLAN.md](STAGING_DEPLOYMENT_IMPLEMENTATION_PLAN.md).
 
 Open **http://127.0.0.1:8081**. Seeded users (password `PilotPass123!`):
 
@@ -93,7 +100,7 @@ Open **http://127.0.0.1:8081**. Seeded users (password `PilotPass123!`):
 Reset seed (staging DB only):
 
 ```sh
-.\scripts\compose-env.ps1 staging exec api python manage.py seed_staging --reset
+.\scripts\compose-env.ps1 staging --profile migrate run --rm migrate python manage.py seed_staging --reset
 ```
 
 ### Backup / restore

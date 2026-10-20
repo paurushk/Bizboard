@@ -31,6 +31,7 @@ from core.exceptions import (
     TooManyLoginAttemptsError,
 )
 from core.permissions import HasCompany, IsOwner, get_company_user
+from core.rls import company_scope
 from core.services.audit import AuditService
 from core.settings_writes import SettingsWriteMixin, check_expected_updated_at
 from core.services.sms import SmsProvider
@@ -507,29 +508,33 @@ class RegisterView(APIView):
                         "pos_require_open_shift": True,
                     },
                 )
-                CompanyUser.objects.create(
-                    company=company, user=user, role=CompanyUser.Role.OWNER,
-                    can_manage_inventory=True, can_import=True,
-                    can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
-                    can_create_sales=True, can_create_purchases=True, can_create_payments=True,
-                    can_post_journals=True,
-                )
-                from inventory.services import InventoryService
+                # Sign-up runs before any tenant exists for the middleware to scope to, so give the
+                # tenant-table writes below (warehouse, chart of accounts, audit, telemetry) the new
+                # company's RLS context. Without it FORCE RLS rejects them under a real DB role.
+                with company_scope(company.id):
+                    CompanyUser.objects.create(
+                        company=company, user=user, role=CompanyUser.Role.OWNER,
+                        can_manage_inventory=True, can_import=True,
+                        can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
+                        can_create_sales=True, can_create_purchases=True, can_create_payments=True,
+                        can_post_journals=True,
+                    )
+                    from inventory.services import InventoryService
 
-                InventoryService.default_warehouse(company)
-                from accounting.services import seed_chart_of_accounts
+                    InventoryService.default_warehouse(company)
+                    from accounting.services import seed_chart_of_accounts
 
-                seed_chart_of_accounts(company, user)
-                if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
-                    from billing.services import ensure_register_trial
+                    seed_chart_of_accounts(company, user)
+                    if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
+                        from billing.services import ensure_register_trial
 
-                    ensure_register_trial(company)
-                AuditService.log(company=company, user=user, action="CREATE",
-                                 entity_type="Company", entity_id=company.id,
-                                 description="Company registered")
-                from insights.telemetry import record_event
+                        ensure_register_trial(company)
+                    AuditService.log(company=company, user=user, action="CREATE",
+                                     entity_type="Company", entity_id=company.id,
+                                     description="Company registered")
+                    from insights.telemetry import record_event
 
-                record_event(company, "signup_completed", user=user, journey="signup", success=True)
+                    record_event(company, "signup_completed", user=user, journey="signup", success=True)
         except IntegrityError:
             return Response(_register_payload(), status=status.HTTP_200_OK)
         # BB-000389: never set auth cookies on register (enumeration oracle).

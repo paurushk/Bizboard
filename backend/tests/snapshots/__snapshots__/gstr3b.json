@@ -107,6 +107,34 @@
         "igst": "<scalar>",
         "sgst": "<scalar>"
       },
+      "reversed_ineligible": {
+        "gstr2b_flagged": [
+          "count",
+          "note",
+          "total_tax"
+        ],
+        "ineligible": [
+          "cess",
+          "cgst",
+          "count",
+          "igst",
+          "sgst",
+          "total_tax"
+        ],
+        "needs_ca_confirmation": "<scalar>",
+        "note": "<scalar>",
+        "reversed": [
+          "cess",
+          "cgst",
+          "count",
+          "igst",
+          "sgst",
+          "total_tax"
+        ],
+        "section": "<scalar>",
+        "source": "<scalar>",
+        "total_tax": "<scalar>"
+      },
       "unreviewed_itc": {
         "cess": "<scalar>",
         "cgst": "<scalar>",

@@ -64,6 +64,10 @@ def _json_opener(base_url: str):
             with opener.open(req, timeout=20) as resp:
                 raw = resp.read()
                 payload = json.loads(raw.decode("utf-8") or "{}") if raw else {}
+                # The live API wraps 2xx bodies as {"success": true, "data": {...}};
+                # the Django test client sees the unwrapped data, so unwrap here.
+                if isinstance(payload, dict) and payload.get("success") is True and "data" in payload:
+                    payload = payload["data"]
                 return resp.status, payload
         except urllib.error.HTTPError as exc:
             raw = exc.read()
@@ -87,7 +91,14 @@ def main(argv: list[str] | None = None) -> int:
     request = _json_opener(args.base_url)
     check_health(lambda path: request("GET", path))
     check_ready(lambda path: request("GET", path))
-    check_login(lambda path, body: request("POST", path, body), args.email, args.password)
+    login = check_login(lambda path, body: request("POST", path, body), args.email, args.password)
+    if login.get("mfaEnrollmentRequired") or login.get("mfaRequired"):
+        # Money-role users must enrol/enter TOTP before getting a session, so the
+        # authenticated invariants call cannot run unattended. Login itself worked.
+        print("login ok; MFA step required -> skipping authenticated invariants "
+              "(run `manage.py check_invariants` instead)")
+        print("post-deploy smoke ok (partial)")
+        return 0
     if not args.skip_invariants:
         check_invariants(lambda path: request("GET", path))
     print("post-deploy smoke ok")

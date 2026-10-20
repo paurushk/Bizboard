@@ -6,6 +6,12 @@
 #   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml up -d
 #   .\scripts\compose-env.ps1 staging up -d
 #
+# STG-17 DB roles: migrate/backup/restore/seed use the OWNER role POSTGRES_USER (a
+# Postgres superuser, which bypasses FORCE RLS). api/worker/beat use the separate
+# APP_DB_USER (NOSUPERUSER NOBYPASSRLS) so row-level security is actually enforced.
+# Create/refresh that role after every migrate:  scripts/staging-db-role.sh
+# Seed as the owner role:  ... --profile migrate run --rm migrate python manage.py seed_staging
+#
 # This is local/pre-staging, not production. Production remains:
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml
 # See docs/DOCKER_ENVIRONMENT.md
@@ -55,7 +61,7 @@ services:
       DJANGO_DEBUG: "0"
       BIZBOARD_COMPOSE_ENV: staging
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER in .env.staging}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging django_env=staging' &&
@@ -70,7 +76,7 @@ services:
       DJANGO_DEBUG: "0"
       BIZBOARD_COMPOSE_ENV: staging
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER in .env.staging}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging worker' &&
@@ -85,7 +91,7 @@ services:
       DJANGO_DEBUG: "0"
       BIZBOARD_COMPOSE_ENV: staging
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER in .env.staging}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging beat' &&

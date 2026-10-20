@@ -13,15 +13,21 @@ class AuditService:
         ip = current_client_ip()
         if ip and "ip" not in meta:
             meta["ip"] = ip
-        return AuditEvent.objects.create(
-            company=company,
-            user=user,
-            action=action,
-            entity_type=entity_type,
-            entity_id=str(entity_id),
-            description=description,
-            metadata=meta,
-        )
+        # AuditEvent is FORCE-RLS. Sign-in writes (LOGIN, MFA_*) happen before the middleware has
+        # a tenant, and some callers name a company other than the request's, so scope the write
+        # to the event's own company instead of relying on the ambient GUC.
+        from core.rls import company_scope
+
+        with company_scope(company.pk if company is not None else None):
+            return AuditEvent.objects.create(
+                company=company,
+                user=user,
+                action=action,
+                entity_type=entity_type,
+                entity_id=str(entity_id),
+                description=description,
+                metadata=meta,
+            )
 
 
 def before_status_for_event(event: str) -> str:

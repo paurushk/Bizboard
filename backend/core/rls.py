@@ -103,6 +103,41 @@ def rls_bypass():
             raise
 
 
+@contextlib.contextmanager
+def company_scope(company_id):
+    """Run a block with ``app.company_id`` set to ``company_id``, then restore the prior value.
+
+    For writes that name a company other than the request's (or run before the middleware can
+    resolve one, e.g. the LOGIN / MFA audit rows written during sign-in). ``company_id=None``
+    uses the RLS bypass instead, because a NULL ``company_id`` row can never satisfy the tenant
+    policy. No-op unless POSTGRES_RLS_ENABLED + Postgres.
+    """
+    if not getattr(settings, "POSTGRES_RLS_ENABLED", False) or connection.vendor != "postgresql":
+        yield
+        return
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_setting('app.company_id', true), current_setting('app.rls_bypass', true)")
+        previous, bypass_on = cursor.fetchone()
+    previous = previous or ""
+    if bypass_on == "1":
+        yield  # an enclosing rls_bypass() already allows every row; do not clear it
+        return
+    if company_id is None:
+        with rls_bypass():
+            yield
+        return
+    wanted = str(company_id)
+    if previous == wanted:
+        yield
+        return
+    set_rls_company(company_id)
+    try:
+        yield
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT set_config('app.company_id', %s, false)", [previous])
+
+
 def clear_all_rls_gucs() -> None:
     """Reset every RLS session GUC — called by middleware at the end of a request
     so a pooled connection never carries one tenant's context into the next.

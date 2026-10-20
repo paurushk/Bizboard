@@ -11,6 +11,9 @@ mkdir -p /app/media
 python manage.py collectstatic --noinput
 if [ "$(id -u)" = "0" ]; then
   chown -R app:app /app/media /app/staticfiles
+  # setpriv drops uid/gid but keeps HOME=/root; gunicorn 26 creates its control socket under
+  # $HOME/.gunicorn and logs "Permission denied: /root/.gunicorn" every start without this.
+  export HOME=/home/app
   exec setpriv --reuid=app --regid=app --clear-groups -- "$@"
 fi
 exec "$@"
