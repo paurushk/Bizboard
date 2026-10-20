@@ -40,7 +40,7 @@ def test_every_field_key_names_a_real_field():
 
 def test_every_screen_and_field_lists_at_least_one_consumer_except_help():
     for screen, consumers in SCREEN_IMPACT.items():
-        if screen != "help-health":
+        if screen not in ("help-health", "counter-diagnostics"):
             assert consumers, screen
     for key, consumers in SETTING_IMPACT.items():
         assert consumers, key

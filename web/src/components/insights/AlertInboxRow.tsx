@@ -3,6 +3,7 @@ import Link from '@mui/material/Link';
 import TableCell from '@mui/material/TableCell';
 import TableRow from '@mui/material/TableRow';
 import { Link as RouterLink } from 'react-router-dom';
+import { t } from '@/i18n';
 import { SeverityChip, type AlertSeverity } from './SeverityChip';
 
 export type AlertInboxItem = {
@@ -34,7 +35,7 @@ export function resolveAlertHref(alert: AlertInboxItem): string | null {
 export function AlertInboxRow({
   alert,
   onSnooze,
-  snoozeLabel = 'Snooze 7d',
+  snoozeLabel,
   showSnooze = false,
 }: {
   alert: AlertInboxItem;
@@ -55,7 +56,7 @@ export function AlertInboxRow({
       <TableCell>
         {href ? (
           <Link component={RouterLink} to={href}>
-            {alert.linkLabel ?? alert.number ?? alert.documentId ?? 'Open'}
+            {alert.linkLabel ?? alert.number ?? alert.documentId ?? t('insights.openLink')}
           </Link>
         ) : (
           (alert.number ?? '—')
@@ -65,7 +66,7 @@ export function AlertInboxRow({
         <TableCell align="right">
           {onSnooze ? (
             <Button size="small" onClick={onSnooze}>
-              {snoozeLabel}
+              {snoozeLabel ?? t('insights.snooze')}
             </Button>
           ) : null}
         </TableCell>

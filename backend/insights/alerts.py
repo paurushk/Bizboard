@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from decimal import Decimal
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 
 from django.db.models import Count, F, Sum
 from django.db.models.functions import Coalesce
@@ -21,6 +23,33 @@ from sales.models import SalesInvoice, SalesItem
 from sales.status_semantics import OPERATIONAL_SALE_STATUSES
 
 logger = logging.getLogger(__name__)
+
+# DAN-05: callers (the Attention feed) need to tell "this check failed" from "this check found
+# nothing". A caller opens `detector_status()`; builders report into it.
+_STATUS: ContextVar[dict | None] = ContextVar("insights_detector_status", default=None)
+
+
+@contextmanager
+def detector_status():
+    status = {"failed": [], "truncated": []}
+    token = _STATUS.set(status)
+    try:
+        yield status
+    finally:
+        _STATUS.reset(token)
+
+
+def report_detector_failure(name: str) -> None:
+    status = _STATUS.get()
+    if status is not None and name not in status["failed"]:
+        status["failed"].append(name)
+
+
+def report_detector_truncated(code: str) -> None:
+    """A detector hit its row cap: rows with this code may be missing from the feed."""
+    status = _STATUS.get()
+    if status is not None and code not in status["truncated"]:
+        status["truncated"].append(code)
 
 # Activity/analytics signal — was this product/customer/invoice actually part of a
 # standing sale? A fully-returned invoice is not (its `status` flips to RETURNED,
@@ -74,6 +103,7 @@ def _run_alert_builder(name: str, company, builder) -> list[dict]:
         return list(builder() or [])
     except Exception:
         logger.exception("Alert builder %s failed for company %s", name, getattr(company, "id", None))
+        report_detector_failure(f"alerts.{name}")
         return []
 
 
@@ -100,6 +130,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 subject_key="ar",
                 cta_path="/reports/customer-ledger",
                 payload={"aging": {k: str(v) for k, v in aging.items()}},
+                params={"overdue90": str(overdue_90)},
             ))
         elif bucket_31_60 > 0:
             delta = bucket_31_60 - prior_31_60
@@ -114,6 +145,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     f"31–60 day receivables grew MoM (₹{prior_31_60} → ₹{bucket_31_60}).",
                     subject_key="ar",
                     cta_path="/reports/customer-ledger",
+                    params={"prior": str(prior_31_60), "current": str(bucket_31_60)},
                 ))
         return rows
 
@@ -142,6 +174,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 subject_key="ap",
                 cta_path="/reports/supplier-ledger",
                 payload={"ap_due_7d": str(ap_signal)},
+                params={"amount": str(ap_signal)},
             ))
         return rows
 
@@ -179,7 +212,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
             if bal.product_id not in sold_ids:
                 continue
             message = f"{bal.product.name} is below reorder and sold in the last 14 days."
-            extra = {}
+            extra = {"params": {"variant": "plain", "product": bal.product.name}}
             cta = "/inventory/low-stock"
             if replenish:
                 warehouse_id = bal.warehouse_id
@@ -198,6 +231,10 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 )
                 qty = suggestion.suggested_qty
                 if suggestion.transfer_from_warehouse_id:
+                    extra["params"] = {
+                        "variant": "transfer", "product": bal.product.name, "qty": str(qty),
+                        "from": suggestion.transfer_from_warehouse_name,
+                    }
                     message += (
                         f" Suggested transfer {qty} from {suggestion.transfer_from_warehouse_name}."
                     )
@@ -206,6 +243,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                         f"&from={suggestion.transfer_from_warehouse_id}&to={bal.warehouse_id}"
                     )
                 else:
+                    extra["params"] = {"variant": "purchase", "product": bal.product.name, "qty": str(qty)}
                     message += f" Suggested purchase {qty}."
                     cta = (
                         f"/purchases/orders/new?product={bal.product_id}"
@@ -248,6 +286,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 "No sales invoices completed today.",
                 subject_key=f"sales:{as_of.isoformat()}",
                 cta_path="/sales/new",
+                params={"kind": "fixed"},
             ))
         return rows
 
@@ -275,6 +314,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_type="customer",
                     document_id=top["customer_id"],
                     cta_path="/reports/sales",
+                    params={"customer": top["customer__name"] or "Unknown", "share": f"{share:.0f}"},
                 ))
         return rows
 
@@ -294,6 +334,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_type="customer",
                     document_id=cust.id,
                     cta_path="/sales/customers",
+                    params={"customer": cust.name, "exposure": str(exposure), "limit": str(limit)},
                 ))
         return rows
 
@@ -322,6 +363,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_type="product",
                     document_id=it.product_id,
                     cta_path="/inventory/products",
+                    params={"product": it.product.name},
                 ))
         return rows
 
@@ -346,6 +388,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     "14-day cashflow forecast dips below zero — review collections and payables.",
                     subject_key="cash",
                     cta_path="/insights/cashflow",
+                    params={"kind": "fixed"},
                 ))
         return rows
 
@@ -360,6 +403,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 f"{critical} GST Health critical alert(s) are open — review compliance.",
                 subject_key="gst",
                 cta_path="/reports/gst-health",
+                params={"count": critical},
             ))
         return rows
 
@@ -399,6 +443,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_id=ticket.id,
                     dedupe_key=f"TICKET_SLA_BREACH:{ticket.id}",
                     cta_path=f"/support/tickets/{ticket.id}",
+                    params={"number": str(ticket.number)},
                 ))
             return rows
 
@@ -423,6 +468,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_id=contract.id,
                     dedupe_key=f"CONTRACT_RENEWAL:{contract.id}",
                     cta_path=f"/contracts/{contract.id}",
+                    params={"number": str(contract.number)},
                 ))
             return rows
 
@@ -451,6 +497,10 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_id=milestone.project_id,
                     dedupe_key=f"MILESTONE_OVERDUE:{milestone.id}",
                     cta_path=f"/projects/{milestone.project_id}",
+                    params={
+                        "project": str(milestone.project.number), "milestone": milestone.name,
+                        "date": f"{milestone.target_completion_date:%d %b}",
+                    },
                 ))
             return rows
 
@@ -478,6 +528,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                     document_id=job.id,
                     dedupe_key=f"JOB_READY_TO_INVOICE:{job.id}",
                     cta_path=f"/workshop/jobs/{job.id}",
+                    params={"number": str(job.number)},
                 ))
             return rows
 
@@ -518,6 +569,7 @@ def build_business_alerts(company, as_of: date | None = None) -> list[dict]:
                 document_id=quote.id,
                 dedupe_key=f"{'QUOTATION_EXPIRED' if expired else 'QUOTATION_EXPIRING'}:{quote.id}",
                 cta_path=f"/sales/quotations/{quote.id}",
+                params={"number": str(label), "customer": quote.customer.name, "date": f"{quote.valid_until:%d %b}"},
             ))
         return rows
 
@@ -578,6 +630,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 source_ticket="B-05",
                 entity_type="product",
                 entity_id=it.product_id,
+                params={"product": it.product.name, "price": str(price), "cost": str(cost)},
             ))
         elif margin_below_threshold(price, cost):
             # Already covered by MARGIN_DROP_SKU in build_business_alerts; skip.
@@ -611,6 +664,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 source_ticket="B-05",
                 entity_type="sales_invoice",
                 entity_id=inv.id,
+                params={"number": str(inv.number or inv.id)},
             ))
         elif high:
             rows.append(row_factory(
@@ -624,6 +678,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 source_ticket="B-05",
                 entity_type="sales_invoice",
                 entity_id=inv.id,
+                params={"number": str(inv.number or inv.id), "percent": str(DISCOUNT_ALERT_PERCENT)},
             ))
 
     # Last purchase price up, selling price flat (margin compression).
@@ -666,6 +721,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 source_ticket="B-05",
                 entity_type="product",
                 entity_id=it.product_id,
+                params={"product": it.product.name, "prev": str(prev), "latest": str(latest)},
             ))
         elif prev > 0 and latest > prev * Decimal("1.10"):
             rows.append(row_factory(
@@ -679,6 +735,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
                 source_ticket="B-05",
                 entity_type="product",
                 entity_id=it.product_id,
+                params={"product": it.product.name, "prev": str(prev), "latest": str(latest)},
             ))
 
     # Abnormal stock adjustment (14d).
@@ -709,6 +766,8 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             entity_type="product",
             entity_id=mv.product_id,
             dedupe_key=f"ABNORMAL_STOCK_ADJUSTMENT:{mv.id}",
+            # A person's own reason is shown as written; the quantity is only given when there is none.
+            params={"product": mv.product.name, **({} if mv.reason else {"qty": str(qty)})},
         ))
 
     # Duplicate posted receipts: same customer, amount, date, AND the same payment identifier.
@@ -746,6 +805,11 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             entity_type="customer",
             entity_id=d["customer_id"],
             dedupe_key=f"DUPLICATE_PAYMENT:{d['customer_id']}:{d['receipt_date']}:{d['amount']}:{ident}",
+            params={
+                "variant": "with_ref" if d["ident"] else "no_ref",
+                "count": d["n"], "amount": str(d["amount"]), "date": str(d["receipt_date"]),
+                **({"ref": str(d["ident"])} if d["ident"] else {}),
+            },
         ))
 
     # A day on which an unusual share of receipts was voided. The count is a signal to look at who
@@ -771,6 +835,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             entity_type="company",
             entity_id=company.id,
             dedupe_key=f"VOID_RATE_HIGH:{company.id}:{day_start.isoformat()}",
+            params={"voided": voided_count, "total": total_recent},
         ))
 
     # Money held on a walk-in account. A walk-in has no account to hold an advance, so this
@@ -802,6 +867,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             entity_type="payment",
             entity_id=rec.id,
             dedupe_key=f"WALK_IN_UNALLOCATED_RECEIPT:{rec.id}",
+            params={"number": str(rec.number), "amount": str(left), "date": str(rec.receipt_date)},
         ))
 
     # Dead-stock money figure (on-hand × purchase_price) — complements the hint.
@@ -838,6 +904,7 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             entity_type="company",
             entity_id=company.id,
             dedupe_key=f"DEAD_STOCK:{company.id}",
+            params={"count": dead_n},
         ))
 
     return rows

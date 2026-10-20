@@ -1,0 +1,26 @@
+id: "QOS-0139"
+category: "USABILITY"
+title: "Needs attention and dashboard: a check on one physical phone"
+persona: ["P1"]
+journey: "Use the dashboard and Needs attention page on a phone in bright light"
+problem: "Colour contrast, the phone card layout and 44 px touch targets are checked by axe and Playwright in a real Chrome at 375 px, but nobody has held the page on a physical phone in daylight."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/DASHBOARD_ATTENTION_PATH_TO_TEN_2026-10-19.md"]
+  detail: "web/e2e-golden/attention-golden.spec.ts runs axe with colour contrast on, in English and Hindi, and checks 375 px layout with no sideways scroll. The product has a light theme only, so there is no dark-mode check to make. What remains is a physical device."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check."
+effort: "S"
+recommendation: "Open the dashboard and the Needs attention page on one Android phone in both languages; record tap or readability problems."
+test_required: "web/e2e/mobile-layout.spec.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-20"
+closed: null

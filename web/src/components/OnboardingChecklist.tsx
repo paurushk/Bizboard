@@ -28,6 +28,18 @@ interface Props {
   invoiceCount?: number;
 }
 
+/** True once every first-week step is done; the checklist then hides itself and the invite prompt may show. */
+export function isOnboardingComplete(company: Company | null | undefined, productCount = 0, invoiceCount = 0): boolean {
+  const needsGst = companyStepIncompleteNeedsGst(company);
+  const steps = [
+    shopDetailsComplete(company) && !needsGst,
+    Boolean(company?.bankAccount || company?.upiId),
+    productCount > 0,
+    invoiceCount > 0,
+  ];
+  return Boolean(company?.onboarding?.activationDone) || (invoiceCount > 0 && steps.every(Boolean));
+}
+
 export function OnboardingChecklist({ company, productCount = 0, invoiceCount = 0 }: Props) {
   const needsGst = companyStepIncompleteNeedsGst(company);
   const hasCompanyDetails = shopDetailsComplete(company) && !needsGst;

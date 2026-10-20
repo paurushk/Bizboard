@@ -10,19 +10,18 @@ import TableRow from '@mui/material/TableRow';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import Collapse from '@mui/material/Collapse';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link as RouterLink, Navigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { getDashboard, getBusinessHealth, getCompany, getDailySummary, listBusinessAlerts, listLowStock } from '@/api/resources';
-import { getShopFloorSummary, funnelCount, funnelReasons } from '@/lib/telemetry';
-import { canCreateSales, canViewAiInsights, canViewFinancialReports, isOwner } from '@/utils/permissions';
+import { getDashboard, getBusinessHealth, getCompany, listLowStock } from '@/api/resources';
+import { canCreateSales, canViewAiInsights, canViewFinancialReports } from '@/utils/permissions';
 import { ProfitDetailsDialog } from '@/components/ProfitDetailsDialog';
-import { KpiStat, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
-import { OnboardingChecklist } from '@/components/OnboardingChecklist';
+import { KpiStat, MoneyText, PageHeader } from '@/components/insights';
+import { isOnboardingComplete, OnboardingChecklist } from '@/components/OnboardingChecklist';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
+import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { AttentionQueuePreview } from '@/pages/AttentionPage';
 import { CollectionAttentionCard } from '@/components/CollectionAttentionCard';
 import { useAuth } from '@/auth/AuthContext';
@@ -43,55 +42,67 @@ function agingBucket(aging: NonNullable<DashboardKpis['receivablesAging']>, keys
   return 0;
 }
 
+const visuallyHidden = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+} as const;
+
+function negativeStockPolicyLabel(policy: string): string {
+  const key = `dashboard.policy_${policy}`;
+  const label = t(key);
+  return label === key ? policy : label;
+}
+
+function inviteCtaKey(user: { id?: number | string; companyId?: number | string } | null): string {
+  return `bb_invite_cta_dismissed:${user?.id ?? ''}:${user?.companyId ?? ''}`;
+}
+
+function readInviteCtaDismissed(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function DashboardPage() {
   useLocale();
   const { user } = useAuth();
-  const [inviteCtaDismissed, setInviteCtaDismissed] = useState(
-    () => localStorage.getItem('bb_invite_cta_dismissed') === '1',
-  );
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const qc = useQueryClient();
+  const canSeeFinancials = canViewFinancialReports(user);
+  const ctaKey = inviteCtaKey(user);
+  const [inviteCtaDismissed, setInviteCtaDismissed] = useState(() => readInviteCtaDismissed(ctaKey));
   const [profitInvoiceId, setProfitInvoiceId] = useState<number | null>(null);
   const showInsights = canViewAiInsights(user);
-  const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
+  const dashboard = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard, enabled: canSeeFinancials });
   const company = useQuery({ queryKey: ['company'], queryFn: getCompany });
-  const lowStock = useQuery({ queryKey: ['low-stock'], queryFn: listLowStock });
-  const summary = useQuery({
-    queryKey: ['insights-summary'],
-    queryFn: () => getDailySummary(),
-    retry: false,
-    enabled: showInsights,
-  });
-  const bizAlerts = useQuery({
-    queryKey: ['insights-alerts'],
-    queryFn: () => listBusinessAlerts(),
-    retry: false,
-    enabled: showInsights,
+  // The dashboard payload carries the first few low-stock rows. The separate list is only fetched
+  // for an older response that lacks them.
+  const lowStock = useQuery({
+    queryKey: ['low-stock'],
+    queryFn: listLowStock,
+    enabled: canSeeFinancials && dashboard.isSuccess && dashboard.data?.lowStockItems === undefined,
   });
   const health = useQuery({
     queryKey: ['insights-health'],
     queryFn: getBusinessHealth,
     retry: false,
-    enabled: showInsights,
-  });
-  const shopFloor = useQuery({
-    queryKey: ['shop-floor-telemetry'],
-    queryFn: getShopFloorSummary,
-    retry: false,
-    enabled: isOwner(user?.role ?? 'VIEWER'),
+    enabled: canSeeFinancials,
   });
 
   if (!company.isLoading && shouldForceSetup(user, company.data)) {
     return <Navigate to="/setup" replace />;
   }
 
-  if (dashboard.isLoading) return <LoadingState />;
-  if (dashboard.isError) {
-    return (
-      <ErrorState message={getErrorMessage(dashboard.error)} error={dashboard.error} onRetry={() => void dashboard.refetch()} />
-    );
-  }
+  // Other roles are redirected by HomePage; this guards a direct render or a permission change mid-session.
+  if (!canSeeFinancials) return <ForbiddenPage />;
 
-  const data = dashboard.data!;
+  // One failed query must not blank the whole home screen: the KPI area degrades on its own below.
+  const data: DashboardKpis = dashboard.data ?? ({} as DashboardKpis);
   const productCount = data.productCount ?? data.product_count ?? 0;
   const invoiceCount = data.invoiceCount ?? data.invoice_count ?? 0;
   const aging = data.receivablesAging;
@@ -117,7 +128,6 @@ export function DashboardPage() {
       ]
     : [];
 
-  const topBiz = (bizAlerts.data ?? []).slice(0, 3);
   const payablesAging = data.payablesAging ?? data.payables_aging;
   const payablesAgingBuckets = payablesAging
     ? [
@@ -140,16 +150,31 @@ export function DashboardPage() {
         },
       ]
     : [];
+  const lowStockItems = data.lowStockItems;
+  const lowStockRows = lowStockItems ?? lowStock.data ?? [];
+  // With the dashboard itself down and no list from elsewhere we do not know the stock position, so say nothing
+  // rather than "stock is healthy".
+  const lowStockKnown = !dashboard.isError || lowStockItems !== undefined || Boolean(lowStock.data) || lowStock.isError;
+  const lowStockLoading = lowStockItems === undefined && (lowStock.isLoading || (dashboard.isLoading && !lowStock.data));
+  const refreshAll = () => {
+    void dashboard.refetch();
+    void qc.invalidateQueries({ queryKey: ['low-stock'] });
+    void health.refetch();
+    void qc.invalidateQueries({ queryKey: ['attention-rows'] });
+  };
+  // The server decides the band; the score fallback is only for an older response without one.
+  const healthBand =
+    health.data?.band ?? (Number(health.data?.score) >= 70 ? 'healthy' : Number(health.data?.score) >= 45 ? 'watch' : 'action');
   const healthChip = health.data ? (
     <Chip
       component={RouterLink}
       to="/insights/health"
       clickable
-      color={Number(health.data.score) >= 70 ? 'success' : Number(health.data.score) >= 45 ? 'warning' : 'error'}
+      color={healthBand === 'healthy' ? 'success' : healthBand === 'watch' ? 'warning' : 'error'}
       label={
-        Number(health.data.score) >= 70
+        healthBand === 'healthy'
           ? t('dashboard.healthHealthy')
-          : Number(health.data.score) >= 45
+          : healthBand === 'watch'
             ? t('dashboard.healthAttention')
             : t('dashboard.healthAction')
       }
@@ -165,7 +190,7 @@ export function DashboardPage() {
       <PageHeader
         title={t('nav.dashboard')}
         actions={
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap justifyContent="flex-end">
             {/* Both routes are behind canViewFinancialReports: other roles would land on Forbidden. */}
             {canViewFinancialReports(user) ? (
               <>
@@ -191,15 +216,17 @@ export function DashboardPage() {
         }
       />
 
-      <OnboardingChecklist
-        company={company.data}
-        productCount={productCount}
-        invoiceCount={invoiceCount}
-      />
+      {dashboard.isSuccess ? (
+        <OnboardingChecklist
+          company={company.data}
+          productCount={productCount}
+          invoiceCount={invoiceCount}
+        />
+      ) : null}
 
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <Typography variant="h6">{t('dashboard.needsAttention')}</Typography>
+          <Typography variant="h6" component="h2">{t('dashboard.needsAttention')}</Typography>
           <Button component={RouterLink} to="/attention" size="small">
             {t('attention.seeAll')}
           </Button>
@@ -209,15 +236,20 @@ export function DashboardPage() {
 
       {canViewPaymentSurfaces(user) ? <CollectionAttentionCard /> : null}
 
+      {/* One "getting started" card at a time: the invite prompt waits until the checklist is done. */}
       {!inviteCtaDismissed &&
       user?.role === 'OWNER' &&
-      productCount > 0 &&
-      invoiceCount > 0 &&
+      dashboard.isSuccess &&
+      isOnboardingComplete(company.data, productCount, invoiceCount) &&
       !companyStepIncompleteNeedsGst(company.data) ? (
         <Alert
           severity="success"
           onClose={() => {
-            localStorage.setItem('bb_invite_cta_dismissed', '1');
+            try {
+              localStorage.setItem(ctaKey, '1');
+            } catch {
+              // Storage blocked: the card is hidden for this visit only.
+            }
             setInviteCtaDismissed(true);
           }}
           action={<Button component={RouterLink} to="/settings/users">{t('onboarding.inviteStaff')}</Button>}
@@ -226,47 +258,30 @@ export function DashboardPage() {
         </Alert>
       ) : null}
 
-      {showInsights && (summary.data || health.data || topBiz.length > 0) ? (
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2} flexWrap="wrap" useFlexGap>
-            {summary.data ? (
-              <Box sx={{ flex: 1, minWidth: 200 }}>
-                <Typography variant="subtitle2" color="text.secondary">
-                  {t('insights.todaySummary')}
-                </Typography>
-                <Typography variant="body2" sx={{ mt: 0.5 }}>
-                  {t('dashboard.salesTodayLine', {
-                    amount: formatMoney(data.salesToday?.total),
-                    count: data.salesToday?.count ?? 0,
-                    monthAmount: formatMoney(data.salesThisMonth?.total),
-                    monthCount: data.salesThisMonth?.count ?? 0,
-                  })}
-                </Typography>
-              </Box>
-            ) : (
-              <Box sx={{ flex: 1 }} />
-            )}
-            {healthChip}
-            <Stack spacing={0.5}>
-              {topBiz.map((a) => (
-                <Stack key={a.id} direction="row" spacing={1} alignItems="center">
-                  <SeverityChip severity={a.severity} />
-                  <Typography variant="caption" noWrap sx={{ maxWidth: 220 }}>
-                    {a.message}
-                  </Typography>
-                </Stack>
-              ))}
-              {company.data?.negativeStockPolicy &&
-              company.data.negativeStockPolicy !== 'BLOCK' ? (
-                <Typography variant="caption" color="warning.main" component={RouterLink} to="/settings/gst">
-                  {t('dashboard.negativeStockPolicyNote', { policy: company.data.negativeStockPolicy })}
-                </Typography>
-              ) : null}
-            </Stack>
-          </Stack>
-        </Paper>
-      ) : null}
+      <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap" useFlexGap>
+        {healthChip}
+        {company.data?.negativeStockPolicy && company.data.negativeStockPolicy !== 'BLOCK' ? (
+          <Typography variant="caption" color="warning.main" component={RouterLink} to="/settings/gst">
+            {t('dashboard.negativeStockPolicyNote', { policy: negativeStockPolicyLabel(company.data.negativeStockPolicy) })}
+          </Typography>
+        ) : null}
+        <Box sx={{ flex: 1 }} />
+        {dashboard.dataUpdatedAt ? (
+          <Typography variant="caption" color="text.secondary">
+            {t('attention.lastUpdated', { time: new Date(dashboard.dataUpdatedAt).toLocaleTimeString() })}
+          </Typography>
+        ) : null}
+        <Button size="small" onClick={refreshAll} disabled={dashboard.isFetching}>
+          {t('attention.refresh')}
+        </Button>
+      </Stack>
 
+      {dashboard.isError ? (
+        <ErrorState message={getErrorMessage(dashboard.error)} error={dashboard.error} onRetry={() => void dashboard.refetch()} />
+      ) : dashboard.isLoading ? (
+        <LoadingState />
+      ) : (
+        <>
       <Box
         sx={{
           display: 'grid',
@@ -299,6 +314,9 @@ export function DashboardPage() {
           />
         ) : null}
       </Box>
+      <Typography variant="caption" color="text.secondary" component="p">
+        {t('dashboard.todayNote')}
+      </Typography>
       {canViewFinancialReports(user) && isMoneyHubEnabled() ? (
         <Typography variant="body2">
           <RouterLink to="/money">{t('dashboard.seeAllMoney')}</RouterLink>
@@ -307,7 +325,7 @@ export function DashboardPage() {
 
       {agingBuckets.length > 0 ? (
         <Stack spacing={1.5}>
-          <Typography variant="h6">{t('dashboard.receivablesAging')}</Typography>
+          <Typography variant="h6" component="h2">{t('dashboard.receivablesAging')}</Typography>
           <Box
             sx={{
               display: 'grid',
@@ -329,7 +347,7 @@ export function DashboardPage() {
 
       {payablesAgingBuckets.length > 0 ? (
         <Stack spacing={1.5}>
-          <Typography variant="h6">{t('dashboard.payablesAging')}</Typography>
+          <Typography variant="h6" component="h2">{t('dashboard.payablesAging')}</Typography>
           <Box
             sx={{
               display: 'grid',
@@ -344,23 +362,10 @@ export function DashboardPage() {
         </Stack>
       ) : null}
 
-      {shopFloor.data ? (
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Button size="small" onClick={() => setDiagnosticsOpen((open) => !open)} aria-expanded={diagnosticsOpen}>
-            {t('dashboard.counterDiagnostics')}
-          </Button>
-          <Collapse in={diagnosticsOpen}>
-            <Typography variant="subtitle2" sx={{ mt: 1 }}>
-              {t('dashboard.shopFloor')}
-            </Typography>
-            <ShopFloorFunnel summary={shopFloor.data} />
-          </Collapse>
-        </Paper>
-      ) : null}
 
       {data.recentInvoices && data.recentInvoices.length > 0 ? (
-        <Paper variant="outlined" sx={{ p: 2.5, overflow: 'auto' }}>
-          <Typography variant="h6" sx={{ mb: 2 }}>
+        <Paper variant="outlined" sx={{ p: 2.5, overflow: 'auto', position: 'relative' }}>
+          <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
             {t('dashboard.recentInvoices')}
           </Typography>
           <Table size="small">
@@ -371,7 +376,11 @@ export function DashboardPage() {
                 <TableCell>{t('billing.customer')}</TableCell>
                 <TableCell>{t('common.status')}</TableCell>
                 <TableCell align="right">{t('common.total')}</TableCell>
-                {canViewFinancialReports(user) ? <TableCell /> : null}
+                {canViewFinancialReports(user) ? (
+                  <TableCell align="right">
+                    <Box component="span" sx={visuallyHidden}>{t('common.actions')}</Box>
+                  </TableCell>
+                ) : null}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -383,7 +392,7 @@ export function DashboardPage() {
                       to={`/sales/history/${inv.id}`}
                       sx={{ color: 'primary.main', textDecoration: 'none' }}
                     >
-                      {inv.number ?? `Draft #${inv.id}`}
+                      {inv.number ?? t('dashboard.draftNumber', { id: inv.id })}
                     </Typography>
                   </TableCell>
                   <TableCell>{inv.date}</TableCell>
@@ -415,18 +424,21 @@ export function DashboardPage() {
           </Table>
         </Paper>
       ) : null}
+        </>
+      )}
 
+      {lowStockKnown ? (
       <Stack spacing={1.5}>
-        <Typography variant="h6">{t('dashboard.alerts')}</Typography>
-        {lowStock.isLoading ? (
+        <Typography variant="h6" component="h2">{t('nav.lowStock')}</Typography>
+        {lowStockLoading ? (
           <LoadingState />
-        ) : lowStock.isError ? (
+        ) : lowStock.isError && !lowStockItems ? (
           <ErrorState message={getErrorMessage(lowStock.error)} error={lowStock.error} onRetry={() => void lowStock.refetch()} />
-        ) : (lowStock.data?.length ?? 0) === 0 ? (
+        ) : lowStockRows.length === 0 ? (
           <EmptyState description={t('empty.stockHealthy')} />
         ) : (
           <Stack spacing={1}>
-            {lowStock.data!.slice(0, 5).map((item) => (
+            {lowStockRows.slice(0, 5).map((item) => (
               <Typography key={item.product}>
                 {t('dashboard.lowStockLine', {
                   name: item.productName,
@@ -441,99 +453,12 @@ export function DashboardPage() {
           </Stack>
         )}
       </Stack>
+      ) : null}
       <ProfitDetailsDialog
         open={profitInvoiceId != null}
         invoiceId={profitInvoiceId}
         onClose={() => setProfitInvoiceId(null)}
       />
-    </Stack>
-  );
-}
-
-function ShopFloorFunnel({ summary }: { summary: import('@/lib/telemetry').ShopFloorSummary }) {
-  const funnel = summary.funnel;
-  const p95 = summary.completeP95Ms ?? summary.complete_p95_ms;
-  const offline = summary.offlineFlushFail ?? summary.offline_flush_fail ?? 0;
-  const reasons = funnelReasons(
-    funnel,
-    'invoice_complete_failed_by_reason',
-    'invoiceCompleteFailedByReason',
-  );
-  const reasonBits = Object.entries(reasons).filter(([, n]) => n > 0);
-  const rows: { key: string; started: number | string; completed: number | string; failed: number }[] = [
-    {
-      key: 'invoice',
-      started: funnelCount(funnel, 'invoice_complete_started', 'invoiceCompleteStarted'),
-      completed: funnelCount(funnel, 'invoice_complete', 'invoiceComplete'),
-      failed: funnelCount(funnel, 'invoice_complete_failed', 'invoiceCompleteFailed'),
-    },
-    {
-      key: 'pdf',
-      started: funnelCount(funnel, 'pdf_started', 'pdfStarted'),
-      completed: '—',
-      failed: funnelCount(funnel, 'pdf_failed', 'pdfFailed'),
-    },
-    {
-      key: 'payment',
-      started: funnelCount(funnel, 'payment_started', 'paymentStarted'),
-      completed: funnelCount(funnel, 'payment_completed', 'paymentCompleted'),
-      failed: funnelCount(funnel, 'payment_failed', 'paymentFailed'),
-    },
-    {
-      key: 'signup',
-      started: '—',
-      completed: funnelCount(funnel, 'signup_completed', 'signupCompleted'),
-      failed: funnelCount(funnel, 'signup_failed', 'signupFailed'),
-    },
-  ];
-  return (
-    <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
-        <Typography variant="body2">
-          {t('dashboard.completeP95')}: {p95 != null ? `${p95} ms` : '—'}
-        </Typography>
-        <Typography variant="body2">
-          {t('dashboard.offlineFails')}: {offline}
-        </Typography>
-      </Stack>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>{t('dashboard.journey')}</TableCell>
-            <TableCell align="right">{t('dashboard.journeyStarted')}</TableCell>
-            <TableCell align="right">{t('dashboard.journeyCompleted')}</TableCell>
-            <TableCell align="right">{t('dashboard.journeyFailed')}</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.key}>
-              <TableCell>
-                {row.key === 'invoice'
-                  ? t('dashboard.journeyInvoice')
-                  : row.key === 'pdf'
-                    ? t('dashboard.journeyPdf')
-                    : row.key === 'payment'
-                      ? t('dashboard.journeyPayment')
-                      : t('dashboard.journeySignup')}
-              </TableCell>
-              <TableCell align="right">{row.started}</TableCell>
-              <TableCell align="right">{row.completed}</TableCell>
-              <TableCell align="right">{row.failed}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-      {reasonBits.length ? (
-        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-          <Typography variant="body2" color="text.secondary">
-            {t('dashboard.failedReasons')}:
-          </Typography>
-          {reasonBits.map(([reason, n]) => (
-            <Chip key={reason} size="small" label={`${reason}: ${n}`} />
-          ))}
-        </Stack>
-      ) : null}
     </Stack>
   );
 }

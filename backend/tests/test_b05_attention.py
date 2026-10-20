@@ -218,11 +218,11 @@ def test_assignment_overdue_is_a_marker_and_mine_keeps_the_owner(tenant_a):
     assign_attention_row(
         tenant_a.company,
         member,
-        dedupe_key="MINE-1",
+        dedupe_key="LOW_STOCK_FAST_MOVER:MINE-1",
         assignee_id=member.id,
         due_date=(today - timedelta(days=1)).isoformat(),
     )
-    raw = [{"dedupe_key": "MINE-1", "severity": "warning", "code": "LOW_STOCK_FAST_MOVER"}]
+    raw = [{"dedupe_key": "LOW_STOCK_FAST_MOVER:MINE-1", "severity": "warning", "code": "LOW_STOCK_FAST_MOVER"}]
     attached = _attach_assignment(tenant_a.company, raw)
     assert attached[0]["overdue"] is True
     assert attached[0]["severity"] == "warning"
@@ -230,7 +230,7 @@ def test_assignment_overdue_is_a_marker_and_mine_keeps_the_owner(tenant_a):
     assert len(mine) == 1
     tenant_a.company.feature_flags = {}
     tenant_a.company.save(update_fields=["feature_flags"])
-    hidden = _attach_assignment(tenant_a.company, [{"dedupe_key": "MINE-1", "severity": "warning"}])
+    hidden = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:MINE-1", "severity": "warning"}])
     assert "assigned_to" not in hidden[0]
     assert "overdue" not in hidden[0]
 

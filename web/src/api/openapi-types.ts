@@ -4604,6 +4604,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/alerts/{id}/unsnooze/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_alerts_unsnooze_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/alerts/refresh/": {
         parameters: {
             query?: never;
@@ -4707,7 +4723,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered. */
+        /**
+         * @description B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered.
+         *
+         *     Query: status=open|snoozed|dismissed, severity, category, assigned=mine|unassigned,
+         *     limit, offset. ``mine=1`` is kept for older clients.
+         */
         get: operations["insights_attention_retrieve"];
         put?: never;
         post?: never;
@@ -4743,6 +4764,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["insights_attention_dismiss_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/attention/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_attention_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/insights/attention/seen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["insights_attention_seen_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4843,7 +4896,7 @@ export interface paths {
         };
         get: operations["insights_daily_summary_retrieve"];
         put?: never;
-        /** @description Force-generate (Owner). */
+        /** @description Owner: rebuild the summary and alerts. Sends nothing unless ``send`` is true. */
         post: operations["insights_daily_summary_create"];
         delete?: never;
         options?: never;
@@ -15187,6 +15240,9 @@ export interface components {
             status?: components["schemas"]["BusinessAlertEventStatusEnum"];
             /** Format: date-time */
             snoozedUntil?: string | null;
+            /** Format: date-time */
+            snoozedAt?: string | null;
+            readonly snoozedByName: string;
             ctaPath?: string;
             /** Format: date-time */
             readonly createdAt: string;
@@ -30824,6 +30880,33 @@ export interface operations {
             };
         };
     };
+    insights_alerts_unsnooze_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BusinessAlertEvent"];
+                "multipart/form-data": components["schemas"]["BusinessAlertEvent"];
+                "application/x-www-form-urlencoded": components["schemas"]["BusinessAlertEvent"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessAlertEvent"];
+                };
+            };
+        };
+    };
     insights_alerts_refresh_create: {
         parameters: {
             query?: never;
@@ -31012,6 +31095,42 @@ export interface operations {
         };
     };
     insights_attention_dismiss_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_attention_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_attention_seen_create: {
         parameters: {
             query?: never;
             header?: never;

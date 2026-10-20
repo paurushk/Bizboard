@@ -57,21 +57,21 @@ def test_assignment_overdue_starts_the_day_after_due_date(tenant_a):
     assign_attention_row(
         tenant_a.company,
         member,
-        dedupe_key="ROW-1",
+        dedupe_key="LOW_STOCK_FAST_MOVER:ROW-1",
         assignee_id=member.id,
         due_date=today.isoformat(),
     )
-    today_rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "ROW-1"}])
+    today_rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-1"}])
     assert today_rows[0]["overdue"] is False
     assert today_rows[0]["assigned_to"] == member.id
     assign_attention_row(
         tenant_a.company,
         member,
-        dedupe_key="ROW-1",
+        dedupe_key="LOW_STOCK_FAST_MOVER:ROW-1",
         assignee_id=member.id,
         due_date=(today - timedelta(days=1)).isoformat(),
     )
-    late_rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "ROW-1"}])
+    late_rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-1"}])
     assert late_rows[0]["overdue"] is True
 
 
@@ -81,13 +81,13 @@ def test_assignment_fields_hidden_when_flag_off(tenant_a):
     assign_attention_row(
         tenant_a.company,
         member,
-        dedupe_key="ROW-2",
+        dedupe_key="LOW_STOCK_FAST_MOVER:ROW-2",
         assignee_id=member.id,
         due_date=timezone.localdate().isoformat(),
     )
     tenant_a.company.feature_flags = {}
     tenant_a.company.save(update_fields=["feature_flags"])
-    rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "ROW-2"}])
+    rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-2"}])
     assert "assigned_to" not in rows[0]
 
 
@@ -99,7 +99,7 @@ def test_assignment_rejects_a_user_from_another_company(tenant_a, tenant_b):
         assign_attention_row(
             tenant_a.company,
             _member(tenant_a),
-            dedupe_key="ROW-3",
+            dedupe_key="LOW_STOCK_FAST_MOVER:ROW-3",
             assignee_id=_member(tenant_b).id,
             due_date=None,
         )
@@ -674,18 +674,18 @@ def test_assign_attention_row_partial_update_preserves_the_other_field(tenant_a)
     member = _member(tenant_a)
     today = timezone.localdate()
     assign_attention_row(
-        tenant_a.company, member, dedupe_key="ROW-PARTIAL",
+        tenant_a.company, member, dedupe_key="LOW_STOCK_FAST_MOVER:ROW-PARTIAL",
         assignee_id=member.id, due_date=today.isoformat(),
     )
     assign_attention_row(
-        tenant_a.company, member, dedupe_key="ROW-PARTIAL",
+        tenant_a.company, member, dedupe_key="LOW_STOCK_FAST_MOVER:ROW-PARTIAL",
         due_date=(today + timedelta(days=5)).isoformat(),
     )
-    rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "ROW-PARTIAL"}])
+    rows = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-PARTIAL"}])
     assert rows[0]["assigned_to"] == member.id
     assert rows[0]["due_date"] == (today + timedelta(days=5)).isoformat()
-    assign_attention_row(tenant_a.company, member, dedupe_key="ROW-PARTIAL", assignee_id=member.id)
-    rows_after = _attach_assignment(tenant_a.company, [{"dedupe_key": "ROW-PARTIAL"}])
+    assign_attention_row(tenant_a.company, member, dedupe_key="LOW_STOCK_FAST_MOVER:ROW-PARTIAL", assignee_id=member.id)
+    rows_after = _attach_assignment(tenant_a.company, [{"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-PARTIAL"}])
     assert rows_after[0]["due_date"] == (today + timedelta(days=5)).isoformat()
 
 
@@ -698,7 +698,7 @@ def test_assign_view_full_utc_timestamp_lands_on_the_correct_local_date(tenant_a
     member = _member(tenant_a)
     resp = tenant_a.client.post(
         "/api/v1/insights/attention/assign/",
-        {"dedupe_key": "ROW-TZ", "assigned_to": member.id, "due_date": "2026-09-24T18:30:00.000Z"},
+        {"dedupe_key": "LOW_STOCK_FAST_MOVER:ROW-TZ", "assigned_to": member.id, "due_date": "2026-09-24T18:30:00.000Z"},
         format="json",
     )
     assert resp.status_code == 200, resp.data

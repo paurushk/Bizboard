@@ -36,6 +36,14 @@ class AttentionRowState(CompanyScopedModel):
         related_name="assigned_attention_rows",
     )
     due_date = models.DateField(null=True, blank=True)
+    # DAN-09: when the row was last dismissed / snoozed / reopened.
+    state_at = models.DateTimeField(null=True, blank=True)
+    # DAN-09: what the row looked like when it was set aside, so the Snoozed and Dismissed lists
+    # can still show it after the underlying condition has changed or gone.
+    snapshot = models.JSONField(default=dict, blank=True)
+    # DAN-08: the set of signals behind a merged customer row at that moment ("<severity>|<codes>").
+    # A new signal or a higher severity brings a set-aside row back.
+    signal_fingerprint = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         constraints = [
@@ -97,6 +105,11 @@ class BusinessAlertEvent(CompanyScopedModel):
     payload = models.JSONField(default=dict, blank=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
     snoozed_until = models.DateTimeField(null=True, blank=True)
+    # INP-15: who set the snooze aside, and when, so the inbox can say so.
+    snoozed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    snoozed_at = models.DateTimeField(null=True, blank=True)
     cta_path = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
@@ -104,6 +117,14 @@ class BusinessAlertEvent(CompanyScopedModel):
         indexes = [
             models.Index(fields=["company", "status", "severity"]),
             models.Index(fields=["company", "code", "subject_key"]),
+        ]
+        constraints = [
+            # INP-15: one live (open or snoozed) row per rule and subject.
+            models.UniqueConstraint(
+                fields=["company", "code", "subject_key"],
+                condition=models.Q(status__in=["OPEN", "SNOOZED"]),
+                name="uniq_live_business_alert",
+            ),
         ]
 
 
@@ -206,6 +227,8 @@ class ShopFloorEvent(CompanyScopedModel):
         JOURNEY_FAILED = "journey_failed"
         # Reserved for a later FE migration; Gate 2 writers do not emit this.
         JOURNEY_COMPLETED = "journey_completed"
+        # DAN-14: one per dismiss / snooze / assign / reopen on Needs attention; feature says which.
+        ATTENTION_ACTION = "attention_action"
         # GD-5: first occurrence only. first_invoice stays on TenantActivation.
         FIRST_LEAD = "first_lead"
         FIRST_QUOTE = "first_quote"

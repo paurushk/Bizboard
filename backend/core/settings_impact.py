@@ -26,6 +26,7 @@ SCREEN_IMPACT: dict[str, tuple[str, ...]] = {
     "pack-wizard": ("impact.menu",),
     "telegram": ("impact.alerts",),
     "help-health": (),
+    "counter-diagnostics": (),
 }
 
 SETTING_IMPACT: dict[str, tuple[str, ...]] = {

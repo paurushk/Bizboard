@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from decimal import Decimal
 from typing import Any
@@ -18,12 +19,15 @@ from reporting.services import ReportService
 
 from .models import AiUsageLedger, AssistantMessage, AssistantThread
 from .services import (
+    MARGIN_ALERT_CODES,
     build_growth_hints,
     compute_health_score,
     forecast_cashflow,
     get_daily_summary_readonly,
     get_open_alerts_readonly,
 )
+
+logger = logging.getLogger(__name__)
 
 PROMPT_VERSION = "assistant-v1"
 TOOLS_VERSION = "tools-v1"
@@ -50,7 +54,8 @@ MONEY_MOVING_ACTION_TYPES = frozenset({
 
 TAX_REFUSAL = (
     "I cannot give tax rates, place-of-supply, or GSTR filing advice. "
-    "Use Reports → GST Health / GSTR aids, or ask your CA."
+    "Use Reports → GST Health / GSTR aids, or ask your CA. "
+    "I can help with sales, receivables, cashflow, alerts, or what a customer owes."
 )
 
 TAX_PATTERNS = re.compile(
@@ -65,11 +70,13 @@ TAX_PATTERNS = re.compile(
     r"tds|tcs|section\s*9|gst\s*portal|filing\s*due|"
     r"tax\s*rate\s*advice|claim\s*itc|avail\s*itc|itc\s*claim|"
     r"gst\s*calculation|calculate\s*gst|gst\s*amount|"
-    r"rate\s+for\s+\w+|sold\s+to\s+\w+|applicable\s+(gst|tax|rate)|"
+    r"(gst|tax)\s+rate\s+for\s+\w+|applicable\s+(gst|tax|rate)|"
     r"what\s+rate|which\s+rate|gst\s+on\s+\w+|charge\s+gst|"
-    r"hsn\s+for|tax\s+for\s+\w+|rate\s+in\s+\w+"
+    r"hsn\s+for|tax\s+for\s+\w+"
     r")\b|"
-    r"(जी.?एस.?टी|कर|टैक्स|कर\s*दर|इनपुट\s*कर\s*क्रेडिट)",
+    # Hindi: GST, tax, tax rate, input tax credit. The bare syllable for "tax" is a common verb
+    # stem ("kar"), so it is not matched on its own.
+    r"(जी\.?एस\.?टी|टैक्स|कर\s*दर|इनपुट\s*कर\s*क्रेडिट|आयकर)",
     re.I,
 )
 
@@ -101,7 +108,7 @@ def _looks_like_tax_question(text: str) -> bool:
     # slip past the pre-LLM tax-advice refusal.
     if TAX_PATTERNS.search(blob):
         return True
-    asks_rate = bool(re.search(r"\b(rate|%|percent|gst|tax|hsn|sac)\b", lowered))
+    asks_rate = bool(re.search(r"\b(gst|tax|hsn|sac)\b|(gst|tax)\s+rate", lowered))
     has_geo_or_sku = bool(_INDIRECT_TAX_HINTS.search(blob))
     if asks_rate and has_geo_or_sku:
         return True
@@ -201,21 +208,78 @@ def record_usage(company, *, feature, tokens_in=0, tokens_out=0, model_name=""):
     )
 
 
+# INP-02: each tool needs the permission its data normally sits behind. ``None`` = any assistant user.
+TOOL_ACCESS = {
+    "get_daily_summary": "reports",
+    "get_health_score": "reports",
+    "get_cashflow_forecast": "reports",
+    "get_sales_totals": "reports",
+    "get_receivables_aging": "reports",
+    "get_payables_aging": "reports",
+    "get_customer_outstanding": "reports",
+    "draft_payment_reminder": "reminder",
+    "list_business_alerts": "insights",
+    "list_growth_hints": "insights",
+    "search_documents": None,
+}
+_ACCESS_LABEL = {
+    "reports": "financial reports",
+    "insights": "AI insights",
+    "reminder": "payment reminders",
+}
+
+
+def cu_has_access(cu, access) -> bool:
+    """``cu`` None means a trusted internal caller (management commands, tests)."""
+    if access is None or cu is None or cu.role == "OWNER":
+        return True
+    if access == "reports":
+        return bool(cu.can_view_financial_reports)
+    if access == "insights":
+        return bool(cu.can_view_ai_insights)
+    if access == "reminder":
+        return bool(
+            cu.role != "VIEWER" and cu.can_view_financial_reports and cu.can_create_payments
+        )
+    return False
+
+
+def cu_can_see_margins(cu) -> bool:
+    """Same rule as the margin reports: the owner, or an accountant who may read reports."""
+    if cu is None or cu.role == "OWNER":
+        return True
+    return cu.role == "ACCOUNTANT" and bool(cu.can_view_financial_reports)
+
+
+def _candidate_rows(customers) -> list[dict]:
+    return [{"customer_id": c.id, "customer_name": c.name} for c in customers]
+
+
 class ToolExecutor:
     """Company-scoped read tools — fail closed on wrong company."""
 
-    def __init__(self, company):
+    def __init__(self, company, cu=None):
         self.company = company
+        self.cu = cu
 
     def run(self, name: str, args: dict | None = None) -> dict:
-        args = args or {}
+        args = args if isinstance(args, dict) else {}
         # Ignore any client-supplied company_id
         args.pop("company_id", None)
         args.pop("company", None)
         fn = getattr(self, f"tool_{name}", None)
         if not fn:
             raise BusinessRuleError(f"Unknown tool: {name}")
-        return fn(**args)
+        access = TOOL_ACCESS.get(name)
+        if not cu_has_access(self.cu, access):
+            raise BusinessRuleError(
+                f"Your role does not have access to {_ACCESS_LABEL.get(access, 'this')} through the assistant."
+            )
+        try:
+            return fn(**args)
+        except (TypeError, ValueError) as exc:
+            # A bad argument from the model must not crash the turn.
+            raise BusinessRuleError(f"Could not run {name}: {exc}") from exc
 
     def tool_get_daily_summary(self, date: str | None = None):
         from datetime import date as date_cls
@@ -243,7 +307,7 @@ class ToolExecutor:
         }
 
     def tool_get_health_score(self):
-        data = compute_health_score(self.company)
+        data = compute_health_score(self.company, include_margin=cu_can_see_margins(self.cu))
         return {
             **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in data.items() if k != "factors"},
             "factors": data["factors"],
@@ -308,6 +372,8 @@ class ToolExecutor:
     def tool_list_business_alerts(self):
         # B9-011: read-only -- see tool_get_daily_summary's note.
         alerts = get_open_alerts_readonly(self.company)
+        if not cu_can_see_margins(self.cu):
+            alerts = [a for a in alerts if a.code not in MARGIN_ALERT_CODES]
         open_alerts = [
             {
                 "code": a.code,
@@ -324,29 +390,55 @@ class ToolExecutor:
 
     def tool_list_growth_hints(self):
         return {
-            "hints": build_growth_hints(self.company),
+            "hints": build_growth_hints(self.company, include_margin=cu_can_see_margins(self.cu)),
             "citation": {"path": "/insights/health", "label": "Growth hints"},
         }
 
-    def tool_get_customer_outstanding(self, customer_id: int | None = None, customer_name: str | None = None):
-        from ledgers.services import LedgerService
+    def _resolve_customer(self, customer_id, customer_name):
+        """(customer, []) when exactly one matches, (None, candidates) when several do."""
         from masters.models import Customer
 
         qs = Customer.objects.filter(company=self.company)
         if customer_id:
             cust = qs.filter(id=customer_id).first()
-        elif customer_name:
-            cust = qs.filter(name__icontains=customer_name).first()
-        else:
+            if not cust:
+                raise BusinessRuleError("Customer not found in this company.")
+            return cust, []
+        name = (customer_name or "").strip()
+        if not name:
             raise BusinessRuleError("customer_id or customer_name required")
-        if not cust:
+        exact = list(qs.filter(name__iexact=name).order_by("name", "id")[:6])
+        if len(exact) == 1:
+            return exact[0], []
+        if len(exact) > 1:
+            return None, exact
+        partial = list(qs.filter(name__icontains=name).order_by("name", "id")[:6])
+        if len(partial) == 1:
+            return partial[0], []
+        if not partial:
             raise BusinessRuleError("Customer not found in this company.")
+        return None, partial
+
+    def tool_get_customer_outstanding(self, customer_id: int | None = None, customer_name: str | None = None):
+        from ledgers.services import LedgerService
+
+        cust, candidates = self._resolve_customer(customer_id, customer_name)
+        if cust is None:
+            return {
+                "needs_clarification": True,
+                "action": "get_customer_outstanding",
+                "candidates": _candidate_rows(candidates),
+                "citation": {"path": "/sales/customers", "label": "Customers"},
+            }
         outstanding = LedgerService.customer_outstanding(self.company, cust)
         return {
             "customer_id": cust.id,
             "customer_name": cust.name,
             "outstanding": str(outstanding),
-            "citation": {"path": "/reports/customer-ledger", "label": cust.name},
+            "citation": {
+                "path": f"/reports/customer-ledger?customer={cust.id}",
+                "label": cust.name,
+            },
         }
 
     def tool_search_documents(self, q: str = ""):
@@ -380,6 +472,9 @@ class ToolExecutor:
 
     def tool_draft_payment_reminder(self, customer_id: int | None = None, customer_name: str | None = None):
         data = self.tool_get_customer_outstanding(customer_id=customer_id, customer_name=customer_name)
+        if data.get("needs_clarification"):
+            data["action"] = "draft_payment_reminder"
+            return data
         from masters.models import Customer
 
         cust = Customer.objects.filter(company=self.company, id=data["customer_id"]).first()
@@ -391,6 +486,7 @@ class ToolExecutor:
         )
         return {
             "draft_text": text,
+            "customer_name": data["customer_name"],
             "proposed_action": {
                 "type": "send_reminder",
                 "customer_id": data["customer_id"],
@@ -399,7 +495,7 @@ class ToolExecutor:
                 "phone": (cust.phone if cust else "") or "",
                 "text": text,
             },
-            "citation": {"path": "/sales/customers", "label": "Customers"},
+            "citation": {"path": f"/sales/customers/{data['customer_id']}", "label": data["customer_name"]},
         }
 
 
@@ -440,6 +536,7 @@ TOOL_ROUTES = [
     ("summary", "get_daily_summary"),
     ("health", "get_health_score"),
     ("cashflow", "get_cashflow_forecast"),
+    ("cash flow", "get_cashflow_forecast"),
     ("forecast", "get_cashflow_forecast"),
     ("aging", "get_receivables_aging"),
     ("receivable", "get_receivables_aging"),
@@ -456,15 +553,24 @@ TOOL_ROUTES = [
     ("search", "search_documents"),
 ]
 
+HELP_REPLY = (
+    "I can answer questions about your BizBoard numbers. Try one of these:\n"
+    "- How are my sales this month?\n"
+    "- Show receivables aging\n"
+    "- What is my cashflow forecast?\n"
+    "- Any business alerts?\n"
+    "- How much does <customer name> owe?\n"
+    "- Draft a payment reminder for <customer name>"
+)
+
 
 def _pick_tools(message: str) -> list[str]:
-    msg = message.lower()
+    msg = (message or "").lower()
     picked = []
     for needle, tool in TOOL_ROUTES:
-        if needle in msg and tool not in picked:
+        # Match at the start of a word, so "owe" finds "owes" but not "however" or "lower".
+        if re.search(rf"\b{re.escape(needle)}", msg) and tool not in picked:
             picked.append(tool)
-    if not picked:
-        picked = ["get_daily_summary", "list_business_alerts"]
     return picked[:4]
 
 
@@ -497,36 +603,119 @@ def _extract_customer_name(company, content: str) -> str | None:
     return None
 
 
-def _run_rules_fallback(company, content: str) -> tuple[str, list, dict | None, str]:
-    executor = ToolExecutor(company)
-    tools = _pick_tools(content)
+def _inr(value) -> str:
+    try:
+        return f"₹{Decimal(str(value)):,.2f}"
+    except Exception:  # noqa: BLE001
+        return f"₹{value}"
+
+
+def _format_tool_result(tool: str, result: dict) -> str:
+    """A short readable answer for one tool result (used when no language model is configured)."""
+    if result.get("needs_clarification"):
+        names = ", ".join(c["customer_name"] for c in result.get("candidates", []))
+        return f"More than one customer matches ({names}). Which one do you mean?"
+    if tool == "get_daily_summary":
+        return result.get("narrative") or "No daily summary yet."
+    if tool == "get_health_score":
+        if result.get("limited_data"):
+            head = "Business health: not enough recent invoices to grade yet."
+        else:
+            head = f"Business health: {result.get('score')} (grade {result.get('grade')})."
+        live = [f for f in result.get("factors", []) if f.get("available", True) and f.get("score") is not None]
+        if live:
+            weakest = min(live, key=lambda f: Decimal(str(f["score"])))
+            head += f" Weakest area: {weakest['label']} ({weakest['score']})."
+        return head
+    if tool == "get_cashflow_forecast":
+        series = result.get("series") or []
+        if not series:
+            return "No cashflow forecast available."
+        meta = result.get("meta") or {}
+        lowest = min(series, key=lambda r: Decimal(str(r["ending_cash"])))
+        label = "cash" if meta.get("mode") == "absolute" else "net change"
+        return (
+            f"Cashflow forecast, next {result.get('horizon_days')} days: expected collections "
+            f"{_inr(meta.get('expected_collections', 0))}. Lowest projected {label} "
+            f"{_inr(lowest['ending_cash'])} on {lowest['date']}. A forecast from open invoices, not a bank balance."
+        )
+    if tool == "get_sales_totals":
+        return f"Sales (net of returns) {result.get('from')} to {result.get('to')}: {_inr(result.get('total'))}."
+    if tool in ("get_receivables_aging", "get_payables_aging"):
+        names = {
+            "current": "Not yet due", "days_1_30": "1-30 days", "days_31_60": "31-60 days",
+            "days_61_90": "61-90 days", "days_90_plus": "90+ days",
+        }
+        title = "Receivables" if tool == "get_receivables_aging" else "Payables"
+        lines = [f"- {names.get(k, k)}: {_inr(v)}" for k, v in (result.get("aging") or {}).items()]
+        return f"{title} by age:\n" + "\n".join(lines)
+    if tool == "list_business_alerts":
+        alerts = result.get("alerts") or []
+        if not alerts:
+            return "No open business alerts."
+        return "Open alerts:\n" + "\n".join(f"- [{a['severity']}] {a['message']}" for a in alerts[:5])
+    if tool == "list_growth_hints":
+        hints = result.get("hints") or []
+        if not hints:
+            return "No growth hints right now."
+        return "Hints:\n" + "\n".join(f"- {h['title']}: {h['message']}" for h in hints[:5])
+    if tool == "get_customer_outstanding":
+        return f"{result.get('customer_name')} owes {_inr(result.get('outstanding'))}."
+    if tool == "draft_payment_reminder":
+        return f"Reminder draft for {result.get('customer_name')}:\n\n{result.get('draft_text')}"
+    if tool == "search_documents":
+        rows = result.get("results") or []
+        if not rows:
+            return "Nothing found."
+        return "Found:\n" + "\n".join(f"- {r['label']} ({r['type'].replace('_', ' ')})" for r in rows[:10])
+    return json.dumps(result, default=str)[:600]
+
+
+def _clarify_action(result: dict) -> dict:
+    return {
+        "type": "clarify",
+        "action": result.get("action") or "get_customer_outstanding",
+        "candidates": result.get("candidates") or [],
+    }
+
+
+def _run_rules_fallback(company, content: str, *, cu=None, hint: dict | None = None) -> tuple[str, list, dict | None, str]:
+    executor = ToolExecutor(company, cu)
+    if hint:
+        tools = [hint["action"]]
+    else:
+        tools = _pick_tools(content)
+    if not tools:
+        return HELP_REPLY, [], None, "rules+tools"
     chunks = []
     citations = []
     proposed = None
-    customer_name = _extract_customer_name(company, content)
+    customer_name = None if hint else _extract_customer_name(company, content)
     for tool in tools:
         args: dict[str, Any] = {}
-        if tool in ("get_customer_outstanding", "draft_payment_reminder") and customer_name:
-            args["customer_name"] = customer_name
+        if tool in ("get_customer_outstanding", "draft_payment_reminder"):
+            if hint:
+                args["customer_id"] = hint["customer_id"]
+            elif customer_name:
+                args["customer_name"] = customer_name
         if tool == "get_sales_totals" and "yesterday" in (content or "").lower():
             args["days"] = 1
         try:
             result = executor.run(tool, args)
         except BusinessRuleError as exc:
-            chunks.append(f"{tool}: {exc}")
+            chunks.append(str(exc))
             continue
         cite = result.pop("citation", None)
         if cite:
             citations.append(cite)
-        if result.get("proposed_action"):
+        if result.get("needs_clarification"):
+            proposed = _clarify_action(result)
+        elif result.get("proposed_action"):
             proposed = result["proposed_action"]
-        chunks.append(f"**{tool}**: {json.dumps(result, default=str)[:1200]}")
-    reply = (
-        "Here is what your BizBoard documents show (tool-grounded — not tax advice):\n\n"
-        + "\n\n".join(chunks)
-    )
-    if proposed:
-        reply += "\n\nA reminder draft is ready — confirm to send (nothing was sent yet)."
+        chunks.append(_format_tool_result(tool, result))
+    reply = "\n\n".join(chunks)
+    if proposed and proposed.get("type") == "send_reminder":
+        reply += "\n\nConfirm below to send it. Nothing has been sent yet."
     return reply, citations, proposed, "rules+tools"
 
 
@@ -553,9 +742,12 @@ def _redact_tool_result_for_llm(value):
     return value
 
 
-def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, int, int]:
+def _run_llm_tools(
+    company, content: str, *, cu=None, history: list[dict] | None = None, usage: dict | None = None,
+) -> tuple[str, list, dict | None, str, int, int]:
     from core.services.llm import chat_with_tools
 
+    usage = usage if usage is not None else {"in": 0, "out": 0}
     system = (
         "You are BizBoard Insights assistant. Answer only from tool results. "
         "Never invent tax rates, GSTR filing advice, or cross-company data. "
@@ -565,13 +757,14 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
     first = chat_with_tools(
         messages=[
             {"role": "system", "content": system},
+            *(history or []),
             {"role": "user", "content": content},
         ],
         tools=ASSISTANT_TOOL_SCHEMAS,
     )
-    tokens_in = int((first.get("usage") or {}).get("tokens_in") or 0)
-    tokens_out = int((first.get("usage") or {}).get("tokens_out") or 0)
-    executor = ToolExecutor(company)
+    usage["in"] += int((first.get("usage") or {}).get("tokens_in") or 0)
+    usage["out"] += int((first.get("usage") or {}).get("tokens_out") or 0)
+    executor = ToolExecutor(company, cu)
     citations = []
     proposed = None
     tool_notes = []
@@ -596,7 +789,9 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
         cite = result.pop("citation", None)
         if cite:
             citations.append(cite)
-        if result.get("proposed_action"):
+        if result.get("needs_clarification"):
+            proposed = _clarify_action(result)
+        elif result.get("proposed_action"):
             proposed = result["proposed_action"]
         # B9-008: proposed_action + customer contact PII belong in the API
         # response for the UI, not in the LLM context. Strip them before the
@@ -626,7 +821,7 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
             reply += "\n\n(AI budget reached — returning tool results without a summary.)"
             return (
                 reply, citations, proposed,
-                first.get("model") or "llm+tools", tokens_in, tokens_out,
+                first.get("model") or "llm+tools", usage["in"], usage["out"],
             )
         second = chat_with_tools(
             messages=[
@@ -661,17 +856,17 @@ def _run_llm_tools(company, content: str) -> tuple[str, list, dict | None, str, 
             ],
             tools=[],
         )
-        tokens_in += int((second.get("usage") or {}).get("tokens_in") or 0)
-        tokens_out += int((second.get("usage") or {}).get("tokens_out") or 0)
+        usage["in"] += int((second.get("usage") or {}).get("tokens_in") or 0)
+        usage["out"] += int((second.get("usage") or {}).get("tokens_out") or 0)
         reply = second.get("content") or "\n".join(tool_notes)
         if truncation_warning and "[truncated]" not in reply.lower():
             reply += "\n\nNote: some tool data was truncated for length."
     else:
-        reply = first.get("content") or "I could not find relevant tools for that question."
-    if proposed:
+        reply = first.get("content") or HELP_REPLY
+    if proposed and proposed.get("type") == "send_reminder":
         reply += "\n\nA reminder draft is ready — confirm to send (nothing was sent yet)."
     model = first.get("model") or "llm+tools"
-    return reply, citations, proposed, model, tokens_in, tokens_out
+    return reply, citations, proposed, model, usage["in"], usage["out"]
 
 
 def _scrub_tax_output(text: str) -> str:
@@ -682,48 +877,108 @@ def _scrub_tax_output(text: str) -> str:
     return cleaned or TAX_REFUSAL
 
 
-def run_assistant_turn(company, user, thread: AssistantThread, content: str) -> AssistantMessage:
+def _history_for_llm(thread, exclude_id, limit: int = 6) -> list[dict]:
+    rows = (
+        AssistantMessage.objects.filter(
+            thread=thread, role__in=[AssistantMessage.Role.USER, AssistantMessage.Role.ASSISTANT],
+        )
+        .exclude(pk=exclude_id)
+        .order_by("-id")[:limit]
+    )
+    return [{"role": m.role, "content": (m.content or "")[:1500]} for m in reversed(list(rows))]
+
+
+def _hint_from_follow_up(thread, exclude_id, content: str) -> dict | None:
+    """A typed answer to "which customer?" keeps the action it was asked for."""
+    last = (
+        AssistantMessage.objects.filter(thread=thread, role=AssistantMessage.Role.ASSISTANT)
+        .exclude(pk=exclude_id)
+        .order_by("-id")
+        .first()
+    )
+    pa = last.proposed_action if last else None
+    if not isinstance(pa, dict) or pa.get("type") != "clarify":
+        return None
+    typed = (content or "").strip().lower()
+    for cand in pa.get("candidates") or []:
+        if typed and typed == str(cand.get("customer_name", "")).strip().lower():
+            return {"action": pa.get("action") or "get_customer_outstanding", "customer_id": cand["customer_id"]}
+    return None
+
+
+def _valid_hint(hint) -> dict | None:
+    if not isinstance(hint, dict):
+        return None
+    action = hint.get("action")
+    if action not in ("draft_payment_reminder", "get_customer_outstanding"):
+        return None
+    try:
+        return {"action": action, "customer_id": int(hint.get("customer_id"))}
+    except (TypeError, ValueError):
+        return None
+
+
+def run_assistant_turn(
+    company, user, thread: AssistantThread, content: str, *, cu=None, hint: dict | None = None,
+) -> AssistantMessage:
     if not company.ai_features_enabled:
         raise BusinessRuleError("AI features are disabled for this company.")
     assert_within_budget(company)
-    # B9-044: persist the user message + the assistant reply as a pair. If any
-    # step below raises, the user message rolls back too — no orphan user turn
-    # with no reply, and no duplicated text on retry.
-    with transaction.atomic():
-        return _run_assistant_turn_inner(company, user, thread, content)
-
-
-def _run_assistant_turn_inner(company, user, thread, content):
-    AssistantMessage.objects.create(
-        thread=thread,
-        role=AssistantMessage.Role.USER,
-        content=content,
+    # INP-09: the model call runs outside any transaction. The user message is saved first and
+    # removed again if no reply can be produced, so there is no orphan turn and no duplicate on retry.
+    user_msg = AssistantMessage.objects.create(
+        thread=thread, role=AssistantMessage.Role.USER, content=content,
     )
+    try:
+        return _run_assistant_turn_inner(company, user, thread, content, user_msg, cu=cu, hint=hint)
+    except BaseException:
+        user_msg.delete()
+        raise
 
+
+def _run_assistant_turn_inner(company, user, thread, content, user_msg, *, cu=None, hint=None):
     citations: list = []
     proposed = None
     model_name = "rules+tools"
-    tokens_in = max(1, len(content) // 4)
-    tokens_out = 1
+    mode = "basic"
+    tokens_in = 0
+    tokens_out = 0
+    notice = ""
 
-    if _looks_like_tax_question(content or ""):
+    hint = _valid_hint(hint) or _hint_from_follow_up(thread, user_msg.id, content)
+
+    if not hint and _looks_like_tax_question(content or ""):
         reply = TAX_REFUSAL
         citations = [{"path": "/reports/gst-health", "label": "GST Health"}]
     else:
         used_llm = False
-        try:
-            from core.services.llm import llm_api_key_configured
+        usage = {"in": 0, "out": 0}
+        if not hint:
+            try:
+                from core.services.llm import llm_api_key_configured
 
-            if llm_api_key_configured():
-                reply, citations, proposed, model_name, tokens_in, tokens_out = _run_llm_tools(
-                    company, content,
-                )
-                used_llm = True
-        except Exception:
-            used_llm = False
+                if llm_api_key_configured():
+                    history = _history_for_llm(thread, user_msg.id)
+                    reply, citations, proposed, model_name, tokens_in, tokens_out = _run_llm_tools(
+                        company, content, cu=cu, history=history, usage=usage,
+                    )
+                    used_llm = True
+                    mode = "ai"
+            except Exception:
+                logger.exception("Assistant LLM call failed for company %s", company.pk)
+                notice = "The AI service is unavailable right now, so this is a basic answer.\n\n"
+                if usage["in"] or usage["out"]:
+                    # Tokens were spent before the failure: record them.
+                    record_usage(
+                        company, feature=AiUsageLedger.Feature.ASSISTANT,
+                        tokens_in=max(1, usage["in"]), tokens_out=max(1, usage["out"]),
+                        model_name="llm-error",
+                    )
         if not used_llm:
-            reply, citations, proposed, model_name = _run_rules_fallback(company, content)
-            tokens_out = max(1, len(reply) // 4)
+            reply, citations, proposed, model_name = _run_rules_fallback(
+                company, content, cu=cu, hint=hint,
+            )
+            reply = notice + reply
         # BB-000409 / BB-000488: scrub model/rules output that still emits tax advice.
         if TAX_OUTPUT_ADVICE.search(reply or ""):
             reply = TAX_REFUSAL
@@ -738,33 +993,64 @@ def _run_assistant_turn_inner(company, user, thread, content):
             else:
                 reply = scrubbed
 
-    record_usage(
-        company,
-        feature=AiUsageLedger.Feature.ASSISTANT,
-        tokens_in=max(1, tokens_in),
-        tokens_out=max(1, tokens_out),
-        model_name=model_name,
-    )
+    # Only real model usage is billed against the monthly budget.
+    if mode == "ai":
+        record_usage(
+            company,
+            feature=AiUsageLedger.Feature.ASSISTANT,
+            tokens_in=max(1, tokens_in),
+            tokens_out=max(1, tokens_out),
+            model_name=model_name,
+        )
 
     return AssistantMessage.objects.create(
         thread=thread,
         role=AssistantMessage.Role.ASSISTANT,
         content=reply,
+        tool_name=mode,
         citations=citations,
         proposed_action=proposed,
     )
 
 
-def confirm_proposed_action(company, user, message_id: int) -> dict:
-    """Execute a confirmed assistant proposal from a stored message only."""
+def _audit(company, user, action, msg, **meta):
+    from core.services.audit import AuditService
+
+    AuditService.log(
+        action=action, company=company, user=user, entity_type="AssistantMessage",
+        entity_id=msg.id, description=action.replace(".", " "), metadata=meta,
+    )
+
+
+def _owned_message(company, user, message_id: int, *, lock: bool = False) -> AssistantMessage:
+    """INP-02: a message is reachable only from a thread its caller created."""
+    qs = AssistantMessage.objects.select_related("thread")
+    if lock:
+        qs = qs.select_for_update(of=("self",))
     try:
-        msg = AssistantMessage.objects.select_related("thread").get(
-            pk=message_id,
-            thread__company=company,
-            role=AssistantMessage.Role.ASSISTANT,
+        msg = qs.get(
+            pk=message_id, thread__company=company, role=AssistantMessage.Role.ASSISTANT,
         )
     except AssistantMessage.DoesNotExist as exc:
         raise BusinessRuleError("Assistant message not found.") from exc
+    if user is not None and msg.thread.created_by_id != getattr(user, "id", None):
+        raise BusinessRuleError("Assistant message not found.")
+    return msg
+
+
+def confirm_proposed_action(company, user, message_id: int, cu=None) -> dict:
+    """Execute a confirmed assistant proposal from a stored message only.
+
+    The message row is locked for the whole call and the proposal is cleared in the same
+    transaction, so two clicks (or two tabs) cannot both send. A send that fails outright rolls
+    the transaction back, which also restores the proposal.
+    """
+    with transaction.atomic():
+        return _confirm_locked(company, user, message_id, cu)
+
+
+def _confirm_locked(company, user, message_id: int, cu) -> dict:
+    msg = _owned_message(company, user, message_id, lock=True)
 
     proposed_action = msg.proposed_action
     if not isinstance(proposed_action, dict) or not proposed_action:
@@ -785,6 +1071,7 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
         msg.save(update_fields=["proposed_action"])
         return {
             "sent": False,
+            "status": "done",
             "type": action_type,
             "path": proposed_action.get("path") or "",
             "label": proposed_action.get("label") or "",
@@ -796,6 +1083,7 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
         msg.save(update_fields=["proposed_action"])
         return {
             "sent": False,
+            "status": "done",
             "type": action_type,
             "draft": True,
             "payload": {
@@ -805,6 +1093,9 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
             },
         }
 
+    if not cu_has_access(cu, "reminder"):
+        raise BusinessRuleError("Your role is not allowed to send payment reminders.")
+
     text = (proposed_action.get("text") or "").strip()
     if not text:
         raise BusinessRuleError("Reminder text required.")
@@ -812,7 +1103,7 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
     if action_type == "copy_reminder":
         msg.proposed_action = None
         msg.save(update_fields=["proposed_action"])
-        return {"sent": False, "copied": True, "text": text}
+        return {"sent": False, "status": "done", "copied": True, "text": text}
 
     from core.models import Notification
     from core.services.notifications import NotificationService
@@ -829,6 +1120,10 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
     email = ((cust.email if cust else "") or proposed_action.get("email") or "").strip()
     phone = ((cust.phone if cust else "") or proposed_action.get("phone") or "").strip()
 
+    # Cleared before the send, inside the lock: a second confirm now sees nothing to send.
+    msg.proposed_action = None
+    msg.save(update_fields=["proposed_action"])
+
     if email:
         n = NotificationService.send(
             company=company,
@@ -838,10 +1133,17 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
             body=text,
             user=user,
         )
-        msg.proposed_action = None
-        msg.save(update_fields=["proposed_action"])
+        if n.status == Notification.Status.FAILED:
+            raise BusinessRuleError(
+                f"The reminder could not be sent: {n.error or 'the mail service refused it'}. "
+                "Nothing was sent; try again once email is working."
+            )
+        status = "sent" if n.status == Notification.Status.SENT else "queued"
+        _audit(company, user, "assistant.reminder.confirmed", msg,
+               channel="EMAIL", status=status, notification_id=n.id, customer_id=customer_id)
         return {
             "sent": True,
+            "status": status,
             "channel": "EMAIL",
             "notification_id": n.id,
             "recipient": email,
@@ -856,29 +1158,46 @@ def confirm_proposed_action(company, user, message_id: int) -> dict:
             user=user,
             allow_cloud=cloud_allowed_for_recipient(cust, phone),
         )
-        msg.proposed_action = None
-        msg.save(update_fields=["proposed_action"])
+        link = n.share_link if str(n.share_link or "").startswith("http") else ""
+        if n.status == Notification.Status.SENT:
+            status = "sent"
+        elif n.status == Notification.Status.LINK_READY:
+            status = "link_ready"
+        else:
+            status = "failed"
+        if status == "failed" and not link:
+            # Not delivered by BizBoard, but the person can still send it themselves from a chat link.
+            from urllib.parse import quote
+
+            digits = "".join(c for c in phone if c.isdigit())
+            if digits:
+                link = f"https://wa.me/{digits}?text={quote(text[:1000])}"
+        if status == "failed" and not link:
+            raise BusinessRuleError(
+                f"The WhatsApp reminder could not be sent: {n.error or 'delivery failed'}. Nothing was sent."
+            )
+        _audit(company, user, "assistant.reminder.confirmed", msg,
+               channel="WHATSAPP", status=status, notification_id=n.id, customer_id=customer_id)
         return {
-            "sent": False,
-            "requires_user_share": True,
+            "sent": status == "sent",
+            "status": status,
+            "requires_user_share": bool(link),
             "channel": "WHATSAPP",
             "notification_id": n.id,
-            "share_link": n.share_link,
+            "share_link": link,
+            "error": n.error or "",
         }
     raise BusinessRuleError("Customer has no email or phone to send a reminder.")
 
 
-def dismiss_proposed_action(company, message_id: int) -> dict:
-    try:
-        msg = AssistantMessage.objects.select_related("thread").get(
-            pk=message_id,
-            thread__company=company,
-            role=AssistantMessage.Role.ASSISTANT,
-        )
-    except AssistantMessage.DoesNotExist as exc:
-        raise BusinessRuleError("Assistant message not found.") from exc
-    if not msg.proposed_action:
+def dismiss_proposed_action(company, message_id: int, user=None) -> dict:
+    with transaction.atomic():
+        msg = _owned_message(company, user, message_id, lock=True)
+        if not msg.proposed_action:
+            return {"dismissed": True}
+        kind = (msg.proposed_action or {}).get("type") if isinstance(msg.proposed_action, dict) else ""
+        msg.proposed_action = None
+        msg.save(update_fields=["proposed_action"])
+        if kind in ("send_reminder", "copy_reminder"):
+            _audit(company, user, "assistant.reminder.dismissed", msg)
         return {"dismissed": True}
-    msg.proposed_action = None
-    msg.save(update_fields=["proposed_action"])
-    return {"dismissed": True}

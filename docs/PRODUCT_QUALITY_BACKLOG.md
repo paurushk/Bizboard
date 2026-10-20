@@ -9,10 +9,10 @@ PRODUCT QUALITY BACKLOG - dashboard
 
 🔴 Critical bugs              :   0   guarded: 0/1
 🟠 User dissatisfaction       :   1
-🟡 Usability improvements     :   4
+🟡 Usability improvements     :   5
 🟣 Persona gaps               :   1
 🔵 Business gaps              :   5
-🟤 Reliability & trust issues :  13
+🟤 Reliability & trust issues :  15
 🔗 Cross-flow consistency     :   0
 🟢 Performance improvements   :   1
 ⚫ Security & privacy fixes   :   4
@@ -22,7 +22,7 @@ PRODUCT QUALITY BACKLOG - dashboard
 Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 33 open)
+## Do next - sequenced frontier (top 12 of 36 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
@@ -56,7 +56,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0029](../qos/backlog/QOS-0029.yaml) | UX readiness is untested with real non-technical staff (readiness dim 4) | P2,P4,P5 | A first-time non-technical operator running a daily task unaided | P1-investigate | L | hypothesis | High | founder | open |
 | [QOS-0025](../qos/backlog/QOS-0025.yaml) | No regression guard for non-owner 403-spamming queries (UX-002) | P2,P5 | First page load as a non-owner role | P2 | S | heuristic | High | web | fixed |
 
-## 3. 🟡 Usability improvements  (4 open / 8 tracked)
+## 3. 🟡 Usability improvements  (5 open / 9 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -68,6 +68,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0026](../qos/backlog/QOS-0026.yaml) | No visual-regression guard for mobile-viewport clipping (UX-003/004/005) | P1,P2 | Using the app on a phone-width viewport | P2 | M | heuristic | Medium | web | fixed |
 | [QOS-0113](../qos/backlog/QOS-0113.yaml) | A partly converted quotation could neither be cancelled nor stop blocking a unit change | P1,P2 | Abandon the unconverted rest of a quotation | P2 | M | heuristic | Low | backend | fixed |
 | [QOS-0100](../qos/backlog/QOS-0100.yaml) | Several UX improvements are deferred and need a founder decision | P1 | Reconciliation, navigation and POS lots | P3 | M | heuristic | Low | founder | open |
+| [QOS-0139](../qos/backlog/QOS-0139.yaml) | Needs attention and dashboard: a check on one physical phone | P1 | Use the dashboard and Needs attention page on a phone in bright light | P3 | S | heuristic | Low | founder | open |
 
 ## 4. 🟣 Persona gaps  (1 open / 6 tracked)
 
@@ -108,7 +109,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0127](../qos/backlog/QOS-0127.yaml) | Credit notes: enforce the annual-return filing date in the Section 34(2) time limit | P1 | Issue a credit note late in the financial year after the annual return | P3 | M | heuristic | Low | founder | fixed |
 
-## 6. 🟤 Reliability & trust issues  (13 open / 42 tracked)
+## 6. 🟤 Reliability & trust issues  (15 open / 45 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -154,6 +155,9 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0134](../qos/backlog/QOS-0134.yaml) | Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI | P1 | Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or milestone at once | P3 | S | heuristic | Low | founder | open |
 | [QOS-0135](../qos/backlog/QOS-0135.yaml) | Customer care and jobs: Hindi wording review | P1 | A shop owner who works in Hindi uses tickets, complaints, jobs, contracts and projects | P3 | S | heuristic | Low | founder | open |
 | [QOS-0136](../qos/backlog/QOS-0136.yaml) | Customer care and jobs: warranty, commission and renewal accounting sign-off | P1 | A company gives parts free under warranty, bills a contract on a cadence, or renews it in place | P3 | S | heuristic | Low | founder | open |
+| [QOS-0137](../qos/backlog/QOS-0137.yaml) | Needs attention: a native-speaker review of the new Hindi strings | P1 | Run the Needs attention page and dashboard in Hindi | P3 | S | heuristic | Low | founder | open |
+| [QOS-0138](../qos/backlog/QOS-0138.yaml) | Needs attention: what the Amount involved column means, signed off by an accountant | P1 | An owner reads the amount beside an overdue, GST or unposted-payment row and decides what to do | P3 | S | heuristic | Low | founder | open |
+| [QOS-0140](../qos/backlog/QOS-0140.yaml) | Needs attention: two people dismissing or snoozing the same item at once, on Postgres | P1 | Two staff act on the same Needs attention row at the same moment | P3 | S | heuristic | Low | founder | fixed |
 
 ## 7. 🔗 Cross-flow consistency  (0 open / 3 tracked)
 

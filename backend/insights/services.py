@@ -56,24 +56,39 @@ def upsert_alerts(company, as_of: date | None = None) -> list[BusinessAlertEvent
     now = timezone.now()
     kept_keys = set()
     results = []
+    # INP-15: runs for one company take turns (a no-op on SQLite), so two refreshes cannot both
+    # insert the same new alert and trip the unique constraint.
+    type(company).objects.select_for_update().filter(pk=company.pk).first()
+    # Lock this company's live rows for the run and collapse any
+    # duplicate (code, subject) pairs left by concurrent runs: newest wins, older ones resolve.
+    live = list(
+        BusinessAlertEvent.objects.select_for_update()
+        .filter(
+            company=company,
+            status__in=[BusinessAlertEvent.Status.OPEN, BusinessAlertEvent.Status.SNOOZED],
+        )
+        .order_by("-created_at", "-id")
+    )
+    by_key: dict[tuple[str, str], BusinessAlertEvent] = {}
+    for ev in live:
+        k = (ev.code, ev.subject_key)
+        if k in by_key:
+            ev.status = BusinessAlertEvent.Status.RESOLVED
+            ev.save(update_fields=["status", "updated_at"])
+        else:
+            by_key[k] = ev
     for row in raw:
         subject = row.get("subject_key") or ""
         key = f"{row['code']}:{subject}"
         kept_keys.add(key)
-        existing = (
-            BusinessAlertEvent.objects.filter(
-                company=company, code=row["code"], subject_key=subject,
-            )
-            .exclude(status=BusinessAlertEvent.Status.RESOLVED)
-            .order_by("-created_at")
-            .first()
-        )
+        existing = by_key.get((row["code"], subject))
         if existing and existing.status == BusinessAlertEvent.Status.SNOOZED:
             if existing.snoozed_until and existing.snoozed_until > now:
                 results.append(existing)
                 continue
             existing.status = BusinessAlertEvent.Status.OPEN
             existing.snoozed_until = None
+            existing.snoozed_by = None
         extras = {k: v for k, v in row.items() if k not in ("code", "severity", "message", "subject_key", "cta_path")}
         nested = extras.pop("payload", None)
         if isinstance(nested, dict):
@@ -244,8 +259,20 @@ def _maybe_send_digest_email(company, summary: DailyBusinessSummary, open_alerts
         raise
 
 
+WHATSAPP_DIGEST_TEMPLATE_READY = False
+
+
 def _maybe_send_digest_whatsapp(company, summary: DailyBusinessSummary, open_alerts: list) -> None:
-    """Owner digest on WhatsApp. Capped at 5 items. Same day is sent once."""
+    """Owner digest on WhatsApp. Capped at 5 items. Same day is sent once.
+
+    INP-06: held back until a dedicated digest template is registered with the provider. Until then
+    NotificationService.send would send this under the "payment_reminder" template, so the owner
+    would receive their digest as a payment reminder.
+    """
+    if not WHATSAPP_DIGEST_TEMPLATE_READY:
+        return
+    if not getattr(company, "daily_summary_email_enabled", False):
+        return
     from accounts.models import CompanyUser
     from core.models import Notification
     from core.services.notifications import NotificationService
@@ -311,12 +338,101 @@ def _grade(score: Decimal) -> str:
     return "F"
 
 
-def compute_health_score(company, as_of: date | None = None) -> dict:
+HEALTH_BAND_HEALTHY = Decimal("70")
+HEALTH_BAND_WATCH = Decimal("45")
+
+
+def health_band(score) -> str:
+    """The word the dashboard shows. Thresholds live here, not in the UI."""
+    value = Decimal(str(score))
+    if value >= HEALTH_BAND_HEALTHY:
+        return "healthy"
+    if value >= HEALTH_BAND_WATCH:
+        return "watch"
+    return "action"
+
+
+HEALTH_MIN_INVOICES_90D = 30
+UNDATED_PAYABLE_GRACE_DAYS = 30
+MARGIN_ALERT_CODES = frozenset({
+    "MARGIN_COMPRESSION", "MARGIN_DROP_SKU", "PURCHASE_PRICE_JUMP", "SALE_BELOW_COST",
+})
+MARGIN_HINT_CODES = frozenset({"MARGIN_DROP_SKU", "PURCHASE_PRICE_CREEP"})
+
+
+def _net_sales(company, start: date, end: date) -> Decimal:
+    """Sales net of credit/debit notes, opening balances excluded: the dashboard's definition."""
+    from reporting.services import NET_SALES
+    from sales.models import SalesCreditNote, SalesDebitNote
+
+    gross = (
+        SalesInvoice.objects.filter(
+            company=company, status__in=NET_SALES, invoice_date__gte=start,
+            invoice_date__lte=end, is_opening_balance=False,
+        ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+        or Decimal("0")
+    )
+    cn = (
+        SalesCreditNote.objects.filter(
+            company=company, status=SalesCreditNote.Status.COMPLETED,
+            note_date__gte=start, note_date__lte=end,
+        ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+        or Decimal("0")
+    )
+    dn = (
+        SalesDebitNote.objects.filter(
+            company=company, status=SalesDebitNote.Status.COMPLETED,
+            note_date__gte=start, note_date__lte=end,
+        ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
+        or Decimal("0")
+    )
+    return gross - cn + dn
+
+
+def _open_payables_split(company, as_of: date) -> tuple[Decimal, Decimal]:
+    """(total open AP, overdue AP). A bill with no due date and no terms gets a 30-day grace."""
+    outs = LedgerService.bulk_purchase_invoice_outstanding(company)
+    if not outs:
+        return Decimal("0"), Decimal("0")
+    total = Decimal("0")
+    overdue = Decimal("0")
+    for inv in PurchaseInvoice.objects.filter(pk__in=list(outs)).only(
+        "id", "invoice_date", "due_date", "payment_terms_days",
+    ):
+        amount = outs.get(inv.id) or Decimal("0")
+        if amount <= 0:
+            continue
+        total += amount
+        if inv.due_date:
+            due = inv.due_date
+        else:
+            terms = inv.payment_terms_days or UNDATED_PAYABLE_GRACE_DAYS
+            due = inv.invoice_date + timedelta(days=terms)
+        if due < as_of:
+            overdue += amount
+    return total, overdue
+
+
+def _factor(key, label, score, weight, detail, *, available=True):
+    return {
+        "key": key,
+        "label": label,
+        "score": _q2(score) if available and score is not None else None,
+        "weight": str(weight),
+        "detail": detail,
+        "available": bool(available and score is not None),
+    }
+
+
+def compute_health_score(company, as_of: date | None = None, *, include_margin: bool = True) -> dict:
     as_of = as_of or timezone.localdate()
+    month_start = as_of.replace(day=1)
+    # INP-05: "enough data" is recent activity, not lifetime count.
     sales_count = SalesInvoice.objects.filter(
-        company=company, status__in=OPEN_SALES,
+        company=company, status__in=OPEN_SALES, invoice_date__gte=as_of - timedelta(days=90),
+        invoice_date__lte=as_of,
     ).count()
-    limited = sales_count < MIN_SALES_FOR_FULL_SCORE
+    limited = sales_count < HEALTH_MIN_INVOICES_90D
 
     aging = ReportService.receivables_aging(company, as_of=as_of)
     ar = sum(aging.values(), Decimal("0"))
@@ -325,68 +441,62 @@ def compute_health_score(company, as_of: date | None = None) -> dict:
     if ar > 0:
         collections_score = (current / ar) * Decimal("100")
 
-    payables = ReportService._company_payables(company)
-    mtd_supplier_payments = Decimal("0")
-    from payments.models import SupplierPayment
+    # D6: share of open payables that is not yet overdue.
+    ap_total, ap_overdue = _open_payables_split(company, as_of)
+    payables_score = Decimal("100")
+    if ap_total > 0:
+        payables_score = (ap_total - ap_overdue) / ap_total * Decimal("100")
 
-    month_start = as_of.replace(day=1)
-    mtd_supplier_payments = (
-        SupplierPayment.objects.filter(
-            company=company,
-            payment_date__gte=month_start,
-            payment_date__lte=as_of,
-        ).aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
-        or Decimal("0")
-    )
-    payables_score = Decimal("80")
-    if payables > 0 and mtd_supplier_payments > 0:
-        ratio = min(Decimal("2"), mtd_supplier_payments / payables)
-        payables_score = min(Decimal("100"), ratio * Decimal("50"))
-    elif payables == 0:
-        payables_score = Decimal("100")
-
-    # Sales momentum: this 7d vs prior 7d
+    # Sales momentum: this 7d vs prior 7d, opening-balance invoices excluded.
     d7 = as_of - timedelta(days=6)
     d14 = as_of - timedelta(days=13)
     recent = (
         SalesInvoice.objects.filter(
             company=company, status__in=OPEN_SALES, invoice_date__gte=d7, invoice_date__lte=as_of,
+            is_opening_balance=False,
         ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
         or Decimal("0")
     )
     prior = (
         SalesInvoice.objects.filter(
             company=company, status__in=OPEN_SALES, invoice_date__gte=d14, invoice_date__lt=d7,
+            is_opening_balance=False,
         ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
         or Decimal("0")
     )
     if prior > 0:
-        mom = recent / prior
-        sales_score = min(Decimal("100"), mom * Decimal("70"))
+        sales_score = min(Decimal("100"), (recent / prior) * Decimal("70"))
     elif recent > 0:
         sales_score = Decimal("70")
     else:
         sales_score = Decimal("40")
 
-    # Margin proxy: selling vs purchase price on recent lines
-    from sales.models import SalesItem
+    # Margin: from the per-invoice profit snapshots (cost at the time of sale).
+    margin_score = None
+    margin_detail = "Margin figures need margin access."
+    if include_margin:
+        from reporting.models import InvoiceProfitSnapshot
 
-    items = SalesItem.objects.filter(
-        invoice__company=company,
-        invoice__status__in=OPEN_SALES,
-        invoice__invoice_date__gte=month_start,
-    ).select_related("product")[:500]
-    margin_score = Decimal("70")
-    if items:
-        gross = Decimal("0")
-        cost = Decimal("0")
-        for it in items:
-            qty = it.quantity or Decimal("0")
-            gross += (it.unit_price or Decimal("0")) * qty
-            cost += (getattr(it.product, "purchase_price", None) or Decimal("0")) * qty
-        if gross > 0:
-            m = (gross - cost) / gross
+        agg = (
+            InvoiceProfitSnapshot.objects.filter(
+                company=company, invoice_date__gte=month_start, invoice_date__lte=as_of,
+                invoice_status__in=list(OPEN_SALES),
+            )
+            .exclude(cost_basis__in=[
+                InvoiceProfitSnapshot.CostBasis.ZERO_COST, InvoiceProfitSnapshot.CostBasis.NO_COGS,
+            ])
+            .aggregate(
+                rev=Coalesce(Sum("revenue_pre_discount"), Decimal("0")),
+                cogs=Coalesce(Sum("cogs_total"), Decimal("0")),
+            )
+        )
+        rev, cogs = _dec(agg["rev"]), _dec(agg["cogs"])
+        if rev > 0:
+            m = (rev - cogs) / rev
             margin_score = min(Decimal("100"), max(Decimal("0"), m * Decimal("200")))
+            margin_detail = f"Gross margin {(m * 100).quantize(Decimal('0.1'))}% this month on costed invoices"
+        else:
+            margin_detail = "No costed invoices this month yet."
 
     # Stock health
     bals = list(
@@ -402,17 +512,18 @@ def compute_health_score(company, as_of: date | None = None) -> dict:
         )
         stock_score = Decimal("100") - Decimal(low) / Decimal(len(bals)) * Decimal("100")
 
-    # Compliance bridge
-    compliance_score = Decimal("90")
+    # Compliance bridge: a failure is shown as unavailable, not as a made-up 50.
+    compliance_score = None
+    compliance_detail = "GST health could not be read right now."
     try:
         from reporting.gst_health import build_gst_health
 
         gst = build_gst_health(company)
         crit = (gst.get("summary") or {}).get("critical") or 0
         compliance_score = max(Decimal("0"), Decimal("100") - Decimal(crit) * Decimal("15"))
+        compliance_detail = "Inverse of open GST Health criticals"
     except Exception:
         logger.exception("GST health score failed for company %s", company.pk)
-        compliance_score = Decimal("50")
 
     # Data completeness — HSN on recent GST invoices
     gst_inv = SalesInvoice.objects.filter(
@@ -429,64 +540,51 @@ def compute_health_score(company, as_of: date | None = None) -> dict:
                     break
         data_score = Decimal("100") - Decimal(missing) / Decimal(min(total_gst, 200)) * Decimal("100")
 
+    W = FACTOR_WEIGHTS
     factors = [
-        {"key": "collections", "label": "Collections", "score": _q2(collections_score),
-         "weight": str(FACTOR_WEIGHTS["collections"]),
-         "detail": f"Current AR share of total AR"},
-        {"key": "payables", "label": "Payables pressure", "score": _q2(payables_score),
-         "weight": str(FACTOR_WEIGHTS["payables"]),
-         "detail": f"AP ₹{_q2(payables)} vs MTD supplier payments ₹{_q2(mtd_supplier_payments)}"},
-        {"key": "sales_momentum", "label": "Sales momentum", "score": _q2(sales_score),
-         "weight": str(FACTOR_WEIGHTS["sales_momentum"]),
-         "detail": f"Last 7d ₹{_q2(recent)} vs prior 7d ₹{_q2(prior)}"},
-        {"key": "margin", "label": "Margin health", "score": _q2(margin_score),
-         "weight": str(FACTOR_WEIGHTS["margin"]),
-         "detail": "Gross margin proxy using last purchase price"},
-        {"key": "stock", "label": "Stock health", "score": _q2(stock_score),
-         "weight": str(FACTOR_WEIGHTS["stock"]),
-         "detail": "Share of SKUs above reorder"},
-        {"key": "compliance", "label": "Compliance bridge", "score": _q2(compliance_score),
-         "weight": str(FACTOR_WEIGHTS["compliance"]),
-         "detail": "Inverse of open GST Health criticals"},
-        {"key": "data_completeness", "label": "Data completeness", "score": _q2(data_score),
-         "weight": str(FACTOR_WEIGHTS["data_completeness"]),
-         "detail": "HSN coverage on GST invoices"},
+        _factor("collections", "Collections", collections_score, W["collections"],
+                "Current AR share of total AR"),
+        _factor("payables", "Payables pressure", payables_score, W["payables"],
+                f"Not-yet-overdue share of open AP (AP ₹{_q2(ap_total)}, overdue ₹{_q2(ap_overdue)}; "
+                f"undated bills get {UNDATED_PAYABLE_GRACE_DAYS} days)"),
+        _factor("sales_momentum", "Sales momentum", sales_score, W["sales_momentum"],
+                f"Last 7d ₹{_q2(recent)} vs prior 7d ₹{_q2(prior)}"),
+        _factor("margin", "Margin health", margin_score, W["margin"], margin_detail,
+                available=margin_score is not None),
+        _factor("stock", "Stock health", stock_score, W["stock"], "Share of SKUs above reorder"),
+        _factor("compliance", "Compliance bridge", compliance_score, W["compliance"],
+                compliance_detail, available=compliance_score is not None),
+        _factor("data_completeness", "Data completeness", data_score, W["data_completeness"],
+                "HSN coverage on GST invoices"),
     ]
-    score = sum(
-        (Decimal(f["score"]) * Decimal(f["weight"]) for f in factors),
-        Decimal("0"),
-    )
+    live = [f for f in factors if f["available"]]
+    weight_sum = sum((Decimal(f["weight"]) for f in live), Decimal("0")) or Decimal("1")
+    score = sum((Decimal(f["score"]) * Decimal(f["weight"]) for f in live), Decimal("0")) / weight_sum
     score = score.quantize(Decimal("0.01"))
 
-    # MTD vs prior month sales (for Founder UI) — same definition as dashboard KPIs.
-    dash = ReportService.dashboard(company)
-    mtd_sales = _dec((dash.get("sales_this_month") or {}).get("total"))
-    if month_start.month == 1:
-        prior_month_start = month_start.replace(year=month_start.year - 1, month=12)
-    else:
-        prior_month_start = month_start.replace(month=month_start.month - 1)
+    # MTD vs the same day-range of the prior month, same definition on both sides.
+    mtd_sales = _net_sales(company, month_start, as_of)
     prior_month_end = month_start - timedelta(days=1)
-    # CR-065: same opening exclusion as dashboard KPIs (is_opening_balance).
-    prior_mtd = (
-        SalesInvoice.objects.filter(
-            company=company,
-            status__in=OPEN_SALES,
-            invoice_date__gte=prior_month_start,
-            invoice_date__lte=prior_month_end,
-            is_opening_balance=False,
-        ).aggregate(t=Coalesce(Sum("grand_total"), Decimal("0")))["t"]
-        or Decimal("0")
-    )
+    prior_month_start = prior_month_end.replace(day=1)
+    prior_same_end = min(prior_month_end, prior_month_start + timedelta(days=as_of.day - 1))
+    prior_mtd = _net_sales(company, prior_month_start, prior_same_end)
+    change_pct = None
+    if prior_mtd > 0:
+        change_pct = _q2((mtd_sales - prior_mtd) / prior_mtd * Decimal("100"))
 
     return {
         "score": score,
         "grade": _grade(score),
+        "grade_withheld": limited,
+        "band": health_band(score),
         "factors": factors,
         "limited_data": limited,
         "as_of": as_of.isoformat(),
         "sales_count": sales_count,
         "mtd_sales": _q2(mtd_sales),
         "prior_month_sales": _q2(prior_mtd),
+        "prior_month_range_end": prior_same_end.isoformat(),
+        "mtd_change_percent": change_pct,
     }
 
 
@@ -543,6 +641,36 @@ def _collection_rates_heuristic(company, as_of: date) -> dict[str, Decimal]:
     return rates
 
 
+SCENARIO_LOW = Decimal("0.6")
+SCENARIO_HIGH = Decimal("1.2")
+CASHFLOW_EXCLUDED = ["expenses", "payroll", "GST / TDS payments", "loan EMIs", "owner drawings"]
+
+
+def _recorded_cash_since(company, since: date, until: date) -> Decimal:
+    """Posted, cleared receipts minus supplier payments dated after ``since`` and up to ``until``.
+
+    Same filters as the Cash Book (cleared cheques only, credit-mode excluded).
+    """
+    from payments.models import CustomerReceipt, ReceiptStatus, SupplierPayment, SupplierPaymentStatus
+
+    cleared = ReportService._cleared_money_q()
+    inflow = (
+        CustomerReceipt.objects.filter(
+            company=company, status=ReceiptStatus.POSTED,
+            receipt_date__gt=since, receipt_date__lte=until,
+        ).exclude(mode="CREDIT").filter(cleared)
+        .aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+    )
+    outflow = (
+        SupplierPayment.objects.filter(
+            company=company, status=SupplierPaymentStatus.POSTED,
+            payment_date__gt=since, payment_date__lte=until,
+        ).exclude(mode="CREDIT").filter(cleared)
+        .aggregate(t=Coalesce(Sum("amount"), Decimal("0")))["t"]
+    )
+    return _dec(inflow) - _dec(outflow)
+
+
 def forecast_cashflow(
     company, horizon: int = 14, as_of: date | None = None, *, persist: bool = False,
 ) -> dict:
@@ -551,67 +679,100 @@ def forecast_cashflow(
     if horizon not in (7, 14, 30, 90):
         horizon = 14
 
-    mode = "absolute" if company.opening_cash_balance is not None and company.opening_cash_as_of else "relative"
-    opening = _dec(company.opening_cash_balance) if mode == "absolute" else Decimal("0")
+    has_baseline = company.opening_cash_balance is not None and company.opening_cash_as_of
+    mode = "absolute" if has_baseline else "relative"
+    opening = Decimal("0")
+    rolled = Decimal("0")
+    if mode == "absolute":
+        # D1: the balance is as of ``opening_cash_as_of``; add what was recorded after it.
+        opening = _dec(company.opening_cash_balance)
+        if company.opening_cash_as_of < as_of:
+            rolled = _recorded_cash_since(company, company.opening_cash_as_of, as_of)
+    baseline = opening + rolled
 
-    series = []
-    cumulative = Decimal("0")
     aging = ReportService.receivables_aging(company, as_of=as_of)
     rates = _collection_rates_heuristic(company, as_of)
-    expected_in = Decimal("0")
-    for bucket, rate in rates.items():
-        expected_in += (_dec(aging.get(bucket)) * rate)
 
-    daily_in = expected_in / Decimal(horizon) if horizon else Decimal("0")
+    def _expected(mult: Decimal) -> Decimal:
+        total = Decimal("0")
+        for bucket, rate in rates.items():
+            total += _dec(aging.get(bucket)) * min(Decimal("1"), rate * mult)
+        return total
 
+    expected_in = _expected(Decimal("1"))
+    daily_in = {
+        "low": _expected(SCENARIO_LOW) / Decimal(horizon),
+        "base": expected_in / Decimal(horizon),
+        "high": _expected(SCENARIO_HIGH) / Decimal(horizon),
+    }
+
+    # Outflows: every open bill due by the end of the window. Bills already overdue, due today or
+    # with no due date are assumed payable on day 1.
+    first_day = as_of + timedelta(days=1)
+    last_day = as_of + timedelta(days=horizon)
     ap_by_day: dict[date, Decimal] = {}
-    # G-18: RETURNED must count too, matching payables_aging/_ap's own
-    # (COMPLETED, RETURNED) treatment — a fully-returned purchase invoice can
-    # still carry a residual payable.
-    qs = PurchaseInvoice.objects.filter(
-        company=company,
-        status__in=OPEN_PAYABLE_STATUSES,
-        due_date__gte=as_of,
-        due_date__lte=as_of + timedelta(days=horizon),
-    )
-    for inv in qs:
-        if not inv.due_date:
-            continue
-        outstanding = LedgerService.purchase_invoice_outstanding(inv)
-        if outstanding <= 0:
-            continue
-        ap_by_day[inv.due_date] = ap_by_day.get(inv.due_date, Decimal("0")) + outstanding
+    overdue_ap = Decimal("0")
+    undated_ap = Decimal("0")
+    outs = LedgerService.bulk_purchase_invoice_outstanding(company)
+    if outs:
+        qs = PurchaseInvoice.objects.filter(
+            company=company, status__in=OPEN_PAYABLE_STATUSES, pk__in=list(outs),
+        ).only("id", "due_date")
+        for inv in qs:
+            outstanding = outs.get(inv.id) or Decimal("0")
+            if outstanding <= 0:
+                continue
+            if inv.due_date is None:
+                day = first_day
+                undated_ap += outstanding
+            elif inv.due_date <= as_of:
+                day = first_day
+                overdue_ap += outstanding
+            elif inv.due_date <= last_day:
+                day = inv.due_date
+            else:
+                continue
+            ap_by_day[day] = ap_by_day.get(day, Decimal("0")) + outstanding
 
+    series = []
+    cumulative = {"low": Decimal("0"), "base": Decimal("0"), "high": Decimal("0")}
     for i in range(horizon):
-        d = as_of + timedelta(days=i + 1)
+        d = first_day + timedelta(days=i)
         outflow = ap_by_day.get(d, Decimal("0"))
-        inflow = daily_in
+        for k in cumulative:
+            cumulative[k] += daily_in[k] - outflow
+        inflow = daily_in["base"]
         net = inflow - outflow
-        cumulative += net
-        ending = opening + cumulative if mode == "absolute" else cumulative
+        endings = {k: (baseline + v) if mode == "absolute" else v for k, v in cumulative.items()}
         series.append({
             "date": d.isoformat(),
             "inflow": _q2(inflow),
             "outflow": _q2(outflow),
             "net": _q2(net),
-            "cumulative": _q2(cumulative),
-            "ending_cash": _q2(ending),
-            "low": _q2(ending * Decimal("0.85")),
-            "high": _q2(ending * Decimal("1.15")),
+            "cumulative": _q2(cumulative["base"]),
+            "ending_cash": _q2(endings["base"]),
+            "low": _q2(endings["low"]),
+            "high": _q2(endings["high"]),
         })
 
     meta = {
         "mode": mode,
+        "as_of": as_of.isoformat(),
         "expected_collections": _q2(expected_in),
         "collection_rates": {k: str(v) for k, v in rates.items()},
+        "scenario": {"low": str(SCENARIO_LOW), "high": str(SCENARIO_HIGH)},
         "disclaimer": (
-            # B9-029: was "historical collection rates" — the rates are a
-            # fixed heuristic, not computed from this company's actual
-            # payment-timing history; say so rather than overclaim.
-            "Forecast from open documents and heuristic collection rates. "
-            "Payments are record-only — not a bank feed."
+            "Forecast from open documents and fixed heuristic collection rates, not your payment "
+            "history. The range runs collections at 60% to 120% of the base rates. Payments are "
+            "record-only, not a bank feed."
         ),
+        "excluded": CASHFLOW_EXCLUDED,
         "opening_cash": _q2(opening) if mode == "absolute" else None,
+        "baseline_as_of": company.opening_cash_as_of.isoformat() if mode == "absolute" else None,
+        "recorded_since_baseline": _q2(rolled) if mode == "absolute" else None,
+        "starting_cash": _q2(baseline) if mode == "absolute" else None,
+        "overdue_payables": _q2(overdue_ap),
+        "undated_payables": _q2(undated_ap),
     }
     run_id = None
     if persist:
@@ -623,7 +784,7 @@ def forecast_cashflow(
             mode=mode,
             series=series,
             meta=meta,
-            model_version="v1",
+            model_version="v2",
             inputs_hash=inputs_hash,
         )
         run_id = run.id
@@ -633,13 +794,15 @@ def forecast_cashflow(
         "series": series,
         "meta": meta,
         "run_id": run_id,
-        "model_version": "v1",
+        "model_version": "v2",
     }
 
 
 # ---- Growth hints (6.3) ----
 
-def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
+def build_growth_hints(
+    company, as_of: date | None = None, *, include_margin: bool = True,
+) -> list[dict]:
     as_of = as_of or timezone.localdate()
     hints = []
     month_start = as_of.replace(day=1)
@@ -653,6 +816,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
             "title": "Chase long-overdue receivables",
             "impact_estimate": _q2(overdue),
             "message": f"₹{_q2(overdue)} sits in 61+ day buckets.",
+            "params": {"amount": str(_q2(overdue))},
             "cta_path": "/reports/customer-ledger",
             "severity": "warning",
         })
@@ -722,6 +886,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
             "title": "Review thin-margin SKUs",
             "impact_estimate": None,
             "message": f"{len(set(compressed))} SKUs sold near cost this month.",
+            "params": {"count": len(set(compressed))},
             "cta_path": "/inventory/products",
             "severity": "warning",
         })
@@ -737,6 +902,7 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
             "title": "Review discounting pattern",
             "impact_estimate": None,
             "message": f"{high_disc} invoices this month carry discounts.",
+            "params": {"count": high_disc},
             "cta_path": "/reports/sales-discounts",
             "severity": "info",
         })
@@ -779,8 +945,11 @@ def build_growth_hints(company, as_of: date | None = None) -> list[dict]:
             "title": "Purchase price creep",
             "impact_estimate": None,
             "message": f"{len(set(creep_names))} SKUs rose >10% vs prior purchase.",
+            "params": {"count": len(set(creep_names))},
             "cta_path": "/purchases/history",
             "severity": "warning",
         })
 
+    if not include_margin:
+        hints = [h for h in hints if h.get("code") not in MARGIN_HINT_CODES]
     return hints

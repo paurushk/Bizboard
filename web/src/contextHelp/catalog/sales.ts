@@ -60,6 +60,8 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     howItWorks: [
       ['Open a row to go to the related document. Clearing the cause (allocate, cancel IRN, review ITC) removes it from this list.', 'पंक्ति खोलकर संबंधित दस्तावेज़ पर जाएँ। कारण हटने पर पंक्ति सूची से हटती है।'],
+      ['**Snooze** hides a row for 1, 7 or 30 days; **Dismiss** hides it until something gets worse. Both are shared with everyone in the company and show who did it and why on the Snoozed and Dismissed tabs, where **Reopen** brings the row back.', '**स्थगित** पंक्ति को 1, 7 या 30 दिन छिपाता है; **खारिज** तब तक छिपाता है जब तक स्थिति बिगड़े नहीं। दोनों कंपनी में सब पर लागू होते हैं और स्थगित/खारिज टैब में किसने और क्यों दिखता है; **फिर खोलें** से पंक्ति लौट आती है।'],
+      ['**Amount involved** is not always a loss. It shows what the number measures under it: overdue, invoice total, tax difference, credit at risk, and so on. Do not add the rows up.', '**शामिल राशि** हमेशा नुकसान नहीं होती। उसके नीचे लिखा होता है कि वह क्या मापती है: बकाया, बिल कुल, कर अंतर, जोखिम में क्रेडिट आदि। पंक्तियाँ जोड़ें नहीं।'],
     ],
     businessImpact: [
       [
@@ -69,6 +71,8 @@ export const SALES_HELP: ContextHelpPage[] = [
     ],
     keyRules: [
       ['This list is a reader of other flows. It never completes or cancels a bill by itself.', 'यह सूची अन्य फ्लो पढ़ती है। यह खुद बिल Complete/Cancel नहीं करती।'],
+      ['GST, e-invoice and unposted-payment rows cannot be dismissed, only snoozed or assigned. A critical row needs a reason to dismiss. A dismissed customer row comes back if a new problem is added for that customer.', 'GST, ई-इनवॉइस और दर्ज न हुए भुगतान की पंक्तियाँ खारिज नहीं हो सकतीं, केवल स्थगित या असाइन। गंभीर पंक्ति खारिज करने के लिए कारण चाहिए। नई समस्या जुड़ने पर खारिज की गई ग्राहक पंक्ति लौट आती है।'],
+      ['If a banner says some checks could not run, the list may be missing items. Reload before trusting an empty list.', 'अगर बैनर कहे कि कुछ जाँचें नहीं चल सकीं, तो सूची में आइटम छूट सकते हैं। खाली सूची मानने से पहले दोबारा लोड करें।'],
     ],
     commonMistakes: [
       ['Voiding a gateway receipt to clear a row. Gateway money is refunded in the gateway, not deleted here.', 'पंक्ति साफ़ करने के लिए गेटवे रसीद डिलीट न करें। रिफंड गेटवे में होता है।'],

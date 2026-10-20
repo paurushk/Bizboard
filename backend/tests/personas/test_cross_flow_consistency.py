@@ -157,7 +157,8 @@ def test_startup_founder_onboarding_to_analytics_synchronization():
     assert Decimal(day7["outflow"]) == Decimal("708.00")
     # Verify cumulative math: cumulative_ending = opening + cumulative
     for row in series:
-        assert Decimal(row["ending_cash"]) == Decimal(meta["opening_cash"] or "0") + Decimal(row["cumulative"])
+        start = meta.get("starting_cash") or meta["opening_cash"] or "0"
+        assert Decimal(row["ending_cash"]) == Decimal(start) + Decimal(row["cumulative"])
 
     # 8. Attention center and recommendations
     rows = build_attention_rows(company, company_user=ns.owner_cu)

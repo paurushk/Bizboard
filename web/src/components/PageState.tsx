@@ -73,7 +73,7 @@ export function EmptyState({
           'radial-gradient(circle at top, rgba(15,118,110,0.06), transparent 55%)',
       }}
     >
-      <Typography variant="h6" component={asPage ? 'h1' : 'h6'} gutterBottom>
+      <Typography variant="h6" component={asPage ? 'h1' : 'p'} gutterBottom>
         {title ?? t('common.empty')}
       </Typography>
       {description ? (

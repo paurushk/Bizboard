@@ -7,7 +7,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
@@ -18,21 +18,47 @@ import {
   listAssistantThreads,
   postAssistantMessage,
 } from '@/api/resources';
-import { DisclaimerBanner, PageHeader } from '@/components/insights';
+import { DisclaimerBanner, PageHeader, useMaskedText } from '@/components/insights';
 import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { isHelpV2Enabled } from '@/config/features';
+import type { AssistantConfirmResult, AssistantMessage } from '@/types/domain';
 import { isAllowedShareUrl, safeAppPath } from '@/utils/safeUrl';
 
+type Outcome = { kind: 'ok' | 'err' | 'share'; text?: string; shareLink?: string };
+type Candidate = { customerId: number; customerName: string };
+
+const SUGGESTIONS = () => [t('insights.suggestSales'), t('insights.suggestAging'), t('insights.suggestAlerts')];
+
+function proposal(m: AssistantMessage) {
+  const pa = m.proposedAction;
+  if (!pa || typeof pa !== 'object') return null;
+  return pa as Record<string, unknown>;
+}
+
+function outcomeFor(result: AssistantConfirmResult): Outcome {
+  if (result.status === 'link_ready' || (result.status === 'failed' && result.shareLink)) {
+    return {
+      kind: 'share',
+      shareLink: result.shareLink,
+      text: result.status === 'failed' ? result.error : undefined,
+    };
+  }
+  if (result.status === 'queued') return { kind: 'ok', text: t('insights.confirmQueued') };
+  if (result.copied) return { kind: 'ok', text: t('insights.copiedOk') };
+  return { kind: 'ok', text: t('insights.confirmSentOk') };
+}
+
 export function InsightsAssistantPage() {
+  const mask = useMaskedText();
   const consentOn = useAiConsentOn();
   const qc = useQueryClient();
   const [threadId, setThreadId] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
-  const [actionByMsg, setActionByMsg] = useState<
-    Record<number, { status: 'ok' | 'err' | 'share'; detail?: string; shareLink?: string }>
-  >({});
+  const [pendingText, setPendingText] = useState<string | null>(null);
+  const [outcomes, setOutcomes] = useState<Record<number, Outcome>>({});
+  const endRef = useRef<HTMLDivElement | null>(null);
 
   const threads = useQuery({
     queryKey: ['insights-threads'],
@@ -56,45 +82,43 @@ export function InsightsAssistantPage() {
     },
   });
 
+  // The first message creates a chat, so there is no extra "New chat" step to find.
   const send = useMutation({
-    mutationFn: (content: string) => postAssistantMessage(activeId!, content),
-    onSuccess: () => {
-      setDraft('');
-      void qc.invalidateQueries({ queryKey: ['insights-thread', activeId] });
+    mutationFn: async ({ content, hint }: { content: string; hint?: { customerId: number; action: string } }) => {
+      let id = activeId;
+      if (id == null) {
+        const th = await createAssistantThread();
+        id = th.id;
+        setThreadId(id);
+      }
+      await postAssistantMessage(id, content, hint);
+      return id;
     },
+    onMutate: ({ content }) => setPendingText(content),
+    onSuccess: (id) => {
+      setDraft('');
+      void qc.invalidateQueries({ queryKey: ['insights-thread', id] });
+      void qc.invalidateQueries({ queryKey: ['insights-threads'] });
+    },
+    onSettled: () => setPendingText(null),
   });
 
   const confirm = useMutation({
     mutationFn: (messageId: number) => confirmAssistantAction(messageId),
     onSuccess: (result, messageId) => {
-      if (result.requires_user_share && result.share_link) {
-        setActionByMsg((prev) => ({
-          ...prev,
-          [messageId]: {
-            status: 'share',
-            shareLink: String(result.share_link),
-          },
-        }));
-      } else {
-        setActionByMsg((prev) => ({
-          ...prev,
-          [messageId]: { status: 'ok', detail: result.copied ? 'Copied' : 'Sent' },
-        }));
-      }
+      setOutcomes((prev) => ({ ...prev, [messageId]: outcomeFor(result) }));
       void qc.invalidateQueries({ queryKey: ['insights-thread', activeId] });
     },
     onError: (err, messageId) => {
-      setActionByMsg((prev) => ({
-        ...prev,
-        [messageId]: { status: 'err', detail: getErrorMessage(err) },
-      }));
+      setOutcomes((prev) => ({ ...prev, [messageId]: { kind: 'err', text: getErrorMessage(err) } }));
+      void qc.invalidateQueries({ queryKey: ['insights-thread', activeId] });
     },
   });
 
   const dismiss = useMutation({
     mutationFn: (messageId: number) => dismissAssistantAction(messageId),
     onSuccess: (_r, messageId) => {
-      setActionByMsg((prev) => {
+      setOutcomes((prev) => {
         const next = { ...prev };
         delete next[messageId];
         return next;
@@ -103,10 +127,22 @@ export function InsightsAssistantPage() {
     },
   });
 
+  const messageCount = thread.data?.messages?.length ?? 0;
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: 'end' });
+  }, [messageCount, pendingText]);
+
   const WHY_RE = /\b(why|explain|kyu|kyun|kaise)\b/i;
   const helpWhyHint = isHelpV2Enabled() && WHY_RE.test(draft);
 
   if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsAssistant')} />;
+
+  const busy = confirm.isPending || dismiss.isPending;
+  const submit = () => {
+    const content = draft.trim();
+    if (content && !send.isPending) send.mutate({ content });
+  };
+  const messages = thread.data?.messages ?? [];
 
   return (
     <Stack spacing={2}>
@@ -121,7 +157,7 @@ export function InsightsAssistantPage() {
       <DisclaimerBanner>{t('honesty.insightsNotBooks')}</DisclaimerBanner>
       <DisclaimerBanner>{t('insights.disclaimer')}</DisclaimerBanner>
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="stretch">
+      <Stack direction={{ xs: 'column-reverse', md: 'row' }} spacing={2} alignItems="stretch">
         <Paper variant="outlined" sx={{ p: 1.5, width: { md: 220 }, flexShrink: 0 }}>
           <Typography variant="subtitle2" sx={{ mb: 1 }}>
             {t('sweep2.threads')}
@@ -134,114 +170,182 @@ export function InsightsAssistantPage() {
                 size="small"
                 variant={th.id === activeId ? 'contained' : 'text'}
                 onClick={() => setThreadId(th.id)}
-                sx={{ justifyContent: 'flex-start' }}
+                sx={{ justifyContent: 'flex-start', textAlign: 'left' }}
               >
-                {th.title || `Chat #${th.id}`}
+                {th.title && th.title !== 'Chat' ? th.title : t('insights.chatNumber', { id: th.id })}
               </Button>
             ))}
           </Stack>
         </Paper>
 
         <Paper variant="outlined" sx={{ p: 2, flex: 1, minHeight: 360 }}>
-          {!activeId ? (
-            <Typography color="text.secondary">{t('sweep2.startNewChat')}</Typography>
-          ) : thread.isLoading ? (
+          {activeId != null && thread.isLoading ? (
             <LoadingState />
           ) : thread.isError ? (
             <ErrorState message={getErrorMessage(thread.error)} error={thread.error} onRetry={() => void thread.refetch()} />
           ) : (
-            <Stack spacing={1.5} sx={{ mb: 2, maxHeight: 420, overflow: 'auto' }}>
-              {(thread.data?.messages ?? []).map((m) => (
-                <Paper
-                  key={m.id}
-                  variant="outlined"
-                  sx={{
-                    p: 1.5,
-                    bgcolor: m.role === 'user' ? 'action.hover' : 'background.paper',
-                  }}
-                >
+            <Stack
+              spacing={1.5}
+              role="log"
+              aria-live="polite"
+              tabIndex={0}
+              aria-label={t('nav.insightsAssistant')}
+              sx={{ mb: 2, maxHeight: 420, overflow: 'auto' }}
+            >
+              {messages.length === 0 && pendingText == null ? (
+                <Stack spacing={1}>
+                  <Typography color="text.secondary">{t('sweep2.startNewChat')}</Typography>
                   <Typography variant="caption" color="text.secondary">
-                    {m.role}
+                    {t('insights.tryAsking')}
                   </Typography>
-                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                    {m.content}
-                  </Typography>
-                  <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
-                    {(m.citations ?? []).map((c, i) => (
-                      <Chip
-                        key={`${c.path}-${i}`}
-                        size="small"
-                        label={c.label}
-                        component={RouterLink}
-                        to={safeAppPath(c.path)}
-                        clickable
-                      />
+                  <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                    {SUGGESTIONS().map((s) => (
+                      <Chip key={s} label={s} clickable onClick={() => send.mutate({ content: s })} />
                     ))}
                   </Stack>
-                  {m.proposedAction && typeof m.proposedAction === 'object' && 'text' in m.proposedAction ? (
-                    <Paper variant="outlined" sx={{ p: 1, mt: 1, bgcolor: 'grey.50' }}>
-                      <Typography variant="caption">{t('sweep2.proposedReminder')}</Typography>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {String((m.proposedAction as { text?: string }).text ?? '')}
-                      </Typography>
-                      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                        <Button
+                </Stack>
+              ) : null}
+              {messages.map((m) => {
+                const pa = proposal(m);
+                const kind = pa ? String(pa.type ?? '') : '';
+                const outcome = outcomes[m.id];
+                const email = pa ? String(pa.email ?? '') : '';
+                const phone = pa ? String(pa.phone ?? '') : '';
+                const hasContact = Boolean(email || phone);
+                return (
+                  <Paper
+                    key={m.id}
+                    variant="outlined"
+                    sx={{ p: 1.5, bgcolor: m.role === 'user' ? 'action.hover' : 'background.paper' }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      {m.role === 'user' ? t('insights.roleUser') : t('insights.roleAssistant')}
+                      {m.role === 'assistant' && m.toolName === 'ai' ? ` · ${t('insights.modeAi')}` : null}
+                      {m.role === 'assistant' && m.toolName === 'basic' ? ` · ${t('insights.modeBasic')}` : null}
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {mask(m.content)}
+                    </Typography>
+                    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
+                      {(m.citations ?? []).map((c, i) => (
+                        <Chip
+                          key={`${c.path}-${i}`}
                           size="small"
-                          variant="contained"
-                          disabled={confirm.isPending || dismiss.isPending}
-                          onClick={() => confirm.mutate(m.id)}
-                        >
-                          {t('insights.confirmSend')}
-                        </Button>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={confirm.isPending || dismiss.isPending}
-                          onClick={() => dismiss.mutate(m.id)}
-                        >
-                          {t('insights.dismiss')}
-                        </Button>
+                          label={c.label}
+                          component={RouterLink}
+                          to={safeAppPath(c.path)}
+                          clickable
+                        />
+                      ))}
+                    </Stack>
+
+                    {kind === 'clarify' ? (
+                      <Stack spacing={0.5} sx={{ mt: 1 }}>
+                        <Typography variant="caption">{t('insights.whichCustomer')}</Typography>
+                        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                          {((pa?.candidates as Candidate[] | undefined) ?? []).map((c) => (
+                            <Chip
+                              key={c.customerId}
+                              label={c.customerName}
+                              clickable
+                              disabled={send.isPending}
+                              onClick={() =>
+                                send.mutate({
+                                  content: c.customerName,
+                                  hint: { customerId: c.customerId, action: String(pa?.action ?? '') },
+                                })
+                              }
+                            />
+                          ))}
+                        </Stack>
                       </Stack>
-                      {actionByMsg[m.id]?.status === 'err' ? (
-                        <Typography variant="caption" color="error">
-                          {actionByMsg[m.id].detail}
+                    ) : null}
+
+                    {kind === 'NAVIGATE' || kind === 'SHOW_REPORT' ? (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        sx={{ mt: 1 }}
+                        component={RouterLink}
+                        to={safeAppPath(String(pa?.path ?? '/'))}
+                        onClick={() => confirm.mutate(m.id)}
+                      >
+                        {String(pa?.label ?? '') || t('insights.openAction')}
+                      </Button>
+                    ) : null}
+
+                    {kind === 'send_reminder' || kind === 'copy_reminder' ? (
+                      <Paper variant="outlined" sx={{ p: 1, mt: 1 }}>
+                        <Typography variant="caption">{t('sweep2.proposedReminder')}</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {t('insights.reminderTo', { name: String(pa?.customerName ?? pa?.customer_name ?? '') })}
                         </Typography>
-                      ) : null}
-                      {actionByMsg[m.id]?.status === 'ok' ? (
-                        <Typography variant="caption" color="success.main">
-                          {actionByMsg[m.id].detail}
+                        {kind === 'send_reminder' ? (
+                          <Typography variant="caption" color={hasContact ? 'text.secondary' : 'error'} display="block">
+                            {email
+                              ? t('insights.viaEmail', { recipient: email })
+                              : phone
+                                ? t('insights.viaWhatsapp', { recipient: phone })
+                                : t('insights.noContact')}
+                          </Typography>
+                        ) : null}
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', mt: 0.5 }}>
+                          {mask(String(pa?.text ?? ''))}
                         </Typography>
-                      ) : null}
-                      {actionByMsg[m.id]?.status === 'share' &&
-                      actionByMsg[m.id].shareLink &&
-                      isAllowedShareUrl(actionByMsg[m.id].shareLink!) ? (
-                        <Typography variant="caption" component="div" sx={{ mt: 0.5 }}>
-                          {t('common.whatsapp')}:{' '}
-                          <Link href={actionByMsg[m.id].shareLink} target="_blank" rel="noopener noreferrer">
-                            {t('sweep2.shareLink')}
-                          </Link>
-                        </Typography>
-                      ) : null}
-                    </Paper>
-                  ) : null}
-                  {!m.proposedAction &&
-                  actionByMsg[m.id]?.status === 'share' &&
-                  actionByMsg[m.id].shareLink &&
-                  isAllowedShareUrl(actionByMsg[m.id].shareLink!) ? (
-                    <Typography variant="caption" component="div" sx={{ mt: 1 }}>
-                      {t('common.whatsapp')}:{' '}
-                      <Link href={actionByMsg[m.id].shareLink!} target="_blank" rel="noopener noreferrer">
-                        {t('sweep2.shareLink')}
-                      </Link>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={busy || (kind === 'send_reminder' && !hasContact)}
+                            onClick={() => confirm.mutate(m.id)}
+                          >
+                            {t('insights.confirmSend')}
+                          </Button>
+                          <Button size="small" variant="outlined" disabled={busy} onClick={() => dismiss.mutate(m.id)}>
+                            {t('insights.dismiss')}
+                          </Button>
+                        </Stack>
+                      </Paper>
+                    ) : null}
+
+                    {outcome?.kind === 'err' ? (
+                      <Typography variant="caption" color="error" display="block" sx={{ mt: 1 }}>
+                        {outcome.text}
+                      </Typography>
+                    ) : null}
+                    {outcome?.kind === 'ok' ? (
+                      <Typography variant="caption" color="success.main" display="block" sx={{ mt: 1 }}>
+                        {outcome.text}
+                      </Typography>
+                    ) : null}
+                    {outcome?.kind === 'share' && outcome.shareLink && isAllowedShareUrl(outcome.shareLink) ? (
+                      <Typography variant="caption" component="div" sx={{ mt: 1 }}>
+                        {t('common.whatsapp')}:{' '}
+                        <Link href={outcome.shareLink} target="_blank" rel="noopener noreferrer">
+                          {t('insights.confirmLink')}
+                        </Link>
+                        {outcome.text ? ` — ${outcome.text}` : null}
+                      </Typography>
+                    ) : null}
+                  </Paper>
+                );
+              })}
+              {pendingText != null ? (
+                <>
+                  <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'action.hover' }}>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('insights.roleUser')}
                     </Typography>
-                  ) : null}
-                  {!m.proposedAction && actionByMsg[m.id]?.status === 'ok' ? (
-                    <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 1 }}>
-                      {actionByMsg[m.id].detail}
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {pendingText}
                     </Typography>
-                  ) : null}
-                </Paper>
-              ))}
+                  </Paper>
+                  <Typography variant="body2" color="text.secondary">
+                    {t('insights.thinking')}
+                  </Typography>
+                </>
+              ) : null}
+              <div ref={endRef} />
             </Stack>
           )}
 
@@ -252,28 +356,22 @@ export function InsightsAssistantPage() {
               placeholder={t('insights.assistantPlaceholder')}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              disabled={!activeId || send.isPending}
+              disabled={send.isPending}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey && draft.trim() && activeId) {
+                // Enter while composing (Hindi / Hinglish input) confirms the word, it does not send.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
-                  send.mutate(draft.trim());
+                  submit();
                 }
               }}
             />
-            <Button
-              variant="contained"
-              disabled={!activeId || !draft.trim() || send.isPending}
-              onClick={() => send.mutate(draft.trim())}
-            >
+            <Button variant="contained" disabled={!draft.trim() || send.isPending} onClick={submit}>
               {t('insights.sendMessage')}
             </Button>
           </Stack>
           {helpWhyHint ? (
             <Alert severity="info">
-              <Link
-                component={RouterLink}
-                to={`/help?q=${encodeURIComponent(draft.trim())}&source=assistant`}
-              >
+              <Link component={RouterLink} to={`/help?q=${encodeURIComponent(draft.trim())}&source=assistant`}>
                 {t('help.assistantHint')}
               </Link>
             </Alert>

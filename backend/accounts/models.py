@@ -632,6 +632,8 @@ class CompanyUser(TimeStampedModel):
     # member visibility into revenue/margins/who-owes-what unless an owner
     # remembered to explicitly revoke it.
     can_view_financial_reports = models.BooleanField(default=False)
+    # DAN-09: when this person last left the Needs attention page; rows first seen after it are "new".
+    last_attention_seen_at = models.DateTimeField(null=True, blank=True)
     can_export = models.BooleanField(default=False)
     can_view_ai_insights = models.BooleanField(default=False)
     can_use_ai_assistant = models.BooleanField(default=False)

@@ -599,6 +599,12 @@ CELERY_BEAT_SCHEDULE = {
         # 06:30 IST — right after the daily summary.
         "schedule": crontab(hour=6, minute=30),
     },
+    # DAN-06: the Attention feed is read-only; first-seen, snooze expiry, dismissal lapse and
+    # resolved outcomes are stored here instead of on every GET.
+    "insights-attention-sweep": {
+        "task": "insights.tasks.sweep_attention_state_task",
+        "schedule": crontab(minute="*/5"),
+    },
     "accounting-monthly-depreciation": {
         # 00:05 IST on the 1st of the month.
         "task": "accounting.tasks.post_monthly_depreciation",

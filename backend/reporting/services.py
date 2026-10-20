@@ -399,7 +399,13 @@ class ReportService:
 
         from inventory.views import low_stock_alert_payload
 
-        low_stock = len(low_stock_alert_payload(company))
+        low_rows = low_stock_alert_payload(company)
+        low_stock = len(low_rows)
+        # DAN-15: the dashboard shows the first few itself, so it does not ask the stock-alert
+        # endpoint for the same list a second time on every load.
+        from inventory.serializers import StockBalanceSerializer
+
+        low_stock_items = StockBalanceSerializer(low_rows[:5], many=True).data
 
         # CF-001: was exclude(DRAFT, CANCELLED) — equivalent to OPEN_RECEIVABLE_STATUSES
         # today (4-value enum) but encoded a different intent ("not void") that
@@ -439,6 +445,7 @@ class ReportService:
             "receivables": ReportService._aging_total(aging),
             "payables": ReportService._aging_total(payables_aging),
             "low_stock_count": low_stock,
+            "low_stock_items": low_stock_items,
             "receivables_aging": aging,
             # Shown beside the ageing, never inside its buckets: cheques taken but not cleared.
             "receivables_uncleared_cheques": LedgerService.uncleared_cheque_total(company),

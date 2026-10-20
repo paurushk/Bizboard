@@ -309,15 +309,17 @@ def test_pj_promise_to_pay_acct_creates_scoped_and_surfaces_on_attention_feed():
 
     cache.clear()
     attention_rows = build_attention_rows(company)
-    promise_rows = [r for r in attention_rows if r.get("dedupe_key") == f"PROMISE_TO_PAY_DUE:{promise_id}"]
+    # DAN-08: the customer's receivable signals are one row, keyed by customer.
+    promise_rows = [r for r in attention_rows if r.get("dedupe_key") == f"AR_CUSTOMER:{cust.id}"]
     assert len(promise_rows) == 1, "Promise due today must surface on the Attention feed"
     row = promise_rows[0]
-    assert row["code"] == "PROMISE_TO_PAY_DUE"
+    assert row["code"] == "AR_CUSTOMER"
     assert cust.name in row["title"]
+    assert row["entity_ref"] == {"type": "customer", "id": cust.id}
 
     # It must never leak into the other tenant's own feed.
     other_attention = build_attention_rows(other.company)
-    assert not any(r.get("dedupe_key") == f"PROMISE_TO_PAY_DUE:{promise_id}" for r in other_attention)
+    assert not any(r.get("dedupe_key") == f"AR_CUSTOMER:{cust.id}" for r in other_attention)
 
     assert_all_invariants(company)
     assert_all_invariants(other.company)

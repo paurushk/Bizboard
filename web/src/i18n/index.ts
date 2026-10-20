@@ -52,6 +52,20 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   return value;
 }
 
+/** Like t(), but null (and no warning) when the key is not in the catalogue: for text that may come from the server instead. */
+export function tOptional(key: string, vars?: Record<string, string | number>): string | null {
+  const catalog = catalogs[locale] ?? en;
+  const resolved = getByPath(catalog, key) ?? getByPath(en, key);
+  if (resolved === undefined) return null;
+  let value = resolved;
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) {
+      value = value.replaceAll(`{${k}}`, () => String(v));
+    }
+  }
+  return value;
+}
+
 export function setLocale(next: string) {
   const resolved = catalogs[next] ? next : 'en';
   if (resolved === locale) return;

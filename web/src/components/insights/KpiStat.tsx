@@ -42,7 +42,7 @@ export function KpiStat({
             <MoneyText value={value} />
           </Typography>
         ) : (
-          <Typography variant={dense ? 'h6' : 'h5'}>{value ?? '—'}</Typography>
+          <Typography variant={dense ? 'h6' : 'h5'} component="div">{value ?? '—'}</Typography>
         )}
       </Box>
       {deltaLabel ? (

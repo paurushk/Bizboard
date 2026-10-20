@@ -9,7 +9,7 @@ import {
   mockJournalEntries,
   mockSearchResults,
 } from '@/mocks/data';
-import type { BillValidationReport, ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
+import type { BillValidationReport, ImportJob, ImportKind, PurchaseBillCommitResult, SearchResult, AssistantConfirmResult, AssistantMessage, AssistantThread, AttentionRow, BusinessAlert, CashflowForecast, DailyBusinessSummary, GrowthHint } from '@/types/domain';
 import { mockBillImageUrl, mockBillJob } from '@/mocks/billImport';
 import { withMocks, fetchPage, fetchAllPagesMasters, flattenQueryParams, getBlob, type PageResult, type PageParams } from './common';
 
@@ -962,7 +962,7 @@ export async function getDailySummary(params?: { date?: string }): Promise<Daily
   return unwrapData<DailyBusinessSummary>(data);
 }
 
-export async function generateDailySummary(params?: { date?: string }): Promise<DailyBusinessSummary> {
+export async function generateDailySummary(params?: { date?: string; send?: boolean }): Promise<DailyBusinessSummary> {
   const { data } = await apiClient.post('/insights/daily-summary/', params ?? {});
   return unwrapData<DailyBusinessSummary>(data);
 }
@@ -980,6 +980,22 @@ export async function listBusinessAlerts(params?: {
 export async function snoozeBusinessAlert(id: number, days = 7): Promise<BusinessAlert> {
   const { data } = await apiClient.post(`/insights/alerts/${id}/snooze/`, { days });
   return unwrapData<BusinessAlert>(data);
+}
+
+export async function setAiConsent(enabled: boolean): Promise<{ enabled: boolean }> {
+  const { data } = await apiClient.post('/insights/ai-consent/', { enabled });
+  return unwrapData<{ enabled: boolean }>(data);
+}
+
+export async function unsnoozeBusinessAlert(id: number): Promise<BusinessAlert> {
+  const { data } = await apiClient.post(`/insights/alerts/${id}/unsnooze/`, {});
+  return unwrapData<BusinessAlert>(data);
+}
+
+export async function refreshBusinessAlerts(): Promise<BusinessAlert[]> {
+  const { data } = await apiClient.post('/insights/alerts/refresh/', {});
+  const body = unwrapData<BusinessAlert[] | { results: BusinessAlert[] }>(data);
+  return Array.isArray(body) ? body : (body.results ?? []);
 }
 
 export async function getCashflowForecast(horizon = 14): Promise<CashflowForecast> {
@@ -1001,6 +1017,48 @@ export async function listAttentionRows(options?: { mine?: boolean }): Promise<A
   });
   const body = unwrapData<{ rows: AttentionRow[]; count: number }>(data);
   return body.rows ?? [];
+}
+
+export interface AttentionFeedQuery {
+  status?: 'open' | 'snoozed' | 'dismissed';
+  severity?: string;
+  category?: string;
+  assigned?: 'mine' | 'unassigned';
+  limit?: number;
+  offset?: number;
+}
+
+export interface AttentionFeed {
+  rows: AttentionRow[];
+  count: number;
+  totalCount?: number;
+  criticalCount?: number;
+  countsBySeverity?: Record<string, number>;
+  countsByCategory?: Record<string, number>;
+  nextOffset?: number | null;
+  degraded?: boolean;
+  /** Item kinds a check cut short: more of them may exist than are shown. */
+  truncatedCodes?: string[];
+  asOf?: string;
+}
+
+export async function getAttentionFeed(query: AttentionFeedQuery = {}): Promise<AttentionFeed> {
+  if (shouldUseMocks()) return { rows: [], count: 0 };
+  const params: Record<string, string | number> = {};
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== '') params[key] = value as string | number;
+  }
+  const { data } = await apiClient.get('/insights/attention/', { params });
+  const body = unwrapData<AttentionFeed>(data);
+  return { ...body, rows: body.rows ?? [], count: body.count ?? body.rows?.length ?? 0 };
+}
+
+export async function reopenAttentionRow(dedupeKey: string): Promise<void> {
+  await apiClient.post('/insights/attention/reopen/', { dedupeKey });
+}
+
+export async function markAttentionSeen(): Promise<void> {
+  await apiClient.post('/insights/attention/seen/', {});
 }
 
 export async function assignAttentionRow(
@@ -1047,16 +1105,23 @@ export async function getAssistantThread(id: number): Promise<AssistantThread> {
   return unwrapData<AssistantThread>(data);
 }
 
-export async function postAssistantMessage(threadId: number, content: string): Promise<AssistantMessage> {
-  const { data } = await apiClient.post(`/insights/assistant/threads/${threadId}/messages/`, { content });
+export async function postAssistantMessage(
+  threadId: number,
+  content: string,
+  hint?: { customerId: number; action: string },
+): Promise<AssistantMessage> {
+  const { data } = await apiClient.post(`/insights/assistant/threads/${threadId}/messages/`, {
+    content,
+    ...(hint ? { customerId: hint.customerId, action: hint.action } : {}),
+  });
   return unwrapData<AssistantMessage>(data);
 }
 
 export async function confirmAssistantAction(
   messageId: number,
-): Promise<Record<string, unknown>> {
+): Promise<AssistantConfirmResult> {
   const { data } = await apiClient.post('/insights/assistant/actions/confirm/', { messageId });
-  return unwrapData(data);
+  return unwrapData<AssistantConfirmResult>(data);
 }
 
 export async function dismissAssistantAction(

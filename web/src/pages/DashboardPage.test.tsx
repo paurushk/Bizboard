@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import axe from 'axe-core';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from '@/pages/DashboardPage';
 
 // G-17: the "Recent sales" widget's badge duplicates the same client-side
@@ -44,50 +45,31 @@ vi.mock('@/auth/AuthContext', () => ({
 }));
 
 vi.mock('@/onboarding/shouldForceSetup', () => ({ shouldForceSetup: () => false }));
-vi.mock('@/components/OnboardingChecklist', () => ({ OnboardingChecklist: () => null }));
-vi.mock('@/pages/AttentionPage', () => ({ AttentionQueuePreview: () => null }));
-vi.mock('@/components/CollectionAttentionCard', () => ({ CollectionAttentionCard: () => null }));
-vi.mock('@/lib/telemetry', () => ({
-  getShopFloorSummary: vi.fn(async () => ({
-    days: 7,
-    completeP95Ms: 410,
-    offlineFlushFail: 0,
-    funnel: {
-      invoiceCompleteStarted: 10,
-      invoiceComplete: 8,
-      invoiceCompleteFailed: 2,
-      invoiceCompleteFailedByReason: { validation: 1, '5xx': 1, timeout: 0, offline: 0, help_code: 0, unknown: 0 },
-      pdfStarted: 8,
-      pdfFailed: 1,
-      paymentStarted: 3,
-      paymentCompleted: 3,
-      paymentFailed: 0,
-      signupCompleted: 1,
-      signupFailed: 0,
-    },
-  })),
-  funnelCount: (funnel: Record<string, unknown> | undefined, snake: string, camel: string) => {
-    const v = funnel?.[camel] ?? funnel?.[snake];
-    return typeof v === 'number' ? v : 0;
-  },
-  funnelReasons: (funnel: Record<string, unknown> | undefined, snake: string, camel: string) => {
-    const v = funnel?.[camel] ?? funnel?.[snake];
-    return v && typeof v === 'object' ? v : {};
-  },
+vi.mock('@/components/OnboardingChecklist', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/OnboardingChecklist')>()),
+  OnboardingChecklist: () => null,
 }));
-
-const { listLowStock } = vi.hoisted(() => ({
+vi.mock('@/pages/AttentionPage', () => ({ AttentionQueuePreview: () => <div>attention-preview</div> }));
+vi.mock('@/components/CollectionAttentionCard', () => ({ CollectionAttentionCard: () => null }));
+const { listLowStock, getDashboard } = vi.hoisted(() => ({
+  getDashboard: vi.fn(),
   listLowStock: vi.fn(async () => [] as Array<{ productName: string; available: number; reorderLevel: number }>),
 }));
 
 vi.mock('@/api/resources', () => ({
-  getDashboard: async () => DASHBOARD_DATA,
+  getDashboard: () => getDashboard(),
   getCompany: async () => ({ id: 9, name: 'Acme', onboarding: { activationDone: true } }),
   listLowStock: () => listLowStock(),
   getDailySummary: vi.fn(async () => ({})),
   listBusinessAlerts: vi.fn(async () => []),
   getBusinessHealth: vi.fn(async () => ({ score: 80, grade: 'A' })),
 }));
+
+beforeEach(() => {
+  listLowStock.mockClear();
+  getDashboard.mockReset();
+  getDashboard.mockResolvedValue(DASHBOARD_DATA);
+});
 
 function wrap(ui: ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -107,29 +89,88 @@ describe('DashboardPage recent-sales badge — G-17', () => {
     expect(within(row as HTMLElement).queryByText(/^paid$/i)).toBeNull();
   });
 
-  it('shows Complete started / completed / failed and the reason split', async () => {
+  it('no longer shows counter diagnostics on the home screen', async () => {
     wrap(<DashboardPage />);
-    expect(await screen.findByText('Invoice Complete')).toBeInTheDocument();
-    expect(screen.getByText('Started')).toBeInTheDocument();
-    expect(screen.getByText('10')).toBeInTheDocument();
-    expect(screen.getByText('validation: 1')).toBeInTheDocument();
-    expect(screen.getByText('5xx: 1')).toBeInTheDocument();
+    await screen.findByText('INV-0001');
+    expect(screen.queryByText('Counter diagnostics')).toBeNull();
   });
 
-  it('uses the loaded low-stock list length instead of the dashboard count', async () => {
+  it('says which timezone today and this month follow', async () => {
+    wrap(<DashboardPage />);
+    expect(await screen.findByText(/follow India time/i)).toBeInTheDocument();
+  });
+
+  it('offers the invite prompt only once the checklist is done', async () => {
+    getDashboard.mockResolvedValue({ ...DASHBOARD_DATA, productCount: 1, invoiceCount: 1 });
+    wrap(<DashboardPage />);
+    expect(await screen.findByText(/invite/i, { selector: '.MuiAlert-message, .MuiAlert-message *' })).toBeInTheDocument();
+  });
+
+  it('shows the low-stock count and rows from the dashboard payload without asking for the list again', async () => {
+    getDashboard.mockResolvedValue({
+      ...DASHBOARD_DATA,
+      lowStockCount: 7,
+      lowStockItems: [
+        { product: 1, productName: 'Tea', available: 1, reorderLevel: 5 },
+        { product: 2, productName: 'Rice', available: 0, reorderLevel: 2 },
+      ],
+    });
+    wrap(<DashboardPage />);
+    const label = await screen.findByText('Low stock', { selector: 'p, span, div' });
+    const card = label.closest('.MuiPaper-root');
+    expect(card).toBeTruthy();
+    expect(within(card as HTMLElement).getByText('7')).toBeTruthy();
+    expect(await screen.findByText(/Tea/)).toBeTruthy();
+    expect(listLowStock).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the stock-alert list for a response without the rows', async () => {
     listLowStock.mockResolvedValueOnce([
       { productName: 'Tea', available: 1, reorderLevel: 5 },
       { productName: 'Rice', available: 0, reorderLevel: 2 },
     ]);
     wrap(<DashboardPage />);
-    const label = await screen.findByText('Low stock');
+    const label = await screen.findByText('Low stock', { selector: 'p, span, div' });
     const card = label.closest('.MuiPaper-root');
-    expect(card).toBeTruthy();
-    expect(within(card as HTMLElement).getByText('2')).toBeTruthy();
+    await waitFor(() => expect(within(card as HTMLElement).getByText('2')).toBeTruthy());
+  });
+
+  it('does not claim stock is healthy when the dashboard could not load', async () => {
+    getDashboard.mockRejectedValue(new Error('boom'));
+    wrap(<DashboardPage />);
+    await screen.findByText('attention-preview');
+    expect(screen.queryByText(/stock is healthy|nothing is low/i)).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Low stock' })).toBeNull();
   });
 
   it('says how much of the receivable is in cheques that have not cleared', async () => {
     wrap(<DashboardPage />);
     expect(await screen.findByText(/includes .*250\.00.* in cheques that have not cleared/i)).toBeTruthy();
+  });
+
+  it('keeps the attention preview when the dashboard KPIs fail to load', async () => {
+    getDashboard.mockRejectedValue(new Error('boom'));
+    wrap(<DashboardPage />);
+    expect(await screen.findByText('attention-preview')).toBeInTheDocument();
+    expect(screen.queryByText('INV-0001')).toBeNull();
+    expect(await screen.findByRole('button', { name: /retry|try again/i })).toBeInTheDocument();
+  });
+
+  it('survives blocked localStorage', async () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    wrap(<DashboardPage />);
+    expect(await screen.findByText('INV-0001')).toBeInTheDocument();
+    spy.mockRestore();
+  });
+
+  it('has no accessibility violations', async () => {
+    wrap(<DashboardPage />);
+    await screen.findByText('INV-0001');
+    const results = await axe.run(document.body, {
+      rules: { 'color-contrast': { enabled: false }, region: { enabled: false } },
+    });
+    expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(' | ')}`)).toEqual([]);
   });
 });

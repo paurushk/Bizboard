@@ -1,0 +1,27 @@
+id: "QOS-0140"
+category: "RELIABILITY_TRUST"
+title: "Needs attention: two people dismissing or snoozing the same item at once, on Postgres"
+persona: ["P1"]
+journey: "Two staff act on the same Needs attention row at the same moment"
+problem: "Dismiss, snooze, assign and reopen now share one row of state per company and run in a transaction, but the concurrent case has only been tested on SQLite, where row locking is not exercised."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/DASHBOARD_ATTENTION_PATH_TO_TEN_2026-10-19.md"]
+  detail: "Run on PostgreSQL 17 on 2026-10-20: the first run found a row left both dismissed and snoozed; dismiss now clears the snooze, and each action takes the row lock. Last writer wins whole, and both actions are audited. Three race tests pass."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check."
+effort: "S"
+recommendation: "Keep the postgres race tests running in CI so the lock is not removed by accident."
+test_required: "backend/tests/test_dan_concurrency_postgres.py"
+guard_ref:
+  test: "backend/tests/test_dan_concurrency_postgres.py"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-20"
+closed: "2026-10-20"

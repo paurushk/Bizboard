@@ -21,12 +21,34 @@ class DailyBusinessSummarySerializer(serializers.ModelSerializer):
 
 
 class BusinessAlertEventSerializer(serializers.ModelSerializer):
+    snoozed_by_name = serializers.SerializerMethodField()
+
     class Meta:
         model = BusinessAlertEvent
         fields = [
             "id", "code", "severity", "message", "subject_key", "payload",
-            "status", "snoozed_until", "cta_path", "created_at", "updated_at",
+            "status", "snoozed_until", "snoozed_at", "snoozed_by_name", "cta_path",
+            "created_at", "updated_at",
         ]
+
+    def get_snoozed_by_name(self, obj) -> str:
+        user = obj.snoozed_by
+        if user is None:
+            return ""
+        return (getattr(user, "get_full_name", lambda: "")() or user.get_username() or "").strip()
+
+    def to_representation(self, instance):
+        from django.utils import timezone
+
+        data = super().to_representation(instance)
+        # A snooze that has run out reads as open even before the nightly job reopens the row.
+        if (
+            instance.status == BusinessAlertEvent.Status.SNOOZED
+            and instance.snoozed_until is not None
+            and instance.snoozed_until <= timezone.now()
+        ):
+            data["status"] = BusinessAlertEvent.Status.OPEN
+        return data
 
 
 class BusinessHealthSnapshotSerializer(serializers.ModelSerializer):

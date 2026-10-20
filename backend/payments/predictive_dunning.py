@@ -130,6 +130,7 @@ def predicted_rows(company, as_of=None) -> list[dict]:
             "dedupe_key": f"PREDICTED_LATE_PAYMENT:{invoice.id}",
             "first_seen": None,
             "snooze_until": None,
+            "params": {"customer": customer.name, "days": late, "owed": str(owed), "due": due.isoformat()},
         })
     return rows
 

@@ -115,14 +115,14 @@ def test_only_an_assigned_row_that_left_the_feed_is_resolved(tenant_a):
 @pytest.mark.django_db
 def test_a_second_dismiss_does_not_replace_the_first_outcome(tenant_a):
     member = _member(tenant_a)
-    first = dismiss_attention_row(tenant_a.company, member, dedupe_key="NOT_A_SOURCE:4")
+    first = dismiss_attention_row(tenant_a.company, member, dedupe_key="NO_SALES_TODAY:4")
     assert first["within_window"] is True
-    outcome = AttentionOutcome.objects.get(dedupe_key="NOT_A_SOURCE:4")
-    assert outcome.code == "NOT_A_SOURCE"
+    outcome = AttentionOutcome.objects.get(dedupe_key="NO_SALES_TODAY:4")
+    assert outcome.code == "NO_SALES_TODAY"
     assert outcome.metric_improved is None
-    snooze_attention_row(tenant_a.company, member, dedupe_key="NOT_A_SOURCE:4", days=3, reason="later")
+    snooze_attention_row(tenant_a.company, member, dedupe_key="NO_SALES_TODAY:4", days=3, reason="later")
     assert AttentionOutcome.objects.filter(company=tenant_a.company).count() == 1
-    dismiss_attention_row(tenant_a.company, member, dedupe_key="NOT_A_SOURCE:4")
+    dismiss_attention_row(tenant_a.company, member, dedupe_key="NO_SALES_TODAY:4")
     outcome.refresh_from_db()
     assert outcome.outcome == AttentionOutcome.Outcome.DISMISSED
     assert AttentionOutcome.objects.filter(company=tenant_a.company).count() == 1

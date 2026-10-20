@@ -1245,6 +1245,8 @@ export interface DashboardKpis {
   cashPosition?: string | number;
   cash_position?: string | number;
   lowStockCount: number;
+  /** The first few low-stock rows, so the dashboard does not fetch the list again. */
+  lowStockItems?: Array<{ product: number; productName: string; available: string | number; reorderLevel: string | number }>;
   productCount?: number;
   product_count?: number;
   invoiceCount?: number;
@@ -1606,7 +1608,11 @@ export interface BusinessAlert {
   payload?: Record<string, unknown>;
   status: string;
   snoozedUntil?: string | null;
+  snoozedAt?: string | null;
+  snoozedByName?: string;
   ctaPath?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface AttentionRow {
@@ -1626,6 +1632,22 @@ export interface AttentionRow {
   assignedTo?: number | null;
   dueDate?: string | null;
   overdue?: boolean;
+  /** The server decides what may be done to a row; a missing flag means allowed. */
+  dismissible?: boolean;
+  snoozable?: boolean;
+  assignable?: boolean;
+  requiresReason?: boolean;
+  amountBasis?: string;
+  /** Values behind title/reason, for translation. */
+  params?: Record<string, unknown>;
+  ageDays?: number;
+  isNew?: boolean;
+  state?: 'open' | 'snoozed' | 'dismissed';
+  stateBy?: { userId: number; name: string } | null;
+  stateAt?: string | null;
+  stateReason?: string;
+  /** Set-aside lists only: false means the problem is still live. */
+  conditionCleared?: boolean | null;
 }
 
 export interface DailyBusinessSummary {
@@ -1635,25 +1657,39 @@ export interface DailyBusinessSummary {
   alertCodes: string[];
   narrative: string;
   promptVersion?: string;
+  /** When the stored summary was last built; null when none exists yet. */
+  generatedAt?: string | null;
+  /** True when the stored summary is older than today, or there is none. */
+  stale?: boolean;
+  /** True for the owner, who may build the summary. */
+  canGenerate?: boolean;
 }
 
 export interface HealthFactor {
   key: string;
   label: string;
-  score: number;
-  weight: number;
+  /** Null when the factor could not be computed or needs access the viewer lacks. */
+  score: number | string | null;
+  weight: number | string;
   detail?: string;
+  available?: boolean;
 }
 
 export interface BusinessHealth {
   score: string | number;
   grade: string;
+  /** Set by the server so the thresholds live in one place. */
+  band?: 'healthy' | 'watch' | 'action';
+  /** True when there is too little recent activity to stand behind the grade. */
+  gradeWithheld?: boolean;
   factors: HealthFactor[];
   limitedData: boolean;
   asOf: string;
   salesCount?: number;
   mtdSales?: string | number;
   priorMonthSales?: string | number;
+  priorMonthRangeEnd?: string;
+  mtdChangePercent?: string | null;
 }
 
 export interface BusinessHealthSnapshot {
@@ -1676,11 +1712,27 @@ export interface CashflowPoint {
   high: string;
 }
 
+export interface CashflowMeta {
+  mode?: string;
+  asOf?: string;
+  disclaimer?: string;
+  excluded?: string[];
+  openingCash?: string | null;
+  baselineAsOf?: string | null;
+  recordedSinceBaseline?: string | null;
+  startingCash?: string | null;
+  overduePayables?: string;
+  undatedPayables?: string;
+  expectedCollections?: string;
+  collectionRates?: Record<string, string>;
+  scenario?: { low: string; high: string };
+}
+
 export interface CashflowForecast {
   horizonDays: number;
   mode: string;
   series: CashflowPoint[];
-  meta: Record<string, unknown>;
+  meta: CashflowMeta;
   runId?: number;
   modelVersion?: string;
 }
@@ -1700,7 +1752,23 @@ export interface AssistantMessage {
   content: string;
   citations?: { path: string; label: string }[];
   proposedAction?: Record<string, unknown> | null;
+  /** 'ai' when a language model wrote the answer, 'basic' for the built-in answers. */
+  toolName?: string;
   createdAt?: string;
+}
+
+export interface AssistantConfirmResult {
+  status?: 'queued' | 'sent' | 'link_ready' | 'failed' | 'done';
+  sent?: boolean;
+  copied?: boolean;
+  channel?: string;
+  recipient?: string;
+  requiresUserShare?: boolean;
+  shareLink?: string;
+  error?: string;
+  type?: string;
+  path?: string;
+  label?: string;
 }
 
 export interface AssistantThread {

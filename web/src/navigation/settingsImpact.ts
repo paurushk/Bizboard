@@ -30,6 +30,7 @@ export const SCREEN_IMPACT: Readonly<Record<string, readonly string[]>> = {
   'pack-wizard': ['impact.menu'],
   telegram: ['impact.alerts'],
   'help-health': [],
+  'counter-diagnostics': [],
 };
 
 export const SETTING_IMPACT: readonly SettingImpact[] = [

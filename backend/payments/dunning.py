@@ -525,8 +525,11 @@ def customer_risk_snapshot(company, customer, *, as_of: date | None = None) -> d
         customer=customer,
         status__in=OPEN_SALES_STATUSES,
     )
+    invoices = list(invoices)
+    # One set of queries for the customer's invoices, not several per invoice (DAN-15).
+    outstanding_by_id = LedgerService.bulk_sales_invoice_outstanding(company, invoice_ids=[inv.id for inv in invoices])
     for inv in invoices:
-        os_amt = _outstanding(inv)
+        os_amt = Decimal(str(outstanding_by_id.get(inv.id) or 0))
         if os_amt <= 0:
             continue
         due = inv.due_date or inv.invoice_date

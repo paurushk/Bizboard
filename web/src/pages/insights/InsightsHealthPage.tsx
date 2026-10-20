@@ -1,31 +1,37 @@
 import Box from '@mui/material/Box';
+import Card from '@mui/material/Card';
+import CardActionArea from '@mui/material/CardActionArea';
+import CardContent from '@mui/material/CardContent';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink } from 'react-router-dom';
-import Card from '@mui/material/Card';
-import CardActionArea from '@mui/material/CardActionArea';
-import CardContent from '@mui/material/CardContent';
 import { getErrorMessage } from '@/api/client';
 import { getBusinessHealth, getBusinessHealthHistory, listGrowthHints } from '@/api/resources';
+import { useAuth } from '@/auth/AuthContext';
 import {
   DisclaimerBanner,
   FactorBreakdown,
   KpiStat,
   PageHeader,
 } from '@/components/insights';
-import { ErrorState, LoadingState } from '@/components/PageState';
-import { AiConsentOffScreen, useAiConsentOn } from '@/components/insights/AiConsentGate';
+import { useAiConsentOn } from '@/components/insights/AiConsentGate';
+import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
+import { formatMoney } from '@/utils/money';
+import { canViewAiInsights } from '@/utils/permissions';
 
 export function InsightsHealthPage() {
+  const { user } = useAuth();
   const consentOn = useAiConsentOn();
-  const health = useQuery({ queryKey: ['insights-health'], queryFn: getBusinessHealth, enabled: consentOn });
-  const history = useQuery({ queryKey: ['insights-health-history'], queryFn: getBusinessHealthHistory, enabled: consentOn });
-  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: listGrowthHints, enabled: consentOn });
+  // The score is deterministic (no AI), so it never waits on AI consent. Hints are an AI-gated
+  // surface and are only requested for people who may see them.
+  const hintsAllowed = consentOn && canViewAiInsights(user);
+  const health = useQuery({ queryKey: ['insights-health'], queryFn: getBusinessHealth });
+  const history = useQuery({ queryKey: ['insights-health-history'], queryFn: getBusinessHealthHistory });
+  const hints = useQuery({ queryKey: ['insights-hints'], queryFn: listGrowthHints, enabled: hintsAllowed });
 
-  if (!consentOn) return <AiConsentOffScreen title={t('nav.insightsHealth')} />;
   if (health.isLoading) return <LoadingState />;
   if (health.isError) {
     return <ErrorState message={getErrorMessage(health.error)} error={health.error} onRetry={() => void health.refetch()} />;
@@ -33,6 +39,10 @@ export function InsightsHealthPage() {
 
   const data = health.data!;
   const hist = (history.data ?? []).slice().reverse();
+  const withheld = data.gradeWithheld === true;
+  const first = hist[0];
+  const last = hist[hist.length - 1];
+  const pct = data.mtdChangePercent;
 
   return (
     <Stack spacing={2}>
@@ -45,19 +55,26 @@ export function InsightsHealthPage() {
 
       <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
         <Box sx={{ minWidth: 160 }}>
-          <KpiStat label={t('insights.score')} value={data.score} limitedData={data.limitedData} />
+          <KpiStat
+            label={t('insights.score')}
+            value={withheld ? '—' : data.score}
+            limitedData={data.limitedData}
+            deltaLabel={withheld ? t('insights.gradeWithheld') : null}
+          />
         </Box>
         <Box sx={{ minWidth: 120 }}>
-          <KpiStat label={t('insights.grade')} value={data.grade} />
+          <KpiStat label={t('insights.grade')} value={withheld ? '—' : data.grade} />
         </Box>
         <Box sx={{ minWidth: 160 }}>
           <KpiStat
             label={t('insights.mtdVsPrior')}
-            value={(data as { mtdSales?: string }).mtdSales}
+            value={data.mtdSales}
             money
-            deltaLabel={`Prior month: ${
-              (data as { priorMonthSales?: string }).priorMonthSales ?? '—'
-            }`}
+            deltaLabel={
+              pct != null
+                ? t('insights.mtdChange', { pct })
+                : t('insights.sameDaysLastMonth', { amount: formatMoney(data.priorMonthSales ?? 0) })
+            }
           />
         </Box>
       </Stack>
@@ -69,51 +86,91 @@ export function InsightsHealthPage() {
         <FactorBreakdown factors={data.factors ?? []} />
       </Paper>
 
-      {hist.length > 1 ? (
-        <Paper variant="outlined" sx={{ p: 2 }}>
-          <Typography variant="h6" sx={{ mb: 1 }}>
-            {t('sweep2.scoreHistory')}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="h6" sx={{ mb: 1 }}>
+          {t('sweep2.scoreHistory')}
+        </Typography>
+        {hist.length > 1 && first && last ? (
+          <>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              {t('insights.historySummary', {
+                first: String(first.score),
+                firstDate: first.asOf,
+                last: String(last.score),
+                lastDate: last.asOf,
+              })}
+            </Typography>
+            <Stack
+              component="ol"
+              direction="row"
+              spacing={0.5}
+              alignItems="flex-end"
+              sx={{ height: 80, m: 0, p: 0, listStyle: 'none' }}
+            >
+              {hist.map((h) => {
+                // F3-070: clamp — the score feeds a % height in an 80px row.
+                const score = Math.min(100, Math.max(0, Number(h.score) || 0));
+                return (
+                  <Box
+                    component="li"
+                    key={h.id}
+                    tabIndex={0}
+                    aria-label={`${h.asOf}: ${h.score}`}
+                    title={`${h.asOf}: ${h.score}`}
+                    sx={{
+                      flex: 1,
+                      bgcolor: 'primary.main',
+                      opacity: h.limitedData ? 0.35 : 0.75,
+                      height: `${Math.max(8, score)}%`, // min 8% so a 0 is still visible
+                      borderRadius: 0.5,
+                      minWidth: 4,
+                      '&:focus-visible': { outline: '2px solid', outlineColor: 'text.primary', opacity: 1 },
+                    }}
+                  />
+                );
+              })}
+            </Stack>
+          </>
+        ) : (
+          <Typography variant="body2" color="text.secondary">
+            {t('insights.historyEmpty')}
           </Typography>
-          <Stack direction="row" spacing={0.5} alignItems="flex-end" sx={{ height: 80 }}>
-            {hist.map((h) => {
-              // F3-070: clamp — the score feeds a % height in an 80px row.
-              const score = Math.min(100, Math.max(0, Number(h.score) || 0));
-              return (
-                <Box
-                  key={h.id}
-                  title={`${h.asOf}: ${h.score}`}
-                  sx={{
-                    flex: 1,
-                    bgcolor: 'primary.main',
-                    opacity: 0.75,
-                    height: `${Math.max(8, score)}%`, // min 8% so a 0 is still visible
-                    borderRadius: 0.5,
-                    minWidth: 4,
-                  }}
-                />
-              );
-            })}
-          </Stack>
-        </Paper>
-      ) : null}
+        )}
+      </Paper>
 
-      <Typography variant="h6">{t('insights.growthHints')}</Typography>
-      <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
-        {(hints.data ?? []).map((h) => (
-          <Card key={h.code} variant="outlined" sx={{ width: 280 }}>
-            <CardActionArea component={RouterLink} to={h.ctaPath}>
-              <CardContent>
-                <Typography variant="subtitle1" fontWeight={600}>
-                  {h.title}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {h.message}
-                </Typography>
-              </CardContent>
-            </CardActionArea>
-          </Card>
-        ))}
-      </Stack>
+      {hintsAllowed ? (
+        <>
+          <Typography variant="h6">{t('insights.growthHints')}</Typography>
+          {hints.isError ? (
+            <ErrorState
+              message={`${t('insights.hintsLoadFailed')} ${getErrorMessage(hints.error)}`}
+              error={hints.error}
+              onRetry={() => void hints.refetch()}
+            />
+          ) : hints.isLoading ? (
+            <LoadingState />
+          ) : (hints.data ?? []).length === 0 ? (
+            <EmptyState description={t('insights.hintsEmpty')} />
+          ) : (
+            <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+              {(hints.data ?? []).map((h) => (
+                <Card key={h.code} variant="outlined" sx={{ width: { xs: '100%', sm: 280 } }}>
+                  <CardActionArea component={RouterLink} to={h.ctaPath}>
+                    <CardContent>
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        {h.title}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {h.message}
+                      </Typography>
+                    </CardContent>
+                  </CardActionArea>
+                </Card>
+              ))}
+            </Stack>
+          )}
+        </>
+      ) : null}
     </Stack>
   );
 }

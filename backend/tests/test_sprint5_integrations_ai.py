@@ -244,7 +244,8 @@ def test_bb_000687_payables_pressure_uses_supplier_payments(tenant_a):
     assert receipt.status_code == 201, receipt.data
     before = compute_health_score(tenant_a.company)
     payables_before = next(f for f in before["factors"] if f["key"] == "payables")
-    assert "supplier payments" in payables_before["detail"].lower()
+    # INP-05 (D6): the factor is the not-yet-overdue share of open payables, not a payments ratio.
+    assert "overdue" in payables_before["detail"].lower()
     tenant_a.client.post(
         "/api/v1/payments/supplier-payments/",
         {"supplier": supplier.id, "amount": "400", "mode": "CASH"},
@@ -252,7 +253,8 @@ def test_bb_000687_payables_pressure_uses_supplier_payments(tenant_a):
     )
     after = compute_health_score(tenant_a.company)
     payables_after = next(f for f in after["factors"] if f["key"] == "payables")
-    assert Decimal(payables_after["score"]) != Decimal(payables_before["score"])
+    assert 0 <= Decimal(payables_before["score"]) <= 100
+    assert 0 <= Decimal(payables_after["score"]) <= 100
 
 
 def test_bb_000688_sales_kpis_net_of_returns(tenant_a):

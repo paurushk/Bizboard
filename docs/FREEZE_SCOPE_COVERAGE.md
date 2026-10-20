@@ -694,6 +694,19 @@ decisions D-1, D-2, D-4, D-9 and the Phase B scope are recorded in its section 3
 | WP-7 | Tax dues: TDS deducted on supplier bills and a GST estimate with due dates, labelled as estimates; no payment status claimed. **CA sign-off required on the wording** | ✅ gated | `::test_statutory_lists_tds_and_gst_with_due_dates`, `MoneyHubPage.test.tsx` ("tax dues") |
 | WP-8 | Real browser: bills foot, cheque pending then cleared, advance paid beside payable, TDS certificate, due-soon to record payment, the way back | ✅ gated | `web/e2e-golden/money-hub-golden.spec.ts` |
 | Attention | The "gateway paid, receipt not posted" alerts open Payment links, where the retry is | ✅ gated | `test_b05_attention.py`, `test_attention_outcomes.py` |
+| Attention | A failed or capped check shows a visible "some checks could not run" row and never lets a dismissal lapse or an outcome be recorded for that check | ✅ gated | `test_dan_phase_a_attention.py` |
+| Attention | Reading the feed writes nothing; a five-minute sweep stores first-seen, expired snoozes, lapsed dismissals and resolved outcomes for every company | ✅ gated | `test_dan_phase_a_attention.py` (`test_reading_the_feed_issues_no_writes`, `test_sweep_covers_companies_without_ai_features`) |
+| Attention | GST, e-invoice and unposted-payment rows cannot be dismissed (server-enforced); critical rows need a reason; an assignee must be able to handle the item | ✅ gated | `test_dan_phase_a_attention.py`, `AttentionPage.test.tsx` |
+| Attention | One row per customer for receivable signals; a dismissal does not hide a new signal; old state is copied, not renamed | ✅ gated | `test_dan_phase_b_attention.py` |
+| Attention | Snoozed and Dismissed lists keep rows after the condition is gone; Reopen/Undo; filters, paging, age, "new" marker | ✅ gated | `test_dan_phase_b_attention.py`, `AttentionPage.test.tsx` |
+| Attention | Every link a row can carry opens a real page; a posted receipt or completed invoice clears the cached feed | ✅ gated | `test_dan_phase_b_links.py` |
+| Attention | Dismiss, snooze, assign and reopen are audited in the same transaction; dedupe-key shapes and codes are documented and guarded | ✅ gated | `test_dan_phase_d_attention.py`, `ATTENTION_DEDUPE_KEYS.md` |
+| Attention | Role matrix and company isolation for every attention endpoint | ✅ gated | `test_dan_phase_e_attention.py` |
+| Attention | Real browser: overdue invoice becomes a row, snooze/reopen/dismiss/undo, Hindi, phone cards without sideways scroll | ✅ gated | `web/e2e-golden/attention-golden.spec.ts` |
+| Attention | Real browser: critical row needs a reason, keyboard use with focus return, axe with colour contrast in English and Hindi, offline notice | ✅ gated | `web/e2e-golden/attention-golden.spec.ts` |
+| Attention | Two people acting on one row at once, on PostgreSQL | ✅ gated | `test_dan_concurrency_postgres.py` |
+| Attention | Feed stays inside its budget with 5,000 invoices and 500 customers; receivables foot to the aging buckets | ✅ gated | `test_dan_phase_f_attention.py` |
+| Attention | Every detector text has values and an English and Hindi template | ✅ gated | `rowText.test.ts` |
 
 ## Customers master hardening (2026-10-12)
 

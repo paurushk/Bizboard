@@ -1,0 +1,26 @@
+id: "QOS-0138"
+category: "RELIABILITY_TRUST"
+title: "Needs attention: what the Amount involved column means, signed off by an accountant"
+persona: ["P1"]
+journey: "An owner reads the amount beside an overdue, GST or unposted-payment row and decides what to do"
+problem: "Amounts on different rows measure different things (overdue, invoice total, tax difference, credit at risk, received not posted) and rows for one customer now show the largest signal, not a sum; no accountant has confirmed these labels or that the dashboard receivable total foots to the aging buckets with uncleared cheques."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/DASHBOARD_ATTENTION_PATH_TO_TEN_2026-10-19.md"]
+  detail: "Basis labels come from AMOUNT_BASIS in backend/insights/attention.py. The merged customer row takes the largest sub-signal amount to avoid double counting. TDS treatment in the dashboard receivable has not been reviewed."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check."
+effort: "S"
+recommendation: "Have the accountant check each basis label and one merged customer row against the ledger, and confirm the dashboard receivable total reconciles with the aging buckets."
+test_required: "backend/tests/test_dan_phase_b_attention.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-20"
+closed: null

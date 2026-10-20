@@ -13531,6 +13531,61 @@
                 }
             }
         },
+        "/api/v1/insights/alerts/{id}/unsnooze/": {
+            "post": {
+                "operationId": "insights_alerts_unsnooze_create",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "insights"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BusinessAlertEvent"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BusinessAlertEvent"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/BusinessAlertEvent"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/BusinessAlertEvent"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/insights/alerts/refresh/": {
             "post": {
                 "operationId": "insights_alerts_refresh_create",
@@ -13765,7 +13820,7 @@
         "/api/v1/insights/attention/": {
             "get": {
                 "operationId": "insights_attention_retrieve",
-                "description": "B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered.",
+                "description": "B-05: ranked AttentionRow feed. Not AI-gated — capability-filtered.\n\nQuery: status=open|snoozed|dismissed, severity, category, assigned=mine|unassigned,\nlimit, offset. ``mine=1`` is kept for older clients.",
                 "tags": [
                     "insights"
                 ],
@@ -13802,6 +13857,42 @@
         "/api/v1/insights/attention/dismiss/": {
             "post": {
                 "operationId": "insights_attention_dismiss_create",
+                "tags": [
+                    "insights"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/insights/attention/reopen/": {
+            "post": {
+                "operationId": "insights_attention_reopen_create",
+                "tags": [
+                    "insights"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/insights/attention/seen/": {
+            "post": {
+                "operationId": "insights_attention_seen_create",
                 "tags": [
                     "insights"
                 ],
@@ -13937,7 +14028,7 @@
             },
             "post": {
                 "operationId": "insights_daily_summary_create",
-                "description": "Force-generate (Owner).",
+                "description": "Owner: rebuild the summary and alerts. Sends nothing unless ``send`` is true.",
                 "tags": [
                     "insights"
                 ],
@@ -44328,6 +44419,15 @@
                         "format": "date-time",
                         "nullable": true
                     },
+                    "snoozed_at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "nullable": true
+                    },
+                    "snoozed_by_name": {
+                        "type": "string",
+                        "readOnly": true
+                    },
                     "cta_path": {
                         "type": "string",
                         "maxLength": 255
@@ -44349,6 +44449,7 @@
                     "id",
                     "message",
                     "severity",
+                    "snoozed_by_name",
                     "updated_at"
                 ]
             },

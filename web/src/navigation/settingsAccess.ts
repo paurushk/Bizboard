@@ -105,6 +105,14 @@ export const SETTINGS_ROUTES: readonly SettingsRouteDef[] = [
     group: 'plan',
   },
   {
+    id: 'counter-diagnostics',
+    labelKey: 'nav.counterDiagnostics',
+    path: '/settings/counter-diagnostics',
+    // Owner only; the figures are the counter's own journey counts.
+    menu: (user) => Boolean(user && isOwner(user.role)),
+    group: 'plan',
+  },
+  {
     id: 'help-health',
     labelKey: 'nav.helpHealth',
     path: '/settings/help',

@@ -1,5 +1,7 @@
 import Alert from '@mui/material/Alert';
+import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
+import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '@/auth/AuthContext';
 import { PageHeader } from '@/components/insights/PageHeader';
 import { t } from '@/i18n';
@@ -11,10 +13,22 @@ export function useAiConsentOn(): boolean {
 }
 
 export function AiConsentOffScreen({ title }: { title: string }) {
+  const { user } = useAuth();
   return (
     <Stack spacing={2}>
       <PageHeader title={title} />
-      <Alert severity="info">{t('insights.consentOff')}</Alert>
+      <Alert
+        severity="info"
+        action={
+          user?.role === 'OWNER' ? (
+            <Button color="inherit" size="small" component={RouterLink} to="/settings/ai">
+              {t('insights.openAiSettings')}
+            </Button>
+          ) : undefined
+        }
+      >
+        {t('insights.consentOff')}
+      </Alert>
     </Stack>
   );
 }

@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AiConsentView,
     AiUsageView,
     AssistantConfirmActionView,
     AssistantDismissActionView,
@@ -8,6 +9,8 @@ from .views import (
     AssistantThreadViewSet,
     AttentionAssignView,
     AttentionDismissView,
+    AttentionReopenView,
+    AttentionSeenView,
     AttentionFeedView,
     AttentionSnoozeView,
     LearningReportView,
@@ -25,6 +28,7 @@ from .views import (
 alert_list = BusinessAlertViewSet.as_view({"get": "list"})
 alert_snooze = BusinessAlertViewSet.as_view({"post": "snooze"})
 alert_refresh = BusinessAlertViewSet.as_view({"post": "refresh"})
+alert_unsnooze = BusinessAlertViewSet.as_view({"post": "unsnooze"})
 thread_list = AssistantThreadViewSet.as_view({"get": "list", "post": "create"})
 thread_detail = AssistantThreadViewSet.as_view({"get": "retrieve"})
 
@@ -33,6 +37,7 @@ urlpatterns = [
     path("alerts/", alert_list, name="insights-alerts"),
     path("alerts/refresh/", alert_refresh, name="insights-alerts-refresh"),
     path("alerts/<int:pk>/snooze/", alert_snooze, name="insights-alert-snooze"),
+    path("alerts/<int:pk>/unsnooze/", alert_unsnooze, name="insights-alert-unsnooze"),
     path("health/", HealthScoreView.as_view(), name="insights-health"),
     path("health/history/", HealthHistoryView.as_view(), name="insights-health-history"),
     path("cashflow-forecast/", CashflowForecastView.as_view(), name="insights-cashflow"),
@@ -40,6 +45,8 @@ urlpatterns = [
     path("attention/", AttentionFeedView.as_view(), name="insights-attention"),
     path("attention/snooze/", AttentionSnoozeView.as_view(), name="insights-attention-snooze"),
     path("attention/dismiss/", AttentionDismissView.as_view(), name="insights-attention-dismiss"),
+    path("attention/reopen/", AttentionReopenView.as_view(), name="insights-attention-reopen"),
+    path("attention/seen/", AttentionSeenView.as_view(), name="insights-attention-seen"),
     path("learning-report/", LearningReportView.as_view(), name="insights-learning-report"),
     path("attention/assign/", AttentionAssignView.as_view(), name="insights-attention-assign"),
     path("collections-worklist/", CollectionsWorklistView.as_view(), name="insights-collections-worklist"),
@@ -63,5 +70,6 @@ urlpatterns = [
         name="insights-assistant-dismiss",
     ),
     path("usage/", AiUsageView.as_view(), name="insights-usage"),
+    path("ai-consent/", AiConsentView.as_view(), name="insights-ai-consent"),
     path("telemetry/", ShopFloorTelemetryView.as_view(), name="insights-telemetry"),
 ]

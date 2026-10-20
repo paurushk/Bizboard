@@ -76,6 +76,7 @@ def build_customer_action_rows(company, as_of=None) -> list[dict]:
                 href=f"/sales/customers/{customer_id}",
                 entity_id=customer_id,
                 dedupe=f"CHURN_RISK:{customer_id}",
+                params={"customer": name, "gap": gap, "cadence": cadence},
             ))
 
         product_dates = _product_dates(company, [row["id"] for row in sample])
@@ -105,6 +106,10 @@ def build_customer_action_rows(company, as_of=None) -> list[dict]:
                 entity_id=product_id,
                 dedupe=f"REPEAT_ORDER_DUE:{customer_id}:{product_id}",
                 entity_type="product",
+                params={
+                    "customer": name, "product": payload["name"], "cadence": pcadence,
+                    "date": predicted.isoformat(),
+                },
             ))
     if flag_enabled(company, "ENABLE_CROSS_SELL"):
         rows.extend(_cross_sell_rows(company, as_of, by_customer))
@@ -267,12 +272,16 @@ def _cross_sell_rows(company, as_of, by_customer) -> list[dict]:
             href=f"/sales/orders/new?customer={customer_id}&product={missing}",
             entity_id=missing,
             dedupe=f"CROSS_SELL:{customer_id}:{missing}",
+            params={
+                "customer": name, "missing": names.get(missing, ""), "anchor": names.get(anchor, ""),
+                "count": count,
+            },
             entity_type="product",
         ))
     return rows
 
 
-def _attention(*, code, title, money, reason, href, entity_id, dedupe, entity_type="customer"):
+def _attention(*, code, title, money, reason, href, entity_id, dedupe, entity_type="customer", params=None):
     amount = Decimal(str(money or 0))
     return {
         "code": code,
@@ -288,4 +297,5 @@ def _attention(*, code, title, money, reason, href, entity_id, dedupe, entity_ty
         "dedupe_key": dedupe,
         "first_seen": None,
         "snooze_until": None,
+        "params": params or {},
     }

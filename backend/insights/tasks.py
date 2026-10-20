@@ -19,7 +19,7 @@ def generate_daily_summaries_task():
     return {"ok": True, "date": today.isoformat(), "queued": n}
 
 
-@shared_task
+@shared_task(autoretry_for=(Exception,), retry_backoff=60, retry_kwargs={"max_retries": 1})
 def generate_daily_summary_for_company(company_id, for_date=None):
     from datetime import date
 
@@ -75,3 +75,35 @@ def refresh_cashflow_forecast_for_company(company_id, horizon=14):
     company = Company.objects.get(pk=company_id)
     forecast_cashflow(company, horizon=int(horizon), persist=True)
     return {"ok": True, "company_id": str(company.pk), "horizon": int(horizon)}
+
+
+def _iter_all_company_ids():
+    from accounts.models import Company
+
+    return Company.objects.values_list("pk", flat=True).iterator()
+
+
+@shared_task
+def sweep_attention_state_task():
+    """Thin orchestrator: one sweep per company.
+
+    The Attention feed is not AI-gated, so this must cover every company, not only
+    ai_features_enabled ones (unlike the other tasks in this module).
+    """
+    n = 0
+    for company_id in _iter_all_company_ids():
+        sweep_attention_state_for_company.delay(str(company_id))
+        n += 1
+    return {"ok": True, "queued": n}
+
+
+@shared_task
+def sweep_attention_state_for_company(company_id):
+    from accounts.models import Company
+    from insights.attention import sweep_attention_state
+
+    company = Company.objects.filter(pk=company_id).first()
+    if company is None:
+        return {"ok": False, "company_id": str(company_id)}
+    result = sweep_attention_state(company)
+    return {"ok": True, "company_id": str(company.pk), **result}

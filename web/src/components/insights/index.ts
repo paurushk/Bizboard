@@ -1,4 +1,4 @@
-export { MoneyText } from './MoneyText';
+export { MoneyText, maskAmounts, useMaskedText } from './MoneyText';
 export { SeverityChip, severityColor, type AlertSeverity } from './SeverityChip';
 export { AlertInboxRow, resolveAlertHref, type AlertInboxItem } from './AlertInboxRow';
 export { KpiStat } from './KpiStat';

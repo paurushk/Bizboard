@@ -1,0 +1,26 @@
+id: "QOS-0137"
+category: "RELIABILITY_TRUST"
+title: "Needs attention: a native-speaker review of the new Hindi strings"
+persona: ["P1"]
+journey: "Run the Needs attention page and dashboard in Hindi"
+problem: "About two hundred Hindi strings for the Needs attention tabs, filters, undo, row texts, action labels and the dashboard health band were written without a native-speaker review."
+evidence:
+  strength: "heuristic"
+  source: ["docs/plans/DASHBOARD_ATTENTION_PATH_TO_TEN_2026-10-19.md"]
+  detail: "The full list, with English beside it, is docs/ATTENTION_HINDI_REVIEW.csv. Keys are under attention (tabs, filters, rows, actions) and dashboard (policy_*, failReason, health*) in web/src/i18n/hi.ts, plus the Needs attention help page in contextHelp/catalog/sales.ts. The parity test proves the keys exist, not that the wording is natural."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check."
+effort: "S"
+recommendation: "Have a Hindi-speaking owner fill in docs/ATTENTION_HINDI_REVIEW.csv (verdict and corrected Hindi per line, about 200 lines), then apply the corrections in web/src/i18n/hi.ts."
+test_required: "web/src/i18n/fullParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-20"
+closed: null

@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 import Typography from '@mui/material/Typography';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import Paper from '@mui/material/Paper';
@@ -10,19 +15,19 @@ import Switch from '@mui/material/Switch';
 import TextField from '@mui/material/TextField';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Controller, useForm } from 'react-hook-form';
-import { getCompany, updateCompany } from '@/api/resources';
+import { getCompany, setAiConsent, updateCompany } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
 import { DisclaimerBanner, PageHeader } from '@/components/insights';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
-import { canManageUsers } from '@/utils/permissions';
+import { canManageUsers, isOwner } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { settingsErrorText } from '@/utils/settingsErrors';
 
-// Bill scan on/off and the monthly limit are Bizboard-controlled (the server ignores them from the
-// owner), so they are shown, not edited, and are never sent.
+// The monthly limit is Bizboard-controlled (the company PATCH ignores it), so it is shown, not edited.
+// AI on/off is the owner's own switch, sent to its own audited endpoint, never in the form below.
 type AiForm = {
   dailySummaryEmailEnabled: boolean;
   openingCashBalance: string;
@@ -72,6 +77,13 @@ export function AiSettingsPage() {
   // F3-073: dismissable "saved" banner; reappears on the next save because
   // mutation.submittedAt advances with every mutate() call.
   const [savedAck, setSavedAck] = useState(0);
+  const [confirmConsent, setConfirmConsent] = useState(false);
+  const consent = useMutation({
+    mutationFn: (enabled: boolean) => setAiConsent(enabled),
+    // Menus and routes read the flag from the signed-in user, so reload to pick it up everywhere.
+    onSuccess: () => window.location.reload(),
+    onSettled: () => setConfirmConsent(false),
+  });
 
   if (!canManageUsers(user)) return <ForbiddenPage />;
   if (query.isLoading) return <LoadingState />;
@@ -114,6 +126,17 @@ export function AiSettingsPage() {
             <Typography variant="caption" color="text.secondary">
               {t('aiPage.statusHelp')} {t('aiPage.budgetHelp')}
             </Typography>
+            {user && isOwner(user.role) ? (
+              <Button
+                variant="outlined"
+                size="small"
+                sx={{ alignSelf: 'flex-start', mt: 1 }}
+                onClick={() => setConfirmConsent(true)}
+              >
+                {query.data?.aiFeaturesEnabled === true ? t('aiPage.turnOff') : t('aiPage.turnOn')}
+              </Button>
+            ) : null}
+            {consent.isError ? <HelpErrorAlert error={consent.error} /> : null}
           </Stack>
           <Controller
             name="dailySummaryEmailEnabled"
@@ -165,6 +188,28 @@ export function AiSettingsPage() {
           </Button>
         </Stack>
       </Paper>
+      <Dialog open={confirmConsent} onClose={() => setConfirmConsent(false)}>
+        <DialogTitle>
+          {query.data?.aiFeaturesEnabled === true ? t('aiPage.confirmOffTitle') : t('aiPage.confirmOnTitle')}
+        </DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            {query.data?.aiFeaturesEnabled === true ? t('aiPage.confirmOffBody') : t('aiPage.confirmOnBody')}
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmConsent(false)} disabled={consent.isPending}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            disabled={consent.isPending}
+            onClick={() => consent.mutate(query.data?.aiFeaturesEnabled !== true)}
+          >
+            {t('aiPage.confirmYes')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   );
 }

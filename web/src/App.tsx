@@ -221,6 +221,7 @@ const OfflineOutboxPage = lazy(() =>
 const SetupWizardPage = lazy(() => import('@/pages/setup/SetupWizardPage').then((m) => ({ default: m.SetupWizardPage })));
 const HelpPage = lazy(() => import('@/pages/help/HelpPage').then((m) => ({ default: m.HelpPage })));
 const PilotLimitsPage = lazy(() => import('@/pages/help/PilotLimitsPage').then((m) => ({ default: m.PilotLimitsPage })));
+const CounterDiagnosticsPage = lazy(() => import('@/pages/settings/CounterDiagnosticsPage').then((m) => ({ default: m.CounterDiagnosticsPage })));
 const HelpHealthPage = lazy(() => import('@/pages/help/HelpHealthPage').then((m) => ({ default: m.HelpHealthPage })));
 
 function RouteFallback() {
@@ -418,10 +419,14 @@ export function App() {
             <Route path="help" element={<HelpPage />} />
             <Route path="help/pilot-limits" element={<PilotLimitsPage />} />
             {settingsRoute('help-health', <HelpHealthPage />)}
+            {settingsRoute('counter-diagnostics', <CounterDiagnosticsPage />)}
+            {/* The health score is deterministic (no AI), so the dashboard chip can link to it. */}
+            <Route element={<RoleRoute allow={canViewFinancialReports} />}>
+              <Route path="insights/health" element={<InsightsHealthPage />} />
+            </Route>
             <Route element={<RoleRoute allow={allowAiInsights} />}>
               <Route path="insights" element={<InsightsHubPage />} />
               <Route path="insights/alerts" element={<InsightsAlertsPage />} />
-              <Route path="insights/health" element={<InsightsHealthPage />} />
               <Route path="insights/cashflow" element={<InsightsCashflowPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowAiAssistant} />}>
