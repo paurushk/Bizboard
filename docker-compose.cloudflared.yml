@@ -1,0 +1,17 @@
+# Cloudflare Tunnel overlay: publishes the nginx container on your own domain
+# over HTTPS without opening any inbound port.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cloudflared.yml up -d
+#   (add -f docker-compose.prod.yml / docker-compose.staging.yml as usual)
+#
+# Needs CLOUDFLARE_TUNNEL_TOKEN in .env (Zero Trust > Networks > Tunnels > your tunnel).
+# In the tunnel's "Public hostname" tab, point your hostname at:  http://nginx:80
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on:
+      - nginx
