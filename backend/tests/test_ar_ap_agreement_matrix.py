@@ -103,7 +103,7 @@ def _sales_cn(t, customer, inv, product, amount):
         format="json",
     )
     assert cn.status_code == 201, cn.data
-    done = t.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/", {"confirm_price_override": True}, format="json")
+    done = t.client.post(f"/api/v1/sales/credit-notes/{cn.data['id']}/complete/", {"confirm_price_override": True, "confirm_paid_invoice": True}, format="json")
     assert done.status_code == 200, done.data
 
 

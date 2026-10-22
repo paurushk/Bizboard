@@ -208,6 +208,7 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequestIdMiddleware",
     "core.middleware.AppVersionMiddleware",  # WP-L1
+    "core.middleware.PublicLinkMiddleware",  # WP-AB4
     "core.middleware.PostgresRlsMiddleware",
     "billing.middleware.SubscriptionWriteGateMiddleware",
     "core.middleware.ContentSecurityPolicyMiddleware",  # QOS-0011
@@ -217,6 +218,8 @@ MIDDLEWARE = [
 CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY")  # None -> middleware default
 # WP-L1: oldest mobile app build (X-App-Version) the API still serves, e.g. "1.4.0". Empty = no floor.
 MIN_SUPPORTED_APP_VERSION = os.environ.get("MIN_SUPPORTED_APP_VERSION", "").strip()
+# WP-AB4: distinct networks one public share link may be opened from per day before it is flagged.
+PUBLIC_LINK_SPREAD_LIMIT = _env_int("PUBLIC_LINK_SPREAD_LIMIT", 50)
 
 ROOT_URLCONF = "config.urls"
 
@@ -591,6 +594,21 @@ STOCK_RESERVATION_TTL_HOURS = _env_int("STOCK_RESERVATION_TTL_HOURS", 0)
 CELERY_TIMEZONE = os.environ.get("CELERY_TIMEZONE", "Asia/Kolkata")
 CELERY_ENABLE_UTC = _env_bool("CELERY_ENABLE_UTC")
 CELERY_BEAT_SCHEDULE = {
+    # WP-PO2: weekly tenant health snapshot, fanned out per company (Monday 05:30 IST).
+    "support-tenant-health-weekly": {
+        "task": "support.tasks.tenant_health_weekly_task",
+        "schedule": crontab(day_of_week=1, hour=5, minute=30),
+    },
+    # WP-ID4: revoke support access grants that ran out (only live grants).
+    "support-expire-access-grants": {
+        "task": "support.tasks.expire_support_access_task",
+        "schedule": crontab(minute=5),
+    },
+    # WP-ID1: approved owner recoveries whose wait has passed (only those rows).
+    "support-owner-recoveries": {
+        "task": "support.tasks.complete_owner_recoveries_task",
+        "schedule": crontab(minute=15),
+    },
     # Monthly customer-master health check (stale GSTIN verification, state mismatches, duplicates).
     "masters-customers-audit-monthly": {
         "task": "masters.tasks.customers_audit_task",
@@ -725,6 +743,21 @@ CELERY_BEAT_SCHEDULE = {
         "task": "billing.tasks.run_saas_dunning_task",
         "schedule": crontab(hour=8, minute=10),
     },
+    # WP-DL1: delete readable export ZIPs whose 24-hour link ran out.
+    "accounts-purge-readable-exports": {
+        "task": "accounts.tasks.purge_readable_exports_task",
+        "schedule": crontab(hour=3, minute=50),
+    },
+    # WP-BL3 / WP-BL4: undo unpaid upgrades; renewal reminder emails 3 days ahead.
+    "billing-plan-change-renewals": {
+        "task": "billing.tasks.plan_change_and_renewal_task",
+        "schedule": crontab(hour=9, minute=5),
+    },
+    # WP-BL1: TDS credit on renewals the webhook missed; Form 16A reminders on the 16th.
+    "billing-tds-credits-reminders": {
+        "task": "billing.tasks.tds_credits_and_reminders_task",
+        "schedule": crontab(hour=6, minute=40),
+    },
     # 8.6 — Razorpay subscription GET vs local Subscription. Skips without keys.
     "billing-saas-recon": {
         "task": "billing.tasks.reconcile_saas_subscriptions_task",
@@ -794,6 +827,28 @@ if DJANGO_ENV in ("production", "staging") and OTP_ENABLED and SMS_PROVIDER in (
         "SMS_PROVIDER must be msg91 or twilio when OTP_ENABLED=1 in production/staging "
         "(or set SMS_PROVIDER=off and OTP_ENABLED=0)."
     )
+# WP-AB1: caps in front of every SMS send (core/services/sms_guard.py). 0 = no cap.
+# The per-phone hour cap matches the OTP view's own 5/hour limit; the guard also covers texts.
+SMS_PER_PHONE_HOUR = _env_int("SMS_PER_PHONE_HOUR", 5)
+SMS_PER_PHONE_DAY = _env_int("SMS_PER_PHONE_DAY", 10)
+SMS_PER_RANGE_HOUR = _env_int("SMS_PER_RANGE_HOUR", 30)
+SMS_RANGE_PREFIX_LEN = _env_int("SMS_RANGE_PREFIX_LEN", 4)
+SMS_PLATFORM_DAILY_CAP = _env_int("SMS_PLATFORM_DAILY_CAP", 5000)
+SMS_ALLOW_INTERNATIONAL = _env_bool("SMS_ALLOW_INTERNATIONAL")
+SMS_DISABLED = _env_bool("SMS_DISABLED")
+SMS_GUARD_FAIL_CLOSED = _env_bool("SMS_GUARD_FAIL_CLOSED", "1")
+# WP-AB2: bot check on sign-up, OTP and reset (core/services/bot_check.py).
+BOT_CHECK_PROVIDER = (os.environ.get("BOT_CHECK_PROVIDER") or "none").strip().lower()
+TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
+BOT_CHECK_ENFORCE = _env_bool("BOT_CHECK_ENFORCE", "1")
+BOT_CHECK_ALLOW_NONE = _env_bool("BOT_CHECK_ALLOW_NONE")
+if DJANGO_ENV == "production" and BOT_CHECK_PROVIDER in ("none", "stub") and not BOT_CHECK_ALLOW_NONE:
+    raise ImproperlyConfigured(
+        "BOT_CHECK_PROVIDER must be 'turnstile' in production (sign-up and OTP are open to scripts "
+        "otherwise). Set BOT_CHECK_ALLOW_NONE=1 to override deliberately."
+    )
+if BOT_CHECK_PROVIDER == "turnstile" and not TURNSTILE_SECRET_KEY:
+    raise ImproperlyConfigured("TURNSTILE_SECRET_KEY is required when BOT_CHECK_PROVIDER=turnstile.")
 # Docs off by default when not DEBUG; enable explicitly in locked-down envs if needed.
 ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS", "1" if DEBUG else "0")
 # Tally HTTP gateway URL for XML push adapter (optional).
@@ -1167,6 +1222,8 @@ if SENTRY_DSN:
 # Wave 16A — SMS gateway credentials (used when SMS_PROVIDER=msg91|twilio)
 MSG91_AUTH_KEY = os.environ.get("MSG91_AUTH_KEY", "").strip()
 MSG91_TEMPLATE_ID = os.environ.get("MSG91_TEMPLATE_ID", "").strip()
+# WP-CM2: one DLT template ID per non-OTP SMS template (core/message_templates.py).
+SMS_DLT_TEMPLATE_PAYMENT_REMINDER = os.environ.get("SMS_DLT_TEMPLATE_PAYMENT_REMINDER", "").strip()
 MSG91_SENDER = os.environ.get("MSG91_SENDER", "BIZBRD").strip()
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "").strip()
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "").strip()
@@ -1305,6 +1362,17 @@ ENABLE_PAYU = _env_bool("ENABLE_PAYU")
 # still produces the invoice; it is not treated as filed.
 PLATFORM_GSTIN = _env_value("PLATFORM_GSTIN")
 PLATFORM_STATE = _env_value("PLATFORM_STATE")
+# WP-BL2: seller block on the PDF of Bizboard's own invoices.
+PLATFORM_LEGAL_NAME = _env_value("PLATFORM_LEGAL_NAME") or "Bizboard"
+# WP-ID5: Google OAuth web client id(s), comma-separated. Blank = Sign in with Google is off.
+GOOGLE_OAUTH_CLIENT_IDS = _env_value("GOOGLE_OAUTH_CLIENT_IDS")
+PLATFORM_ADDRESS = _env_value("PLATFORM_ADDRESS")
+# WP-BL2: SAC on Bizboard's own GST invoices (CA to confirm; 998314 = IT design and development services).
+PLATFORM_SAC_CODE = _env_value("PLATFORM_SAC_CODE") or "998314"
+# WP-AB3: one free trial per business (billing/trial_guard.py). Pepper: comma-separated, newest first.
+TRIAL_FINGERPRINT_PEPPER = os.environ.get("TRIAL_FINGERPRINT_PEPPER", "")
+TRIAL_DEDUPE_DAYS = _env_int("TRIAL_DEDUPE_DAYS", 365)
+BLOCK_DISPOSABLE_EMAIL = _env_bool("BLOCK_DISPOSABLE_EMAIL", "1")
 ENABLE_POS = _env_bool("ENABLE_POS")
 ENABLE_SETUP_WIZARD = _env_bool("ENABLE_SETUP_WIZARD")
 # Comma-separated company ids that always get Help v2 (internal / pilot).
@@ -1315,6 +1383,8 @@ ENABLE_GSTR = _env_bool("ENABLE_GSTR")
 # demo/staging turn this on (env ceiling, or a company grant).
 ENABLE_GSTR_EXTENDED = _env_bool("ENABLE_GSTR_EXTENDED")
 ENABLE_TALLY = _env_bool("ENABLE_TALLY")
+# WP-GR1b: Busy / Vyapar / Marg one-time import; off, granted per pilot company (like Tally).
+ENABLE_LEGACY_IMPORT = _env_bool("ENABLE_LEGACY_IMPORT")
 ENABLE_GSTN_JSON = _env_bool("ENABLE_GSTN_JSON")
 # Scope revision 2026-09-09b: D6 (fixed assets + depreciation) and D10 (Bill of
 # Entry / import purchase + landed cost) are KNOWN LIMITATIONS. Default OFF so
@@ -1381,3 +1451,7 @@ if AUTO_PICK_COMPANY_ON_EMPTY and DJANGO_ENV in ("production", "staging"):
     raise ImproperlyConfigured(
         "AUTO_PICK_COMPANY_ON_EMPTY cannot be enabled when DJANGO_ENV is production or staging."
     )
+# WP-ID2: a user in more than one company must send X-Company-Id on every tenant API call
+# (409 COMPANY_REQUIRED otherwise), so a header-less request never runs as the last-switched
+# company. Off only as a quick rollback if a client is found that does not send the header.
+REQUIRE_COMPANY_HEADER_FOR_MULTI = _env_bool("REQUIRE_COMPANY_HEADER_FOR_MULTI", "1")

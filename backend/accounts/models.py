@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.db.models import Q
@@ -32,6 +34,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     # Bumped on deactivation so already-issued access tokens fail the next request.
     session_version = models.PositiveIntegerField(default=0)
+    # WP-CM3: id of the newest "What's new" entry this user has opened (unread dot when older).
+    whats_new_seen = models.CharField(max_length=40, blank=True, default="")
     date_joined = models.DateTimeField(default=timezone.now)
     push_token = models.CharField(max_length=512, blank=True, default="")
     telegram_chat_id = models.CharField(
@@ -776,3 +780,82 @@ class CompanyPackState(CompanyScopedModel):
         constraints = [
             models.UniqueConstraint(fields=["company"], name="uniq_pack_state_per_company"),
         ]
+
+
+
+class OwnershipTransfer(CompanyScopedModel):
+    """WP-ID1: an owner handing the company to another member, or a staff-assisted owner recovery
+    (accounts/ownership.py). Token stored only as a SHA-256."""
+
+    class Kind(models.TextChoices):
+        SELF_SERVE = "SELF_SERVE", "Owner transfer"
+        STAFF_RECOVERY = "STAFF_RECOVERY", "Staff-assisted recovery"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        ACCEPTED = "ACCEPTED", "Done"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True)
+    from_user = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    to_user = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    old_owner_becomes = models.CharField(max_length=8, default="MANAGER")
+    token_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    # Staff-assisted recovery only.
+    requested_by = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    approved_by = models.ForeignKey("accounts.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    ticket = models.ForeignKey(
+        "support.PlatformTicket", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    recovery_email = models.CharField(max_length=254, blank=True)
+    proof_note = models.TextField(blank=True)
+    reason = models.CharField(max_length=500, blank=True)
+    effective_at = models.DateTimeField(null=True, blank=True)
+
+
+class UserSession(models.Model):
+    """WP-ID3: one signed-in device (a chain of rotated refresh tokens) for the Security screen.
+
+    Per user, not per company, so not tenant scoped. Keeps only a device label and the network
+    prefix (/24 or /48), never the full IP address.
+    """
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
+    current_jti = models.CharField(max_length=255, db_index=True)
+    device_label = models.CharField(max_length=80, blank=True)
+    ip_prefix = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-last_used_at"]
+        indexes = [models.Index(fields=["user", "revoked_at"])]
+
+
+class ReadableExport(CompanyScopedModel):
+    """WP-DL1: one readable (CSV + PDF) export an owner asked for; the ZIP lives in storage until
+    its download link runs out, then only this record stays."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Being prepared"
+        READY = "READY", "Ready to download"
+        FAILED = "FAILED", "Failed"
+        EXPIRED = "EXPIRED", "Link expired"
+
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    requested_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.PENDING, db_index=True)
+    storage_path = models.CharField(max_length=300, blank=True)
+    size = models.PositiveBigIntegerField(default=0)
+    manifest = models.JSONField(default=dict, blank=True)
+    error = models.CharField(max_length=300, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    downloaded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]

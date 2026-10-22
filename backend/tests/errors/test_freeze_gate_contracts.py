@@ -160,6 +160,8 @@ _PROD_BASE = dict(
     DJANGO_ENV="production", DJANGO_DEBUG="0", DJANGO_SECRET_KEY="x" * 50,
     ALLOWED_HOSTS="app.example.com",
     DATABASE_URL="postgresql://u:p@db.internal:5432/bizboard",
+    # WP-AB2: production refuses to boot without the bot check.
+    BOT_CHECK_PROVIDER="turnstile", TURNSTILE_SECRET_KEY="test-turnstile-secret",
 )
 
 

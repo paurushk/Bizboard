@@ -93,9 +93,14 @@ def customer_360(company, customer, company_user=None) -> dict | None:
             .values_list("product__name", flat=True)[:12]
         )
     show_money = _can_see_money(company_user)
+    from core.mail import is_suppressed
+
+    email = (getattr(customer, "email", "") or "").strip()
     body = {
         "customer_id": customer.id,
         "name": customer.name,
+        # WP-CM1: mail to this address bounced or was marked spam, so it is no longer sent.
+        "email_suppressed": bool(email) and is_suppressed(email),
         "sales": {
             "invoices": sales.get("invoices", 0),
             "amount": str(sales.get("amount")) if show_money else None,

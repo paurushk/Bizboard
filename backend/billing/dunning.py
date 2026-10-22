@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import send_mail
+from core.mail import send as core_mail_send
 from django.utils import timezone
 
 from billing.models import Subscription
@@ -69,12 +69,12 @@ def _notify(sub: Subscription, *, step: int, days: int, now) -> None:
     )
     if to_email:
         try:
-            send_mail(
-                subject,
-                body,
-                getattr(settings, "DEFAULT_FROM_EMAIL", "billing@bizboard.local"),
-                [to_email],
-                fail_silently=False,
+            core_mail_send(
+                subject=subject,
+                body=body,
+                to=to_email,
+                category="billing",
+                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "billing@bizboard.local"),
             )
         except Exception:  # noqa: BLE001 — sweep must not die on SMTP
             logger.exception("SaaS dunning email failed company=%s", company.pk)

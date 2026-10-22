@@ -12,7 +12,9 @@ pytestmark = pytest.mark.django_db
 
 # Tables intentionally left out of RLS (read during tenant resolution, or —
 # ops_coverageauditrun — cross-tenant engineering tooling with no company FK).
-_EXCLUDED = {"accounts_companyuser", "accounts_companygstin", "ops_coverageauditrun"}
+# core_announcement (WP-CM3) is a staff-written platform table: ``company`` only targets a banner
+# at one company, and most rows have it empty (every company), which RLS would hide from everyone.
+_EXCLUDED = {"accounts_companyuser", "accounts_companygstin", "ops_coverageauditrun", "core_announcement"}
 
 
 def _tenant_tables() -> set[str]:

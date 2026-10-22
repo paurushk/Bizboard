@@ -3,9 +3,9 @@ from datetime import timedelta
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F
 from django.http import Http404
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed
+from rest_framework.exceptions import MethodNotAllowed, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -273,3 +273,156 @@ class VendorTicketShareViewSet(CompanyScopedViewSet):
         except BusinessRuleError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(VendorReplySerializer(row).data, status=201)
+
+
+class PlatformTicketViewSet(viewsets.ViewSet):
+    """WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.
+
+    GET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def _qs(self, request):
+        from .models import PlatformTicket
+        from .platform_tickets import visible_to
+
+        return visible_to(PlatformTicket.objects.all(), get_company_user(request))
+
+    def _get(self, request, pk):
+        ticket = self._qs(request).filter(pk=pk).first()
+        if ticket is None:
+            raise Http404
+        return ticket
+
+    def list(self, request):
+        from .serializers import PlatformTicketSerializer
+
+        rows = self._qs(request).select_related("raised_by").order_by("-created_at")[:100]
+        return Response(PlatformTicketSerializer(rows, many=True).data)
+
+    def create(self, request):
+        from .platform_tickets import open_ticket
+        from .serializers import PlatformTicketSerializer
+
+        cu = get_company_user(request)
+        d = request.data
+        ticket = open_ticket(
+            company=cu.company, user=request.user, subject=d.get("subject"), description=d.get("description"),
+            severity=str(d.get("severity") or "P2"), tag=str(d.get("tag") or ""),
+            support_id=str(d.get("support_id") or ""), route=str(d.get("route") or ""),
+            app_version=str(d.get("app_version") or ""), error_codes=d.get("error_codes") or [],
+        )
+        return Response(PlatformTicketSerializer(ticket).data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request, pk=None):
+        from .serializers import PlatformTicketMessageSerializer, PlatformTicketSerializer
+
+        ticket = self._get(request, pk)
+        body = PlatformTicketSerializer(ticket).data
+        body["messages"] = PlatformTicketMessageSerializer(ticket.messages.order_by("created_at"), many=True).data
+        return Response(body)
+
+    @action(detail=True, methods=["post"])
+    def reply(self, request, pk=None):
+        from .platform_tickets import add_message
+        from .serializers import PlatformTicketMessageSerializer
+
+        ticket = self._get(request, pk)
+        msg = add_message(ticket, author=request.user, body=request.data.get("body"), from_staff=False)
+        return Response(PlatformTicketMessageSerializer(msg).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        from .models import PlatformTicket
+        from .serializers import PlatformTicketSerializer
+
+        ticket = self._get(request, pk)
+        ticket.status = PlatformTicket.Status.RESOLVED
+        ticket.resolved_at = timezone.now()
+        ticket.save(update_fields=["status", "resolved_at", "updated_at"])
+        return Response(PlatformTicketSerializer(ticket).data)
+
+
+def _grant_row(grant) -> dict:
+    now = timezone.now()
+    return {
+        "id": grant.pk,
+        "ticket_id": grant.ticket_id,
+        "ticket_subject": grant.ticket.subject,
+        "staff_email": getattr(grant.staff_user, "email", "") or "",
+        "expires_at": grant.expires_at,
+        "revoked_at": grant.revoked_at,
+        "live": grant.revoked_at is None and grant.expires_at > now,
+        "views": [
+            {"at": v.created_at, "section": v.section, "query": v.query, "rows": v.rows_shown,
+             "staff_email": getattr(v.staff_user, "email", "") or ""}
+            for v in grant.views.all()[:50]
+        ],
+    }
+
+
+class SupportAccessGrantViewSet(viewsets.ViewSet):
+    """WP-ID4: /support/access-grants/ — the owner lets Bizboard support view the company's data,
+    read-only, for up to 72 hours, tied to one open support request.
+
+    GET list (any member: everyone sees when support can look; owners see what was viewed) ·
+    POST create (owner, password + two-step) · POST <id>/revoke/ (owner).
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany]
+    throttle_scope = "sensitive_action"
+
+    def list(self, request):
+        from .models import SupportAccessGrant
+
+        cu = get_company_user(request)
+        rows = (
+            SupportAccessGrant.objects.filter(company=cu.company)
+            .select_related("ticket", "staff_user").prefetch_related("views__staff_user")[:20]
+        )
+        is_owner = cu.role == cu.Role.OWNER
+        data = [_grant_row(g) for g in rows]
+        if not is_owner:
+            data = [{**d, "views": [], "staff_email": ""} for d in data if d["live"]]
+        return Response(data)
+
+    def create(self, request):
+        from billing.reauth import require_reauth
+
+        from .access import grant_access
+
+        cu = get_company_user(request)
+        if cu.role != cu.Role.OWNER:
+            raise PermissionDenied("Only an owner can let support view the company's data.")
+        require_reauth(request)
+        grant = grant_access(
+            company=cu.company, owner=request.user,
+            ticket_id=int(request.data.get("ticket_id") or 0),
+            hours=request.data.get("hours") or 72,
+            staff_email=str(request.data.get("staff_email") or ""),
+        )
+        AuditService.log(
+            action="support.access_granted", company=cu.company, user=request.user,
+            entity_type="SupportAccessGrant", entity_id=grant.pk,
+            description=f"Read-only support access for ticket {grant.ticket_id} until {grant.expires_at:%Y-%m-%d %H:%M}.",
+        )
+        return Response(_grant_row(grant), status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def revoke(self, request, pk=None):
+        from .access import revoke
+        from .models import SupportAccessGrant
+
+        cu = get_company_user(request)
+        if cu.role != cu.Role.OWNER:
+            raise PermissionDenied("Only an owner can end support access.")
+        grant = SupportAccessGrant.objects.filter(company=cu.company, pk=pk).select_related("ticket").first()
+        if grant is None:
+            raise Http404
+        revoke(grant, user=request.user, reason="owner")
+        AuditService.log(
+            action="support.access_revoked", company=cu.company, user=request.user,
+            entity_type="SupportAccessGrant", entity_id=grant.pk, description="Owner ended support access.",
+        )
+        return Response(_grant_row(grant))

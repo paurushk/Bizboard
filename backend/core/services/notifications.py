@@ -11,7 +11,9 @@ from core.models import Notification
 
 class NotificationService:
     @classmethod
-    def send(cls, *, company, channel, recipient, subject="", body="", user=None, allow_cloud=True):
+    def send(cls, *, company, channel, recipient, subject="", body="", user=None, allow_cloud=True, template_vars=None):
+        """``template_vars``: for SMS, ``subject`` is the template key in ``core.message_templates``
+        and these fill it (WP-CM2). ``body`` is kept on the row for the record."""
         notification = Notification.objects.create(
             company=company,
             channel=channel,
@@ -45,13 +47,10 @@ class NotificationService:
         elif channel == Notification.Channel.WHATSAPP:
             from core.services.whatsapp import send_whatsapp_template
 
+            from core.message_templates import WHATSAPP_TEMPLATES
+
             template_name = (subject or "").strip()
-            if template_name not in (
-                "invoice_with_payment_link",
-                "invoice_ready",
-                "payment_reminder",
-                "invoice_share",
-            ):
+            if template_name not in WHATSAPP_TEMPLATES:
                 template_name = "invoice_share" if "invoice" in (subject or "").lower() else "payment_reminder"
             result = send_whatsapp_template(
                 recipient,
@@ -121,10 +120,16 @@ class NotificationService:
                 )[:2000]
             notification.save(update_fields=["status", "error"])
         elif channel == Notification.Channel.SMS:
+            from core.message_templates import SMS_TEMPLATES
             from core.services.sms import SmsProvider
 
             try:
-                SmsProvider.send_text(recipient, body)
+                key = (subject or "").strip()
+                if key not in SMS_TEMPLATES or template_vars is None:
+                    raise ValueError(
+                        f"SMS needs a registered template (core/message_templates.py); got '{key}'."
+                    )
+                SmsProvider.send_template(recipient, key, **template_vars)
                 notification.status = Notification.Status.SENT
                 notification.error = ""
             except Exception as exc:

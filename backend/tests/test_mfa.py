@@ -558,6 +558,10 @@ def test_session_issuers_are_only_the_known_call_sites():
     assert views.count("_complete_login(") == 2, views.count("_complete_login(")
     assert mfa_views.count("_complete_login(") == 1
     assert mfa_views.count("_tokens_for_user(") == 0
+    # WP-ID5: Sign in with Google completes through the same helper, after the same MFA checks.
+    google = (Path(__file__).resolve().parents[1] / "accounts" / "google_signin.py").read_text(encoding="utf-8")
+    assert google.count("complete_login(request, response, user)") == 1
+    assert "mfa_challenge_response(user)" in google and "enrolment_required(user)" in google
 
 
 def test_reencrypt_then_drop_the_old_key(settings):

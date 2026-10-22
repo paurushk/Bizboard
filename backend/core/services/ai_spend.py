@@ -63,10 +63,9 @@ def _keys(day: str, company_id: int | None) -> list[tuple[str, int]]:
 
 
 def _incr(key: str, delta: int) -> int:
-    from django.core.cache import cache
+    from core.services.counters import incr
 
-    cache.add(key, 0, _TTL)
-    return int(cache.incr(key, delta))
+    return incr(key, delta, _TTL)
 
 
 def reserve(estimate: int) -> Reservation:

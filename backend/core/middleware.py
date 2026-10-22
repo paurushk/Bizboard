@@ -362,3 +362,58 @@ class AppVersionMiddleware:
                     status=426,
                 )
         return self.get_response(request)
+
+
+class PublicLinkMiddleware:
+    """WP-AB4: every public share link (invoice, quotation, receipt, pay page, customer portal).
+
+    Those URLs carry a bearer token in the path, so responses must never be cached by a proxy or
+    indexed by a search engine, whatever the view sets: ``Cache-Control: no-store`` and
+    ``X-Robots-Tag: noindex`` on every response, errors included. A token opened from more than
+    ``PUBLIC_LINK_SPREAD_LIMIT`` different networks (/24) in a day is logged and counted
+    (``bizboard_business_events{event="public_link_spread"}``): a forwarded or scraped link.
+    """
+
+    _TOKEN_RE = re.compile(r"^/api/v1/(?:[a-z-]+/)?public/[a-z-]+/(?P<token>[A-Za-z0-9_-]{16,})/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        response = self.get_response(request)
+        path = request.path or ""
+        if "/public/" not in path or not path.startswith("/api/"):
+            return response
+        response["Cache-Control"] = "no-store"
+        response["X-Robots-Tag"] = "noindex"
+        m = self._TOKEN_RE.match(path)
+        if m and response.status_code < 400:
+            self._note_spread(m.group("token"), request)
+        return response
+
+    @staticmethod
+    def _note_spread(token: str, request) -> None:
+        import hashlib
+
+        from django.core.cache import cache
+        from django.utils import timezone
+
+        from core.services.counters import incr
+
+        limit = int(getattr(settings, "PUBLIC_LINK_SPREAD_LIMIT", 50) or 0)
+        if not limit:
+            return
+        ip = (request.META.get("REMOTE_ADDR") or "").strip()
+        net = ".".join(ip.split(".")[:3]) if ip.count(".") == 3 else ip[:19]
+        day = timezone.localdate().isoformat()
+        tid = hashlib.sha256(token.encode()).hexdigest()[:20]
+        try:
+            if cache.add(f"pl:net:{day}:{tid}:{net}", 1, 48 * 3600):
+                count = incr(f"pl:cnt:{day}:{tid}", 1, 48 * 3600)
+                if count == limit + 1:
+                    logger.warning("Public link %s opened from more than %s networks today", tid, limit)
+                    from core.ops_metrics import bump_event
+
+                    bump_event("public_link_spread")
+        except Exception:  # noqa: BLE001 - monitoring must never break the page
+            pass

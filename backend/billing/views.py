@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import logging
+from decimal import Decimal
 
 from django.conf import settings
 from rest_framework import status
@@ -167,9 +168,18 @@ class CheckoutView(APIView):
                 "subscription": SubscriptionSerializer(sub).data,
                 "checkout_order_id": checkout_order_id,
                 "checkout_url": checkout_url or None,
+                # WP-BL3: the one-time prorated charge for an upgrade (None otherwise).
+                "proration_url": getattr(sub, "_proration_url", "") or None,
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def _effective_seat_limit(sub):
+    from billing.plan_change import effective_plan
+
+    plan = effective_plan(sub)
+    return plan.seat_limit if plan else None
 
 
 class PortalView(APIView):
@@ -182,7 +192,7 @@ class PortalView(APIView):
             "subscription": SubscriptionSerializer(sub).data if sub else None,
             "plans": PlanSerializer(Plan.objects.filter(is_active=True), many=True).data,
             "billing_override_active": cu.company.billing_override_active,
-            "seat_limit": sub.plan.seat_limit if sub else None,
+            "seat_limit": _effective_seat_limit(sub),
         }
         # Hosted customer portal is not wired; omit rather than always-None.
         portal = (getattr(settings, "RAZORPAY_CUSTOMER_PORTAL_URL", "") or "").strip()
@@ -230,6 +240,11 @@ class RazorpayWebhookView(APIView):
         except (UnicodeDecodeError, json.JSONDecodeError):
             payload = request.data if isinstance(request.data, dict) else {}
 
+        event_name = str(payload.get("event") or "") if isinstance(payload, dict) else ""
+        if event_name.startswith("payment_link."):
+            from billing.plan_change import handle_payment_link_event
+
+            return Response(handle_payment_link_event(payload))  # WP-BL3 prorated upgrade charge
         entity = _extract_subscription_entity(payload)
         if not entity:
             return Response({"ok": True, "ignored": True})
@@ -245,13 +260,21 @@ class RazorpayWebhookView(APIView):
         from core.tracing import trace_span
         from payments.models import ProcessedWebhookEvent
 
+        # WP-BL2: a charge must be invoiced even when it arrives after a newer status event. The
+        # ordering check only protects status transitions, so an older charge skips the status
+        # update below but still issues its GST invoice.
+        charge = _extract_charge(payload)
+        out_of_order = False
         created_at = _webhook_created_at(payload)
         if created_at is not None:
             last_key = f"billing:wh:lastts:{rzp_id}"
             last = cache.get(last_key)
             if last is not None and int(created_at) < int(last):
-                return Response({"ok": True, "ignored": True, "reason": "out_of_order"})
-            cache.set(last_key, int(created_at), timeout=7 * 24 * 60 * 60)
+                if charge is None:
+                    return Response({"ok": True, "ignored": True, "reason": "out_of_order"})
+                out_of_order = True
+            else:
+                cache.set(last_key, int(created_at), timeout=7 * 24 * 60 * 60)
 
         event_id = (
             request.headers.get("X-Razorpay-Event-Id")
@@ -313,6 +336,10 @@ class RazorpayWebhookView(APIView):
             )
             logger.warning("Razorpay subscription webhook stale; parked in DLQ")
             return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
+        if charge is not None:
+            _invoice_charge(company, charge)
+        if out_of_order:
+            return Response({"ok": True, "ignored": True, "reason": "out_of_order", "invoiced": True})
         try:
             with trace_span("billing.razorpay_webhook", company_id=company.id, event_id=event_id):
                 sub = apply_razorpay_subscription_status(
@@ -339,6 +366,16 @@ class RazorpayWebhookView(APIView):
             logger.exception("Razorpay subscription webhook parked in DLQ")
             return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
         if sub is not None:
+            from billing.autopay import MANDATE_EVENTS, record_mandate_event
+
+            record_mandate_event(sub, payload)  # WP-BL4 mandate state and payment method
+            if event_name.startswith("subscription.") and event_name not in MANDATE_EVENTS:
+                parked = park_dead_letter(
+                    provider="razorpay_subscription", event_id=str(event_id),
+                    payload=payload if isinstance(payload, dict) else {},
+                    error=f"Unhandled event {event_name}", company=company,
+                )
+                logger.warning("Razorpay event %s not handled; parked %s", event_name, parked.pk)
             AuditService.log(
                 action="billing.webhook",
                 company=sub.company,
@@ -348,6 +385,46 @@ class RazorpayWebhookView(APIView):
                 metadata={"razorpay_status": rzp_status},
             )
         return Response({"ok": True, "subscription_id": sub.pk if sub else None, "status": sub.status if sub else None})
+
+
+def _extract_charge(payload: dict) -> dict | None:
+    """WP-BL2: the captured payment of a ``subscription.charged`` event, else None."""
+    if not isinstance(payload, dict) or payload.get("event") != "subscription.charged":
+        return None
+    payment = (((payload.get("payload") or {}).get("payment") or {}).get("entity")) or {}
+    if not isinstance(payment, dict) or not payment.get("id"):
+        return None
+    if str(payment.get("status") or "captured") not in ("captured", "authorized"):
+        return None
+    try:
+        paise = int(payment.get("amount") or 0)
+    except (TypeError, ValueError):
+        return None
+    if paise <= 0:
+        return None
+    return {"payment_id": str(payment["id"]), "amount": Decimal(paise) / Decimal(100)}
+
+
+def _invoice_charge(company, charge: dict) -> None:
+    """Issue the GST invoice for one charge. A failure is logged, not raised: the daily recon
+    (``billing.recon``) issues any invoice a charge event did not."""
+    from billing.platform_gst import issue_platform_gst_invoice
+
+    try:
+        invoice = issue_platform_gst_invoice(
+            company, provider="razorpay", capture_id=charge["payment_id"], amount=charge["amount"],
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Platform GST invoice for Razorpay payment %s failed; recon will retry", charge["payment_id"])
+        return
+    if invoice is None:
+        return
+    from billing.tds_claims import apply_renewal_credit
+
+    try:
+        apply_renewal_credit(company, invoice)  # WP-BL1: verified TDS credit comes off this renewal
+    except Exception:  # noqa: BLE001
+        logger.exception("TDS credit on renewal %s failed; the daily task retries", invoice.pk)
 
 
 def _webhook_created_at(payload: dict) -> int | None:
@@ -421,3 +498,131 @@ class DeadLetterReplayView(APIView):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         replayed = replay_dead_letter(event, user=request.user)
         return Response({"ok": True, "status": replayed.status, "id": replayed.pk})
+
+
+class PlatformInvoiceListView(APIView):
+    """GET /api/v1/billing/invoices/ — WP-BL2: Bizboard's GST invoices and credit notes to the
+    owner's company, newest first."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        from .models import PlatformGstInvoice
+        from .serializers import PlatformGstInvoiceSerializer
+
+        cu = get_company_user(request)
+        rows = (
+            PlatformGstInvoice.objects.filter(company=cu.company)
+            .select_related("original")
+            .order_by("-created_at", "-pk")[:200]
+        )
+        return Response(PlatformGstInvoiceSerializer(rows, many=True).data)
+
+
+class PlatformInvoicePdfView(APIView):
+    """GET /api/v1/billing/invoices/<pk>/pdf/ — WP-BL2: PDF of one Bizboard invoice or credit note."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request, pk: int):
+        from django.http import HttpResponse
+
+        from .models import PlatformGstInvoice
+        from .platform_invoice_pdf import render_platform_invoice_pdf
+
+        cu = get_company_user(request)
+        row = PlatformGstInvoice.objects.filter(company=cu.company, pk=pk).select_related("original").first()
+        if row is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        resp = HttpResponse(render_platform_invoice_pdf(row), content_type="application/pdf")
+        resp["Content-Disposition"] = f'inline; filename="{row.number or row.pk}.pdf"'
+        resp["Cache-Control"] = "private, no-store"
+        return resp
+
+
+class SaasTdsClaimView(APIView):
+    """GET/POST /api/v1/billing/tds-claims/ — WP-BL1: claim back TDS deducted on Bizboard's fees.
+
+    POST ``{"invoice_ids": [..], "section": "194J-2", "certificate_id": <uploaded Form 16A file>}``.
+    """
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def get(self, request):
+        from .models import SaasTdsClaim
+        from .serializers import SaasTdsClaimSerializer
+        from .tds_claims import sections
+
+        cu = get_company_user(request)
+        rows = SaasTdsClaim.objects.filter(company=cu.company).prefetch_related("invoices")[:100]
+        return Response({
+            "claims": SaasTdsClaimSerializer(rows, many=True).data,
+            "sections": [{**s, "rate": str(s["rate"])} for s in sections()],
+        })
+
+    def post(self, request):
+        from .serializers import SaasTdsClaimSerializer
+        from .tds_claims import submit_claim
+
+        cu = get_company_user(request)
+        claim = submit_claim(
+            company=cu.company,
+            user=request.user,
+            invoice_ids=request.data.get("invoice_ids") or [],
+            section_code=str(request.data.get("section") or ""),
+            certificate_id=int(request.data.get("certificate_id") or 0),
+            settle_by=str(request.data.get("settle_by") or ""),
+        )
+        AuditService.log(
+            action="billing.tds_claim", company=cu.company, user=request.user,
+            entity_type="SaasTdsClaim", entity_id=claim.pk,
+            description=f"TDS claim {claim.amount} for {claim.quarter} submitted ({claim.settle_by.lower()}).",
+        )
+        return Response(SaasTdsClaimSerializer(claim).data, status=status.HTTP_201_CREATED)
+
+
+class SaasTdsClaimRefundView(APIView):
+    """POST /api/v1/billing/tds-claims/<pk>/refund/ — WP-BL1 (Q5): refund the credit still left on a
+    claim instead of taking it off the next renewal."""
+
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request, pk: int):
+        from .models import SaasTdsClaim
+        from .serializers import SaasTdsClaimSerializer
+        from .tds_claims import request_refund
+
+        cu = get_company_user(request)
+        claim = SaasTdsClaim.objects.filter(company=cu.company, pk=pk).first()
+        if claim is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        claim = request_refund(claim, user=request.user)
+        AuditService.log(
+            action="billing.tds_claim_refund", company=cu.company, user=request.user,
+            entity_type="SaasTdsClaim", entity_id=claim.pk,
+            description=f"Owner asked for TDS claim {claim.pk} to be refunded instead of credited.",
+        )
+        return Response(SaasTdsClaimSerializer(claim).data)
+
+
+class OnboardingChecklistView(APIView):
+    """GET /api/v1/billing/onboarding/ — WP-GR2: the home-screen checklist (any member).
+    POST /api/v1/billing/onboarding/dismiss/ — the owner hides it."""
+
+    permission_classes = [IsAuthenticated, HasCompany]
+
+    def get(self, request):
+        from .onboarding import checklist
+
+        return Response(checklist(get_company_user(request).company))
+
+
+class OnboardingDismissView(APIView):
+    permission_classes = [IsAuthenticated, HasCompany, IsOwner]
+
+    def post(self, request):
+        from .onboarding import checklist, dismiss
+
+        cu = get_company_user(request)
+        dismiss(cu.company)
+        return Response(checklist(cu.company))

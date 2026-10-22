@@ -10,6 +10,7 @@ from core.permissions import get_company_user
 from core.services.health import compute_help_health
 
 from .models import CoverageAuditRun
+from .saas_admin_views import saas_metrics_view, sms_guard_view, support_view
 from .tasks import run_coverage_audit_task
 
 
@@ -74,6 +75,9 @@ _original_get_urls = admin.site.get_urls
 def _get_urls():
     custom = [
         path("ops/health/", admin.site.admin_view(_health_view), name="ops_health"),
+        path("ops/sms-guard/", admin.site.admin_view(sms_guard_view), name="ops_sms_guard"),
+        path("ops/saas-metrics/", admin.site.admin_view(saas_metrics_view), name="ops_saas_metrics"),
+        path("ops/support-view/<int:grant_id>/", admin.site.admin_view(support_view), name="ops_support_view"),
     ]
     return custom + _original_get_urls()
 

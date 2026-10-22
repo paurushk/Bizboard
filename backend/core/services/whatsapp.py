@@ -12,14 +12,7 @@ import requests
 
 from core.services.feature_flags import build_feature_flags
 
-APPROVED_WHATSAPP_TEMPLATES = frozenset({
-    # GD-25: the invoice that carries a payment link is the first template.
-    # payment_reminder stays second and is not a campaign send.
-    "invoice_with_payment_link",
-    "invoice_ready",
-    "payment_reminder",
-    "invoice_share",
-})
+from core.message_templates import WHATSAPP_TEMPLATES as APPROVED_WHATSAPP_TEMPLATES  # noqa: E402 - WP-CM2 registry
 
 
 @dataclass

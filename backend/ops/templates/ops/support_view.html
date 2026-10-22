@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>{{ grant.company.name }} — read-only support view</h1>
+<p>Granted by the owner for ticket #{{ grant.ticket_id }} until {{ grant.expires_at }}. Every page you open here is recorded and shown to the owner. Nothing can be changed from this page.</p>
+<p>
+  {% for s in sections %}
+    {% if s == section %}<strong>{{ s }}</strong>{% else %}<a href="?section={{ s }}">{{ s }}</a>{% endif %}{% if not forloop.last %} · {% endif %}
+  {% endfor %}
+</p>
+<form method="get" style="margin-bottom: 1em;">
+  <input type="hidden" name="section" value="{{ section }}">
+  <input type="search" name="q" value="{{ q }}" placeholder="Search">
+  <button type="submit" class="button">Search</button>
+</form>
+<table style="border-collapse: collapse;">
+  <thead><tr>{% for f in fields %}<th style="text-align:left; padding:4px 8px; border-bottom:1px solid #999;">{{ f }}</th>{% endfor %}</tr></thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>{% for v in row %}<td style="padding:4px 8px; border-bottom:1px solid #ddd;">{{ v|default_if_none:"" }}</td>{% endfor %}</tr>
+    {% empty %}
+    <tr><td colspan="{{ fields|length }}">Nothing found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

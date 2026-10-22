@@ -94,6 +94,8 @@ class CustomerSerializer(serializers.ModelSerializer):
     shipping_addresses = CustomerShippingAddressSerializer(many=True, required=False)
     # Filled by CustomerViewSet.retrieve only (when the company's auto credit hold is on); absent on lists.
     collection_status = serializers.CharField(read_only=True, required=False)
+    # WP-CM1: filled by CustomerViewSet.retrieve only; mail to this address bounced or was marked spam.
+    email_suppressed = serializers.BooleanField(read_only=True, required=False)
 
     def validate(self, attrs):
         instance = getattr(self, "instance", None)
@@ -329,6 +331,7 @@ class CustomerSerializer(serializers.ModelSerializer):
             "outstanding",
             "credit_exposure",
             "collection_status",
+            "email_suppressed",
             "version",
         ]
         read_only_fields = [

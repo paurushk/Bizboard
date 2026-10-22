@@ -2,6 +2,8 @@ from django.urls import path
 
 from .shopify import ShopifyWebhookView
 from .views import (
+    LegacyCommitView,
+    LegacyUploadView,
     TallyRunsView,
     ShopifyConnectionView,
     ShopifyPendingApplyView,
@@ -17,6 +19,8 @@ from .views import (
 
 urlpatterns = [
     path("tally/upload/", TallyUploadView.as_view(), name="tally-upload"),
+    path("legacy/upload/", LegacyUploadView.as_view(), name="legacy-upload"),
+    path("legacy/commit/", LegacyCommitView.as_view(), name="legacy-commit"),
     path("tally/preview/", TallyPreviewView.as_view(), name="tally-preview"),
     path("tally/commit/", TallyCommitView.as_view(), name="tally-commit"),
     path("tally/export/", TallyExportView.as_view(), name="tally-export"),

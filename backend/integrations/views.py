@@ -475,3 +475,54 @@ class TallyMigrationDiffView(APIView):
             "books_total": str(books),
             "pdf_base64": base64.b64encode(pdf).decode(),
         })
+
+
+class LegacyUploadView(APIView):
+    """POST /api/v1/integrations/legacy/upload/ — WP-GR1b: a Busy, Vyapar or Marg party or item export.
+
+    Multipart ``file`` + ``source`` (busy | vyapar | marg). Returns the same preview as Tally."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanImport]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        from integrations.legacy_import import create_legacy_run
+        from integrations.permissions import assert_legacy_import_enabled
+
+        cu = get_company_user(request)
+        assert_legacy_import_enabled(cu.company)
+        f = request.FILES.get("file")
+        if not f:
+            return Response({"detail": "file required"}, status=status.HTTP_400_BAD_REQUEST)
+        run = create_legacy_run(cu.company, request.user, f, str(request.data.get("source") or "").lower())
+        return Response({
+            "sync_run_id": run.id, "status": run.status, "preview": run.preview, "errors": run.errors,
+            "disclaimer": DISCLAIMER,
+        }, status=status.HTTP_201_CREATED)
+
+
+class LegacyCommitView(APIView):
+    """POST /api/v1/integrations/legacy/commit/ ``{sync_run_id}`` — WP-GR1b: same commit as Tally."""
+
+    permission_classes = [IsAuthenticated, HasCompany, CanImport]
+
+    def post(self, request):
+        from integrations.permissions import assert_legacy_import_enabled
+
+        cu = get_company_user(request)
+        assert_legacy_import_enabled(cu.company)
+        run_id = request.data.get("sync_run_id") or request.data.get("syncRunId")
+        run = IntegrationSyncRun.objects.filter(
+            pk=run_id, company=cu.company, kind=IntegrationSyncRun.Kind.LEGACY_IMPORT,
+        ).first()
+        if run is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            result = commit_tally_preview(cu.company, request.user, run)
+        except BusinessRuleError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        AuditService.log(
+            company=cu.company, user=request.user, action="IMPORT", entity_type="IntegrationSyncRun",
+            entity_id=run.id, description=f"{(run.preview or {}).get('source', '')} import committed",
+        )
+        return Response({"sync_run_id": run.id, "result": result, "disclaimer": DISCLAIMER})

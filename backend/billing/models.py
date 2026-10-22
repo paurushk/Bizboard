@@ -61,6 +61,19 @@ class Subscription(TimeStampedModel):
     # live ``razorpay_subscription_id`` stays on the subscription the tenant
     # already paid for until this one is confirmed active.
     pending_razorpay_subscription_id = models.CharField(max_length=64, blank=True, default="")
+    # WP-BL3: an upgrade applies at once while its prorated charge is paid (or within the grace).
+    upgrade_plan = models.ForeignKey(
+        Plan, null=True, blank=True, on_delete=models.SET_NULL, related_name="upgrading_subscriptions"
+    )
+    upgrade_started_at = models.DateTimeField(null=True, blank=True)
+    upgrade_grace_until = models.DateTimeField(null=True, blank=True)
+    proration_amount_paise = models.PositiveIntegerField(default=0)
+    proration_link_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    proration_paid_at = models.DateTimeField(null=True, blank=True)
+    # WP-BL4: how renewals are collected and the state of the UPI Autopay / card mandate.
+    payment_method = models.CharField(max_length=16, blank=True, default="")
+    mandate_status = models.CharField(max_length=16, blank=True, default="")
+    renewal_reminder_for = models.DateTimeField(null=True, blank=True)
     # 8.5 — expand-only SaaS dunning cadence (not AR / payments.dunning).
     last_dunning_at = models.DateTimeField(null=True, blank=True)
     last_dunning_step = models.PositiveSmallIntegerField(default=0)
@@ -160,6 +173,15 @@ class TenantActivation(CompanyScopedModel):
 
     setup_completed_at = models.DateTimeField(null=True, blank=True)
     first_invoice_at = models.DateTimeField(null=True, blank=True)
+    # WP-GR2: onboarding checklist steps (billing/onboarding.py stamps each once).
+    gstin_verified_at = models.DateTimeField(null=True, blank=True)
+    first_item_at = models.DateTimeField(null=True, blank=True)
+    first_party_at = models.DateTimeField(null=True, blank=True)
+    first_purchase_at = models.DateTimeField(null=True, blank=True)
+    first_payment_at = models.DateTimeField(null=True, blank=True)
+    invited_user_at = models.DateTimeField(null=True, blank=True)
+    imported_at = models.DateTimeField(null=True, blank=True)
+    checklist_dismissed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -192,14 +214,35 @@ class VendorTenantSnapshot(CompanyScopedModel):
 
 
 class PlatformGstInvoice(CompanyScopedModel):
-    """Bizboard's GST invoice to a tenant after a Cashfree or PayU capture.
+    """Bizboard's GST invoice (or credit note) to a tenant for a captured subscription charge.
 
-    Razorpay subscription reconciliation is a separate path and does not write here.
+    WP-BL2: every Razorpay ``subscription.charged`` issues one (``capture_id`` = Razorpay payment
+    id); the daily recon issues any a lost webhook missed. A refund issues a ``CREDIT_NOTE`` row
+    pointing at the invoice (``capture_id`` = refund id). Numbers are Bizboard-wide and run per
+    financial year with no gaps (``PlatformInvoiceSequence``).
     """
+
+    class Kind(models.TextChoices):
+        INVOICE = "INVOICE", "Tax invoice"
+        CREDIT_NOTE = "CREDIT_NOTE", "Credit note"
 
     provider = models.CharField(max_length=32)
     capture_id = models.CharField(max_length=128)
     number = models.CharField(max_length=32, blank=True)
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.INVOICE)
+    original = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.PROTECT, related_name="credit_notes",
+    )
+    financial_year = models.CharField(max_length=7, blank=True)
+    buyer_gstin = models.CharField(max_length=15, blank=True)
+    buyer_legal_name = models.CharField(max_length=255, blank=True)
+    buyer_state = models.CharField(max_length=64, blank=True)
+    sac_code = models.CharField(max_length=8, blank=True)
+    # B-07: filled only once Bizboard's own turnover makes e-invoicing mandatory.
+    irn = models.CharField(max_length=64, blank=True)
+    ack_no = models.CharField(max_length=32, blank=True)
+    ack_date = models.DateTimeField(null=True, blank=True)
+    signed_qr = models.TextField(blank=True)
     taxable_amount = models.DecimalField(max_digits=14, decimal_places=2)
     cgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
     sgst = models.DecimalField(max_digits=14, decimal_places=2, default=0)
@@ -216,3 +259,79 @@ class PlatformGstInvoice(CompanyScopedModel):
                 name="uniq_platform_gst_capture",
             ),
         ]
+
+
+class PlatformInvoiceSequence(models.Model):
+    """WP-BL2: Bizboard-wide, gap-free numbers for its own GST invoices and credit notes.
+
+    Platform table (not per tenant, no RLS): Bizboard is one supplier, so one series per document
+    kind per financial year. ``series`` is e.g. ``INV:2026-27``; rows are locked while a number is
+    taken, so two captures at once never share or skip a number.
+    """
+
+    series = models.CharField(max_length=16, unique=True)
+    last = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.series}: {self.last}"
+
+
+class SaasTdsClaim(CompanyScopedModel):
+    """WP-BL1: a customer that deducts TDS on Bizboard's fees claims it back.
+
+    The customer pays Bizboard's invoices in full online (TDS can't be withheld from a card or UPI
+    charge). After the quarter they upload Form 16A for those invoices; staff check it against
+    TRACES in Django admin; a verified claim is refunded against the original Razorpay payment and
+    a GST credit note is not needed (TDS is not a price reduction), so the refund carries no tax.
+    The amount is computed from the invoices' taxable value (TDS is on the amount before GST).
+    """
+
+    class Status(models.TextChoices):
+        SUBMITTED = "SUBMITTED", "Submitted"
+        VERIFIED = "VERIFIED", "Verified, credit waiting for the next renewal"
+        SETTLED = "SETTLED", "Settled"
+        REJECTED = "REJECTED", "Rejected"
+
+    class SettleBy(models.TextChoices):
+        # Q5 (founder, 2026-10-22): credit on the next renewal by default, refund on request.
+        CREDIT = "CREDIT", "Credit on the next renewal"
+        REFUND = "REFUND", "Refund to the original payment"
+
+    invoices = models.ManyToManyField(PlatformGstInvoice, related_name="tds_claims")
+    settle_by = models.CharField(max_length=8, choices=SettleBy.choices, default=SettleBy.CREDIT)
+    credit_remaining = models.DecimalField(max_digits=14, decimal_places=2, default=0)
+    # [{"invoice": <renewal invoice pk>, "refund": <razorpay refund id>, "amount": "12.00"}]
+    credit_applied = models.JSONField(default=list, blank=True)
+    section = models.CharField(max_length=16)
+    rate = models.DecimalField(max_digits=5, decimal_places=2)
+    taxable_total = models.DecimalField(max_digits=14, decimal_places=2)
+    amount = models.DecimalField(max_digits=14, decimal_places=2)
+    quarter = models.CharField(max_length=10)
+    certificate = models.ForeignKey("core.FileAsset", on_delete=models.PROTECT, related_name="+")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.SUBMITTED, db_index=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=500, blank=True)
+    refund_ids = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class TrialFingerprint(models.Model):
+    """WP-AB3: one free trial per business. Platform table (not per tenant, no RLS).
+
+    Holds only keyed HMAC hashes of the GSTIN, PAN, owner phone and owner email of a company that
+    started a trial, so a new sign-up by the same business starts without a trial. No clear
+    personal data, so it survives tenant erasure (for counsel to confirm, DATA_CATEGORIES.md).
+    """
+
+    kind = models.CharField(max_length=8)  # gstin | pan | phone | email
+    digest = models.CharField(max_length=64, db_index=True)
+    company_id_hint = models.PositiveBigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["kind", "digest"])]

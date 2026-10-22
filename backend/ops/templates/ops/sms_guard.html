@@ -1,0 +1,26 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>SMS spend guard</h1>
+<p>Caps per phone, per number range and per day are set in settings (<code>SMS_*</code>). See <code>docs/ops/ALERTS.md#sms-spend</code>.</p>
+<table style="border-collapse: collapse;">
+  <tbody>
+    <tr><th style="text-align:left; padding:4px 12px 4px 0;">Kill switch</th><td>{% if status.kill_switch %}<strong>ON — no SMS is sent</strong>{% else %}off{% endif %}</td></tr>
+    <tr><th style="text-align:left; padding:4px 12px 4px 0;">SMS today (platform)</th><td>{{ status.platform_today }} of {{ status.platform_cap }}</td></tr>
+  </tbody>
+</table>
+{% if can_flip %}
+<form method="post" style="margin-top: 1em;">
+  {% csrf_token %}
+  {% if status.kill_switch %}
+  <input type="hidden" name="kill" value="off">
+  <button type="submit" class="button">Turn the kill switch off</button>
+  {% else %}
+  <input type="hidden" name="kill" value="on">
+  <button type="submit" class="button" onclick="return confirm('Stop every SMS, including sign-in codes?')">Turn the kill switch on (stop all SMS)</button>
+  {% endif %}
+</form>
+{% else %}
+<p>Only a superuser can turn the kill switch on or off.</p>
+{% endif %}
+{% endblock %}

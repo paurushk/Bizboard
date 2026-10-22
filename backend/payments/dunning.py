@@ -247,6 +247,16 @@ def _send_whatsapp(invoice, body) -> bool:
     return n.status == Notification.Status.SENT and getattr(n, "delivery_mode", None) == "cloud"
 
 
+def _reminder_vars(invoice) -> dict:
+    """WP-CM2: the DLT variables of the ``payment_reminder`` SMS template."""
+    return {
+        "company": invoice.company.name,
+        "number": invoice.number,
+        "amount": _outstanding(invoice),
+        "due_date": invoice.due_date,
+    }
+
+
 def _send_sms(invoice, body) -> bool:
     from core.models import Notification
     from core.services.notifications import NotificationService
@@ -260,6 +270,7 @@ def _send_sms(invoice, body) -> bool:
         recipient=phone,
         subject="payment_reminder",
         body=body,
+        template_vars=_reminder_vars(invoice),
     )
     return n.status in (Notification.Status.SENT, Notification.Status.QUEUED)
 
@@ -285,11 +296,11 @@ def _send_email(invoice, body) -> bool:
 
 
 def remind_invoice(invoice, *, sent_on: date, days_overdue: int, now: datetime | None = None) -> str:
+    from core.message_templates import sms_template
+
     company = invoice.company
-    body = (
-        f"Payment reminder from {company.name}: invoice {invoice.number} "
-        f"for INR {_outstanding(invoice)} was due on {invoice.due_date}. Please pay."
-    )
+    # One wording on every channel: the DLT-registered SMS text.
+    body = sms_template("payment_reminder").render(**_reminder_vars(invoice))
     if getattr(company, "dunning_channel_whatsapp", True):
         try:
             if _send_whatsapp(invoice, body):

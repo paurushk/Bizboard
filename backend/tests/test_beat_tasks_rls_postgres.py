@@ -28,6 +28,7 @@ from tests.rls_helpers import app_role, needs_pg
 # tenant table.
 BEAT_TASKS = {
     "accounting.tasks.post_monthly_depreciation": "FAN_OUT",
+    "accounts.tasks.purge_readable_exports_task": "BYPASS",
     "accounts.tasks.run_scheduled_backups_task": "FAN_OUT",
     "accounts.tasks.run_settings_alerts_task": "FAN_OUT",
     "accounts.tasks.sweep_expired_sandboxes_task": "BYPASS",
@@ -36,7 +37,9 @@ BEAT_TASKS = {
     "agents.tasks.expire_proposals": "FAN_OUT",
     "agents.tasks.purge_steps": "FAN_OUT",
     "billing.tasks.reconcile_saas_subscriptions_task": "BYPASS",
+    "billing.tasks.plan_change_and_renewal_task": "BYPASS",
     "billing.tasks.run_saas_dunning_task": "BYPASS",
+    "billing.tasks.tds_credits_and_reminders_task": "BYPASS",
     "contracts.tasks.refresh_contract_statuses": "PER_COMPANY",
     "contracts.tasks.send_contract_renewal_reminders": "PER_COMPANY",
     "core.tasks.celery_beat_heartbeat": "PLATFORM",
@@ -59,6 +62,9 @@ BEAT_TASKS = {
     "reporting.tasks.send_itc_expiry_digests_task": "PER_COMPANY",
     "sales.tasks.generate_recurring_invoices_task": "PER_COMPANY",
     "sales.tasks.purge_old_invoice_zips_task": "BYPASS",
+    "support.tasks.complete_owner_recoveries_task": "BYPASS",
+    "support.tasks.expire_support_access_task": "BYPASS",
+    "support.tasks.tenant_health_weekly_task": "FAN_OUT",
     "sales.tasks.requeue_stale_invoice_pdfs": "BYPASS",
     "sales.tasks.sweep_quotation_conversions": "BYPASS",
 }

@@ -5,7 +5,8 @@ Providers:
 - ``msg91``: requires MSG91_AUTH_KEY (+ optional MSG91_TEMPLATE_ID, MSG91_SENDER).
 - ``twilio``: requires TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER.
 
-Fail closed when credentials missing. Live vendor DLT / templates remain ops Final Gate.
+Fail closed when credentials missing. Every SMS is a registered template
+(``core/message_templates.py``, WP-CM2) and passes the caps in ``sms_guard`` (WP-AB1) first.
 """
 
 from __future__ import annotations
@@ -151,9 +152,92 @@ def _send_twilio_text(phone: str, body: str) -> None:
         raise BusinessRuleError(f"Twilio SMS unreachable: {exc.reason}") from exc
 
 
+def _guarded(phone: str, purpose: str, send) -> None:
+    """WP-AB1: count the attempt before the provider is called; it stays counted if the send fails."""
+    from core.services import sms_guard
+
+    sms_guard.check_and_count(phone, purpose)
+    try:
+        send()
+    except Exception:
+        sms_guard.record_result(purpose, ok=False)
+        raise
+    sms_guard.record_result(purpose, ok=True)
+
+
+def _send_msg91_flow(phone: str, template_id: str, values: dict) -> None:
+    """WP-CM2: a non-OTP SMS through MSG91's flow API, which sends the DLT template by ID."""
+    import json
+
+    auth = (getattr(settings, "MSG91_AUTH_KEY", "") or "").strip()
+    if not auth:
+        raise BusinessRuleError("MSG91_AUTH_KEY is required when SMS_PROVIDER=msg91.")
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    if len(digits) == 10:
+        digits = "91" + digits
+    body = json.dumps(
+        {"template_id": template_id, "short_url": "0", "recipients": [{"mobiles": digits, **values}]}
+    ).encode()
+    req = urllib.request.Request(
+        "https://control.msg91.com/api/v5/flow/",
+        data=body,
+        method="POST",
+        headers={"Content-Type": "application/json", "authkey": auth},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            if resp.status >= 400:
+                raise BusinessRuleError(f"MSG91 SMS send failed with HTTP {resp.status}.")
+            try:
+                payload = json.loads(raw or "{}")
+            except json.JSONDecodeError as exc:
+                raise BusinessRuleError("MSG91 SMS send failed: invalid response.") from exc
+            if isinstance(payload, dict) and str(payload.get("type") or "").lower() == "error":
+                raise BusinessRuleError(f"MSG91 SMS send failed: {payload.get('message') or raw[:200]}")
+    except urllib.error.HTTPError as exc:
+        raise BusinessRuleError(f"MSG91 SMS send failed: {exc.code}") from exc
+    except urllib.error.URLError as exc:
+        raise BusinessRuleError(f"MSG91 SMS unreachable: {exc.reason}") from exc
+
+
 class SmsProvider:
     @staticmethod
     def send_otp(phone: str, code: str) -> None:
+        SmsProvider.send_template(phone, "otp", code=code)
+
+    @staticmethod
+    def send_template(phone: str, key: str, **values) -> None:
+        """WP-CM2: the only way to send an SMS. ``key`` is in ``core.message_templates.SMS_TEMPLATES``."""
+        from core.message_templates import sms_template
+
+        tpl = sms_template(key)
+        text = tpl.render(**values)
+        prod_like = _env() in ("production", "staging") or not bool(getattr(settings, "DEBUG", True))
+        provider = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
+        # MSG91 sends by DLT template ID; Twilio carries its own DLT registration on the sender.
+        if (
+            prod_like
+            and provider == "msg91"
+            and _looks_indian_mobile(phone)
+            and not tpl.dlt_template_id()
+        ):
+            raise BusinessRuleError(
+                f"SMS template '{key}' has no DLT template ID ({tpl.dlt_setting}); Indian operators would drop it."
+            )
+
+        def send():
+            if key == "otp":
+                SmsProvider._send_otp(phone, values["code"])
+            elif provider == "msg91":
+                _send_msg91_flow(phone, tpl.dlt_template_id(), {k: str(values[k]) for k in tpl.variables})
+            else:
+                SmsProvider._send_text(phone, text)
+
+        _guarded(phone, key, send)
+
+    @staticmethod
+    def _send_otp(phone: str, code: str) -> None:
         provider = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
         env = _env()
 
@@ -189,8 +273,7 @@ class SmsProvider:
         )
 
     @staticmethod
-    def send_text(phone: str, body: str) -> None:
-        """A-07 dunning SMS. Stub in test/dev; Twilio/MSG91 when configured."""
+    def _send_text(phone: str, body: str) -> None:
         provider = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
         env = _env()
         if provider in _STUB_PROVIDERS:
@@ -203,9 +286,6 @@ class SmsProvider:
         if provider == "twilio":
             _send_twilio_text(phone, body)
             return
-        if provider == "msg91":
-            # OTP API is not a dunning channel; fail closed unless a stub env.
-            raise BusinessRuleError("MSG91 OTP API cannot send AR dunning texts. Use twilio or console.")
         raise BusinessRuleError(
             f"SMS provider '{provider}' is not implemented for text messages."
         )

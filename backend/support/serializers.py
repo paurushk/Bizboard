@@ -6,7 +6,14 @@ from core.serializers import CompanyPrimaryKeyRelatedField
 from masters.models import Customer
 from sales.models import SalesInvoice
 
-from .models import Ticket, TicketComment, VendorTicketShare, VendorTicketShareComment
+from .models import (
+    PlatformTicket,
+    PlatformTicketMessage,
+    Ticket,
+    TicketComment,
+    VendorTicketShare,
+    VendorTicketShareComment,
+)
 from .tickets import effective_sla_due_at, reprioritise, sla_state
 
 
@@ -216,3 +223,27 @@ class TicketCommentSerializer(serializers.ModelSerializer):
             return obj.author_label or "Vendor"
         user = obj.created_by
         return (getattr(user, "full_name", "") or getattr(user, "email", "") or "").strip()
+
+
+class PlatformTicketSerializer(serializers.ModelSerializer):
+    """WP-PO3: a tenant's request to Bizboard support."""
+
+    raised_by_email = serializers.CharField(source="raised_by.email", read_only=True)
+
+    class Meta:
+        model = PlatformTicket
+        fields = [
+            "id", "subject", "description", "severity", "tag", "status", "raised_by_email",
+            "support_id", "route", "app_version", "error_codes", "sla_due_at", "first_response_at",
+            "resolved_at", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class PlatformTicketMessageSerializer(serializers.ModelSerializer):
+    author_email = serializers.CharField(source="author.email", read_only=True)
+
+    class Meta:
+        model = PlatformTicketMessage
+        fields = ["id", "body", "from_staff", "author_email", "created_at"]
+        read_only_fields = fields

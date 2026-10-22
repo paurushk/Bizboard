@@ -14,6 +14,7 @@ _NULLABLE_COMPANY_OK = {
     "billing_deadletterevent",
     "payments_processedwebhookevent",
     "core_auditevent",  # login / pre-tenant actions
+    "core_announcement",  # WP-CM3 staff banner: empty company = shown to every company
 }
 
 # 3.4 — money/stock documents must stay unique per company (names from models).

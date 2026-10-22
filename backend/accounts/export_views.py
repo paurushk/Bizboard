@@ -64,6 +64,11 @@ class TenantExportView(APIView):
                     "summary": summarise_export(payload),
                 },
             )
+            from support.privacy import log_request
+
+            # WP-CP2: every self-serve export is on the privacy request register, closed at once.
+            log_request(kind="ACCESS", requester=request.user.email, company=company, closed=True,
+                        outcome="Owner downloaded the company export (self-serve).", user=request.user)
             filename = f"bizboard-tenant-{company.pk}-{timezone.now().strftime('%Y%m%dT%H%M%SZ')}.bin"
             response = HttpResponse(blob, content_type="application/octet-stream")
             response["Content-Disposition"] = f'attachment; filename="{filename}"'

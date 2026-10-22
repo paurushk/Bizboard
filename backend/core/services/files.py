@@ -18,6 +18,7 @@ _KIND_RULES = {
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "text/plain",
             "application/pdf",
+            "application/xml",  # WP-GR1a Tally XML masters
             *_IMAGE,
         },
     ),
@@ -125,7 +126,21 @@ def _sniff_mime(header: bytes, filename: str, declared: str) -> str:
         return "text/csv"
     if name.endswith(".txt") and _looks_like_text_csv(header):
         return "text/plain"
+    if name.endswith(".xml") and _looks_like_xml(header):
+        # WP-GR1a: Tally masters export (UTF-16 with BOM, or UTF-8). Allowed for imports only.
+        return "application/xml"
     return ""
+
+
+def _looks_like_xml(header: bytes) -> bool:
+    if header.startswith((b"\xff\xfe", b"\xfe\xff")):
+        try:
+            text = header.decode("utf-16")
+        except UnicodeDecodeError:
+            return False
+    else:
+        text = header.decode("utf-8", errors="ignore")
+    return text.lstrip("\ufeff \r\n\t").startswith(("<?xml", "<ENVELOPE"))
 
 
 class FileService:

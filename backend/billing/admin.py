@@ -2,7 +2,7 @@ from django.contrib import admin
 
 from core.admin import SuperuserOnlyAdminMixin
 
-from .models import DeadLetterEvent, Plan, Subscription
+from .models import DeadLetterEvent, Plan, SaasTdsClaim, Subscription, TrialFingerprint
 
 
 @admin.register(Plan)
@@ -59,4 +59,68 @@ class DeadLetterEventAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SaasTdsClaim)
+class SaasTdsClaimAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    """WP-BL1: check each Form 16A against TRACES, then verify or reject. A verified credit claim
+    comes off the company's next renewal; a refund claim is refunded at once (Q5)."""
+
+    list_display = (
+        "company", "quarter", "section", "amount", "settle_by", "credit_remaining", "status",
+        "reviewed_by", "created_at",
+    )
+    list_filter = ("status", "settle_by", "quarter", "section")
+    search_fields = ("company__name",)
+    readonly_fields = [f.name for f in SaasTdsClaim._meta.fields]
+    actions = ["verify_and_refund_selected", "reject_selected"]
+
+    def get_queryset(self, request):
+        from core.rls import rls_bypass
+
+        with rls_bypass():
+            return super().get_queryset(request).select_related("company", "reviewed_by")
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.action(description="Certificate checked in TRACES: verify (credit or refund as the owner chose)")
+    def verify_and_refund_selected(self, request, queryset):
+        from core.rls import rls_bypass
+
+        from .tds_claims import verify_claim
+
+        with rls_bypass():
+            for claim in queryset:
+                try:
+                    claim = verify_claim(claim, staff_user=request.user, note="Verified in TRACES")
+                    outcome = "refunded" if claim.status == claim.Status.SETTLED else "credit for the next renewal"
+                    self.message_user(request, f"Claim {claim.pk}: {claim.amount} {outcome}.")
+                except Exception as exc:  # noqa: BLE001 - report each, keep going
+                    self.message_user(request, f"Claim {claim.pk}: {exc}", level="error")
+
+    @admin.action(description="Reject (certificate does not match TRACES)")
+    def reject_selected(self, request, queryset):
+        from core.rls import rls_bypass
+
+        from .tds_claims import reject
+
+        with rls_bypass():
+            for claim in queryset:
+                try:
+                    reject(claim, staff_user=request.user, reason="The certificate does not match TRACES.")
+                except Exception as exc:  # noqa: BLE001
+                    self.message_user(request, f"Claim {claim.pk}: {exc}", level="error")
+
+
+@admin.register(TrialFingerprint)
+class TrialFingerprintAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    """WP-AB3: hashed trial fingerprints. Delete a row to let that business start a new trial."""
+
+    list_display = ("kind", "digest", "company_id_hint", "created_at")
+    list_filter = ("kind",)
+    readonly_fields = ("kind", "digest", "company_id_hint", "created_at")
+
+    def has_add_permission(self, request):
         return False

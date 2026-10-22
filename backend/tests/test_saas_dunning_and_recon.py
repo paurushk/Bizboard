@@ -152,7 +152,8 @@ def test_saas_recon_applies_mismatch_without_dlq_noise(tenant_a):
         current_period_end=timezone.now() + timedelta(days=10),
     )
     remote = {"id": "sub_mis", "status": "halted", "current_end": None}
-    with patch("billing.recon.fetch_razorpay_subscription", return_value=remote):
+    # WP-BL2: recon also lists paid charges to invoice any a webhook missed; none here.
+    with patch("billing.recon.fetch_razorpay_subscription", return_value=remote),          patch("billing.recon.fetch_razorpay_paid_charges", return_value=[]):
         result = reconcile_saas_subscriptions()
     assert result["skipped"] is False
     assert result["mismatches"] == 1

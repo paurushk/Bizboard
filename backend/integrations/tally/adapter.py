@@ -179,7 +179,41 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
 
 
 def parse_tally_masters_csv(file_bytes: bytes, filename: str = "") -> dict[str, Any]:
+    """CSV, XLSX or (WP-GR1a) a Tally XML masters export with bill-wise outstanding."""
+    from .xml_import import looks_like_xml, parse_tally_xml
+
+    if looks_like_xml(file_bytes, filename):
+        rows, bills = parse_tally_xml(file_bytes)
+        preview = parse_tally_masters_rows(rows)
+        preview["bills"] = bills
+        preview["counts"]["bills"] = len(bills)
+        preview["source_format"] = "tally_xml"
+        return preview
     return parse_tally_masters_rows(_rows_from_upload(file_bytes, filename))
+
+
+def _bill_parts(amount: Decimal, bills: list[dict] | None) -> list[tuple[Decimal, Any, str]]:
+    """WP-GR1a: one opening document per open Tally bill (own due date and reference), plus an
+    on-account part for any balance the bills do not cover, so the total still ties to the
+    party opening balance. Without bills: one document for the whole balance."""
+    from datetime import date as _date
+
+    parts: list[tuple[Decimal, Any, str]] = []
+    covered = Decimal("0")
+    for bill in bills or []:
+        amt = _dec(bill.get("amount"))
+        if amt <= 0 or covered + amt > amount:
+            continue
+        due = _date.fromisoformat(bill["due_date"]) if bill.get("due_date") else None
+        label = f"Opening bill {bill.get('ref') or '-'}"
+        if bill.get("bill_date"):
+            label += f" dated {bill['bill_date']}"
+        parts.append((amt, due, f"{label} (Tally migration)"))
+        covered += amt
+    if amount - covered > 0:
+        label = "On account (Tally migration)" if parts else "Opening outstanding (Tally migration)"
+        parts.append((amount - covered, None, label))
+    return parts
 
 
 def _post_commit_recon(company, preview: dict, created: dict) -> dict:
@@ -320,7 +354,7 @@ def _opening_document_date(company):
     return PostingService._opening_entry_date(company)
 
 
-def _create_opening_sales(company, user, customer: Customer, amount: Decimal, product: Product, warnings=None):
+def _create_opening_sales(company, user, customer: Customer, amount: Decimal, product: Product, warnings=None, bills=None):
     from sales.models import SalesInvoice, SalesItem
     from sales.services import SalesService
 
@@ -335,45 +369,49 @@ def _create_opening_sales(company, user, customer: Customer, amount: Decimal, pr
                 "Cancel the old opening bill first if it needs correcting."
             )
         return None
-    inv = SalesInvoice.objects.create(
-        company=company,
-        customer=customer,
-        invoice_type=SalesInvoice.InvoiceType.NON_GST,
-        status=SalesInvoice.Status.DRAFT,
-        invoice_date=_opening_document_date(company),
-        notes=OPENING_NOTE,
-        is_opening_balance=True,
-        created_by=user,
-        updated_by=user,
-    )
-    SalesItem.objects.create(
-        company=company,
-        invoice=inv,
-        product=product,
-        description="Opening outstanding (Tally migration)",
-        quantity=Decimal("1"),
-        unit_price=amount,
-        discount_percent=Decimal("0"),
-        gst_rate=Decimal("0"),
-        hsn_code="",
-        unit_name="NOS",
-    )
-    items = list(inv.items.all())
-    compute_document_totals(
-        inv,
-        items,
-        tax_enabled=False,
-        intra_state=True,
-    )
-    for it in items:
-        it.save()
-    inv.save()
-    # Opening outstanding is a balance, not goods. Complete does not move stock.
-    SalesService.complete(inv, user)
-    return inv
+    first = None
+    for part_amount, due_date, label in _bill_parts(amount, bills):
+        inv = SalesInvoice.objects.create(
+            company=company,
+            customer=customer,
+            invoice_type=SalesInvoice.InvoiceType.NON_GST,
+            status=SalesInvoice.Status.DRAFT,
+            invoice_date=_opening_document_date(company),
+            due_date=due_date,
+            notes=OPENING_NOTE,
+            is_opening_balance=True,
+            created_by=user,
+            updated_by=user,
+        )
+        SalesItem.objects.create(
+            company=company,
+            invoice=inv,
+            product=product,
+            description=label,
+            quantity=Decimal("1"),
+            unit_price=part_amount,
+            discount_percent=Decimal("0"),
+            gst_rate=Decimal("0"),
+            hsn_code="",
+            unit_name="NOS",
+        )
+        items = list(inv.items.all())
+        compute_document_totals(
+            inv,
+            items,
+            tax_enabled=False,
+            intra_state=True,
+        )
+        for it in items:
+            it.save()
+        inv.save()
+        # Opening outstanding is a balance, not goods. Complete does not move stock.
+        SalesService.complete(inv, user)
+        first = first or inv
+    return first
 
 
-def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal, product: Product, warnings=None):
+def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal, product: Product, warnings=None, bills=None):
     from purchases.models import PurchaseInvoice, PurchaseItem
     from purchases.services import PurchaseService
 
@@ -388,42 +426,46 @@ def _create_opening_purchase(company, user, supplier: Supplier, amount: Decimal,
                 "Cancel the old opening bill first if it needs correcting."
             )
         return None
-    inv = PurchaseInvoice.objects.create(
-        company=company,
-        supplier=supplier,
-        purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
-        status=PurchaseInvoice.Status.DRAFT,
-        invoice_date=_opening_document_date(company),
-        notes=OPENING_NOTE,
-        is_opening_balance=True,
-        created_by=user,
-        updated_by=user,
-    )
-    PurchaseItem.objects.create(
-        company=company,
-        invoice=inv,
-        product=product,
-        description="Opening outstanding (Tally migration)",
-        quantity=Decimal("1"),
-        unit_price=amount,
-        discount_percent=Decimal("0"),
-        gst_rate=Decimal("0"),
-        hsn_code="",
-        unit_name="NOS",
-    )
-    items = list(inv.items.all())
-    compute_document_totals(
-        inv,
-        items,
-        tax_enabled=False,
-        intra_state=True,
-    )
-    for it in items:
-        it.save()
-    inv.save()
-    # Opening outstanding is a balance, not goods. Complete does not move stock.
-    PurchaseService.complete(inv, user)
-    return inv
+    first = None
+    for part_amount, due_date, label in _bill_parts(amount, bills):
+        inv = PurchaseInvoice.objects.create(
+            company=company,
+            supplier=supplier,
+            purchase_type=PurchaseInvoice.PurchaseType.NON_GST,
+            status=PurchaseInvoice.Status.DRAFT,
+            invoice_date=_opening_document_date(company),
+            due_date=due_date,
+            notes=OPENING_NOTE,
+            is_opening_balance=True,
+            created_by=user,
+            updated_by=user,
+        )
+        PurchaseItem.objects.create(
+            company=company,
+            invoice=inv,
+            product=product,
+            description=label,
+            quantity=Decimal("1"),
+            unit_price=part_amount,
+            discount_percent=Decimal("0"),
+            gst_rate=Decimal("0"),
+            hsn_code="",
+            unit_name="NOS",
+        )
+        items = list(inv.items.all())
+        compute_document_totals(
+            inv,
+            items,
+            tax_enabled=False,
+            intra_state=True,
+        )
+        for it in items:
+            it.save()
+        inv.save()
+        # Opening outstanding is a balance, not goods. Complete does not move stock.
+        PurchaseService.complete(inv, user)
+        first = first or inv
+    return first
 
 
 @transaction.atomic
@@ -438,6 +480,11 @@ def _reparse_sync_run_file(sync_run: IntegrationSyncRun) -> dict:
     finally:
         handle.close()
     filename = asset.original_name or ""
+    if sync_run.kind == IntegrationSyncRun.Kind.LEGACY_IMPORT:
+        from integrations.legacy_import import parse_legacy_file
+
+        # WP-GR1b: same commit path; the stored source picks the column mapping.
+        return parse_legacy_file((sync_run.preview or {}).get("source") or "", raw, filename=filename)
     return parse_tally_masters_csv(raw, filename=filename)
 
 
@@ -533,6 +580,9 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
         )
     opening_product = _opening_balance_product(company, user, unit)
 
+    bills_by_party: dict[tuple[str, str], list[dict]] = {}
+    for bill in preview.get("bills") or []:
+        bills_by_party.setdefault((bill.get("entity_type"), bill.get("party")), []).append(bill)
     for row in preview.get("customers") or []:
         cust, was_created = _match_or_create_party(
             Customer, company=company, row=row, user=user, warnings=warnings,
@@ -555,8 +605,9 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
                 cust.updated_by = user
                 cust.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
+        cust_bills = bills_by_party.get(("customer", row.get("name")))
         if amt > 0 and _with_party_context(
-            cust, lambda: _create_opening_sales(company, user, cust, amt, opening_product, warnings)
+            cust, lambda: _create_opening_sales(company, user, cust, amt, opening_product, warnings, cust_bills)
         ):
             created["opening_ar"] += 1
 
@@ -582,8 +633,9 @@ def _commit_tally_preview_inner(company, user, sync_run: IntegrationSyncRun, *, 
                 sup.updated_by = user
                 sup.save(update_fields=dirty + ["updated_by", "updated_at"])
         amt = _dec(row.get("opening_outstanding"))
+        sup_bills = bills_by_party.get(("supplier", row.get("name")))
         if amt > 0 and _with_party_context(
-            sup, lambda: _create_opening_purchase(company, user, sup, amt, opening_product, warnings)
+            sup, lambda: _create_opening_purchase(company, user, sup, amt, opening_product, warnings, sup_bills)
         ):
             created["opening_ap"] += 1
 

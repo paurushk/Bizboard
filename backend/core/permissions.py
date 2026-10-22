@@ -14,6 +14,21 @@ def _header_company_id(request) -> int | None:
         return None
 
 
+# Paths a multi-company user may call without X-Company-Id: they pick, list or leave companies.
+_HEADER_OPTIONAL_PREFIXES = ("/api/v1/auth/",)
+
+
+def _header_required(request, memberships_qs) -> bool:
+    from django.conf import settings
+
+    if not getattr(settings, "REQUIRE_COMPANY_HEADER_FOR_MULTI", False):
+        return False
+    path = getattr(request, "path", "") or ""
+    if not path.startswith("/api/") or path.startswith(_HEADER_OPTIONAL_PREFIXES):
+        return False
+    return memberships_qs.count() > 1
+
+
 def get_company_user(request):
     """Resolve (and cache) the requesting user's active company membership."""
     current_uid = getattr(getattr(request, "user", None), "pk", None)
@@ -41,6 +56,11 @@ def get_company_user(request):
             from rest_framework.exceptions import PermissionDenied
 
             raise PermissionDenied("X-Company-Id is not a company you belong to.")
+        if header_id is None and _header_required(request, qs):
+            # WP-ID2: a multi-company user's request with no X-Company-Id (a pasted link, an <img>,
+            # another device) would run as whichever company they last switched to. Make the client
+            # say which company; the 409 carries the list so the web app can ask.
+            raise CompanyRequired(list(qs.order_by("id")))
         if active_company_id:
             company_user = qs.filter(company_id=active_company_id).order_by("id").first()
             if company_user is None:

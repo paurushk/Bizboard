@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from core.models import CompanyScopedModel
@@ -117,3 +118,139 @@ class VendorTicketShareComment(CompanyScopedModel):
 
     class Meta:
         ordering = ["created_at"]
+
+
+
+class PlatformTicket(CompanyScopedModel):
+    """WP-PO3: a tenant asks Bizboard for help (support/platform_tickets.py).
+
+    Not the merchant-to-buyer helpdesk (``Ticket``): no customer, no plan flag, open to every member.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        IN_PROGRESS = "IN_PROGRESS", "In progress"
+        WAITING_CUSTOMER = "WAITING_CUSTOMER", "Waiting for you"
+        RESOLVED = "RESOLVED", "Resolved"
+
+    class Severity(models.TextChoices):
+        P0 = "P0", "P0 — business stopped"
+        P1 = "P1", "P1 — money or stock wrong"
+        P2 = "P2", "P2 — something broken"
+        P3 = "P3", "P3 — question"
+
+    raised_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    subject = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    severity = models.CharField(max_length=2, choices=Severity.choices, default=Severity.P2, db_index=True)
+    tag = models.CharField(max_length=64, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN, db_index=True)
+    assignee = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    support_id = models.CharField(max_length=64, blank=True)
+    route = models.CharField(max_length=200, blank=True)
+    app_version = models.CharField(max_length=32, blank=True)
+    error_codes = models.JSONField(default=list, blank=True)
+    sla_due_at = models.DateTimeField(null=True, blank=True)
+    first_response_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"#{self.pk} {self.subject}"
+
+
+class PlatformTicketMessage(CompanyScopedModel):
+    ticket = models.ForeignKey(PlatformTicket, on_delete=models.CASCADE, related_name="messages")
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    from_staff = models.BooleanField(default=False)
+    body = models.TextField()
+
+
+class TenantHealthSnapshot(CompanyScopedModel):
+    """WP-PO2: one company's weekly health score (support/health.py). Staff-only, in Django admin."""
+
+    week = models.DateField(db_index=True)
+    score = models.PositiveSmallIntegerField()
+    band = models.CharField(max_length=10)
+    inputs = models.JSONField(default=dict)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["company", "week"], name="uniq_health_company_week")]
+        ordering = ["score"]
+
+
+class DataPrivacyRequest(models.Model):
+    """WP-CP2: one privacy request and what was done (docs/ops/DPDP_REQUESTS.md).
+
+    Platform table (no RLS): a request can come from someone who is not a user of any company.
+    """
+
+    class Kind(models.TextChoices):
+        ACCESS = "ACCESS", "Access / copy"
+        CORRECTION = "CORRECTION", "Correction"
+        ERASURE = "ERASURE", "Erasure"
+        GRIEVANCE = "GRIEVANCE", "Grievance"
+        CONSENT_WITHDRAWAL = "CONSENT_WITHDRAWAL", "Consent withdrawal"
+
+    class Source(models.TextChoices):
+        SELF_SERVE = "SELF_SERVE", "Self-serve in the app"
+        STAFF = "STAFF", "Logged by staff"
+
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    source = models.CharField(max_length=12, choices=Source.choices, default=Source.STAFF)
+    requester = models.CharField(max_length=254)
+    company_id_hint = models.PositiveBigIntegerField(null=True, blank=True)
+    received_at = models.DateTimeField(auto_now_add=True)
+    due_at = models.DateTimeField()
+    closed_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.TextField(blank=True)
+    identity_check = models.CharField(max_length=255, blank=True)
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+
+    class Meta:
+        ordering = ["due_at"]
+
+
+class SupportAccessGrant(CompanyScopedModel):
+    """WP-ID4 (Q4, founder 2026-10-22): the owner lets Bizboard support look at the company's data,
+    read-only, for at most 72 hours, tied to one platform ticket. Revocable at any time; every look
+    is recorded in ``SupportAccessLog`` and shown to the owner."""
+
+    class Scope(models.TextChoices):
+        READ_ONLY = "READ_ONLY", "Read only"
+
+    ticket = models.ForeignKey(PlatformTicket, on_delete=models.PROTECT, related_name="access_grants")
+    granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    # Blank = any Bizboard support staff member; otherwise only this staff user.
+    staff_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    scope = models.CharField(max_length=16, choices=Scope.choices, default=Scope.READ_ONLY)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    revoked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    revoke_reason = models.CharField(max_length=32, blank=True)  # owner | expired | ticket_closed
+
+    class Meta:
+        ordering = ["-created_at"]
+
+
+class SupportAccessLog(CompanyScopedModel):
+    """WP-ID4: one page support looked at under a grant (what, who, when)."""
+
+    grant = models.ForeignKey(SupportAccessGrant, on_delete=models.CASCADE, related_name="views")
+    staff_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    section = models.CharField(max_length=40)
+    query = models.CharField(max_length=200, blank=True)
+    rows_shown = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-created_at"]

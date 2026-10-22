@@ -584,10 +584,11 @@ def test_offline_credit_cap_follows_the_outage(tenant_a):
 def test_signup_turns_the_open_shift_rule_on():
     import inspect
 
-    from accounts.views import RegisterView
+    from accounts.views import RegisterView, create_owner_account
 
-    source = inspect.getsource(RegisterView.post)
-    assert '"pos_require_open_shift": True' in source
+    # Sign-up (and Sign in with Google, WP-ID5) create the company in create_owner_account.
+    assert "create_owner_account(" in inspect.getsource(RegisterView.post)
+    assert '"pos_require_open_shift": True' in inspect.getsource(create_owner_account)
 
 
 def test_gateway_refund_cannot_also_be_paid_as_cash(tenant_a, monkeypatch):

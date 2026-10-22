@@ -34,3 +34,26 @@ def reconcile_saas_subscriptions_task():
         result.get("mismatches"),
     )
     return result
+
+
+@shared_task
+def tds_credits_and_reminders_task():
+    """WP-BL1: apply verified TDS credit to renewals the webhook path missed, and on the 16th of
+    Aug/Nov/Feb/Jun remind owners to claim last quarter's TDS (Form 16A)."""
+    from billing.tds_claims import apply_pending_credits, send_form16a_reminders
+
+    result = {"credited": apply_pending_credits(), "reminded": send_form16a_reminders()}
+    logger.info("TDS credits/reminders %s", result)
+    return result
+
+
+@shared_task
+def plan_change_and_renewal_task():
+    """WP-BL3: undo upgrades whose prorated charge was not paid in 3 days. WP-BL4: email the
+    renewal reminder 3 days before an automatic debit (once per cycle, never SMS)."""
+    from billing.autopay import send_renewal_reminders
+    from billing.plan_change import revert_unpaid_upgrades
+
+    result = {"reverted": revert_unpaid_upgrades(), "reminded": send_renewal_reminders()}
+    logger.info("Plan change / renewal reminders %s", result)
+    return result

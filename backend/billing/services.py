@@ -37,7 +37,9 @@ def plan_modules_for_company(company) -> dict | None:
     sub = subscription_for_company(company)
     if sub is None or sub.plan_id is None:
         return None
-    modules = getattr(sub.plan, "modules", None)
+    from .plan_change import effective_plan
+
+    modules = getattr(effective_plan(sub), "modules", None)  # WP-BL3: an upgrade applies at once
     # R-015: subscribed plan with a non-dict payload → {} (fail-closed).
     # Do not coerce a missing subscription (None) into {}.
     return modules if isinstance(modules, dict) else {}
@@ -48,6 +50,7 @@ def plan_modules_for_company(company) -> dict | None:
 # so a pack or a company JSON True can turn the surface on.
 # H0 and H1 ship together. GSTR worksheets are granted. GSTN upload stays off.
 TRIAL_HELD_FALSE = frozenset({
+    "ENABLE_LEGACY_IMPORT",
     "ENABLE_COMPLAINTS",
     "ENABLE_SUPPORT_TICKETS",
     "ENABLE_CONTRACTS",
@@ -145,11 +148,18 @@ def grandfather_trial_module_use() -> dict[str, int]:
     return kept
 
 
-def ensure_register_trial(company) -> Subscription | None:
-    """Give a new tenant a time-boxed TRIAL so REQUIRE_SUBSCRIPTION does not write-block them."""
+def ensure_register_trial(company, owner=None) -> Subscription | None:
+    """Give a new tenant a time-boxed TRIAL so REQUIRE_SUBSCRIPTION does not write-block them.
+
+    WP-AB3: a business that already had a trial (same GSTIN/PAN, or same phone and email) gets the
+    trial row already ended — the account works read-only and the billing page offers plans.
+    """
     if Subscription.objects.filter(company=company).exists():
         return None
+    from .trial_guard import record_trial, trial_used_before
+
     days = int(getattr(settings, "BILLING_TRIAL_DAYS", 14) or 14)
+    repeat = trial_used_before(company, owner)
     plan, _ = Plan.objects.get_or_create(
         slug="trial",
         defaults={
@@ -160,12 +170,33 @@ def ensure_register_trial(company) -> Subscription | None:
             "modules": trial_plan_modules(),
         },
     )
-    return Subscription.objects.create(
+    sub = Subscription.objects.create(
         company=company,
         plan=plan,
         status=Subscription.Status.TRIAL,
-        trial_ends_at=timezone.now() + timedelta(days=days),
+        trial_ends_at=timezone.now() if repeat else timezone.now() + timedelta(days=days),
+        churn_reason="TRIAL_ALREADY_USED" if repeat else "",
     )
+    if not repeat:
+        record_trial(company, owner)
+    return sub
+
+
+def end_trial_if_repeat(company, owner=None) -> bool:
+    """WP-AB3: a GSTIN entered after sign-up (setup wizard) that matches an earlier trial ends the
+    running trial now. Returns True when it did."""
+    from .trial_guard import record_trial, trial_used_before
+
+    sub = Subscription.objects.filter(company=company, status=Subscription.Status.TRIAL).first()
+    if sub is None or not sub.trial_ends_at or sub.trial_ends_at <= timezone.now():
+        return False
+    if not trial_used_before(company, owner):
+        record_trial(company, owner)
+        return False
+    sub.trial_ends_at = timezone.now()
+    sub.churn_reason = "TRIAL_ALREADY_USED"
+    sub.save(update_fields=["trial_ends_at", "churn_reason", "updated_at"])
+    return True
 
 
 def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, str]:
@@ -236,6 +267,11 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
         start_at = None
         if is_live_switch and sub.current_period_end and sub.current_period_end > now:
             start_at = int(sub.current_period_end.timestamp())
+        is_upgrade = is_live_switch and int(plan.price_paise or 0) > int(sub.plan.price_paise or 0)
+        if is_live_switch and not is_upgrade:
+            from .plan_change import check_downgrade
+
+            check_downgrade(company, plan)  # WP-BL3: refuse a downgrade below current use
         try:
             created = _create_razorpay_subscription(plan, company, start_at=start_at)
         except Exception:
@@ -267,6 +303,10 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
                 sub.save(update_fields=[
                     "pending_plan", "pending_razorpay_subscription_id", "updated_at",
                 ])
+                if is_upgrade:
+                    from .plan_change import start_upgrade
+
+                    sub._proration_url = start_upgrade(sub, plan, now=now)
             elif sub.plan_id != plan.pk:
                 sub.razorpay_subscription_id = remote_id
                 sub.pending_plan = plan
@@ -393,6 +433,87 @@ def fetch_razorpay_subscription(subscription_id: str) -> dict | None:
     return payload if isinstance(payload, dict) else None
 
 
+def fetch_razorpay_paid_charges(subscription_id: str) -> list[dict]:
+    """WP-BL2: paid charges of one Razorpay subscription (GET /v1/invoices?subscription_id=).
+
+    ``[{"payment_id", "amount"}]`` with ``amount`` in rupees, GST inclusive. Empty when keys or id
+    are missing. Network/circuit failures raise so recon can park a DeadLetterEvent.
+    """
+    import base64
+    import json
+    from decimal import Decimal
+    from urllib.parse import urlencode
+    from urllib.request import Request, urlopen
+
+    sid = (subscription_id or "").strip()
+    key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
+    secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
+    if not sid or not key or not secret:
+        return []
+    req = Request(
+        "https://api.razorpay.com/v1/invoices?" + urlencode({"subscription_id": sid, "count": 100}),
+        method="GET",
+        headers={"Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode()},
+    )
+    from core.circuit_breaker import call as circuit_call
+
+    def _get():
+        with urlopen(req, timeout=15) as resp:  # noqa: S310 - fixed Razorpay HTTPS URL
+            return json.loads(resp.read().decode("utf-8"))
+
+    payload = circuit_call("razorpay_subscriptions", _get, failure_threshold=5, cooldown_seconds=30)
+    out = []
+    for item in (payload or {}).get("items") or []:
+        if str(item.get("status") or "") != "paid" or not item.get("payment_id"):
+            continue
+        try:
+            paise = int(item.get("amount_paid") or item.get("amount") or 0)
+        except (TypeError, ValueError):
+            continue
+        if paise > 0:
+            out.append({"payment_id": str(item["payment_id"]), "amount": Decimal(paise) / Decimal(100)})
+    return out
+
+
+def razorpay_refund(payment_id: str, amount_paise: int, *, notes: dict | None = None) -> str:
+    """WP-BL1: POST /v1/payments/{id}/refund for part of a captured payment. Returns the refund id.
+
+    Raises when keys are missing or the gateway refuses, so the caller can stop and retry later.
+    """
+    import base64
+    import json
+    from urllib.request import Request, urlopen
+
+    from core.exceptions import BusinessRuleError
+
+    key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
+    secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
+    if not key or not secret:
+        raise BusinessRuleError("Razorpay keys are not configured; refund by hand.")
+    if not payment_id or amount_paise <= 0:
+        raise BusinessRuleError("Nothing to refund.")
+    req = Request(
+        f"https://api.razorpay.com/v1/payments/{payment_id}/refund",
+        data=json.dumps({"amount": int(amount_paise), "notes": {k: str(v) for k, v in (notes or {}).items()}}).encode(),
+        method="POST",
+        headers={
+            "Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
+            "Content-Type": "application/json",
+        },
+    )
+    from core.circuit_breaker import call as circuit_call
+
+    def _post():
+        with urlopen(req, timeout=20) as resp:  # noqa: S310 - fixed Razorpay HTTPS URL
+            return json.loads(resp.read().decode("utf-8"))
+
+    payload = circuit_call("razorpay_refunds", _post, failure_threshold=3, cooldown_seconds=60)
+    refund_id = str((payload or {}).get("id") or "")
+    if not refund_id:
+        raise BusinessRuleError("Razorpay did not return a refund id.")
+    return refund_id
+
+
 def _subscription_for_razorpay_id(razorpay_subscription_id: str):
     sub = Subscription.objects.filter(razorpay_subscription_id=razorpay_subscription_id).first()
     if sub is not None:
@@ -475,6 +596,10 @@ def _write_razorpay_subscription_status(sub, razorpay_subscription_id, rzp_statu
             sub.plan = sub.pending_plan
             sub.pending_plan = None
             update_fields.extend(["plan", "pending_plan"])
+            if via_pending and sub.upgrade_plan_id:
+                from .plan_change import clear_upgrade
+
+                clear_upgrade(sub, update_fields)  # WP-BL3: the new plan now has its own subscription
     sub.save(update_fields=update_fields)
     return sub
 

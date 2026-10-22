@@ -551,3 +551,85 @@ class TenantSweepResult(models.Model):
 
     def __str__(self) -> str:
         return f"{self.company_id} {self.status} {self.started_at:%Y-%m-%d}"
+
+
+
+class BreakGlassSession(models.Model):
+    """WP-SC2: one named, justified window of interactive production access (core/breakglass.py).
+
+    Platform table (no RLS). Reviewed quarterly (docs/ops/ACCESS_REVIEW.md).
+    """
+
+    public_id = models.CharField(max_length=32, unique=True)
+    staff_email = models.CharField(max_length=254)
+    reason = models.CharField(max_length=500)
+    ticket = models.CharField(max_length=64)
+    commands = models.JSONField(default=list, blank=True)
+    started_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-started_at"]
+
+
+class EmailSuppression(models.Model):
+    """WP-CM1: an address that bounced or complained (core/mail.py). Platform table (no RLS);
+    holds only a SHA-256 of the address."""
+
+    class Reason(models.TextChoices):
+        HARD_BOUNCE = "HARD_BOUNCE", "Hard bounce"
+        SOFT_BOUNCE = "SOFT_BOUNCE", "Soft bounces"
+        COMPLAINT = "COMPLAINT", "Spam complaint"
+
+    address_hash = models.CharField(max_length=64, unique=True)
+    reason = models.CharField(max_length=16, choices=Reason.choices)
+    source = models.CharField(max_length=32, blank=True)
+    soft_count = models.PositiveSmallIntegerField(default=0)
+    window_start = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class EmailOptOut(models.Model):
+    """WP-CM1: someone unsubscribed from one optional email category. Platform table (no RLS)."""
+
+    address_hash = models.CharField(max_length=64)
+    category = models.CharField(max_length=16)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["address_hash", "category"], name="uniq_email_opt_out")]
+
+
+class Announcement(models.Model):
+    """WP-CM3: a staff-written in-app banner (maintenance, incident, notice). Platform table, edited
+    only in Django admin. In-app only — never emailed — so no unsubscribe is needed."""
+
+    class Target(models.TextChoices):
+        ALL = "ALL", "Every company"
+        PLAN = "PLAN", "Companies on one plan"
+        COMPANY = "COMPANY", "One company"
+
+    class Severity(models.TextChoices):
+        INFO = "info", "Information"
+        WARNING = "warning", "Warning"
+        ERROR = "error", "Outage / incident"
+
+    text_en = models.CharField(max_length=300)
+    text_hi = models.CharField(max_length=300)
+    starts_at = models.DateTimeField()
+    ends_at = models.DateTimeField()
+    target = models.CharField(max_length=8, choices=Target.choices, default=Target.ALL)
+    plan_code = models.CharField(max_length=32, blank=True, help_text="For target = one plan.")
+    company = models.ForeignKey(
+        "accounts.Company", null=True, blank=True, on_delete=models.CASCADE, related_name="+",
+        help_text="For target = one company.",
+    )
+    severity = models.CharField(max_length=8, choices=Severity.choices, default=Severity.INFO)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-starts_at"]
+        indexes = [models.Index(fields=["starts_at", "ends_at"])]

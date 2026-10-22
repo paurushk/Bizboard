@@ -78,3 +78,58 @@ def _register_sweep_admin():
 
 
 _register_sweep_admin()
+
+
+def _register_platform_admin():
+    from .models import BreakGlassSession, EmailSuppression
+
+    @admin.register(BreakGlassSession)
+    class BreakGlassSessionAdmin(SuperuserOnlyModelAdmin):
+        """WP-SC2: interactive production access, for the quarterly access review."""
+
+        list_display = ("public_id", "staff_email", "ticket", "started_at", "ended_at", "reason")
+        search_fields = ("staff_email", "ticket", "reason")
+        readonly_fields = [f.name for f in BreakGlassSession._meta.fields]
+
+        def has_add_permission(self, request):
+            return False
+
+        def has_delete_permission(self, request, obj=None):
+            return False
+
+    @admin.register(EmailSuppression)
+    class EmailSuppressionAdmin(SuperuserOnlyModelAdmin):
+        """WP-CM1: bounced or complained addresses (hashed). Delete a row to let mail through again."""
+
+        list_display = ("address_hash", "reason", "soft_count", "expires_at", "source", "updated_at")
+        list_filter = ("reason", "source")
+        search_fields = ("address_hash",)
+        readonly_fields = ("address_hash", "reason", "soft_count", "window_start", "expires_at", "source")
+
+        def has_add_permission(self, request):
+            return False
+
+
+_register_platform_admin()
+
+
+
+def _register_announcement_admin():
+    from .models import Announcement
+
+    @admin.register(Announcement)
+    class AnnouncementAdmin(SuperuserOnlyModelAdmin):
+        """WP-CM3: maintenance and incident banners shown in the app (both languages required)."""
+
+        list_display = ("text_en", "severity", "target", "starts_at", "ends_at")
+        list_filter = ("severity", "target")
+        raw_id_fields = ("company",)
+        exclude = ("created_by",)
+
+        def save_model(self, request, obj, form, change):
+            if not change:
+                obj.created_by = request.user
+            super().save_model(request, obj, form, change)
+
+
+_register_announcement_admin()

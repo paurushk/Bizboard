@@ -34,6 +34,7 @@ from core.permissions import HasCompany, IsOwner, get_company_user
 from core.rls import company_scope
 from core.services.audit import AuditService
 from core.settings_writes import SettingsWriteMixin, check_expected_updated_at
+from core.services.bot_check import require_human
 from core.services.sms import SmsProvider
 
 from .models import (
@@ -114,8 +115,16 @@ def _load_invite_token(token: str) -> dict:
     return signing.loads(token, salt=_INVITE_SALT, max_age=_INVITE_MAX_AGE)
 
 
-def _set_refresh_cookie(response, refresh_token: str):
-    """BB-000257: store refresh JWT in httpOnly cookie."""
+def _set_refresh_cookie(response, refresh_token: str, *, request=None, previous: str | None = None):
+    """BB-000257: store refresh JWT in httpOnly cookie.
+
+    WP-ID3: with ``request`` the token is also recorded as a signed-in device (``previous`` is the
+    refresh token it replaces, so a refresh or company switch keeps the same device row).
+    """
+    if request is not None:
+        from .user_sessions import track
+
+        track(request, refresh_token, previous=previous)
     max_age = int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
     response.set_cookie(
         settings.JWT_REFRESH_COOKIE_NAME,
@@ -388,9 +397,20 @@ class RequestRegisterOtpView(APIView):
     throttle_scope = "register_otp"
 
     def post(self, request):
+        # WP-AB2: account-creating and message-sending endpoints need the bot check.
+        require_human(request, action="register_otp")
         email = (request.data.get("email") or "").strip().lower()
         if not email or "@" not in email:
             raise ValidationError({"email": "Enter a valid email."})
+        from billing.trial_guard import disposable_email
+        from core.mail import is_suppressed
+
+        # WP-AB3 / WP-CM1: say plainly when we can't use this address. Neither says whether an
+        # account exists, so the uniform answer below still holds for that.
+        if getattr(settings, "BLOCK_DISPOSABLE_EMAIL", True) and disposable_email(email):
+            raise ValidationError({"email": "Use your business email address, not a temporary inbox."})
+        if is_suppressed(email):
+            raise ValidationError({"email": "We can't send email to this address (it bounced before). Use another one."})
         payload = {"detail": "If this email can be registered, a verification code has been sent."}
         # Per-email cooldown/hourly cap before existence check — same response either way.
         if _otp_email_rate_limited(email):
@@ -403,18 +423,18 @@ class RequestRegisterOtpView(APIView):
                 code=hash_otp(code),
                 expires_at=timezone.now() + timezone.timedelta(minutes=settings.OTP_EXPIRY_MINUTES),
             )
-            from django.core.mail import send_mail
+            from core.mail import send as core_mail_send
 
             try:
-                send_mail(
+                core_mail_send(
                     subject="Your BizBoard verification code",
-                    message=(
+                    body=(
                         f"Use this code to finish creating your BizBoard account "
                         f"(valid {settings.OTP_EXPIRY_MINUTES} minutes):\n\n{code}\n"
                     ),
+                    to=email,
+                    category="security",
                     from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
-                    recipient_list=[email],
-                    fail_silently=False,
                 )
             except Exception:  # noqa: BLE001 — uniform 200; never leak registration via provider errors
                 import logging
@@ -432,6 +452,70 @@ class RequestRegisterOtpView(APIView):
         return Response(payload)
 
 
+def create_owner_account(request, data, *, password: str | None):
+    """Create the owner user, company and owner membership (sign-up and Sign in with Google).
+
+    ``password=None`` leaves the user without a usable password (Google sign-up); they can set
+    one later from their profile. Raises ``IntegrityError`` on a duplicate, like before.
+    """
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=data["email"], password=password,
+            full_name=data.get("full_name", ""), phone=data.get("phone", ""),
+        )
+        company = Company.objects.create(
+            name=data["company_name"],
+            state=data.get("state", ""),
+            phone=data.get("phone", ""),
+            email=data.get("email", ""),
+            registration_type=data.get("registration_type", Company.RegistrationType.REGULAR),
+            gstin=data.get("gstin", ""),
+            valuation_business_date_order=True,
+            recompute_tax_on_complete=True,
+            # Nothing exists to back-fill on a new company, so books
+            # start on. Opening stock posted after this hits the GL.
+            accounting_enabled=True,
+            feature_flags={
+                "ENABLE_ARCHETYPE_PACKS": True,
+                "NAV_PACK_DEFAULT": True,
+                "pos_require_open_shift": True,
+            },
+        )
+        # Sign-up runs before any tenant exists for the middleware to scope to, so give the
+        # tenant-table writes below (warehouse, chart of accounts, audit, telemetry) the new
+        # company's RLS context. Without it FORCE RLS rejects them under a real DB role.
+        with company_scope(company.id):
+            CompanyUser.objects.create(
+                company=company, user=user, role=CompanyUser.Role.OWNER,
+                can_manage_inventory=True, can_import=True,
+                can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
+                can_create_sales=True, can_create_purchases=True, can_create_payments=True,
+                can_post_journals=True,
+            )
+            from inventory.services import InventoryService
+
+            InventoryService.default_warehouse(company)
+            from accounting.services import seed_chart_of_accounts
+
+            seed_chart_of_accounts(company, user)
+            from accounts.legal import record as record_legal
+
+            # WP-H5: what the person agreed to at sign-up (current versions).
+            if data.get("accept_terms"):
+                record_legal(user, ["TOS", "PRIVACY", "DPA"], request=request, company_id=company.id)
+            if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
+                from billing.services import ensure_register_trial
+
+                ensure_register_trial(company, owner=user)
+            AuditService.log(company=company, user=user, action="CREATE",
+                             entity_type="Company", entity_id=company.id,
+                             description="Company registered")
+            from insights.telemetry import record_event
+
+            record_event(company, "signup_completed", user=user, journey="signup", success=True)
+    return user, company
+
+
 class RegisterView(APIView):
     """Create owner user + company + owner membership in one shot (M0)."""
 
@@ -439,6 +523,8 @@ class RegisterView(APIView):
     throttle_scope = "register"
 
     def post(self, request):
+        # WP-AB2: account-creating and message-sending endpoints need the bot check.
+        require_human(request, action="register")
         serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -493,61 +579,7 @@ class RegisterView(APIView):
         # must survive a later IntegrityError/rollback here, not be undone
         # by it (see the BB-000209-style note above).
         try:
-            with transaction.atomic():
-                user = User.objects.create_user(
-                    email=data["email"], password=data["password"],
-                    full_name=data.get("full_name", ""), phone=data.get("phone", ""),
-                )
-                company = Company.objects.create(
-                    name=data["company_name"],
-                    state=data.get("state", ""),
-                    phone=data.get("phone", ""),
-                    email=data.get("email", ""),
-                    registration_type=data.get("registration_type", Company.RegistrationType.REGULAR),
-                    gstin=data.get("gstin", ""),
-                    valuation_business_date_order=True,
-                    recompute_tax_on_complete=True,
-                    # Nothing exists to back-fill on a new company, so books
-                    # start on. Opening stock posted after this hits the GL.
-                    accounting_enabled=True,
-                    feature_flags={
-                        "ENABLE_ARCHETYPE_PACKS": True,
-                        "NAV_PACK_DEFAULT": True,
-                        "pos_require_open_shift": True,
-                    },
-                )
-                # Sign-up runs before any tenant exists for the middleware to scope to, so give the
-                # tenant-table writes below (warehouse, chart of accounts, audit, telemetry) the new
-                # company's RLS context. Without it FORCE RLS rejects them under a real DB role.
-                with company_scope(company.id):
-                    CompanyUser.objects.create(
-                        company=company, user=user, role=CompanyUser.Role.OWNER,
-                        can_manage_inventory=True, can_import=True,
-                        can_cancel_documents=True, can_view_financial_reports=True, can_export=True,
-                        can_create_sales=True, can_create_purchases=True, can_create_payments=True,
-                        can_post_journals=True,
-                    )
-                    from inventory.services import InventoryService
-
-                    InventoryService.default_warehouse(company)
-                    from accounting.services import seed_chart_of_accounts
-
-                    seed_chart_of_accounts(company, user)
-                    from accounts.legal import record as record_legal
-
-                    # WP-H5: what the person agreed to at sign-up (current versions).
-                    if data.get("accept_terms"):
-                        record_legal(user, ["TOS", "PRIVACY", "DPA"], request=request, company_id=company.id)
-                    if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
-                        from billing.services import ensure_register_trial
-
-                        ensure_register_trial(company)
-                    AuditService.log(company=company, user=user, action="CREATE",
-                                     entity_type="Company", entity_id=company.id,
-                                     description="Company registered")
-                    from insights.telemetry import record_event
-
-                    record_event(company, "signup_completed", user=user, journey="signup", success=True)
+            create_owner_account(request, data, password=data["password"])
         except IntegrityError:
             return Response(_register_payload(), status=status.HTTP_200_OK)
         # BB-000389: never set auth cookies on register (enumeration oracle).
@@ -589,7 +621,7 @@ def _complete_login(request, response, user):
         body["access"] = access if _access_in_json_body_allowed() else None
         response.data = body
         if refresh:
-            _set_refresh_cookie(response, refresh)
+            _set_refresh_cookie(response, refresh, request=request)
         if access:
             _set_access_cookie(response, access)
         _ensure_csrf_cookie(request)
@@ -765,7 +797,7 @@ class CookieTokenRefreshView(APIView):
             env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
             access_body = tokens["access"] if _access_in_json_body_allowed() else None
             response = Response({"access": access_body})
-            _set_refresh_cookie(response, tokens["refresh"])
+            _set_refresh_cookie(response, tokens["refresh"], request=request, previous=raw)
             _set_access_cookie(response, tokens["access"])
             _ensure_csrf_cookie(request)
             return response
@@ -801,6 +833,8 @@ class RequestOtpView(APIView):
     throttle_scope = "otp"
 
     def post(self, request):
+        # WP-AB2: account-creating and message-sending endpoints need the bot check.
+        require_human(request, action="otp")
         try:
             phone = normalize_e164(request.data.get("phone") or "")
         except ValueError as exc:
@@ -936,7 +970,7 @@ class VerifyOtpView(APIView):
         if membership:
             payload["user"] = MeSerializer(membership).data
         response = Response(payload)
-        _set_refresh_cookie(response, tokens["refresh"])
+        _set_refresh_cookie(response, tokens["refresh"], request=request)
         _set_access_cookie(response, tokens["access"])
         _ensure_csrf_cookie(request)
         return response
@@ -1060,7 +1094,7 @@ class SwitchCompanyView(APIView):
             "access": tokens["access"] if _access_in_json_body_allowed() else None,
         }
         response = Response(body)
-        _set_refresh_cookie(response, tokens["refresh"])
+        _set_refresh_cookie(response, tokens["refresh"], request=request, previous=old_refresh)
         _set_access_cookie(response, tokens["access"])
         _ensure_csrf_cookie(request)
         return response
@@ -1192,6 +1226,9 @@ class ChangePasswordView(APIView):
         request.user.save(update_fields=["password"])
         for token in OutstandingToken.objects.filter(user=request.user):
             BlacklistedToken.objects.get_or_create(token=token)
+        from .user_sessions import revoke_all
+
+        revoke_all(request.user)
         _bump_session_version(request.user)
         membership = _active_membership(request.user)
         AuditService.log(
@@ -1337,7 +1374,7 @@ class AcceptInviteView(APIView):
             "access": tokens["access"] if _access_in_json_body_allowed() else None,
         }
         response = Response(payload)
-        _set_refresh_cookie(response, tokens["refresh"])
+        _set_refresh_cookie(response, tokens["refresh"], request=request)
         _set_access_cookie(response, tokens["access"])
         _ensure_csrf_cookie(request)
         return response
@@ -1351,6 +1388,9 @@ class LogoutAllView(APIView):
     def post(self, request):
         for token in OutstandingToken.objects.filter(user=request.user):
             BlacklistedToken.objects.get_or_create(token=token)
+        from .user_sessions import revoke_all
+
+        revoke_all(request.user)
         _bump_session_version(request.user)
         membership = _active_membership(request.user)
         AuditService.log(
@@ -1879,6 +1919,8 @@ class RequestPasswordResetView(APIView):
     throttle_scope = "password_reset"
 
     def post(self, request):
+        # WP-AB2: account-creating and message-sending endpoints need the bot check.
+        require_human(request, action="password_reset")
         identifier = (request.data.get("identifier") or request.data.get("email") or "").strip()
         if identifier:
             user = None
@@ -1908,18 +1950,18 @@ class RequestPasswordResetView(APIView):
                         )
                     base = "http://localhost:5173"
                 reset_url = f"{base}/reset-password?token={token}"
-                from django.core.mail import send_mail
+                from core.mail import send as core_mail_send
 
                 try:
                     # B6-009: an SMTP error must not turn into a 500 for a real
                     # user while a non-existent identifier still gets the uniform
                     # 200 — that difference is an enumeration oracle.
-                    send_mail(
+                    core_mail_send(
                         subject="Reset your BizBoard password",
-                        message=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
+                        body=f"Use this link to reset your password (valid 1 hour):\n{reset_url}\n",
+                        to=user.email,
+                        category="security",
                         from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
-                        recipient_list=[user.email],
-                        fail_silently=False,
                     )
                 except Exception:
                     import logging
@@ -1973,18 +2015,18 @@ class RequestPasswordResetView(APIView):
                         user_id=user.pk, company_id=membership.company_id, membership_id=membership.pk,
                     )
                     invite_url = _invite_url(invite_token)
-                    from django.core.mail import send_mail
+                    from core.mail import send as core_mail_send
 
                     try:
-                        send_mail(
+                        core_mail_send(
                             subject="Set your BizBoard password",
-                            message=(
+                            body=(
                                 "Your account doesn't have a password set yet. Use this link to "
                                 f"set one and sign in (valid 7 days):\n{invite_url}\n"
                             ),
+                            to=user.email,
+                            category="security",
                             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@bizboard.local"),
-                            recipient_list=[user.email],
-                            fail_silently=False,
                         )
                     except Exception:
                         import logging
@@ -2093,6 +2135,12 @@ class CompanyEraseView(APIView):
             "erasure_log_id": result.log_id,
             "retained_counts": result.retained,
         }
+        from support.privacy import log_request
+
+        # WP-CP2: on the privacy request register; statutory records stay tombstoned (GST, 8 years).
+        log_request(kind="ERASURE", requester=request.user.email, company=None, closed=True,
+                    outcome=f"Company {result.company_id} erased ({result.mode}); erasure log {result.log_id}.",
+                    user=request.user)
         if blob is not None:
             import base64
 

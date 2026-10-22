@@ -2,7 +2,6 @@ import logging
 
 from celery import shared_task
 from django.conf import settings
-from django.core.mail import send_mail
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +38,25 @@ def send_email_notification(self, notification_id, company_id=None):
             logger.error("Email notification %s blocked: console backend in %s", notification_id, env)
             return
         try:
-            send_mail(
-                subject=notification.subject or "Bizboard",
-                message=notification.body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[notification.recipient],
-                fail_silently=False,
-            )
+            from core.mail import Suppressed, send as core_mail_send
+
+            try:
+                sent = core_mail_send(
+                    subject=notification.subject or "Bizboard",
+                    body=notification.body,
+                    to=notification.recipient,
+                    category="transactional",
+                )
+            except Suppressed:
+                # WP-CM1: the address bounced or complained before; a retry would not help.
+                Notification.objects.filter(pk=notification_id).update(
+                    status=Notification.Status.FAILED,
+                    error="This address bounced or marked our email as spam before; not sent.",
+                )
+                return
             Notification.objects.filter(pk=notification_id).update(
-                status=Notification.Status.SENT, error=""
+                status=Notification.Status.SENT if sent else Notification.Status.FAILED,
+                error="" if sent else "Recipient unsubscribed from this kind of email.",
             )
         except Exception as exc:  # pragma: no cover - depends on SMTP env
             Notification.objects.filter(pk=notification_id).update(

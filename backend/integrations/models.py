@@ -48,6 +48,7 @@ class IntegrationSyncRun(CompanyScopedModel):
         TALLY_IMPORT = "TALLY_IMPORT"
         TALLY_EXPORT = "TALLY_EXPORT"
         TALLY_MIGRATE = "TALLY_MIGRATE"
+        LEGACY_IMPORT = "LEGACY_IMPORT"  # WP-GR1b: Busy / Vyapar / Marg
         SHOPIFY_WEBHOOK = "SHOPIFY_WEBHOOK"
 
     class Status(models.TextChoices):

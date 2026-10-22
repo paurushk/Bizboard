@@ -1,8 +1,10 @@
 from django.urls import path
 
+from .announcement_views import AnnouncementsView, WhatsNewSeenView
 from .care_kpis import CareKpiView
 from .care_links import CareLinksView
 from .care_timeline import CareTimelineView
+from .email_webhooks import EmailEventWebhookView, UnsubscribeView
 from .help_views import HelpEventsView, HelpFeedbackView, HelpHealthView
 from .routers import DefaultRouter
 from .views import (
@@ -27,6 +29,11 @@ router.register("audit", AuditEventViewSet, basename="audit")
 router.register("statutory-events", StatutoryDocumentEventViewSet, basename="statutory-events")
 
 urlpatterns = router.urls + [
+    # WP-CM1: provider bounce/complaint webhook and one-click unsubscribe.
+    path("email/events/", EmailEventWebhookView.as_view(), name="email-events"),
+    path("email/unsubscribe/", UnsubscribeView.as_view(), name="email-unsubscribe"),
+    path("announcements/", AnnouncementsView.as_view(), name="announcements"),
+    path("whats-new/seen/", WhatsNewSeenView.as_view(), name="whats-new-seen"),
     path("links/", CareLinksView.as_view(), name="care-links"),
     path("care-kpis/", CareKpiView.as_view(), name="care-kpis"),
     path("audit-timeline/", CareTimelineView.as_view(), name="care-timeline"),

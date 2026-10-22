@@ -28,6 +28,7 @@ NON_MODULE_OVERRIDE_KEYS = frozenset({"helpV2", "help_v2", "item_custom_fields_v
 # must actually be configured for them, so the env flag stays a hard ceiling and
 # a company can only *narrow* it.
 ROLLOUT_GRANTABLE_KEYS = frozenset({
+    "ENABLE_LEGACY_IMPORT",
     "ENABLE_POS",
     "ENABLE_GSTR",
     "ENABLE_GSTR_EXTENDED",
@@ -92,6 +93,7 @@ COMPANY_ROLLOUT_KEYS = (
 COMPANY_DEFAULT_ON_KEYS = frozenset({"QUOTE_CONVERSION_RELEASE", "ENABLE_MONEY_HUB"})
 
 ENV_FLAG_KEYS = (
+    "ENABLE_LEGACY_IMPORT",
     "ENABLE_MANUFACTURING",
     "ENABLE_PAYROLL",
     "ENABLE_CRM",

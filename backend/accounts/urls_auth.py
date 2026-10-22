@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .google_signin import GoogleSignInView
 from .mfa_views import (
     MfaConfirmView,
     MfaDisableView,
@@ -8,6 +9,7 @@ from .mfa_views import (
     MfaSetupView,
     MfaStatusView,
 )
+from .session_views import UserSessionListView, UserSessionRevokeView
 from .views import (
     AcceptInviteView,
     ChangePasswordView,
@@ -36,6 +38,9 @@ urlpatterns = [
     path("refresh/", CookieTokenRefreshView.as_view(), name="auth-refresh"),
     path("logout/", LogoutView.as_view(), name="auth-logout"),
     path("logout-all/", LogoutAllView.as_view(), name="auth-logout-all"),
+    path("sessions/", UserSessionListView.as_view(), name="auth-sessions"),
+    path("google/", GoogleSignInView.as_view(), name="auth-google"),
+    path("sessions/<int:pk>/revoke/", UserSessionRevokeView.as_view(), name="auth-session-revoke"),
     path("change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
     path("invite/accept/", AcceptInviteView.as_view(), name="auth-invite-accept"),
     path("otp/request/", RequestOtpView.as_view(), name="auth-otp-request"),

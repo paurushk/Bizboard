@@ -1,0 +1,11 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<p>WP-GR1a: applies to these companies. Only per-company rollout flags are offered; every change is audited.</p>
+<ul>{% for c in companies %}<li>{{ c.name }} (id {{ c.pk }})</li>{% endfor %}</ul>
+<form method="post">{% csrf_token %}
+  {% for c in companies %}<input type="hidden" name="{{ action_checkbox_name }}" value="{{ c.pk }}">{% endfor %}
+  <input type="hidden" name="action" value="grant_rollout_flag">
+  {{ form.as_p }}
+  <input type="submit" name="apply" value="Apply">
+</form>
+{% endblock %}

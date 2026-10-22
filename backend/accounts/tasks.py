@@ -68,3 +68,19 @@ def sweep_expired_sandboxes_task():
     deleted = sweep_expired_sandboxes()
     logger.info("sweep_expired_sandboxes_task removed %s expired sandbox companies", deleted)
     return deleted
+
+
+@shared_task(queue="reports")
+def build_readable_export_task(export_id: int, company_id: int | None = None):
+    """WP-DL1: build one readable (CSV + PDF) export off the request path."""
+    from accounts.readable_export import run_export
+
+    run_export(export_id)
+
+
+@shared_task
+def purge_readable_exports_task():
+    """WP-DL1: remove readable export ZIPs whose download link ran out."""
+    from accounts.readable_export import purge_expired
+
+    return {"purged": purge_expired()}

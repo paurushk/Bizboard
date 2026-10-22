@@ -110,6 +110,14 @@ class RegisterSerializer(serializers.Serializer):
     def validate_email(self, value):
         # BB-000251: do not raise on existing email (enumeration). View returns
         # a generic success message without creating a second account.
+        from django.conf import settings
+
+        from billing.trial_guard import disposable_email
+
+        # WP-AB3: throwaway inboxes are how a business restarts the free trial. This says nothing
+        # about whether an account exists, so it is not an enumeration oracle.
+        if getattr(settings, "BLOCK_DISPOSABLE_EMAIL", True) and disposable_email(value):
+            raise serializers.ValidationError("Use your business email address, not a temporary inbox.")
         return value
 
     def validate_otp_code(self, value):
@@ -425,7 +433,16 @@ class CompanySerializer(serializers.ModelSerializer):
             validated_data["tax_profile_confirmed_at"] = now
         if mark_onboarding_started and instance.onboarding_started_at is None:
             validated_data["onboarding_started_at"] = now
+        old_gstin = (instance.gstin or "").strip().upper()
         updated = super().update(instance, validated_data)
+        if (updated.gstin or "").strip().upper() != old_gstin and updated.gstin:
+            # WP-AB3: a GSTIN entered after sign-up that already had a trial ends this one now.
+            from billing.services import end_trial_if_repeat
+
+            try:
+                end_trial_if_repeat(updated)
+            except Exception:  # noqa: BLE001 - never fail the profile save over the trial check
+                logger.exception("trial dedupe check failed for company %s", updated.pk)
         if confirm_tax_profile or dismiss_onboarding:
             from insights.telemetry import record_event
 

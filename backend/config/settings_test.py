@@ -110,3 +110,7 @@ LEDGER_TEST_SOURCE_TYPES = ("TEST", "TEST_SALE", "CORRUPT", "BATCH", "INTERNAL",
 # WP-H5: the many sign-up tests that exercise OTP rules post without the terms flag; the legal
 # acceptance tests switch this on with override_settings.
 LEGAL_ACCEPTANCE_REQUIRED = False
+
+# WP-ID2: most tests drive multi-company users without X-Company-Id; the rule has its own tests
+# (tests/tenancy/test_company_switch.py), which turn it on.
+REQUIRE_COMPANY_HEADER_FOR_MULTI = False

@@ -13,7 +13,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.mail import send_mail
+from core.mail import send as core_mail_send
 from django.db.models import F, Value
 from django.db.models.functions import Replace
 from django.http import HttpResponse
@@ -166,12 +166,12 @@ def _deliver(row: CustomerPortalToken) -> None:
                 customer.id,
             )
             return
-        send_mail(
+        core_mail_send(
             subject="Your invoices",
-            message=f"View your invoices: {url}\nThis link expires in 15 minutes.",
+            body=f"View your invoices: {url}\nThis link expires in 15 minutes.",
+            to=customer.email,
+            category="transactional",
             from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            recipient_list=[customer.email],
-            fail_silently=False,
         )
         logger.info(
             "customer portal link emailed company=%s customer=%s",

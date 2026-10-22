@@ -14,6 +14,7 @@ from django.conf import settings
 from billing.models import Subscription
 from billing.services import (
     apply_razorpay_subscription_status,
+    fetch_razorpay_paid_charges,
     fetch_razorpay_subscription,
     map_razorpay_status,
     park_dead_letter,
@@ -46,6 +47,7 @@ def reconcile_saas_subscriptions() -> dict:
         .select_related("company")
         .order_by("pk")
     )
+    invoiced = 0
     for sub in qs:
         sid = (sub.razorpay_subscription_id or "").strip()
         if not sid:
@@ -54,6 +56,7 @@ def reconcile_saas_subscriptions() -> dict:
         drifted = _reconcile_one(sub, sid, live_status=sub.status)
         if drifted:
             mismatches += 1
+        invoiced += _invoice_missed_charges(sub, sid)
 
     # A deferred plan switch (B9-005) parks its new Razorpay subscription id
     # in pending_razorpay_subscription_id rather than the live id, so it's
@@ -78,7 +81,7 @@ def reconcile_saas_subscriptions() -> dict:
         drifted = _reconcile_one(sub, sid, only_when_mapped=Subscription.Status.ACTIVE)
         if drifted:
             mismatches += 1
-    return {"skipped": False, "checked": checked, "mismatches": mismatches}
+    return {"skipped": False, "checked": checked, "mismatches": mismatches, "invoiced": invoiced}
 
 
 def _reconcile_one(sub: Subscription, sid: str, *, live_status=None, only_when_mapped=None) -> bool:
@@ -140,3 +143,36 @@ def _park(sub: Subscription, *, error: str, remote_status: str, payload: dict) -
         company=sub.company,
     )
     logger.warning("SaaS billing recon parked company=%s sub=%s %s", sub.company_id, sub.pk, error)
+
+
+def _invoice_missed_charges(sub: Subscription, sid: str) -> int:
+    """WP-BL2: issue the GST invoice for any paid Razorpay charge that has none (a lost
+    ``subscription.charged`` webhook). Returns how many were issued."""
+    from billing.models import PlatformGstInvoice
+    from billing.platform_gst import issue_platform_gst_invoice
+
+    try:
+        charges = fetch_razorpay_paid_charges(sid)
+    except Exception as exc:  # noqa: BLE001 - park, keep sweeping
+        _park(sub, error=f"charges fetch: {exc}", remote_status="charges", payload={"id": sid})
+        return 0
+    issued = 0
+    for charge in charges:
+        if PlatformGstInvoice.objects.filter(
+            company=sub.company, provider="razorpay", capture_id=charge["payment_id"],
+        ).exists():
+            continue
+        issue_platform_gst_invoice(
+            sub.company, provider="razorpay", capture_id=charge["payment_id"], amount=charge["amount"],
+        )
+        issued += 1
+    if issued:
+        AuditService.log(
+            action="billing.recon_invoice",
+            company=sub.company,
+            entity_type="Subscription",
+            entity_id=sub.pk,
+            description=f"Issued {issued} GST invoice(s) for Razorpay charges with no invoice.",
+            metadata={"subscription": sid},
+        )
+    return issued

@@ -316,6 +316,15 @@ class CustomerViewSet(CompanyScopedViewSet):
             except Exception:  # noqa: BLE001 — an advisory field must never break the customer page
                 logger.exception("customer collection status failed for customer %s", instance.pk)
                 data["collection_status"] = ""
+        # WP-CM1: invoices and reminders to an address that bounced or complained are skipped, so
+        # the customer page says so and the user can fix the email.
+        email = (getattr(instance, "email", "") or "").strip()
+        if email:
+            from core.mail import is_suppressed
+
+            data["email_suppressed"] = is_suppressed(email)
+        else:
+            data["email_suppressed"] = False
         return Response(data)
 
     def get_permissions(self):

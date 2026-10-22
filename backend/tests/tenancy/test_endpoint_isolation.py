@@ -32,6 +32,9 @@ _ALLOWLIST_SUFFIXES = (
     "SpectacularSwaggerView",
     "GatedSchemaView",
     "GatedSwaggerView",
+    # WP-CM1 core.email_webhooks.UnsubscribeView: pre-login one-click unsubscribe. The HMAC token
+    # proves the link; it only writes the platform EmailOptOut table (hashed address), no tenant data.
+    "UnsubscribeView",
     # core.views.IntegrationsInventoryView: reports which outbound-integration
     # settings keys are PRESENT (booleans only, never secret values) for this
     # deployment -- that is per-deployment, not per-company, so it is

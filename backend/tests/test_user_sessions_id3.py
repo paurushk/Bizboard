@@ -1,0 +1,104 @@
+"""WP-ID3: signed-in devices, sign one out, new-device email, network prefix only."""
+
+import re
+from pathlib import Path
+
+import pytest
+from django.conf import settings
+from django.core import mail
+from rest_framework.test import APIClient
+
+from accounts.models import UserSession
+from accounts.user_sessions import device_label, ip_prefix
+
+pytestmark = pytest.mark.django_db
+
+PASSWORD = "StrongPass123!"
+CHROME_WIN = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/128.0 Safari/537.36"
+SAFARI_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Safari/604.1"
+
+
+def _login(user, *, ua=CHROME_WIN, ip="203.0.113.45"):
+    client = APIClient(HTTP_USER_AGENT=ua, REMOTE_ADDR=ip)
+    resp = client.post("/api/v1/auth/login/", {"email": user.email, "password": PASSWORD}, format="json")
+    assert resp.status_code == 200, resp.content
+    return client
+
+
+def test_labels_and_prefixes_never_keep_the_full_address():
+    assert device_label(CHROME_WIN) == "Chrome on Windows"
+    assert device_label(SAFARI_IPHONE) == "Safari on iPhone"
+    assert ip_prefix("203.0.113.45") == "203.0.113.0/24"
+    assert ip_prefix("2001:db8:abcd:12::1") == "2001:db8:abcd::/48"
+    assert ip_prefix("not an ip") == ""
+
+
+def test_sign_in_records_a_device_and_refresh_keeps_the_same_row(tenant_a):
+    client = _login(tenant_a.owner)
+    rows = list(UserSession.objects.filter(user=tenant_a.owner))
+    assert len(rows) == 1
+    assert rows[0].device_label == "Chrome on Windows" and rows[0].ip_prefix == "203.0.113.0/24"
+    assert "203.0.113.45" not in str(UserSession.objects.values().first())
+    first_jti = rows[0].current_jti
+    assert client.post("/api/v1/auth/refresh/", {}, format="json").status_code == 200
+    rows = list(UserSession.objects.filter(user=tenant_a.owner))
+    assert len(rows) == 1 and rows[0].current_jti != first_jti
+    listed = client.get("/api/v1/auth/sessions/").json()["data"]
+    assert len(listed) == 1 and listed[0]["current"] is True and listed[0]["device"] == "Chrome on Windows"
+
+
+def test_only_own_sessions_are_listed_and_revocable(tenant_a):
+    _login(tenant_a.owner)
+    staff_client = _login(tenant_a.staff)
+    owner_row = UserSession.objects.get(user=tenant_a.owner)
+    assert all(r["id"] != owner_row.pk for r in staff_client.get("/api/v1/auth/sessions/").json()["data"])
+    assert staff_client.post(f"/api/v1/auth/sessions/{owner_row.pk}/revoke/").status_code == 404
+
+
+def test_signing_a_device_out_stops_its_refresh(tenant_a):
+    phone = _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    laptop = _login(tenant_a.owner)
+    phone_row = UserSession.objects.get(user=tenant_a.owner, device_label="Safari on iPhone")
+    resp = laptop.post(f"/api/v1/auth/sessions/{phone_row.pk}/revoke/")
+    assert resp.status_code == 200, resp.content
+    assert phone.post("/api/v1/auth/refresh/", {}, format="json").status_code == 401
+    assert laptop.post("/api/v1/auth/refresh/", {}, format="json").status_code == 200
+    assert [r["device"] for r in laptop.get("/api/v1/auth/sessions/").json()["data"]] == ["Chrome on Windows"]
+
+
+def test_new_device_email_once_and_not_on_the_first_ever_sign_in(tenant_a):
+    mail.outbox.clear()
+    _login(tenant_a.owner)
+    assert not mail.outbox  # first ever session
+    _login(tenant_a.owner)
+    assert not mail.outbox  # same device and network
+    _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    assert len(mail.outbox) == 1
+    assert "Safari on iPhone" in mail.outbox[0].body and "198.51.100.7" not in mail.outbox[0].body
+    _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.9")  # same /24
+    assert len(mail.outbox) == 1
+
+
+def test_logout_all_ends_every_device(tenant_a):
+    client = _login(tenant_a.owner)
+    _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    assert client.post("/api/v1/auth/logout-all/").status_code == 200
+    assert not UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True).exists()
+
+
+def test_owner_sees_member_session_counts_not_details(tenant_a):
+    owner = _login(tenant_a.owner)
+    _login(tenant_a.staff)
+    _login(tenant_a.staff, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    body = owner.get("/api/v1/company/users/session-counts/").json()["data"]
+    assert body[str(tenant_a.staff.pk)] == 2
+    assert all(isinstance(v, int) for v in body.values())
+    staff = _login(tenant_a.staff)
+    assert staff.get("/api/v1/company/users/session-counts/").status_code == 403
+
+
+def test_every_refresh_cookie_is_tracked():
+    views = (Path(__file__).resolve().parents[1] / "accounts" / "views.py").read_text(encoding="utf-8")
+    calls = re.findall(r"^\s+_set_refresh_cookie\(response, [^)]*\)", views, flags=re.M)
+    assert calls and all("request=request" in c for c in calls), calls
+    assert settings.JWT_REFRESH_COOKIE_NAME

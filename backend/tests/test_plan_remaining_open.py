@@ -46,8 +46,9 @@ def test_cashfree_capture_issues_one_gst_invoice_and_payu_is_idempotent(tenant_a
     assert first.igst == Decimal("18.00")
     assert first.place_of_supply == "Maharashtra"
     assert first.platform_gstin == "29AAAAA0000A1Z5"
+    # WP-BL2: Razorpay subscription charges are invoiced too; an unknown provider is not.
     assert issue_platform_gst_invoice(
-        tenant_a.company, provider="razorpay", capture_id="rz_1", amount=Decimal("118.00"),
+        tenant_a.company, provider="stripe", capture_id="st_1", amount=Decimal("118.00"),
     ) is None
 
 

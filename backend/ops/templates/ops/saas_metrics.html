@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<h1>SaaS numbers for {{ month }}</h1>
+<form method="get" style="margin-bottom: 1em;">
+  <label>Month <input type="month" name="month" value="{{ month }}"></label>
+  <button type="submit" class="button">Show</button>
+</form>
+<table style="border-collapse: collapse;">
+  <tbody>
+    {% for label, value in rows %}
+    <tr>
+      <th style="text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid #ddd;">{{ label }}</th>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ value }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Time to first invoice by sign-up week (last 12 weeks)</h2>
+<table style="border-collapse: collapse;">
+  <thead><tr><th style="text-align:left; padding:4px 12px 4px 0;">Week of</th><th>Sign-ups</th><th>Made an invoice</th><th>Median days</th></tr></thead>
+  <tbody>
+    {% for w in weeks %}
+    <tr>
+      <td style="padding:4px 12px 4px 0; border-bottom:1px solid #ddd;">{{ w.week }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ w.signups }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ w.invoiced }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ w.median_days|default:"—" }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="4">No sign-ups in these weeks.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

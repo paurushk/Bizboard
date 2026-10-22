@@ -34,7 +34,9 @@ def _plan_for(company, sub=None) -> Plan | None:
         sub = subscription_for_company(company)
     if sub is None or sub.plan_id is None:
         return None
-    return sub.plan
+    from .plan_change import effective_plan
+
+    return effective_plan(sub)  # WP-BL3: an upgrade's limits apply at once
 
 
 def monthly_complete_count(company) -> int:

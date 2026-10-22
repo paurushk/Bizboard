@@ -253,6 +253,27 @@ _GAUGE_HELP = (
 )
 
 
+def clock_skew_seconds() -> float:
+    """WP-CP1: |app clock - database clock| in seconds. CERT-In needs logs with synced time (NTP on
+    every host); a drift means incident timelines across logs can't be trusted. -1 if unknown."""
+    import datetime as _dt
+
+    try:
+        from django.db import connection
+
+        if connection.vendor != "postgresql":
+            return 0.0
+        with connection.cursor() as cur:
+            before = _dt.datetime.now(_dt.timezone.utc)
+            cur.execute("SELECT now()")
+            db_now = cur.fetchone()[0]
+            after = _dt.datetime.now(_dt.timezone.utc)
+        mid = before + (after - before) / 2
+        return round(abs((mid - db_now).total_seconds()), 3)
+    except Exception:  # noqa: BLE001
+        return -1.0
+
+
 def _scrape_time_lines(gauges: dict) -> list[str]:
     """Gauges read at scrape time: the same value whichever worker answers."""
     lines: list[str] = []
@@ -265,6 +286,9 @@ def _scrape_time_lines(gauges: dict) -> list[str]:
         "# HELP bizboard_books_check_failures Companies whose latest nightly books check failed or crashed.",
         "# TYPE bizboard_books_check_failures gauge",
         f"bizboard_books_check_failures {books_check_failures()}",
+        "# HELP bizboard_clock_skew_seconds Absolute difference between app and database clocks.",
+        "# TYPE bizboard_clock_skew_seconds gauge",
+        f"bizboard_clock_skew_seconds {clock_skew_seconds()}",
     ]
     return lines
 
