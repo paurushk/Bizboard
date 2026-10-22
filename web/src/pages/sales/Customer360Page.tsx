@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import MenuItem from '@mui/material/MenuItem';
 import Dialog from '@mui/material/Dialog';
@@ -169,6 +170,7 @@ export function Customer360Page() {
   return (
     <Stack spacing={2}>
       <PageTitle>{body?.name || t('nav.customer360')}</PageTitle>
+      {body?.emailSuppressed ? <Alert severity="warning">{t('customer360.emailSuppressed')}</Alert> : null}
       {customerIdValid ? (
         <Stack direction="row" spacing={1}>
           <Button component={RouterLink} to={`/sales/new?customer=${customerId}`} variant="contained">{t('cog.newBill')}</Button>

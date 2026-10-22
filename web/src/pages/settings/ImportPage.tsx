@@ -28,6 +28,7 @@ import { HelpEmptyLink } from '@/pages/help/HelpEmptyLink';
 import { HelpWhyLink } from '@/pages/help/HelpWhyLink';
 import { commitImport, downloadImportErrorsCsv, downloadImportTemplate, uploadImport, voidImport, voidImportRows } from '@/api/resources';
 import { useAuth } from '@/auth/AuthContext';
+import { LegacyImportPanel } from '@/components/imports/LegacyImportPanel';
 import { ImportHistory } from '@/components/settings/ImportHistory';
 import { StatusChip } from '@/components/StatusChip';
 import { EmptyState } from '@/components/PageState';
@@ -749,6 +750,7 @@ export function ImportPage() {
         </Paper>
       ) : null}
       <ImportHistory canUndo={canManageUsers(user)} />
+      <LegacyImportPanel />
     </Stack>
   );
 }

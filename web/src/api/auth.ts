@@ -358,3 +358,69 @@ export async function acceptLegal(documents: string[]): Promise<{ pending: Legal
   const { data } = await apiClient.post('/auth/legal/', { documents });
   return unwrapData<{ pending: LegalPending[] }>(data);
 }
+
+/** WP-ID3: one signed-in device. Only a device label and network prefix, never a full IP. */
+export interface UserSessionRow {
+  id: number;
+  device: string;
+  network: string;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
+}
+
+export async function listUserSessions(): Promise<UserSessionRow[]> {
+  if (shouldUseMocks()) return [];
+  const { data } = await apiClient.get('/auth/sessions/');
+  const body = unwrapData<UserSessionRow[]>(data);
+  return Array.isArray(body) ? body : [];
+}
+
+export async function revokeUserSession(id: number): Promise<void> {
+  await apiClient.post(`/auth/sessions/${id}/revoke/`);
+}
+
+/** WP-ID5: Sign in with Google. A new email gets ``needsSignup`` back until the sign-up fields come. */
+export type GoogleSignInResult =
+  | { kind: 'session'; user: User; tokens: AuthTokens }
+  | { kind: 'needsSignup'; email: string; fullName: string };
+
+export async function googleSignIn(
+  credential: string,
+  signup?: { companyName: string; state?: string; phone?: string; gstin?: string; acceptTerms: boolean },
+): Promise<GoogleSignInResult> {
+  const { data } = await apiClient.post('/auth/google/', {
+    credential,
+    ...(signup
+      ? {
+          company_name: signup.companyName,
+          state: signup.state ?? '',
+          phone: signup.phone ?? '',
+          gstin: signup.gstin ?? '',
+          accept_terms: signup.acceptTerms,
+        }
+      : {}),
+  });
+  const body = unwrapData<{
+    user?: User;
+    access?: string;
+    refresh?: string;
+    mfaRequired?: boolean;
+    mfaToken?: string;
+    mfaEnrollmentRequired?: boolean;
+    enrolToken?: string;
+    needsSignup?: boolean;
+    email?: string;
+    fullName?: string;
+  }>(data);
+  if (body.needsSignup) return { kind: 'needsSignup', email: body.email ?? '', fullName: body.fullName ?? '' };
+  throwIfEnrollment(body);
+  throwIfMfaRequired(body);
+  const tokens = tokensFromBody(body);
+  let user = body.user;
+  if (!user) {
+    setAccessToken(tokens.access);
+    user = await fetchCurrentUser();
+  }
+  return { kind: 'session', user, tokens };
+}

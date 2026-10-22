@@ -251,6 +251,8 @@ const OfflineOutboxPage = lazy(() =>
 const SetupWizardPage = lazy(() => import('@/pages/setup/SetupWizardPage').then((m) => ({ default: m.SetupWizardPage })));
 const HelpPage = lazy(() => import('@/pages/help/HelpPage').then((m) => ({ default: m.HelpPage })));
 const PilotLimitsPage = lazy(() => import('@/pages/help/PilotLimitsPage').then((m) => ({ default: m.PilotLimitsPage })));
+const ContactSupportPage = lazy(() => import('@/pages/help/ContactSupportPage').then((m) => ({ default: m.ContactSupportPage })));
+const OwnershipAcceptPage = lazy(() => import('@/pages/OwnershipAcceptPage').then((m) => ({ default: m.OwnershipAcceptPage })));
 const CounterDiagnosticsPage = lazy(() => import('@/pages/settings/CounterDiagnosticsPage').then((m) => ({ default: m.CounterDiagnosticsPage })));
 const HelpHealthPage = lazy(() => import('@/pages/help/HelpHealthPage').then((m) => ({ default: m.HelpHealthPage })));
 
@@ -428,6 +430,8 @@ export function App() {
         <Route path="/portal" element={<CustomerPortalRequestPage />} />
         <Route path="/portal/:token" element={<CustomerPortalPage />} />
         <Route path="/lead-form/:token" element={<LeadFormPage />} />
+        {/* WP-PO1: the same limitations, readable before sign-up (pricing page and FAQ link here). */}
+        <Route path="/limits" element={<PilotLimitsPage />} />
         <Route element={<ProtectedRoute />}>
           <Route element={<RoleRoute allow={(user) => user?.role === 'OWNER'} />}>
             <Route path="setup" element={<SetupWizardPage />} />
@@ -449,6 +453,8 @@ export function App() {
             <Route path="offline-outbox" element={<OfflineOutboxPage />} />
             <Route path="help" element={<HelpPage />} />
             <Route path="help/pilot-limits" element={<PilotLimitsPage />} />
+            <Route path="help/contact" element={<ContactSupportPage />} />
+            <Route path="ownership/accept" element={<OwnershipAcceptPage />} />
             {settingsRoute('help-health', <HelpHealthPage />)}
             {settingsRoute('counter-diagnostics', <CounterDiagnosticsPage />)}
             {/* The health score is deterministic (no AI), so the dashboard chip can link to it. */}

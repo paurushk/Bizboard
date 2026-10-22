@@ -12,9 +12,11 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
-import { Link as RouterLink, Navigate, useNavigate } from 'react-router-dom';
+import { Link as RouterLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { requestRegisterOtp } from '@/api/auth';
+import { googleSignIn, requestRegisterOtp } from '@/api/auth';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
+import { GoogleSignupForm } from '@/components/GoogleSignupForm';
 import { getErrorMessage, getFieldErrors } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
@@ -24,6 +26,7 @@ import { getStateFromGstin } from '@/utils/indianStates';
 import { findPhoneCountry, isValidPhoneValue, splitPhone } from '@/utils/phone';
 import { t } from '@/i18n';
 import { formatOtpHint } from '@/pages/loginOtp';
+import { BotCheck } from '@/components/BotCheck';
 
 const registerSchema = z.object({
   companyName: z.string().trim().superRefine((value, ctx) => {
@@ -67,8 +70,28 @@ type RegisterForm = z.infer<typeof registerSchema>;
 const FORM_FIELDS = Object.keys(registerSchema.shape) as (keyof RegisterForm)[];
 
 export function RegisterPage() {
-  const { register: registerUser, isAuthenticated } = useAuth();
+  const { register: registerUser, isAuthenticated, setSession } = useAuth();
   const navigate = useNavigate();
+  // WP-ID5: a Google sign-in for a new email lands here with the Google token in route state.
+  const location = useLocation();
+  const fromLogin = (location.state ?? {}) as { googleCredential?: string; email?: string };
+  const [google, setGoogle] = useState<{ credential: string; email: string } | null>(
+    fromLogin.googleCredential ? { credential: fromLogin.googleCredential, email: fromLogin.email ?? '' } : null,
+  );
+  const onGoogleCredential = async (credential: string) => {
+    setError(null);
+    try {
+      const result = await googleSignIn(credential);
+      if (result.kind === 'needsSignup') {
+        setGoogle({ credential, email: result.email });
+        return;
+      }
+      await setSession(result.user, result.tokens.access);
+      navigate('/', { replace: true });
+    } catch (err) {
+      setError(getErrorMessage(err));
+    }
+  };
   const [error, setError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -167,8 +190,12 @@ export function RegisterPage() {
       }}
     >
       <Paper sx={{ p: 4, width: '100%', maxWidth: 480 }}>
+        {google ? (
+          <GoogleSignupForm credential={google.credential} email={google.email} onCancel={() => setGoogle(null)} />
+        ) : (
         <Stack spacing={2} component="form" onSubmit={submitRegister} noValidate>
           <Typography variant="h4">{t('auth.registerTitle')}</Typography>
+          <GoogleSignInButton text="signup_with" onCredential={(c) => void onGoogleCredential(c)} />
           {error ? <Alert severity="error">{error}</Alert> : null}
           <TextField
             label={t('auth.companyName')}
@@ -190,6 +217,8 @@ export function RegisterPage() {
             {...register('email')}
           />
           {otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
+          {/* WP-AB2: one widget; it issues a fresh token after the code request uses one. */}
+          <BotCheck />
           <Button variant="outlined" disabled={otpSending} onClick={() => void onSendCode()}>
             {t('auth.sendCode')}
           </Button>
@@ -273,6 +302,7 @@ export function RegisterPage() {
             </Link>
           </Typography>
         </Stack>
+        )}
       </Paper>
     </Box>
   );

@@ -17,6 +17,11 @@ const billing = vi.hoisted(() => ({
   listBillingDeadLetters: vi.fn(),
   replayBillingDeadLetter: vi.fn(),
   startBillingCheckout: vi.fn(),
+  // WP-BL1/BL2 panel: no Bizboard invoices or TDS claims in these tests.
+  listPlatformInvoices: vi.fn(async () => []),
+  getTdsClaims: vi.fn(async () => ({ claims: [], sections: [] })),
+  submitTdsClaim: vi.fn(),
+  refundTdsClaim: vi.fn(),
 }));
 vi.mock('@/api/billing', () => billing);
 

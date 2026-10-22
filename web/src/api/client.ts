@@ -1,6 +1,7 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import { announceWrite } from '@/utils/settingsSaveSignal';
 import { clearTokens, setAccessToken } from '@/auth/session';
+import { needsBotToken, takeBotToken } from '@/auth/botCheck';
 import { t } from '@/i18n';
 
 // BB-000518: API shapes are defined by backend OpenAPI — see docs/openapi-snapshot.json (CI-generated).
@@ -155,6 +156,14 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
       }
     }
   }
+  // WP-AB2: the bot-check token rides only on sign-up / OTP / reset, and is used once.
+  if (needsBotToken(config.url)) {
+    const botToken = takeBotToken();
+    if (botToken) {
+      if (typeof config.headers.set === 'function') config.headers.set('X-Bot-Token', botToken);
+      else (config.headers as Record<string, unknown>)['X-Bot-Token'] = botToken;
+    }
+  }
   // WP-L1: the native app tells the API which build it is, so an unsupported build is asked to
   // update (HTTP 426, APP_UPDATE_REQUIRED). The browser sends nothing: it always runs the latest bundle.
   const appVersion = runningInNativeShell() ? nativeAppVersion() : null;
@@ -242,6 +251,19 @@ let lastRefreshSuccessTime = 0;
 const MIN_REFRESH_INTERVAL_MS = 5000;
 
 let lastRequestId: string | null = null;
+
+// WP-PO3: the last few error codes, attached to a support request (codes only, never bodies).
+const recentErrorCodes: string[] = [];
+
+function noteErrorCode(code: string | null): void {
+  if (!code) return;
+  recentErrorCodes.push(code);
+  if (recentErrorCodes.length > 5) recentErrorCodes.shift();
+}
+
+export function getRecentErrorCodes(): string[] {
+  return [...recentErrorCodes];
+}
 
 export function getLastRequestId(): string | null {
   return lastRequestId;
@@ -433,6 +455,7 @@ apiClient.interceptors.response.use(
     return response;
   },
   async (error: AxiosError) => {
+    noteErrorCode(getErrorCode(error));
     const original = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
       _csrfRetry?: boolean;

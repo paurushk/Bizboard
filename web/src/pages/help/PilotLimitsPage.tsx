@@ -2,9 +2,21 @@ import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { t } from '@/i18n';
 
-const KEYS = ['filing', 'einvoice', 'cost', 'offline', 'books', 'payments', 'modules'] as const;
+// Source of truth for the list: docs/help/LIMITATIONS.md (guard_limitations_page keeps them in step).
+const KEYS = [
+  'filing',
+  'einvoice',
+  'itcMatch',
+  'cost',
+  'offline',
+  'books',
+  'payments',
+  'tally',
+  'whatsapp',
+  'modules',
+] as const;
 
-/** Freeze-scope limitations, shown in the product rather than only in the repo. */
+/** Freeze-scope limitations, shown in the product rather than only in the repo. Also public at /limits. */
 export function PilotLimitsPage() {
   return (
     <Stack spacing={2} sx={{ p: { xs: 2, sm: 3 }, maxWidth: 720 }}>

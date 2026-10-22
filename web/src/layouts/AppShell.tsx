@@ -38,6 +38,8 @@ import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
 import { GlobalConfirmHost } from '@/components/GlobalConfirmHost';
 import { LegalAcceptanceGate } from '@/components/LegalAcceptanceGate';
+import { SupportAccessBanner } from '@/components/support/SupportAccessPanel';
+import { AnnouncementBanners, WhatsNewButton } from '@/components/WhatsNewButton';
 import { listDrafts } from '@/offline/invoiceDraftCache';
 import { drainPodPhotos } from '@/offline/photoOutbox';
 import { STOCK_FLUSHED_EVENT, useStockOffline } from '@/pages/inventory/useStockOffline';
@@ -348,6 +350,7 @@ export function AppShell() {
           <Button color="inherit" size="small" onClick={togglePrivacyMask}>
             {privacyMask ? t('app.showAmounts') : t('app.hideAmounts')}
           </Button>
+          <WhatsNewButton />
           <CompanySwitcher />
           <LocaleSwitcher />
           <Typography variant="body2" sx={{ display: { xs: 'none', lg: 'block' } }}>
@@ -452,6 +455,8 @@ export function AppShell() {
             </Alert>
           ) : null}
           <SettingsContinuity />
+          <SupportAccessBanner />
+          <AnnouncementBanners />
           <Outlet />
         </ErrorBoundary>
         <CommandPalette />

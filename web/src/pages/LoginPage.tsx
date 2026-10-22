@@ -19,6 +19,9 @@ import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
 import { t } from '@/i18n';
 import { formatOtpHint, isOtpLoginEnabled } from '@/pages/loginOtp';
+import { BotCheck } from '@/components/BotCheck';
+import { GoogleSignInButton } from '@/components/GoogleSignInButton';
+import { googleSignIn } from '@/api/auth';
 
 function safeNextPath(raw: string | null): string {
   if (!raw) return '/';
@@ -57,7 +60,7 @@ type EmailForm = z.infer<typeof emailSchema>;
 type OtpForm = z.infer<typeof otpSchema>;
 
 export function LoginPage() {
-  const { login, loginWithOtp, completeMfaLogin, isAuthenticated } = useAuth();
+  const { login, loginWithOtp, completeMfaLogin, isAuthenticated, setSession } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -116,6 +119,28 @@ export function LoginPage() {
   });
 
   if (isAuthenticated) return <Navigate to={nextPath} replace />;
+
+  // WP-ID5: same outcomes as a password sign-in (two-step, enrolment); a new email signs up.
+  const onGoogleCredential = async (credential: string) => {
+    setError(null);
+    try {
+      const result = await googleSignIn(credential);
+      if (result.kind === 'needsSignup') {
+        navigate('/register', { state: { googleCredential: credential, email: result.email, fullName: result.fullName } });
+        return;
+      }
+      await setSession(result.user, result.tokens.access);
+      navigate(nextPath, { replace: true });
+    } catch (err) {
+      if (err instanceof MfaRequiredError) {
+        setMfaToken(err.mfaToken);
+      } else if (err instanceof MfaEnrollmentRequiredError) {
+        setEnrolToken(err.enrolToken);
+      } else {
+        setError(getErrorMessage(err));
+      }
+    }
+  };
 
   const submitPasswordLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -352,6 +377,7 @@ export function LoginPage() {
             </Stack>
           ) : enrolToken || recoveryCodes ? null : !otpEnabled || tab === 0 ? (
             <Stack spacing={2} component="form" onSubmit={submitPasswordLogin} noValidate>
+              <GoogleSignInButton onCredential={(c) => void onGoogleCredential(c)} />
               <TextField
                 label={t('auth.email')}
                 type="email"
@@ -380,6 +406,7 @@ export function LoginPage() {
                 helperText={otpForm.formState.errors.phone?.message}
                 {...otpForm.register('phone')}
               />
+              <BotCheck />
               <Button
                 variant="outlined"
                 disabled={otpRequesting}

@@ -14,6 +14,8 @@ export type CollectionRow = {
 export type Customer360 = {
   customerId: number;
   name: string;
+  /** WP-CM1: email to this customer bounced or was marked spam; we no longer send to it. */
+  emailSuppressed?: boolean;
   sales: { invoices: number; amount: string | null };
   products: string[];
   pattern: string | null;

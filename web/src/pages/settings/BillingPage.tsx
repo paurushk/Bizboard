@@ -10,9 +10,11 @@ import Typography from '@mui/material/Typography';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getBillingPortal, startBillingCheckout } from '@/api/billing';
+import { PlanChangeNotice } from '@/components/billing/PlanChangeNotice';
 import { billingOps, listVendorTenants, suspendSubscription } from '@/api/roadmap';
 import { isAllowedPaymentUrl } from '@/utils/safeUrl';
 import { useAuth } from '@/auth/AuthContext';
+import { BizboardInvoicesPanel } from '@/components/billing/BizboardInvoicesPanel';
 import { SuspendWorkspaceDialog, type SuspendInput } from '@/components/billing/SuspendWorkspaceDialog';
 import { AsyncSection } from '@/components/settings/AsyncSection';
 import { SettingsPage } from '@/components/settings/SettingsPage';
@@ -49,11 +51,19 @@ export function BillingPage() {
       // F3-033: if the gateway returned a hosted-checkout page, send the user
       // there instead of only refetching a query in the background.
       const url = (res as { checkoutUrl?: string | null }).checkoutUrl;
+      const proration = res.prorationUrl;
+      // WP-BL3: an upgrade has two steps (pay the difference, approve the new mandate), so show
+      // both links instead of leaving the page.
+      if (proration && isAllowedPaymentUrl(proration)) {
+        setUpgradeLinks({ prorationUrl: proration, checkoutUrl: url && isAllowedPaymentUrl(url) ? url : null });
+        return;
+      }
       if (url && isAllowedPaymentUrl(url)) {
         window.location.assign(url);
       }
     },
   });
+  const [upgradeLinks, setUpgradeLinks] = useState<{ prorationUrl?: string | null; checkoutUrl?: string | null } | null>(null);
   const [suspendOpen, setSuspendOpen] = useState(false);
   const [suspendError, setSuspendError] = useState('');
   const suspend = useMutation({
@@ -98,6 +108,7 @@ export function BillingPage() {
                     {sub?.trialEndsAt ? ` · ${t('cog.trialEndsAt', { date: String(sub.trialEndsAt) })}` : ''}
                     {sub?.currentPeriodEnd ? ` · ${t('cog.periodEnds', { date: String(sub.currentPeriodEnd) })}` : ''}
                   </Typography>
+                  <PlanChangeNotice sub={sub} links={upgradeLinks} />
                   {ops.data?.upgradePrompt && (ops.data.upgradePrompt as { show?: boolean }).show ? (
                     <HelpErrorAlert
                       message={t('cog.planLimitReached', {
@@ -152,6 +163,8 @@ export function BillingPage() {
                   ) : null}
                 </Stack>
               </Paper>
+
+              <BizboardInvoicesPanel companyKey={user?.companyId} />
 
               {tenantRows.length > 0 ? (
                 <Paper sx={{ p: 3 }}>

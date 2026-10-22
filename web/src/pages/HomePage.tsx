@@ -9,6 +9,7 @@ import { t } from '@/i18n';
 import { findFirstNavPath } from '@/navigation/menu';
 import { shouldForceSetup } from '@/onboarding/shouldForceSetup';
 import { DashboardPage } from '@/pages/DashboardPage';
+import { OnboardingChecklistCard } from '@/components/OnboardingChecklistCard';
 import { LimitedAccessLanding } from '@/pages/LimitedAccessLanding';
 import { canViewFinancialReports } from '@/utils/permissions';
 
@@ -34,7 +35,12 @@ export function HomePage() {
     return <Navigate to="/setup" replace />;
   }
   if (canViewFinancialReports(user)) {
-    return <DashboardPage />;
+    return (
+      <>
+        <OnboardingChecklistCard canDismiss={user?.role === 'OWNER'} />
+        <DashboardPage />
+      </>
+    );
   }
   const firstPath = findFirstNavPath(user);
   if (firstPath) {

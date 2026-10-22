@@ -14,6 +14,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import { apiClient } from '@/api/client';
 import {
   commitTallyImport,
@@ -276,7 +277,16 @@ export function TallyMigrationPage() {
     return (
       <Stack spacing={2}>
         <PageHeader title={t('tally.title')} />
-        <Alert severity="info">{t('importHistory.tallyOff')}</Alert>
+        <Alert
+          severity="info"
+          action={
+            <Button component={RouterLink} to="/help/contact?topic=tally-import" size="small">
+              {t('tally.askSupport')}
+            </Button>
+          }
+        >
+          {t('importHistory.tallyOff')}
+        </Alert>
       </Stack>
     );
   }

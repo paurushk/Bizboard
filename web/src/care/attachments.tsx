@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, getErrorMessage, unwrapData } from '@/api/client';
 import type { AttachmentRow } from '@/api/care';
+import { openAuthenticatedFile } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { t } from '@/i18n';
 
@@ -20,17 +21,45 @@ function useFileMeta(id: number) {
   });
 }
 
+// WP-ID2: files are fetched through apiClient (so the X-Company-Id header goes with them), not
+// linked directly: a plain <img src>/<a href> to the API carries no company and breaks after a switch.
+const downloadPath = (id: number) => `/files/${id}/download/`;
+
+function useFileThumb(id: number, enabled: boolean) {
+  const query = useQuery({
+    queryKey: ['care-file-thumb', id],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async () => {
+      const res = await apiClient.get(downloadPath(id), { responseType: 'blob' });
+      return URL.createObjectURL(res.data as Blob);
+    },
+  });
+  const url = query.data;
+  useEffect(() => () => {
+    if (url) URL.revokeObjectURL(url);
+  }, [url]);
+  return url;
+}
+
 function FileRow({ row, canEdit, onRemove }: { row: AttachmentRow; canEdit: boolean; onRemove: () => void }) {
   const meta = useFileMeta(row.file);
   const file = meta.data;
   const isImage = Boolean(file?.contentType?.startsWith('image/'));
+  const thumb = useFileThumb(row.file, isImage);
   return (
     <Stack direction="row" spacing={1} alignItems="center">
-      {isImage && file ? (
-        <Box component="img" src={file.url} alt="" sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 0.5 }} />
+      {isImage && thumb ? (
+        <Box component="img" src={thumb} alt="" sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 0.5 }} />
       ) : null}
       {file ? (
-        <Link href={file.url} target="_blank" rel="noopener noreferrer" underline="hover" sx={{ wordBreak: 'break-all' }}>
+        <Link
+          component="button"
+          type="button"
+          onClick={() => void openAuthenticatedFile(downloadPath(row.file))}
+          underline="hover"
+          sx={{ wordBreak: 'break-all', textAlign: 'left' }}
+        >
           {file.originalName || t('care.files.file', { id: row.file })}
         </Link>
       ) : (

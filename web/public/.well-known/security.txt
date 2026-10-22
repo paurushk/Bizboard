@@ -1,0 +1,6 @@
+# WP-SC1. Replace the Contact address with the real security inbox before launch
+# (docs/help/SECURITY_DISCLOSURE.md). Renew Expires at least yearly; a web test fails once it passes.
+Contact: mailto:security@your.domain.com
+Expires: 2027-10-22T00:00:00.000Z
+Preferred-Languages: en, hi
+Policy: https://your.domain.com/help/security-disclosure

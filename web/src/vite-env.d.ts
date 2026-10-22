@@ -7,6 +7,10 @@ interface ImportMetaEnv {
   readonly VITE_ENABLE_GSTR: string;
   readonly VITE_ENABLE_AI: string;
   readonly VITE_ENABLE_TALLY: string;
+  /** WP-AB2: Cloudflare Turnstile site key; empty = no bot-check widget. */
+  readonly VITE_TURNSTILE_SITE_KEY?: string;
+  /** WP-ID5: Google OAuth web client id; blank hides Sign in with Google. */
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
   readonly VITE_ENABLE_EINVOICE_SUBMIT: string;
   readonly VITE_ENABLE_ACCOUNTING: string;
   readonly VITE_PILOT_ADVANCED: string;

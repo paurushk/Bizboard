@@ -20,6 +20,7 @@ import {
 import type { TenantBackupStatus } from '@/api/legacy/company';
 import { useAuth } from '@/auth/AuthContext';
 import { SettingsPage } from '@/components/settings/SettingsPage';
+import { ReadableExportPanel } from '@/components/settings/ReadableExportPanel';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -237,6 +238,8 @@ export function BackupExportPage() {
             </Typography>
 
             <AutomaticBackup />
+
+            <ReadableExportPanel />
 
             <Typography variant="h6" sx={{ pt: 1 }}>
               {t('backupPage.checkTitle')}

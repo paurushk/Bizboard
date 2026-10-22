@@ -38,8 +38,13 @@ beforeEach(() => {
   list.mockResolvedValue([{ id: 5, file: 50 }, { id: 6, file: 60 }]);
   upload.mockResolvedValue({});
   remove.mockResolvedValue(undefined);
+  // WP-ID2: thumbnails are fetched as blobs through apiClient, never a bare <img src> to the API.
+  URL.createObjectURL = vi.fn(() => 'blob:thumb');
+  URL.revokeObjectURL = vi.fn();
   client.get.mockImplementation(async (url: string) => ({
-    data: url.endsWith('/50/')
+    data: url.endsWith('/download/')
+      ? new Blob(['x'], { type: 'image/png' })
+      : url.endsWith('/50/')
       ? { id: 50, url: '/media/photo.png', originalName: 'photo.png', contentType: 'image/png', size: 10 }
       : { id: 60, url: '/media/bill.pdf', originalName: 'bill.pdf', contentType: 'application/pdf', size: 10 },
   }));
@@ -48,16 +53,19 @@ beforeEach(() => {
 describe('AttachmentPanel', () => {
   it('shows each file by name, with a thumbnail for pictures', async () => {
     const view = panel();
-    expect(await screen.findByRole('link', { name: 'photo.png' })).toHaveAttribute('href', '/media/photo.png');
-    expect(screen.getByRole('link', { name: 'bill.pdf' })).toBeInTheDocument();
-    expect(view.container.querySelectorAll('img')).toHaveLength(1);
+    expect(await screen.findByRole('button', { name: 'photo.png' })).not.toHaveAttribute('href');
+    expect(screen.getByRole('button', { name: 'bill.pdf' })).toBeInTheDocument();
+    await waitFor(() => expect(view.container.querySelectorAll('img')).toHaveLength(1));
+    expect(view.container.querySelector('img')).toHaveAttribute('src', 'blob:thumb');
+    expect(client.get).toHaveBeenCalledWith('/files/50/download/', { responseType: 'blob' });
+    expect(client.get).not.toHaveBeenCalledWith('/files/60/download/', expect.anything());
     expect(await a11yViolations(view.container)).toEqual([]);
   });
 
   it('uploads a chosen file', async () => {
     const user = userEvent.setup();
     panel();
-    await screen.findByRole('link', { name: 'photo.png' });
+    await screen.findByRole('button', { name: 'photo.png' });
     const file = new File(['x'], 'new.png', { type: 'image/png' });
     await user.upload(screen.getByLabelText('Add a file', { selector: 'input' }), file);
     await waitFor(() => expect(upload).toHaveBeenCalledWith(file));
@@ -79,7 +87,7 @@ describe('AttachmentPanel', () => {
     }));
     const user = userEvent.setup();
     panel();
-    await screen.findByRole('link', { name: 'photo.png' });
+    await screen.findByRole('button', { name: 'photo.png' });
     await user.upload(screen.getByLabelText('Add a file', { selector: 'input' }), new File(['x'], 'a.png', { type: 'image/png' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Re-open it first');
   });

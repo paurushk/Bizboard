@@ -7,6 +7,7 @@ import { AuthProvider } from '@/auth/AuthContext';
 import { PrivacyMaskProvider } from '@/privacy/PrivacyMask';
 import { fetchFeatureFlags } from '@/config/featureFlags';
 import { shouldUseMocks, getLastRequestId } from '@/api/client';
+import { installCompanySwitchListener } from '@/api/companyContext';
 import { hasStoredSession } from '@/auth/session';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { createQueryClient } from '@/lib/queryClient';
@@ -46,6 +47,10 @@ if (typeof sentryDsn === 'string' && sentryDsn.trim()) {
 }
 
 const queryClient = createQueryClient();
+
+// WP-ID2: a company switch in another tab reloads this one, so it never shows one company's
+// screens while sending requests as another.
+installCompanySwitchListener();
 
 // UXW2-006: skip the boot-time fetch on a truly anonymous device — the endpoint
 // requires auth, so firing it blind guarantees a 401 on every logged-out load.

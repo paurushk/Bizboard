@@ -1,4 +1,5 @@
 import { getErrorCode, getErrorMessage, newIdempotencyKey } from '@/api/client';
+import { companyChangedFrom } from '@/api/companyContext';
 import type { PaymentMode } from '@/types/domain';
 
 const IDB_NAME = 'bizboard-invoice-outbox';
@@ -457,6 +458,8 @@ export async function flushOutbox(
     const errors: string[] = [];
     const failedDrafts: OutboxDraft[] = [];
     for (const draft of drafts) {
+      // WP-ID2: the user switched company mid-flush; leave the rest queued for when it is active again.
+      if (companyChangedFrom(companyId)) break;
       try {
         for (const line of draft.lines ?? []) assertFlushableLine(line);
         await sendFn(draft);

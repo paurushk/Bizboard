@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography';
 import { Link as RouterLink } from 'react-router-dom';
 import { requestPasswordReset } from '@/api/auth';
 import { t } from '@/i18n';
+import { BotCheck } from '@/components/BotCheck';
 
 export function ForgotPasswordPage() {
   const [identifier, setIdentifier] = useState('');
@@ -81,6 +82,7 @@ export function ForgotPasswordPage() {
                     onChange={(e) => setIdentifier(e.target.value)}
                     placeholder={t('auth.emailOrMobilePlaceholder')}
                   />
+                  <BotCheck />
                   <Button type="submit" variant="contained" size="large" fullWidth disabled={busy}>
                     {busy ? t('auth.sending') : t('auth.sendResetLink')}
                   </Button>

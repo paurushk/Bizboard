@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { PilotLimitsPage } from './PilotLimitsPage';
 
 describe('PilotLimitsPage', () => {
-  it('shows all seven pilot limitations', () => {
+  it('shows all ten pilot limitations', () => {
     render(<PilotLimitsPage />);
     const headings = screen.getAllByRole('heading');
     const text = headings.map((node) => node.textContent ?? '').join('\n');
@@ -13,6 +13,9 @@ describe('PilotLimitsPage', () => {
     expect(text).toMatch(/opt-in/i);
     expect(text).toMatch(/sandbox/i);
     expect(text).toMatch(/Payroll, manufacturing, and CRM/i);
-    expect(headings).toHaveLength(8);
+    expect(text).toMatch(/GSTR-2B and IMS/i);
+    expect(text).toMatch(/no live Tally sync/i);
+    expect(text).toMatch(/not sent automatically/i);
+    expect(headings).toHaveLength(11);
   });
 });

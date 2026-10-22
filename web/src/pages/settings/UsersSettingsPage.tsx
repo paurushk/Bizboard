@@ -28,8 +28,10 @@ import { useAuth } from '@/auth/AuthContext';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
 import { TwoStepVerificationPanel } from '@/components/TwoStepVerificationPanel';
+import { SignedInDevicesPanel } from '@/components/SignedInDevicesPanel';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
+import { OwnershipTransferDialog } from '@/components/settings/OwnershipTransferDialog';
 import { t, useLocale } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -158,6 +160,8 @@ export function UsersSettingsPage() {
   const [createdWithPassword, setCreatedWithPassword] = useState(false);
   const [issuedCodes, setIssuedCodes] = useState<Record<number, string>>({});
   const [codeFor, setCodeFor] = useState<number | null>(null);
+  // WP-ID1: the member being offered ownership.
+  const [ownerFor, setOwnerFor] = useState<CompanyUser | null>(null);
   const [rewardType, setRewardType] = useState('FLAT');
   const [rewardValue, setRewardValue] = useState('0');
   const [issuingCode, setIssuingCode] = useState(false);
@@ -293,6 +297,7 @@ export function UsersSettingsPage() {
         </Button>
       </Stack>
       <TwoStepVerificationPanel />
+      <SignedInDevicesPanel />
       {error ? <HelpErrorAlert message={error} /> : null}
       {newLink ? (
         <Alert severity="success" onClose={() => setNewLink(null)}>
@@ -461,6 +466,11 @@ export function UsersSettingsPage() {
                     ) : null}
                     {issuedCodes[u.id] ? (
                       <Typography variant="caption" display="block">{t('growth.issuedFor')}: {issuedCodes[u.id]}</Typography>
+                    ) : null}
+                    {!isOwner && u.isActive ? (
+                      <Button size="small" onClick={() => setOwnerFor(u)}>
+                        {t('ownership.makeOwner')}
+                      </Button>
                     ) : null}
                     {isOwner || (!u.isActive && (u.inviteState === 'pending' || u.inviteState === 'expired')) ? null : (
                       <Button
@@ -705,6 +715,7 @@ export function UsersSettingsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <OwnershipTransferDialog member={ownerFor} onClose={() => setOwnerFor(null)} />
     </Stack>
   );
 }

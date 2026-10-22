@@ -18,6 +18,7 @@
  */
 
 import type { createReceipt } from '@/api/resources';
+import { companyChangedFrom } from '@/api/companyContext';
 
 type CreatePayload = Parameters<typeof createReceipt>[0];
 
@@ -152,6 +153,11 @@ export async function flushReceiptOutbox(
       continue;
     }
     if (stopped) continue;
+    // WP-ID2: switched company mid-flush; keep the rest queued for when it is active again.
+    if (companyChangedFrom(companyId)) {
+      stopped = true;
+      continue;
+    }
     try {
       await send(row.payload, row.id);
       await removeQueuedReceipt(row.id);

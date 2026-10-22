@@ -20,6 +20,12 @@ const api = vi.hoisted(() => ({
   downloadFileAsset: vi.fn(),
 }));
 vi.mock('@/api/resources', () => api);
+// WP-DL1 panel: no readable exports in these tests.
+vi.mock('@/api/readableExport', () => ({
+  listReadableExports: vi.fn(async () => []),
+  requestReadableExport: vi.fn(),
+  downloadReadableExport: vi.fn(),
+}));
 
 const SUMMARY = {
   sections: 21,

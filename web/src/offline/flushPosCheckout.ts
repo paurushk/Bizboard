@@ -12,12 +12,17 @@ import {
   type OutboxDraft,
 } from '@/offline/invoiceDraftCache';
 import type { SalesInvoice } from '@/types/domain';
+import { companyChangedFrom } from '@/api/companyContext';
 
 /** Flush a POS outbox draft through the same atomic checkout the counter uses.
  * Cash is the default. Named credit flushes only when the draft was accepted as offline credit.
  * Card, UPI, bank, and cheque stay on the device until the cashier finishes them online.
  */
 export async function flushPosDraft(draft: OutboxDraft): Promise<SalesInvoice> {
+  // WP-ID2: checked before anything is written (this path can create a customer).
+  if (companyChangedFrom(draft.companyId)) {
+    throw new Error('Company changed since this bill was queued');
+  }
   const payload = draft.payload || {};
   const mode = draft.paymentMode ?? payload.paymentMode ?? 'CASH';
   const offlineCredit = Boolean(payload.offlineCredit);
@@ -100,6 +105,11 @@ export async function flushPosBatch(drafts: OutboxDraft[]): Promise<{
   errors: Array<{ index: number; detail: string }>;
 }> {
   const { apiClient, unwrapData } = await import('@/api/client');
+  // WP-ID2: never post one company's bills while the browser is acting as another. Throwing (not
+  // returning no errors) keeps every draft queued: the caller only removes drafts the server took.
+  if (drafts.some((draft) => companyChangedFrom(draft.companyId))) {
+    throw new Error('Company changed since these bills were queued');
+  }
   const company = await getCompany();
   const taxEnabled = preferredInvoiceType(company.registrationType) !== 'NON_GST';
   const checkouts = [];

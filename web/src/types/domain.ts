@@ -330,6 +330,8 @@ export interface Customer {
   name: string;
   /** Collection-risk status (stop_credit, overdue_severe…) — present on the single-customer read when the auto credit hold is on. */
   collectionStatus?: string;
+  /** WP-CM1: on the single-customer read — email to this address bounced or was marked spam. */
+  emailSuppressed?: boolean;
   phone?: string;
   email?: string;
   gstin?: string;
