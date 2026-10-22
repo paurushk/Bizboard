@@ -147,6 +147,7 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_ARCH05_STATUTORY_FORMS` | backend | **OFF** (`0`) | D15 — ARCH-05 drug-licence (20B/21B) + FSSAI compliance; ships per-company when a pharma/food pilot is provisioned; no effect on the ARCH-03 pilot |
 | `ENABLE_TENANT_ERASURE` | backend | **OFF** (`0`) | D13 owner-initiated erasure endpoint. **SR-40 signed 2026-09-10:** default mode is `tombstone` — statutory tax docs kept with party PII scrubbed, `Company` row survives with `erased_at`, `purge_tombstoned_companies` hard-deletes after the 8-yr GST window. Flag still OFF by default; flip it per deployment when erasure requests are handled in-product. |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |
+| `ENABLE_LEGACY_IMPORT` | backend (runtime flag in the app) | OFF; granted per pilot company like Tally (WP-GR1b) | B |
 | `ENABLE_POS` / `VITE_ENABLE_POS` / `VITE_ENABLE_ATOMIC_POS_CHECKOUT` | both | **ON** (D1) | A23 SUPPORTED |
 | `ENABLE_MANUFACTURING` / `VITE_ENABLE_MANUFACTURING` | both | OFF (dark) | B |
 | `ENABLE_PAYROLL` / `VITE_ENABLE_PAYROLL` | both | OFF (dark) | B |
@@ -195,6 +196,19 @@ rules-only with no model call — the platform-wide emergency stop; per-company 
 reading and agents — is refused before it is made). `AI_SPEND_FAIL_CLOSED` (default on: when the
 AI spend counters cannot be read, model calls are refused rather than left uncapped; daily caps are
 `AI_TENANT_DAILY_TOKEN_CAP` / `AI_PLATFORM_DAILY_TOKEN_CAP`, see `core/services/ai_spend.py`).
+`SMS_DISABLED` (default off: when on, every SMS — OTP and reminders — is refused before the
+provider is called; the runtime switch is `manage.py sms_guard kill on`). `SMS_ALLOW_INTERNATIONAL`
+(default off: SMS only to Indian mobile numbers). `SMS_GUARD_FAIL_CLOSED` (default on: when the SMS
+counters cannot be read, sends are refused rather than left uncapped; caps are `SMS_PER_PHONE_HOUR`,
+`SMS_PER_PHONE_DAY`, `SMS_PER_RANGE_HOUR`, `SMS_PLATFORM_DAILY_CAP`, see `core/services/sms_guard.py`).
+`BLOCK_DISPOSABLE_EMAIL` (default on: sign-up refuses temporary-inbox domains listed in
+`core/data/disposable_email_domains.txt`; with `billing/trial_guard.py` this keeps one free trial
+per business). `REQUIRE_COMPANY_HEADER_FOR_MULTI` (default on: a user in more than one company must
+send `X-Company-Id` on tenant API calls, else 409 `COMPANY_REQUIRED`; off only as a quick rollback;
+the test settings turn it off and `tests/tenancy/test_company_switch.py` turns it on).
+`BOT_CHECK_ENFORCE` (default on: a failed bot check on sign-up, OTP or reset is refused; off = shadow
+mode, logged only). `BOT_CHECK_ALLOW_NONE` (default off: production refuses to boot without
+`BOT_CHECK_PROVIDER=turnstile` unless this is set deliberately).
 `LEGAL_ACCEPTANCE_REQUIRED` (default on: sign-up needs the Terms / Privacy agreement and the web
 app asks for re-acceptance when `LEGAL_DOCUMENT_VERSIONS` changes; the test settings turn it off
 for the sign-up tests that exercise OTP rules).

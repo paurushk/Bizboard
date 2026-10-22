@@ -48,3 +48,10 @@ See `load/SEED_50K.md`. Seed in staging, then run k6. Never check 50k SQL into g
 ## Locust (`locust_smoke.py`)
 
 Optional Python companion — same smoke scope as k6 smoke.
+
+## Month-end GST peak (`month_end.js`, WP-RS1)
+
+70% of the given tenant accounts open GSTR-1 / GSTR-3B and download both as Excel within the
+window while drafts keep being completed on the large tenant. See the header of the script for the
+command and gates; record the run in `docs/ops/LOAD_RESULTS_TEMPLATE.md`.
+

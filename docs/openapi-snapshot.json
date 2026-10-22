@@ -4760,6 +4760,24 @@
                 }
             }
         },
+        "/api/v1/announcements/": {
+            "get": {
+                "operationId": "announcements_retrieve",
+                "tags": [
+                    "announcements"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/audit/": {
             "get": {
                 "operationId": "audit_list",
@@ -4847,6 +4865,23 @@
             "get": {
                 "operationId": "auth_csrf_retrieve",
                 "description": "BB-000602: GET /auth/csrf/ sets csrftoken for cookie-JWT mutating calls.\n\nFE-06: also return the token value in the body. When the API and SPA are on\ndifferent hosts the csrftoken cookie is third-party and Safari ITP / Brave /\n\"block third-party cookies\" can drop it from `document.cookie`, so the SPA\nreads the token from here and sends it as the `X-CSRFToken` header\n(double-submit). Same-site hosting is still the recommended deploy.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/google/": {
+            "post": {
+                "operationId": "auth_google_create",
+                "description": "POST /api/v1/auth/google/ ``{credential, company_name?, accept_terms?, ...}``.",
                 "tags": [
                     "auth"
                 ],
@@ -5296,6 +5331,54 @@
                 }
             }
         },
+        "/api/v1/auth/sessions/": {
+            "get": {
+                "operationId": "auth_sessions_retrieve",
+                "description": "GET /api/v1/auth/sessions/ — the user's own signed-in devices, newest use first.",
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/auth/sessions/{id}/revoke/": {
+            "post": {
+                "operationId": "auth_sessions_revoke_create",
+                "description": "POST /api/v1/auth/sessions/<pk>/revoke/ — sign one of your own devices out.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "auth"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/auth/switch-company/": {
             "post": {
                 "operationId": "auth_switch_company_create",
@@ -5417,6 +5500,91 @@
                 }
             }
         },
+        "/api/v1/billing/invoices/": {
+            "get": {
+                "operationId": "billing_invoices_retrieve",
+                "description": "GET /api/v1/billing/invoices/ — WP-BL2: Bizboard's GST invoices and credit notes to the\nowner's company, newest first.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/invoices/{id}/pdf/": {
+            "get": {
+                "operationId": "billing_invoices_pdf_retrieve",
+                "description": "GET /api/v1/billing/invoices/<pk>/pdf/ — WP-BL2: PDF of one Bizboard invoice or credit note.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/onboarding/": {
+            "get": {
+                "operationId": "billing_onboarding_retrieve",
+                "description": "GET /api/v1/billing/onboarding/ — WP-GR2: the home-screen checklist (any member).\nPOST /api/v1/billing/onboarding/dismiss/ — the owner hides it.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/onboarding/dismiss/": {
+            "post": {
+                "operationId": "billing_onboarding_dismiss_create",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/billing/plans/": {
             "get": {
                 "operationId": "billing_plans_retrieve",
@@ -5490,6 +5658,71 @@
             "post": {
                 "operationId": "billing_subscription_create",
                 "description": "Owner suspends the subscription and records a churn reason.\n\nThe most destructive action on this screen, so it asks for: a reason, the company name typed\nout, and the owner's password (plus a two-step code when that is on). It is refused if the\nsubscription is already suspended, and it is written to the audit trail.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/tds-claims/": {
+            "get": {
+                "operationId": "billing_tds_claims_retrieve",
+                "description": "GET/POST /api/v1/billing/tds-claims/ — WP-BL1: claim back TDS deducted on Bizboard's fees.\n\nPOST ``{\"invoice_ids\": [..], \"section\": \"194J-2\", \"certificate_id\": <uploaded Form 16A file>}``.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "billing_tds_claims_create",
+                "description": "GET/POST /api/v1/billing/tds-claims/ — WP-BL1: claim back TDS deducted on Bizboard's fees.\n\nPOST ``{\"invoice_ids\": [..], \"section\": \"194J-2\", \"certificate_id\": <uploaded Form 16A file>}``.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/tds-claims/{id}/refund/": {
+            "post": {
+                "operationId": "billing_tds_claims_refund_create",
+                "description": "POST /api/v1/billing/tds-claims/<pk>/refund/ — WP-BL1 (Q5): refund the credit still left on a\nclaim instead of taking it off the next renewal.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "billing"
                 ],
@@ -5698,6 +5931,68 @@
             "get": {
                 "operationId": "company_export_last_retrieve",
                 "description": "GET /company/export/last/: when the last encrypted backup was taken, by whom, and what it held.\n\nRead from the audit trail, so it reflects downloads that really happened. `null` means none yet.\nAlso says what the Restore button can and cannot do on this server.",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/export/readable/": {
+            "get": {
+                "operationId": "company_export_readable_retrieve",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "company_export_readable_create",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/export/readable/{id}/file/": {
+            "get": {
+                "operationId": "company_export_readable_file_retrieve",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "integer"
+                        },
+                        "required": true
+                    }
+                ],
                 "tags": [
                     "company"
                 ],
@@ -6015,6 +6310,78 @@
             "patch": {
                 "operationId": "company_number_series_partial_update",
                 "description": "Owner only.",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/ownership/": {
+            "get": {
+                "operationId": "company_ownership_retrieve",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/ownership/accept/": {
+            "post": {
+                "operationId": "company_ownership_accept_create",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/ownership/cancel/": {
+            "post": {
+                "operationId": "company_ownership_cancel_create",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/ownership/transfer/": {
+            "post": {
+                "operationId": "company_ownership_transfer_create",
                 "tags": [
                     "company"
                 ],
@@ -6746,6 +7113,25 @@
                             }
                         },
                         "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/company/users/session-counts/": {
+            "get": {
+                "operationId": "company_users_session_counts_retrieve",
+                "description": "GET /api/v1/company/users/session-counts/ — owners see how many devices each member is\nsigned in on (counts only, not devices or networks).",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
                     }
                 }
             }
@@ -12600,6 +12986,52 @@
                 }
             }
         },
+        "/api/v1/email/events/": {
+            "post": {
+                "operationId": "email_events_create",
+                "tags": [
+                    "email"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/email/unsubscribe/": {
+            "get": {
+                "operationId": "email_unsubscribe_retrieve",
+                "tags": [
+                    "email"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "email_unsubscribe_create",
+                "tags": [
+                    "email"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/exports/{report}/": {
             "get": {
                 "operationId": "exports_retrieve",
@@ -15429,6 +15861,44 @@
             "get": {
                 "operationId": "integrations_inventory_retrieve",
                 "description": "Owner-only inventory of outbound integrations. Never returns secret values.",
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/legacy/commit/": {
+            "post": {
+                "operationId": "integrations_legacy_commit_create",
+                "description": "POST /api/v1/integrations/legacy/commit/ ``{sync_run_id}`` — WP-GR1b: same commit as Tally.",
+                "tags": [
+                    "integrations"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/integrations/legacy/upload/": {
+            "post": {
+                "operationId": "integrations_legacy_upload_create",
+                "description": "POST /api/v1/integrations/legacy/upload/ — WP-GR1b: a Busy, Vyapar or Marg party or item export.\n\nMultipart ``file`` + ``source`` (busy | vyapar | marg). Returns the same preview as Tally.",
                 "tags": [
                     "integrations"
                 ],
@@ -48933,6 +49403,194 @@
                 }
             }
         },
+        "/api/v1/support/access-grants/": {
+            "get": {
+                "operationId": "support_access_grants_retrieve",
+                "description": "WP-ID4: /support/access-grants/ — the owner lets Bizboard support view the company's data,\nread-only, for up to 72 hours, tied to one open support request.\n\nGET list (any member: everyone sees when support can look; owners see what was viewed) ·\nPOST create (owner, password + two-step) · POST <id>/revoke/ (owner).",
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "support_access_grants_create",
+                "description": "WP-ID4: /support/access-grants/ — the owner lets Bizboard support view the company's data,\nread-only, for up to 72 hours, tied to one open support request.\n\nGET list (any member: everyone sees when support can look; owners see what was viewed) ·\nPOST create (owner, password + two-step) · POST <id>/revoke/ (owner).",
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/support/access-grants/{id}/revoke/": {
+            "post": {
+                "operationId": "support_access_grants_revoke_create",
+                "description": "WP-ID4: /support/access-grants/ — the owner lets Bizboard support view the company's data,\nread-only, for up to 72 hours, tied to one open support request.\n\nGET list (any member: everyone sees when support can look; owners see what was viewed) ·\nPOST create (owner, password + two-step) · POST <id>/revoke/ (owner).",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/support/platform-tickets/": {
+            "get": {
+                "operationId": "support_platform_tickets_retrieve",
+                "description": "WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.\n\nGET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.",
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "support_platform_tickets_create",
+                "description": "WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.\n\nGET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.",
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/support/platform-tickets/{id}/": {
+            "get": {
+                "operationId": "support_platform_tickets_retrieve_2",
+                "description": "WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.\n\nGET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/support/platform-tickets/{id}/reply/": {
+            "post": {
+                "operationId": "support_platform_tickets_reply_create",
+                "description": "WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.\n\nGET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/support/platform-tickets/{id}/resolve/": {
+            "post": {
+                "operationId": "support_platform_tickets_resolve_create",
+                "description": "WP-PO3: /support/platform-tickets/ — ask Bizboard for help. Any active member, any plan.\n\nGET list · POST create · GET <id>/ (with messages) · POST <id>/reply/ · POST <id>/resolve/.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "id",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/support/shared/": {
             "get": {
                 "operationId": "support_shared_list",
@@ -49922,6 +50580,40 @@
                         "jwtAuth": []
                     },
                     {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/whats-new/seen/": {
+            "get": {
+                "operationId": "whats_new_seen_retrieve",
+                "tags": [
+                    "whats-new"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            },
+            "post": {
+                "operationId": "whats_new_seen_create",
+                "tags": [
+                    "whats-new"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
                 ],
                 "responses": {
                     "200": {
@@ -53480,6 +54172,10 @@
                         "type": "string",
                         "readOnly": true
                     },
+                    "email_suppressed": {
+                        "type": "boolean",
+                        "readOnly": true
+                    },
                     "version": {
                         "type": "integer",
                         "readOnly": true
@@ -53489,6 +54185,7 @@
                     "collection_status",
                     "created_at",
                     "credit_exposure",
+                    "email_suppressed",
                     "gstin_legal_name",
                     "gstin_verification_status",
                     "gstin_verified_at",
@@ -63834,6 +64531,10 @@
                     },
                     "collection_status": {
                         "type": "string",
+                        "readOnly": true
+                    },
+                    "email_suppressed": {
+                        "type": "boolean",
                         "readOnly": true
                     },
                     "version": {

@@ -25,6 +25,7 @@ Copy to `docs/ops/LOAD_RESULTS_<YYYY-MM-DD>.md` for each run. Targets: `docs/ops
 | Reports (large tenant) | | | | |
 | Bill import 200 lines | | | | |
 | Nightly books check (1,000 tenants) | | | | |
+| Month-end GST peak (`load/month_end.js`, 70% of tenants, ____ h): worksheets / xlsx / Complete during the peak | | | | |
 
 ## Resources during the soak
 

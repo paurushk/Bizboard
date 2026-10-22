@@ -111,3 +111,37 @@ groups:
         annotations:
           summary: "Half of the 30-day error budget used in 7 days; freeze feature work per SLO.md"
           runbook: "docs/ops/SLO.md"
+
+  - name: bizboard-sms
+    rules:
+      # WP-AB1: core/services/sms_guard.py bumps bizboard_business_events{event="sms_*"}.
+      - alert: BizBoardSmsBlockedBurst
+        expr: sum(increase(bizboard_business_events_total{event=~"sms_blocked_.*"}[1h])) > 50
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 50 SMS refused by the guard in an hour (possible SMS pumping)"
+          runbook: "docs/ops/ALERTS.md#sms-spend"
+      - alert: BizBoardSmsPlatformCap80
+        expr: sum(increase(bizboard_business_events_total{event="sms_platform_cap_80"}[1h])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "SMS platform use passed 80% of today's cap"
+          runbook: "docs/ops/ALERTS.md#sms-spend"
+      - alert: BizBoardSmsProviderFailing
+        expr: |
+          sum(increase(bizboard_business_events_total{event=~"sms_failed_.*"}[15m]))
+            / clamp_min(sum(increase(bizboard_business_events_total{event=~"sms_attempt_.*"}[15m])), 1) > 0.2
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 20% of SMS sends are failing at the provider"
+          runbook: "docs/ops/ALERTS.md#sms-spend"
+      - alert: BizBoardClockSkew
+        # WP-CP1: CERT-In expects synced clocks; a drift makes incident timelines unreliable.
+        expr: bizboard_clock_skew_seconds > 2
+        for: 10m
+        labels: {severity: ticket}
+        annotations:
+          summary: "App and database clocks differ by more than 2 seconds"
+          runbook: "docs/ops/ALERTS.md#clock-skew"

@@ -1,6 +1,6 @@
 # Full SaaS product — implementation plan: before paid beta and before public launch
 
-**Date:** 2026-10-22 · **Revision:** 3 (review applied, see §0d) · **Status:** plan, nothing built · **Branch at writing:** `feat/mfg-p0-foundations` (large uncommitted tree)
+**Date:** 2026-10-22 · **Revision:** 3.1 (review applied, see §0d; Q9 answered) · **Status:** Phase 1 and Phase 2 built and tested (see §8 and §9); what is left is people items only · **Branch at writing:** `feat/mfg-p0-foundations` (large uncommitted tree)
 
 This plan covers the items from the 2026-10-22 checklist review and the "full-fledged SaaS"
 review that must be done **before paid beta** (alongside Waves 1–3 of the scorecard) and
@@ -57,7 +57,7 @@ and WP-EN1's merge-size gate would block the WP-A1 chunks themselves.
 | Razorpay webhook | `RazorpayWebhookView` dedupes on `(subscription id, status, X-Razorpay-Event-Id)` + `ProcessedWebhookEvent`, and ignores an event whose `created_at` is **strictly older** than the last one seen for that subscription | Same-second events are fine. But a `subscription.charged` delivered after a newer status event is dropped as `out_of_order` — charge events must bypass that check (BL2). |
 | Plan switch | `start_or_update_subscription` creates a **new** Razorpay subscription (`_create_razorpay_subscription(..., start_at=...)`), parks it in `pending_razorpay_subscription_id`, and cancels the old one when the new one goes active; no `PATCH` update | Proration builds on this pattern, not on Razorpay's subscription update (BL3). |
 | SaaS dunning | `Subscription` has no invoice balance or partial-payment state; `run_saas_dunning` filters `status=PAST_DUE` | There is no bank-transfer path to compute a TDS "shortfall" against. BL1 uses a refund/credit flow instead. |
-| Tally import | `integrations/tally/adapter.py` imports masters (CSV/XLSX) with opening balances and a post-commit recon; `integrations/permissions.py` gates it on `ENABLE_TALLY`, which is OFF in the frozen profile and in `TRIAL_HELD_FALSE` | A new customer can't use it today. GR1a needs a freeze decision (§7 Q9). |
+| Tally import | `integrations/tally/adapter.py` imports masters (CSV/XLSX) with opening balances and a post-commit recon; `integrations/permissions.py` gates it on `ENABLE_TALLY`, which is OFF in the frozen profile and in `TRIAL_HELD_FALSE`. `ENABLE_TALLY` is in `ROLLOUT_GRANTABLE_KEYS`, and `build_feature_flags` applies the company's `feature_flags` value **last** for those keys, so a per-company grant wins even over a trial plan's held `False`; the web app (`config/features.ts` `isTallyEnabled`) follows the runtime flag once loaded. The only grant tool, `grant_rollout_flag`, refuses unless `E2E_GOLDEN_GRANT=1` and picks the user's first company. | Q9 answered: keep the gate; staff grant per pilot company. GR1a adds an audited admin grant action. |
 | Export | `accounts/export_views.py` `TenantExportView` → `tenant_backup.build_export_payload` → `encrypt_export_zip` | Encrypted, for restore only; a departing customer can't open it (DL1). |
 | Dependencies | `.github/dependabot.yml` covers pip, web npm, mobile npm | Only SBOM + image scan left (SC3). |
 | Entrypoint | `backend/docker-entrypoint.sh` only wraps the container's main command; `docker exec` doesn't run it | A break-glass check there is bypassable (SC2). |
@@ -89,7 +89,7 @@ An external review of revision 2 was checked against the code.
 | R9 | EN1 would block the WP-A1 chunks | **Taken** | EN1 activates only after WP-A1 lands. |
 | R10 | CM2 (DLT templates) is a P1 blocker | **Confirmed** (`send_text` has no template ID) | Moved to P1. |
 | R11 | PO3 needed in Wave 2 (SR2-06 staffed support) | **Taken** | Moved to P1. |
-| R12 | Tally XML needed for SR2-01 / SR2-04 | **Taken**, plus the `ENABLE_TALLY` gate found while checking | GR1 split: GR1a (Tally) in P1, GR1b (Busy/Vyapar/Marg) in P2; §7 Q9. |
+| R12 | Tally XML needed for SR2-01 / SR2-04 | **Taken**, plus the `ENABLE_TALLY` gate found while checking | GR1 split: GR1a (Tally) in P1, GR1b (Busy/Vyapar/Marg) in P2. Q9 (founder, 2026-10-22): **keep import behind `ENABLE_TALLY`; staff grant it per pilot company** — no freeze exception. |
 | R13 | DPDP request register needed from first real data | **Taken** | CP2 in P1 (from Appendix A). |
 | R14 | Non-transactional email needs `List-Unsubscribe` | **Partly taken** — CM3 announcements are in-app, not email; but trial-nurture and digest emails exist or will | CM1 adds `List-Unsubscribe` + one-click opt-out per category; full preferences stay in Appendix A. |
 | R15 | Same-second webhook events are dropped by the timestamp check | **Not as stated** — the check is strict `<`, and dedupe already uses the event ID. The real risk is a late `subscription.charged` older than the last status event | BL2: charge events bypass the ordering check; dedupe on event ID + payment ID. |
@@ -340,7 +340,7 @@ outcome, and a breach has a notification template ready.
 **Goal:** customers and sales know exactly what Bizboard doesn't do.
 
 - **Files:** new `docs/help/LIMITATIONS.md` (source of truth) and a public help route in the web app (en + hi); links from the help menu and sign-up.
-- **Content** (from `docs/FREEZE_SCOPE.md` C1–C3 and the deferred list): GSTR-1/3B are worksheets for your CA, not portal filing; no live IRN / e-way bill — record the number from your current tool; no GSTR-2B / IMS matching; stock cost is weighted average, not FIFO; Tally: import of masters, opening balances and outstanding bills (GR1a), no live sync; WhatsApp is a share link, not automatic sending.
+- **Content** (from `docs/FREEZE_SCOPE.md` C1–C3 and the deferred list): GSTR-1/3B are worksheets for your CA, not portal filing; no live IRN / e-way bill — record the number from your current tool; no GSTR-2B / IMS matching; stock cost is weighted average, not FIFO; Tally: import of masters, opening balances and outstanding bills, switched on by support on request (GR1a), no live sync; WhatsApp is a share link, not automatic sending.
 - **Guard:** extend an existing flag guard so turning on `GSP_LIVE_ENABLED`, `ENABLE_TALLY` or `ENABLE_WHATSAPP_CLOUD` in the frozen profile fails CI unless `LIMITATIONS.md` changes in the same commit.
 - **Done when:** page in the web build; guard green.
 
@@ -375,17 +375,25 @@ in closed beta).
 
 #### WP-GR1a Tally XML and bill-wise outstanding import [G-01, Tally part] — LLM, M
 
-**Goal:** a closed-beta business on Tally brings masters, opening balances and outstanding bills
-without help, in time for SR2-01 (import real books) and SR2-04 (parallel month).
+**Goal:** a closed-beta business on Tally, once staff have granted it the Tally module, brings
+masters, opening balances and outstanding bills without engineering help, in time for SR2-01
+(import real books) and SR2-04 (parallel month).
 
-- **Files:** `integrations/tally/adapter.py` (extend); `integrations/permissions.py` (gating, see step 1); `imports/views.py` source picker; web imports screen; `docs/help/IMPORT_FROM_TALLY.md` with export steps in Tally.
+**Gating (Q9, founder, 2026-10-22):** the importer stays behind `ENABLE_TALLY`. It remains OFF
+in the frozen profile and held off for trials; staff turn it on for each named pilot company. No
+new flag, no freeze exception, no change to `integrations/permissions.py`, `TRIAL_HELD_FALSE`
+or the env profile.
+
+- **Files:** `integrations/tally/adapter.py` (extend); new Django admin action in `accounts/admin.py` (company admin) + `accounts/rollout_grants.py`; `imports/views.py` source picker; web imports screen; `docs/help/IMPORT_FROM_TALLY.md` with export steps in Tally; `docs/ops/DARK_MODULE_GRANT.md` (new "Rollout flag grant per pilot" section).
 - **Steps:**
-  1. **Gating:** today the importer requires `ENABLE_TALLY`, which is OFF in the frozen profile and held off for trials. Per §7 Q9, gate the one-time import on a new `ENABLE_TALLY_IMPORT` (ON, rollout-grantable) and keep `ENABLE_TALLY` for sync/export only.
-  2. Tally XML masters export (ledgers with groups, GSTIN, state; stock items with HSN, unit, GST rate, opening stock) next to the existing CSV/XLSX.
-  3. Bill-wise outstanding (Tally "Bills Receivable/Payable" with bill reference, date, due date, amount) → opening receivables/payables, so ageing and collections work from day one.
-  4. Dry-run preview with row errors; idempotent re-run; `_post_commit_recon` totals vs the file (party count, opening balance totals, outstanding totals) and a downloadable error file.
-- **Tests:** anonymised Tally XML fixtures (collected from the first pilots; synthetic ones until then); idempotent re-run; recon totals; malformed XML → translated errors; trial tenant can import with `ENABLE_TALLY` off.
-- **Done when:** a real pilot's Tally export imports with zero unexplained recon difference.
+  1. **Staff grant tool:** the existing `grant_rollout_flag` command is test-only (refuses without `E2E_GOLDEN_GRANT=1`, picks the user's first company), so add a superuser-only Django admin action "Grant / revoke rollout flag" on the company: pick a key from `ROLLOUT_GRANTABLE_KEYS`, enter a reason and a PO3 ticket, then set `feature_flags[key] = True` (or remove it to revoke). Each grant writes an audit row (staff user, company, key, reason, ticket) and clears the memoised flags for that company. Only `ROLLOUT_GRANTABLE_KEYS` are offered, so dark modules (`DARK_MODULE_KEYS`) can't be lifted this way.
+  2. **Pilot list:** the admin company list shows a "Tally granted" column and a filter, so ops can see which pilots have it. Revoke after cutover if the pilot shouldn't keep the export.
+  3. Tally XML masters export (ledgers with groups, GSTIN, state; stock items with HSN, unit, GST rate, opening stock) next to the existing CSV/XLSX.
+  4. Bill-wise outstanding (Tally "Bills Receivable/Payable" with bill reference, date, due date, amount) → opening receivables/payables, so ageing and collections work from day one.
+  5. Dry-run preview with row errors; idempotent re-run; `_post_commit_recon` totals vs the file (party count, opening balance totals, outstanding totals) and a downloadable error file.
+  6. **Ungranted companies:** the setup wizard and imports screen show "Moving from Tally? Ask support to switch on Tally import" with a link that opens a PO3 ticket tagged `tally-import-request`, instead of hiding the option silently.
+- **Tests:** anonymised Tally XML fixtures (collected from the first pilots; synthetic ones until then); idempotent re-run; recon totals; malformed XML → translated errors. Gating: a company without the grant gets 403 from the import endpoints; a **trial** company with the staff grant can import (company value beats the plan's held `False`); revoking removes access on the next request; the admin action refuses a key outside `ROLLOUT_GRANTABLE_KEYS` and a non-superuser; every grant and revoke is audited.
+- **Done when:** a real pilot's Tally export imports with zero unexplained recon difference after a staff grant, and the grant is visible in the admin pilot list.
 
 ### WS-EN — Engineering
 
@@ -409,6 +417,7 @@ without help, in time for SR2-01 (import real books) and SR2-04 (parallel month)
 | Counsel: disclosure safe harbour (SC1), CERT-In scope and template (CP1), breach and request wording (CP2), fingerprint retention (AB3) | Counsel |
 | Support channel staffed with SLA targets (PO3, SR2-06) | Founder |
 | Tally export files from the first pilots (GR1a) | Founder / beta businesses |
+| Grant `ENABLE_TALLY` to each named Tally pilot with GR1a's admin action, and revoke it after cutover where needed | Ops / support |
 
 ---
 
@@ -505,7 +514,7 @@ decision (execution plan 4.6) and the guard `tests/test_no_impersonation.py`.
 #### WP-GR1b Busy, Vyapar and Marg importers [G-01, other sources] — LLM, M–L
 
 - **Files:** new `integrations/busy/`, `integrations/vyapar/`, `integrations/marg/` with the Tally adapter's shape (`parse_*_rows` → preview → commit → `_post_commit_recon`); `imports/views.py` source picker; one help guide per source.
-- **Steps:** map each tool's standard Excel exports for parties, items, opening stock and outstanding bills. Build from 2–3 real anonymised files per source from pilots (§7 Q8), not from guesses; one source at a time by pilot demand. Same gating as GR1a (`ENABLE_TALLY_IMPORT` renamed or a sibling `ENABLE_LEGACY_IMPORT`, decided in Q9).
+- **Steps:** map each tool's standard Excel exports for parties, items, opening stock and outstanding bills. Build from 2–3 real anonymised files per source from pilots (§7 Q8), not from guesses; one source at a time by pilot demand. Same gating model as GR1a: each source sits behind a rollout-grantable flag that is off by default and granted per pilot company with GR1a's admin action (one new key, `ENABLE_LEGACY_IMPORT`, added to `ROLLOUT_GRANTABLE_KEYS` and to `TRIAL_HELD_FALSE`).
 - **Tests:** fixture per source; idempotent re-run; recon totals; malformed file errors translated.
 - **Done when:** each built source imports its fixture with zero unexplained recon difference.
 
@@ -574,7 +583,7 @@ WP-A1 commit/tag (previous plan) — nothing below starts before it
 | PO3 | CM1 (reply emails) | — |
 | SC2 | PO3 (session names a ticket) | — |
 | PO2 | PO3, BL2 (ticket and revenue inputs) | — |
-| GR1a | §7 Q9 (gating); pilot Tally files for the done-when | — |
+| GR1a | PO3 (grant reason names a ticket; "ask support" link); pilot Tally files for the done-when | `accounts/admin.py` |
 | EN1 | WP-A1 merged | `.github/workflows/ci.yml` |
 | BL3 | BL2 | BL4 |
 | BL4 | BL2 | BL3 |
@@ -617,12 +626,12 @@ WP-A1 commit/tag (previous plan) — nothing below starts before it
 | Q1 | Bot check provider? | Cloudflare Turnstile | — |
 | Q2 | SMS caps? | 3/hour and 8/day per number; 30/hour per 4-digit range; 5,000/day platform; international off | — |
 | Q3 | Trial dedupe keys and window? | GSTIN/PAN, or phone + email together; 365 days | — |
-| Q4 | Allow customer-approved, read-only support access (replaces screen-share-only, plan 4.6)? | **No default** — recommended yes, read-only, ≤ 72 h | ID4 |
-| Q5 | Which TDS sections/rates do customers apply to Bizboard fees; settle by credit on next renewal or refund? | Configurable section list; credit by default, refund on request | BL1 sign-off |
+| Q4 | Allow customer-approved, read-only support access (replaces screen-share-only, plan 4.6)? | **Answered 2026-10-22 (founder): yes** — read-only, ≤ 72 h, owner approves per request | — |
+| Q5 | Which TDS sections/rates do customers apply to Bizboard fees; settle by credit on next renewal or refund? | **Answered 2026-10-22 (founder): credit by default, refund on request.** Section list stays a CA-maintained setting | BL1 CA sign-off |
 | Q6 | Plan change rule? | Upgrade now with a one-time prorated charge; downgrade at period end | — |
 | Q7 | Email provider for bounce webhooks? | Amazon SES, India region | CM1 on staging |
 | Q8 | Which non-Tally importers first? | Busy, then Vyapar, then Marg, by pilot demand | GR1b order |
-| Q9 | One-time Tally import is behind `ENABLE_TALLY` (OFF in the freeze and for trials). Split it into its own flag `ENABLE_TALLY_IMPORT`, ON and available to trials, keeping sync/export behind `ENABLE_TALLY`? This is a freeze exception (`docs/ops/FREEZE_EXCEPTION.md`). | **No default** — recommended yes: import is onboarding, not the deferred sync feature | GR1a |
+| Q9 | One-time Tally import is behind `ENABLE_TALLY` (OFF in the freeze and for trials). Split it into its own flag? | **Answered 2026-10-22 (founder): no.** Keep it behind `ENABLE_TALLY`; staff grant it per pilot company (GR1a step 1). No freeze exception. | — |
 
 ---
 
@@ -652,3 +661,130 @@ WP-A1 commit/tag (previous plan) — nothing below starts before it
 | Dedicated PDF worker pool | R-03 | S |
 | Sharding trigger ADR | R-06 | S |
 | Fake-invoice signals for staff | F-04 | M |
+
+---
+
+## 8. Implementation record — Phase 1 (2026-10-22)
+
+**State:** all 19 P1 work packages built and tested in the working tree, **not committed** (WP-A1
+from the 2026-10-21 plan is still open; the founder asked to proceed anyway). Nothing is on a host.
+P2 has not started.
+
+### What was built
+
+| WP | What exists now | Proof |
+|---|---|---|
+| AB1 | `core/services/sms_guard.py` caps every SMS (per phone hour/day, per 4-digit range, platform/day, international off, kill switch, fail-closed); attempts count even when the provider fails; `manage.py sms_guard status/kill`; 3 alert rules + runbook `ALERTS.md#sms-spend`; `core/services/counters.py` fixes the `add`+`incr` expiry race, also used by `ai_spend` | `tests/test_sms_guard.py` (13) |
+| CM2 | `core/message_templates.py` registry; `SmsProvider.send_template` is the only SMS path; MSG91 sends non-OTP SMS by DLT template id (flow API); production refuses a template with no DLT id; dunning uses the `payment_reminder` template on every channel; WhatsApp names come from the registry; `guard_message_templates` | `tests/test_message_templates.py` (7) |
+| ID2 | Server: a user in 2+ companies must send `X-Company-Id` on tenant API calls (409 `COMPANY_REQUIRED`, `REQUIRE_COMPANY_HEADER_FOR_MULTI`, off in test settings). Web: other tabs reload on a company switch (`api/companyContext.ts`); every outbox flush stops if the company changed; care attachments load through `apiClient`; a source scan forbids direct API links | `tests/tenancy/test_company_switch.py` (6), web `companyContext.test.ts`, `noDirectApiLinks.test.ts`, `attachments.test.tsx` |
+| PO1 | The existing in-app page gained 2B/IMS, Tally and WhatsApp lines (en + hi); public route `/limits`; source `docs/help/LIMITATIONS.md`; `guard_limitations_page` keeps doc, page and both languages in step | web `PilotLimitsPage.test.tsx` |
+| SC1 | `web/public/.well-known/security.txt` (served as text by nginx), `docs/help/SECURITY_DISCLOSURE.md` (safe harbour marked for counsel) | web `securityTxt.test.ts` |
+| BL2 | Razorpay `subscription.charged` issues the GST invoice (a late charge is still invoiced but never moves status back); daily recon issues missed ones; buyer GSTIN/legal name/state, SAC, Bizboard-wide gap-free FY numbers (`BB2627-000001`, `PlatformInvoiceSequence`), credit notes, empty IRN fields; owner list `GET /billing/invoices/` and a panel on Billing | `tests/test_platform_gst_bl2.py` (7 + 1 Postgres) |
+| BL1 | `billing/tds_claims.py`: owner claims TDS on chosen invoices with Form 16A; amount computed from taxable value; staff verify in admin → Razorpay partial refund per invoice (retry-safe); reject with reason; panel on Billing | `tests/test_tds_claims_trial_guard.py` |
+| AB3 | `billing/trial_guard.py`: hashed GSTIN/PAN/phone/email fingerprints; a repeat business gets its trial already ended; a GSTIN added later ends a running repeat trial; disposable email domains refused at sign-up; staff can delete fingerprints in admin | same file |
+| AB4 | `PublicLinkMiddleware`: `no-store` + `noindex` on every public share link (errors too); a token opened from more than 50 networks a day is logged and counted | `tests/test_public_link_hardening.py` (9) |
+| AB2 | `core/services/bot_check.py` (Turnstile / none / stub, shadow mode); the four pre-login endpoints call it; web `BotCheck` widget (lazy, only with a site key) + `X-Bot-Token` on those four calls; CSP allows Cloudflare's script and frame; production refuses to boot without Turnstile unless `BOT_CHECK_ALLOW_NONE=1` | `tests/test_bot_check.py` (12), web `botCheck.test.ts` |
+| PO3 | `support.PlatformTicket` + messages (separate from the merchant helpdesk); any member, any plan; owners see all, others their own; SLA due per severity; P0/P1 ping ops; admin queue where a typed reply is emailed; web `/help/contact` (+ "My requests"), linked from Help; Support ID, route and last 5 error codes attached | `tests/test_saas_phase1_ops.py`, web `ContactSupportPage.test.tsx` |
+| ID1 | `accounts/ownership.py` + API (`/company/ownership/…`): owner offers ownership (password + MFA), member accepts from an emailed link, roles swap in one transaction; staff recovery = `manage.py owner_recovery request` + second-staff approval in admin + 72-hour wait + owner invite (hourly beat task); web "Make owner" on Users + `/ownership/accept`; runbook `docs/ops/OWNER_RECOVERY.md` | `tests/test_saas_phase1_ops.py`, web test |
+| CM1 | `core/mail.py`: one `send()` for all email; hard bounce/complaint suppress, 3 soft bounces in 7 days suppress for 30; non-transactional categories get `List-Unsubscribe` + one-click; `/email/events/` webhook (SES via SNS, Postmark; HTTP Basic); `/email/unsubscribe/`; all six `send_mail` sites moved; `guard_no_direct_send_mail`; sign-up says plainly when an address bounced before | `tests/test_saas_phase1_ops.py` |
+| SC2 | `manage.py` refuses `shell`/`shell_plus`/`dbshell` on production without a live `BREAKGLASS_SESSION_ID`; `manage.py breakglass_session open/end/list` (ops ping, 2-hour sessions, commands recorded); admin list for the access review | `tests/test_saas_phase1_ops.py` |
+| CP1 | `LOG_RETENTION.md` CERT-In section (what, where, 180 days, India), `INCIDENT_RESPONSE.md` reporting clocks; `bizboard_clock_skew_seconds` + `BizBoardClockSkew` alert | `tests/test_alert_rules.py` |
+| CP2 | `support.DataPrivacyRequest` register (admin, overdue flag); self-serve export and company erasure create closed rows; `docs/ops/DPDP_REQUESTS.md` (steps + breach-notice fields for counsel) | `tests/test_saas_phase1_ops.py` |
+| PO2 | `support/health.py` score (setup, first invoice, invoicing trend, last sign-in, seats; minus P0/P1 tickets, past due, failed books check); weekly fan-out task; admin list worst first; `manage.py saas_metrics --month` (sign-ups, activated, trial→paid, churn, NRR, tickets/100, median days to first invoice) | `tests/test_saas_phase1_ops.py` |
+| GR1a | `integrations/tally/xml_import.py` reads Tally XML (UTF-16, DOCTYPE/ENTITY refused) incl. bill-wise outstanding; one opening document per bill with its due date, plus on-account remainder, so totals still tie; XML allowed for import uploads; admin action "Grant or revoke a rollout flag" (superuser, reason, ticket, audited; only grantable keys) with a "Tally" column and filter; ungranted Tally page links to a prefilled support request | `tests/test_tally_xml_import.py` (5) + existing Tally tests |
+| EN1 | `scripts/ci_gates/check_merge_size.py` + advisory `merge-size` CI job (warn 1,500 / fail 4,000 changed lines, generated files excluded); docs | logic self-test |
+
+Migrations: `billing/0014`, `0015`; `core/0069`, `0070` (RLS for the five new tenant tables);
+`accounts/0070`, `0071`; `support/0006`. OpenAPI snapshot and web types regenerated (additions only).
+
+### Bugs found while building
+
+| Bug | Effect | Fix |
+|---|---|---|
+| The SMS guard treated customer phones stored as 10 digits (no +91) as international | Dunning SMS to most stored customers would have been refused | 10-digit numbers starting 6–9 (and 0-prefixed) are normalised to +91 |
+| Import uploads refused `application/xml` | A Tally XML export could not be uploaded at all | `.xml` sniffed from content and allowed for the import kind only |
+| `ai_spend._incr` used `add` then `incr` | A key expiring between the calls raised and refused a model call | Shared `core/services/counters.incr` |
+| The ownership email named no link | The member could not find the offer | Email carries `FRONTEND_URL/ownership/accept?token=…` |
+| Two tabs share the active company (localStorage) | After a switch in tab 1, tab 2 kept showing company A while sending company B's header | Other tabs reload on switch |
+
+### Where it differs from the plan
+
+- **AB1** defaults: 5/hour per phone (matches the OTP view's existing limit) and 10/day, not 3/8. Kill switch and status: `manage.py sms_guard` and (second pass) the admin page `/admin/ops/sms-guard/` (superuser flips, audited).
+- **AB2** boot refusal applies to `DJANGO_ENV=production` only, so the local staging stack keeps booting; staging must set Turnstile before the hosted run.
+- **AB3** a repeat business gets its trial row already ended (read-only until it pays), rather than no subscription row.
+- **AB4** done once in middleware rather than per view; existing revoke/expiry were already in place.
+- **BL1** (second pass, Q5) credit by default: a verified claim comes off the next renewal by refunding that much of the renewal's own payment the moment it is charged (webhook, with a daily retry); the owner can switch to a refund while credit is left. Quarterly Form 16A reminder on the 16th of Aug/Nov/Feb/Jun.
+- **BL2** (second pass) PDF of each invoice and credit note: `GET /billing/invoices/<id>/pdf/`, linked from the Billing panel; seller block from `PLATFORM_LEGAL_NAME` / `PLATFORM_ADDRESS`.
+- **CM1** a send helper + guard instead of an email-backend wrapper (a contract test pins `EMAIL_BACKEND`). (Second pass) the customer page warns when the customer's email is suppressed (`emailSuppressed` on the customer read and the 360 view).
+- **PO1** guard checks doc/page/language parity; turning a deferred feature on is already blocked by `guard_freeze_table_b_defaults`.
+- **PO2** monthly numbers: `manage.py saas_metrics` and (second pass) the admin page `/admin/ops/saas-metrics/`, which also shows median days to first invoice by sign-up week (GR2).
+
+### Phase 1 proof (second pass, 2026-10-22)
+
+- Postgres (throwaway container): the BL2 numbering race, RLS coverage and every new suite pass.
+  The first Postgres run found a real bug: `accept_transfer` locked with `select_for_update()`
+  across a nullable join, which Postgres refuses (`FOR UPDATE cannot be applied to the nullable
+  side of an outer join`) — ownership transfers could never be accepted on Postgres. Fixed with
+  `select_for_update(of=("self",))`.
+- AB1 counters on a real Redis: `tests/test_counters_redis.py` (exact under 8 concurrent workers,
+  expiry kept, per-phone cap holds across 12 concurrent senders).
+- Full backend suite: see §9 results.
+
+---
+
+## 9. Implementation record — Phase 2 (2026-10-22)
+
+All 11 P2 work packages are built and tested in the working tree. Q4 and Q5 answered by the
+founder the same day (yes / credit by default).
+
+| WP | What exists now | Proof |
+|---|---|---|
+| BL3 | `billing/plan_change.py`: upgrade applies at once (`effective_plan` used for modules, quotas and seat limit), prorated difference (seconds left × price difference / 30 days) charged once by Razorpay payment link, `payment_link.paid` webhook invoices it (BL2); the new plan's subscription still starts at period end; unpaid after 3 days → upgrade reverted and pending subscription cancelled (daily task); downgrade at period end, refused over seat/storage use; Billing shows the change, the pay-the-difference and approve-mandate buttons | `tests/test_plan_change_autopay.py` |
+| BL4 | `billing/autopay.py`: mandate state and payment method recorded from webhook events (authenticated, activated, charged, pending, halted → PAST_DUE → dunning, paused, resumed, cancelled); other `subscription.*` events parked on the DLQ; renewal reminder email 3 days ahead, once per cycle, never SMS; Billing shows method, mandate state and next debit | same file |
+| ID3 | `accounts.UserSession` (device label, /24 or /48 prefix, never the full IP), recorded at every refresh-cookie issue; refresh moves the row, revoke blacklists its token; new-device email (90 days); Settings → Users "Signed-in devices"; owners get member session counts only | `tests/test_user_sessions_id3.py` |
+| ID4 | `support.SupportAccessGrant` / `SupportAccessLog`: owner grants (password + two-step) for one open request, ≤ 72 h, any or a named staff member; staff read in `/admin/ops/support-view/<grant>/` (8 sections) inside a database READ ONLY transaction (SQLite: `query_only`), tenant GUC set transaction-locally and every query filtered on the grant's company; non-GET refused with `SUPPORT_READ_ONLY`; each look logged after the read-only block; owner sees every look and can end it; hourly expiry, resolving the request ends it; banner on every screen while live; `SUPPORT_MACROS.md` | `tests/test_support_access_id4.py` (+ Postgres app-role test) |
+| ID5 | `accounts/google_signin.py` (PyJWT against Google's keys: audience, issuer, expiry, verified email; no new dependency); existing user → same membership and two-step checks as a password sign-in; new email → sign-up with company name and terms, bot check and trial dedupe still apply; shared `create_owner_account`; web button on Login and Register (only with `VITE_GOOGLE_CLIENT_ID`), CSP allows Google Identity Services | `tests/test_google_signin_id5.py`, contract in `tests/test_mfa.py` |
+| CM3 | `web/src/help/whatsNew.ts` (en + hi) mirrored in `docs/help/WHATS_NEW.md`; "What's new" button with an unread dot stored per user; `core.Announcement` staff banners (all / plan / company, window, severity) shown on every screen; `guard_whats_new` | `tests/test_announcements_cm3.py`, guard self-test |
+| DL1 | `accounts/readable_export.py`: ZIP with `manifest.json` (rows + SHA-256 per file), one CSV per section (UTF-8 BOM), invoice PDFs (first 500), README en + hi; built on the `reports` queue; owner-only after password; link 24 h then purged; privacy-register row; `docs/help/DATA_EXPORT_FORMAT.md` with version rules; column snapshot pins the main sections | `tests/test_readable_export_dl1.py` |
+| GR1b | `integrations/legacy_import.py`: Busy / Vyapar / Marg party and item exports mapped onto the Tally importer's rows, same commit and recon; non-party ledgers skipped; wrong file refused with the expected columns; `ENABLE_LEGACY_IMPORT` grantable per company, held off for trials; Import page panel; `docs/help/LEGACY_IMPORT.md` | `tests/test_legacy_import_gr1b.py` |
+| GR2 | `billing/onboarding.py`: 8 steps stamped once on `TenantActivation` from the real action (model signals; the timestamps are the record — a separate telemetry event would break the OG2-E8 no-dual-write gate); home-screen card (owner can hide; hides at 100%); PO2 admin page shows median days to first invoice by sign-up week | `tests/test_onboarding_gr2.py` |
+| RS1 | `load/month_end.js` (k6): 70% of tenants open GSTR-1/3B and download both as Excel over the window while drafts are completed; gates in the header; row in `LOAD_RESULTS_TEMPLATE.md`; pre-scaling in `WORKER_SCALE.md` | script parses (`node --check`); see open items |
+| SC3 | CI job `supply-chain` (merge blocker): Trivy on both built images (fixable CRITICAL fails), CycloneDX SBOMs for backend, web, mobile and both images kept with the run; CD attaches the release SBOMs; `security/trivy-allowlist.yaml` + `guard_trivy_allowlist` (reason + expiry, not expired) | guard + self-test, `guard_required_checks_match` |
+
+Migrations: `accounts/0072`–`0074`, `billing/0016`–`0018`, `core/0071`, `core/0072` (RLS for
+the three new tenant tables), `integrations/0004`, `support/0007`. OpenAPI snapshot and web
+types regenerated (additions only).
+
+### Bugs found while building (Phase 2 and second pass)
+
+| Bug | Effect | Fix |
+|---|---|---|
+| `accept_transfer` used `select_for_update()` with `select_related` on nullable FKs | On Postgres every ownership acceptance failed | Lock only the transfer row (`of=("self",)`) |
+| simplejwt refuses to parse a blacklisted token by default | Session tracking could never move a device row on refresh (new row each time) | Read the rotated token with `verify=False` |
+| SQLite `query_only` was reset inside a broken transaction | After one refused write the connection stayed read-only for the rest of the process | Reset on the raw connection outside Django's transaction state |
+| Postgres `SET TRANSACTION READ ONLY` inside an outer transaction outlives a released savepoint | The support log write after a look (and the rest of the request) would fail | The read-only block always rolls back, undoing READ ONLY and the GUCs |
+| Local venv lacked `prometheus-client` (declared in requirements) | Two metrics tests failed locally only | Installed the declared version |
+
+### Where Phase 2 differs from the plan
+
+- **ID4** staff read through an admin viewer of eight sections rather than replaying the customer's own API as them; it needs no change to `get_company_user` and cannot reach a write path. `tests/test_no_impersonation.py` stays as is (there is still no act-as route); "no access without a live grant" is proved by the ID4 tests.
+- **ID5** uses PyJWT (already installed with SimpleJWT) instead of adding `google-auth`.
+- **GR1b** column names follow each tool's documented standard export; they are confirmed against real pilot files before a source is granted (people item below), and a mismatched file is refused, never guessed.
+- **BL4** "offer UPI Autopay next to card" is Razorpay's hosted checkout (both methods shown when UPI Autopay is enabled on the account); Bizboard records the method the customer chose.
+- **SC3** SBOMs are kept as workflow artifacts on every CI run and every CD release run (there is no GitHub Release step to attach them to).
+
+### What is left (people only)
+
+- Founder / ops: Turnstile keys; email provider + webhook credentials; DLT template ids; staffed
+  support channel and SLAs; Google OAuth client ids (staging, prod); UPI Autopay enabled on the
+  Razorpay account; two people who can deploy, roll back and be on call; grant `ENABLE_TALLY` /
+  `ENABLE_LEGACY_IMPORT` per pilot.
+- CA: TDS sections and the credit mechanism (BL1); SaaS invoice format and SAC (BL2); Bizboard's
+  own books (X-01).
+- Counsel: disclosure safe harbour (SC1), CERT-In scope (CP1), breach and request wording (CP2),
+  fingerprint retention (AB3), support-access consent wording (ID4).
+- Sandbox / hosted runs: Razorpay sandbox for upgrade, downgrade, UPI re-mandate and renewal
+  (BL3, BL4); `load/month_end.js` on hosted staging (RS1; needs k6, not installed here).
+- Pilot files: 2–3 anonymised Busy / Vyapar / Marg exports to confirm the column maps (GR1b) and
+  Tally exports for GR1a.
+- Hindi review of every new string: [`docs/SAAS_HINDI_REVIEW.csv`](../SAAS_HINDI_REVIEW.csv).

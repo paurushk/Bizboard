@@ -916,6 +916,101 @@ jobs:
           git fetch --no-tags --depth=50 origin main || true
           python scripts/ci_gates/guards/guard_writer_impact_coverage.py
 
+  # WP-EN1 — PR size gate (scripts/ci_gates/check_merge_size.py). Advisory until the WP-A1
+  # commit chunks are on main; then drop continue-on-error and mark it a blocker in REQUIRED_CHECKS.txt.
+  merge-size:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Count changed lines
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python scripts/ci_gates/check_merge_size.py "origin/$BASE_REF" --labels "$PR_LABELS"
+
+  # WP-SC3: scan BOTH built images for known CVEs (fail on a new fixable CRITICAL; reviewed
+  # exceptions only via security/trivy-allowlist.yaml, each with a reason and an expiry) and
+  # produce CycloneDX SBOMs for backend, web and mobile on every build.
+  supply-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Allow-list entries are justified and not expired
+        run: python scripts/ci_gates/guards/guard_trivy_allowlist.py
+      - name: Build images
+        run: |
+          docker build -t bizboard-api:sc3 backend
+          docker build -t bizboard-web:sc3 web
+      - name: Trivy image scan (api)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bizboard-api:sc3
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          trivyignores: security/trivy-allowlist.yaml
+      - name: Trivy image scan (web)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bizboard-web:sc3
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: CRITICAL
+          trivyignores: security/trivy-allowlist.yaml
+      - name: SBOM (backend source, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: backend
+          format: cyclonedx
+          output: sbom-backend.cdx.json
+      - name: SBOM (web source, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: web
+          format: cyclonedx
+          output: sbom-web.cdx.json
+      - name: SBOM (mobile source, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: mobile
+          format: cyclonedx
+          output: sbom-mobile.cdx.json
+      - name: SBOM (api-image, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bizboard-api:sc3
+          format: cyclonedx
+          output: sbom-api-image.cdx.json
+      - name: SBOM (web-image, CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: bizboard-web:sc3
+          format: cyclonedx
+          output: sbom-web-image.cdx.json
+      - name: Keep the SBOMs with the run
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom-*.cdx.json
+          retention-days: 90
+
   gitleaks:
     runs-on: ubuntu-latest
     timeout-minutes: 10

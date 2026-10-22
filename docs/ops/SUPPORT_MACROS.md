@@ -43,3 +43,23 @@ a sales invoice number.
 
 Use the Excel templates (not CSV). Re-import of the same SKU / party is
 rejected as a duplicate. Cutover counts: `python manage.py cutover_recon`.
+
+## support-access (WP-ID4: looking at a customer's data)
+
+Ask the owner to open **Help → Contact support**, pick the open request and choose **Allow
+read-only access** (24, 48 or 72 hours; their password and two-step code). Never ask for a
+password or a screen share for this.
+
+Then in Django admin → **Support access grants** open the live grant (**Open read-only**). You can
+read customers, suppliers, items, sales, purchases, receipts, supplier payments and activity.
+Nothing can be changed there; any change still goes through the owner or a normal fix. Every page
+you open is listed for the owner. Access ends when the owner ends it, when it runs out, or when the
+request is resolved — tell the owner when you are done and resolve the request.
+
+## legacy-import (Busy / Vyapar / Marg)
+
+Ask for the parties export and the items export from the old software (columns in
+`docs/help/LEGACY_IMPORT.md`). Check the headers against that page, then grant
+`ENABLE_LEGACY_IMPORT` to the company with the admin action "Grant or revoke a rollout flag"
+(reason + ticket). Revoke it after cutover.
+

@@ -70,3 +70,22 @@ status page; the breaker fails closed and money paths retry from the outbox.
 `BizBoardBooksCheckFailed` (page, business hours). See
 [`LEDGER_REPAIR_RUNBOOK.md`](LEDGER_REPAIR_RUNBOOK.md). Django admin → Tenant sweep results lists
 the failing companies and checks.
+
+### sms-spend
+`BizBoardSmsBlockedBurst` (page), `BizBoardSmsPlatformCap80` (page), `BizBoardSmsProviderFailing`
+(ticket). The SMS guard (`core/services/sms_guard.py`, WP-AB1) caps sends per phone, per number
+range and for the platform per day.
+
+1. `python manage.py sms_guard status` — today's platform count against `SMS_PLATFORM_DAILY_CAP`.
+2. If the blocks are a pumping attack (many ranges, unknown numbers): `python manage.py sms_guard
+   kill on`. OTP sign-in then fails with "SMS is paused"; email sign-in still works. Tell support.
+3. Check the provider dashboard (MSG91 / Twilio) for the same spike and the spend so far.
+4. Tighten `SMS_PER_RANGE_HOUR` or `SMS_RANGE_PREFIX_LEN` if one range is hot; redeploy.
+5. `python manage.py sms_guard kill off` once the attack stops. Provider failures with no blocks:
+   check the provider status page and DLT template approval (`MSG91_TEMPLATE_ID`).
+
+### clock-skew
+`BizBoardClockSkew` (ticket). The app host and the database disagree on the time by more than 2 s
+(WP-CP1; CERT-In expects every log source to be time-synced). Check NTP / `chronyd` / `systemd-timesyncd`
+on the app hosts (`timedatectl status`); managed Postgres keeps its own clock. Fix the host, then
+confirm `bizboard_clock_skew_seconds` falls under 1.

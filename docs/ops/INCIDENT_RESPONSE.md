@@ -21,6 +21,20 @@
 6. Fix or rollback per `docs/pilot/RUNBOOKS.md` (image tag first; restore if data may be wrong).
 7. Open a postmortem using `POSTMORTEM.md` within 3 business days.
 
+## Reporting clocks (WP-CP1, WP-CP2)
+
+Start these clocks at **detection**, not at confirmation. Counsel owns the wording and confirms
+which incidents are in scope; the incident lead owns sending.
+
+| Report | Deadline | To | What to have ready |
+|---|---|---|---|
+| CERT-In cyber incident report | **6 hours** from noticing it, for the incident types in the CERT-In Directions (e.g. data breach or leak, unauthorised access, ransomware, compromise of systems or accounts) | CERT-In (incident@cert-in.org.in or their reporting form) | Time noticed, systems affected, what was seen, X-Request-IDs, image tag, logs (kept 180 days: `LOG_RETENTION.md`), contact person |
+| DPDP personal data breach | Without delay, as the DPDP Rules require — to the Data Protection Board and to each affected person | Data Protection Board; affected users (through the tenant where Bizboard is their processor — follow the DPA) | Nature and extent, likely impact, what was done to limit it, what people should do, contact |
+| Customer notice | Same day for Sev 1 | Affected tenants' owners | What happened, what they should not do, next update time |
+
+Template fields for the breach notice are in `docs/ops/DPDP_REQUESTS.md` (WP-CP2). Log every
+notice sent (who, when, channel) in the postmortem.
+
 ## Do not
 
 - Disable tenant isolation tests or RLS checks “just to recover”.

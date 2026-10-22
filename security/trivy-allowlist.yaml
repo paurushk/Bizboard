@@ -1,0 +1,10 @@
+# WP-SC3: reviewed exceptions to the image scan (Trivy ignore file, YAML form).
+# Every entry needs a reason and an expiry ("expired_at", YYYY-MM-DD); CI
+# (scripts/ci_gates/guards/guard_trivy_allowlist.py) fails on an entry without them or past its
+# expiry, so an exception is re-reviewed instead of living forever.
+#
+# vulnerabilities:
+#   - id: CVE-2026-00000
+#     statement: "Why it does not apply to us, or what mitigates it; who reviewed it"
+#     expired_at: 2027-01-31
+vulnerabilities: []
