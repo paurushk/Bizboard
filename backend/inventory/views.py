@@ -1,3 +1,4 @@
+from accounting.books import posts_to_ledger
 from decimal import Decimal
 
 from django.db import transaction
@@ -565,7 +566,7 @@ class OpeningStockView(APIView):
                 as_of=data.get("as_of"),
                 user=request.user,
             )
-            if company.accounting_enabled:
+            if posts_to_ledger(company):
                 from accounting.services import PostingService
 
                 PostingService.post_opening_stock(movement, request.user)
@@ -608,7 +609,22 @@ class WarehouseViewSet(CompanyScopedViewSet):
     def get_queryset(self):
         # The system's own in-transit godown is not a person's godown: out of every list, and
         # not reachable for edit or delete either.
-        return super().get_queryset().filter(is_system=False)
+        qs = super().get_queryset().filter(is_system=False)
+        # MFG-02: a picker passes ?purpose=SALE|COUNT|REORDER|TRANSFER|MFG_ISSUE|MFG_RECEIPT to get only the
+        # godowns that make sense there. Without it, a godown at a job worker is still left out of lists,
+        # so it can never be offered by accident; detail routes keep reaching it for edit.
+        if getattr(self, "action", None) == "list":
+            purpose = (self.request.query_params.get("purpose") or "").upper()
+            if purpose:
+                from .models import WarehouseManager
+
+                kinds = WarehouseManager.SELECTABLE_KINDS.get(purpose)
+                if kinds is None:
+                    raise BusinessRuleError("Unknown godown purpose.")
+                qs = qs.filter(kind__in=kinds)
+            else:
+                qs = qs.exclude(kind=Warehouse.Kind.JOB_WORKER)
+        return qs
 
     def perform_create(self, serializer):
         if not Warehouse.objects.filter(company=self.company).exists():

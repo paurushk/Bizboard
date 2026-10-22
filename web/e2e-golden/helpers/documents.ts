@@ -16,10 +16,24 @@ import { expect, type Locator, type Page } from '@playwright/test';
  * instead of silently drifting apart one file at a time.
  */
 
+/**
+ * WP-H5: a user who has not accepted the current Terms / Privacy Policy (an invited staff member on
+ * first sign-in, or anyone after a version bump) gets a dialog that cannot be dismissed. Accept it
+ * whenever it appears on this page, so journeys that sign in as staff carry on.
+ */
+export async function acceptLegalTermsWhenAsked(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Please review our terms' });
+  await page.addLocatorHandler(dialog, async () => {
+    await dialog.getByRole('button', { name: 'I accept' }).click();
+    await expect(dialog).toBeHidden({ timeout: 15_000 });
+  });
+}
+
 export async function registerTenant(
   page: Page,
   opts: { companyName: string; email: string; password: string; state?: string; gstin?: string | false },
 ) {
+  await acceptLegalTermsWhenAsked(page);
   await page.goto('/register');
   await page.getByLabel('Company name').fill(opts.companyName);
   await page.getByLabel('Full name').fill('E2E Tester');
@@ -50,6 +64,8 @@ export async function registerTenant(
     const gstin = typeof opts.gstin === 'string' ? opts.gstin : '29AAAAA0000A1ZY';
     await page.getByLabel('GSTIN (optional)').fill(gstin);
   }
+  // WP-H5: the Terms / Privacy agreement is required to create an account.
+  await page.getByRole('checkbox', { name: /I agree to the/ }).check();
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/login\?registered=1/, { timeout: 20_000 });
   await expect(page.getByText(/Account created/i)).toBeVisible();
@@ -336,9 +352,14 @@ export async function completeSalesReturn(page: Page, invoiceNumber: string) {
   await expect(page.getByText('Sales return completed')).toBeVisible({ timeout: 20_000 });
 }
 
+/** Sign-up turns accounting on already; switch it on only when it is off. */
 export async function enableAccounting(page: Page) {
   await page.goto('/settings/accounting');
-  await page.getByRole('button', { name: 'Enable accounting' }).click();
+  const enable = page.getByRole('button', { name: 'Enable accounting' });
+  const switchOff = page.getByRole('button', { name: /^Switch off/ });
+  await expect(enable.or(switchOff)).toBeVisible({ timeout: 30_000 });
+  if (await switchOff.isVisible()) return;
+  await enable.click();
   await expect(page.getByText(/Accounting enabled|CoA seeded/i)).toBeVisible({ timeout: 60_000 });
 }
 
@@ -347,11 +368,15 @@ export async function saveCompanyGstin(page: Page, gstin = '29AAAAA0000A1ZY') {
   await page.goto('/settings/gst');
   const field = page.getByLabel('Primary GSTIN (15 characters)');
   await expect(field).toBeVisible({ timeout: 20_000 });
+  // Sign-up may have saved this GSTIN already; then nothing changes and there is nothing to confirm.
+  if ((await field.inputValue()).trim().toUpperCase() === gstin.toUpperCase()) return;
   await field.fill(gstin);
   // A new GSTIN is not saved until this confirmation is checked.
   await page.getByRole('checkbox', { name: /future bills follow this tax setup/i }).check();
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('GST settings saved')).toBeVisible({ timeout: 15_000 });
+  // The GST screen has one Save per section; the GSTIN lives in Registration.
+  const registration = page.getByRole('region', { name: 'Registration' });
+  await registration.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(registration.getByText('All changes saved')).toBeVisible({ timeout: 15_000 });
 }
 
 /** Local/CI payment links need an explicit sandbox provider (BB-000265). */
@@ -360,7 +385,8 @@ export async function enableSandboxPayments(page: Page) {
   await page.getByLabel('Provider').click();
   await page.getByRole('option', { name: /sandbox/i }).click();
   await page.getByRole('button', { name: 'Save settings' }).click();
-  await expect(page.getByText('Gateway settings saved')).toBeVisible({ timeout: 15_000 });
+  // Either the toast or the set-up guide's "Saved. Next in set-up: ..." line confirms it.
+  await expect(page.getByText(/Gateway settings saved|^Saved\./).first()).toBeVisible({ timeout: 15_000 });
 }
 
 /** The editor is a page now. Right after the route change the app moves focus, which would blur a

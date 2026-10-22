@@ -21,9 +21,16 @@ class MovementType(models.TextChoices):
     TRANSFER_IN = "TRANSFER_IN"
     MANUFACTURE_ISSUE = "MANUFACTURE_ISSUE"
     MANUFACTURE_RECEIPT = "MANUFACTURE_RECEIPT"
+    # MFG-01 (D-11): unused material coming back from a work order, and the
+    # mirror of a manufacturing movement (carries its own sign, like ADJUSTMENT).
+    MANUFACTURE_RETURN = "MANUFACTURE_RETURN"
+    MANUFACTURE_REVERSAL = "MANUFACTURE_REVERSAL"
 
 
-# Sign of stock effect per movement type; ADJUSTMENT carries its own sign.
+# Types whose quantity is a signed delta supplied by the caller.
+SIGNED_MOVEMENT_TYPES = frozenset({MovementType.ADJUSTMENT, MovementType.MANUFACTURE_REVERSAL})
+
+# Sign of stock effect per movement type; SIGNED_MOVEMENT_TYPES carry their own sign.
 MOVEMENT_SIGN = {
     MovementType.OPENING_STOCK: 1,
     MovementType.PURCHASE: 1,
@@ -34,7 +41,35 @@ MOVEMENT_SIGN = {
     MovementType.TRANSFER_IN: 1,
     MovementType.MANUFACTURE_ISSUE: -1,
     MovementType.MANUFACTURE_RECEIPT: 1,
+    MovementType.MANUFACTURE_RETURN: 1,
 }
+
+
+class WarehouseManager(AliveManager):
+    """Alive godowns plus the picker rule: which godowns may be offered where."""
+
+    # purpose -> kinds that may be offered. A JOB_WORKER godown is somewhere stock
+    # sits while someone else processes it; it is never a place to sell from, count
+    # or reorder into. QUARANTINE and SCRAP take part only where a person moves stock
+    # on purpose.
+    SELECTABLE_KINDS = {
+        "SALE": ("NORMAL",),
+        "COUNT": ("NORMAL", "QUARANTINE"),
+        "REORDER": ("NORMAL",),
+        "TRANSFER": ("NORMAL", "QUARANTINE", "SCRAP"),
+        "MFG_ISSUE": ("NORMAL",),
+        "MFG_RECEIPT": ("NORMAL", "QUARANTINE", "SCRAP"),
+        "ANY": ("NORMAL", "QUARANTINE", "SCRAP", "JOB_WORKER"),
+    }
+
+    def selectable(self, purpose="SALE", company=None):
+        kinds = self.SELECTABLE_KINDS.get(purpose)
+        if kinds is None:
+            raise ValueError(f"Unknown warehouse purpose: {purpose}")
+        qs = self.get_queryset().filter(is_system=False, kind__in=kinds)
+        if company is not None:
+            qs = qs.filter(company=company)
+        return qs
 
 
 class Warehouse(SoftDeleteFields, CompanyScopedModel):
@@ -52,7 +87,20 @@ class Warehouse(SoftDeleteFields, CompanyScopedModel):
     # godown list and cannot be edited or deleted.
     is_system = models.BooleanField(default=False)
 
-    objects = AliveManager()
+    class Kind(models.TextChoices):
+        NORMAL = "NORMAL", "Normal"
+        QUARANTINE = "QUARANTINE", "Quarantine"
+        JOB_WORKER = "JOB_WORKER", "At job worker"
+        SCRAP = "SCRAP", "Scrap"
+
+    # MFG-02: only NORMAL godowns are offered for sale, counts and reorder alerts.
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.NORMAL, db_index=True)
+    # Set on a JOB_WORKER godown: the supplier whose premises it stands for.
+    job_worker = models.ForeignKey(
+        "masters.Supplier", null=True, blank=True, on_delete=models.PROTECT, related_name="job_worker_warehouses",
+    )
+
+    objects = WarehouseManager()
     all_objects = models.Manager()
 
     class Meta:
@@ -81,6 +129,17 @@ class BatchLot(CompanyScopedModel):
     batch_no = models.CharField(max_length=64)
     expiry_date = models.DateField(null=True, blank=True, db_index=True)
     manufacturing_date = models.DateField(null=True, blank=True)
+
+    class QualityStatus(models.TextChoices):
+        QUARANTINE = "QUARANTINE", "Quarantine"
+        HOLD = "HOLD", "On hold"
+        RELEASED = "RELEASED", "Released"
+        REJECTED = "REJECTED", "Rejected"
+
+    # MFG-20: default RELEASED so existing batches behave exactly as before.
+    quality_status = models.CharField(
+        max_length=12, choices=QualityStatus.choices, default=QualityStatus.RELEASED, db_index=True,
+    )
 
     class Meta:
         ordering = ["expiry_date", "id"]
@@ -235,8 +294,11 @@ class StockReservation(CompanyScopedModel):
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="stock_reservations")
     batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="stock_reservations")
     quantity = models.DecimalField(max_digits=12, decimal_places=3)
-    expires_at = models.DateTimeField(db_index=True)
+    # MFG-10: null = held until the owning document releases it (a work order).
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
     released_at = models.DateTimeField(null=True, blank=True)
+    reference_type = models.CharField(max_length=32, blank=True, default="")
+    reference_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
 
     class Meta:
         ordering = ["id"]
@@ -302,6 +364,8 @@ class SerialNumber(CompanyScopedModel):
         SOLD = "SOLD"
         RETURNED = "RETURNED"
         SCRAPPED = "SCRAPPED"
+        # MFG-01 (DEF-2): used up as a component in production. Not scrap.
+        CONSUMED = "CONSUMED"
 
     product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="serial_numbers")
     warehouse = models.ForeignKey(Warehouse, null=True, blank=True, on_delete=models.PROTECT, related_name="serial_numbers")
@@ -495,4 +559,36 @@ class InventoryValuationSnapshot(CompanyScopedModel):
                 condition=models.Q(batch__isnull=True),
                 name="uniq_val_snapshot_no_batch",
             ),
+        ]
+
+
+class TraceLink(CompanyScopedModel):
+    """MFG-01/13: which input went into which output, for recall and genealogy.
+
+    One row per (input lot or serial, output lot or serial) pair a production receipt
+    puts together. ``work_order_id`` and ``document_id`` are plain ids so inventory
+    does not import manufacturing.
+    """
+
+    work_order_id = models.PositiveBigIntegerField(db_index=True)
+    # The posting document (material issue / production receipt) that wrote the link.
+    document_type = models.CharField(max_length=24, blank=True, default="")
+    document_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
+    input_product = models.ForeignKey("masters.Product", on_delete=models.PROTECT, related_name="+")
+    input_batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    input_serial = models.CharField(max_length=128, blank=True, default="")
+    output_product = models.ForeignKey(
+        "masters.Product", null=True, blank=True, on_delete=models.PROTECT, related_name="+",
+    )
+    output_batch = models.ForeignKey(BatchLot, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    output_serial = models.CharField(max_length=128, blank=True, default="")
+    qty = models.DecimalField(max_digits=12, decimal_places=3, default=Decimal("0"))
+    reversed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["company", "input_batch"], name="trace_in_batch_idx"),
+            models.Index(fields=["company", "output_batch"], name="trace_out_batch_idx"),
+            models.Index(fields=["company", "work_order_id"], name="trace_wo_idx"),
         ]

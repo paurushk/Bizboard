@@ -69,6 +69,9 @@ const goldenApiEnv = {
   ENABLE_CUSTOMER_360: '1',
   // Lets mark_e2e_vendor's pointer be read by the same API process.
   E2E_GOLDEN_GRANT: '1',
+  // runserver uses a thread per request; persistent connections would pile up until Postgres
+  // refuses new clients ("too many clients") late in a long run.
+  DB_CONN_MAX_AGE: '0',
 };
 
 export default defineConfig({

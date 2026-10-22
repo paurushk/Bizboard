@@ -544,7 +544,7 @@ export function BillUploadPage({ kind, canAccess }: BillUploadPageProps) {
                 variant="contained"
                 disabled={!file || (needsPiiConsent && !piiConsent) || extracting}
                 onClick={() => uploadMutation.mutate()}
-                startIcon={extracting ? <CircularProgress size={16} color="inherit" /> : undefined}
+                startIcon={extracting ? <CircularProgress size={16} color="inherit" aria-label={t('common.loading')} /> : undefined}
                 sx={{ alignSelf: 'flex-start' }}
               >
                 {extracting ? t('billUpload.extracting') : t('common.upload')}

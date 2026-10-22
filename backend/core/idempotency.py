@@ -148,6 +148,9 @@ TRANSIENT_4XX_CODES = frozenset({
     "insufficient_stock",
     # INV-IDR-02: the counter ticks the flagged lines and posts again with the same key.
     "recheck_required",
+    # Agents: provider or timeout failures can succeed on retry; do not replay them (AGT-107).
+    "AGT_E_PROVIDER",
+    "AGT_E_TIMEOUT",
 })
 
 

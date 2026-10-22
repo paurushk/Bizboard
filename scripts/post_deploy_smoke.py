@@ -51,6 +51,21 @@ def check_invariants(get_auth) -> None:
         raise SystemExit(f"invariants violated: {body}")
 
 
+def check_live_comms(post, phone: str, email: str) -> None:
+    """Ask the API to send a real OTP and a real password-reset email. The API answers the same
+    way whether or not the address exists, so a person confirms arrival on the device."""
+    if not phone or not email:
+        raise SystemExit("--live-comms needs --oncall-phone and --oncall-email")
+    status, body = post("/api/v1/auth/otp/request/", {"phone": phone})
+    if status != 200:
+        raise SystemExit(f"OTP request failed: {status} {body}")
+    status, body = post("/api/v1/auth/password/reset/", {"email": email})
+    if status != 200:
+        raise SystemExit(f"password reset mail request failed: {status} {body}")
+    print(f"live comms requested: OTP SMS to ...{phone[-4:]}, reset email to {email.split('@')[-1]} "
+          "(confirm both arrived; record it in docs/ops/HOSTED_STAGING.md)")
+
+
 def _json_opener(base_url: str):
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
@@ -86,9 +101,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--email", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--skip-invariants", action="store_true")
+    # WP-B6: opt-in real sends, to prove DLT SMS templates and email DNS (SPF/DKIM/DMARC) work.
+    parser.add_argument("--live-comms", action="store_true", help="Send one OTP SMS and one email for real.")
+    parser.add_argument("--oncall-phone", default="", help="Registered user phone to receive the OTP.")
+    parser.add_argument("--oncall-email", default="", help="Registered user email to receive a reset mail.")
     args = parser.parse_args(argv)
 
     request = _json_opener(args.base_url)
+    if args.live_comms:
+        check_live_comms(lambda path, body: request("POST", path, body), args.oncall_phone, args.oncall_email)
     check_health(lambda path: request("GET", path))
     check_ready(lambda path: request("GET", path))
     login = check_login(lambda path, body: request("POST", path, body), args.email, args.password)

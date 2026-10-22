@@ -51,11 +51,14 @@ import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 const STEP_KEYS = ['tax', 'shop', 'payments', 'catalog', 'first_bill'] as const;
 type StepKey = (typeof STEP_KEYS)[number] | 'pack';
 
+// ONB-CR-005: samples carry no stock, so none of them tracks inventory -- otherwise the default
+// "block selling below zero" policy stops the first bill made from them from being finalised.
+// Leaving them without stock movements also keeps them easy to delete later.
 const SAMPLE_PRODUCTS = [
-  { nameKey: 'cog.sampleItem', sku: 'SAMPLE-ITEM', sellingPrice: 100, gstRate: 18 },
-  { nameKey: 'cog.sampleService', sku: 'SAMPLE-SERVICE', sellingPrice: 500, gstRate: 18 },
-  { nameKey: 'cog.deliveryCharge', sku: 'SAMPLE-DELIVERY', sellingPrice: 50, gstRate: 0 },
-];
+  { nameKey: 'cog.sampleItem', sku: 'SAMPLE-ITEM', sellingPrice: 100, gstRate: 18, productType: 'GOODS' },
+  { nameKey: 'cog.sampleService', sku: 'SAMPLE-SERVICE', sellingPrice: 500, gstRate: 18, productType: 'SERVICE' },
+  { nameKey: 'cog.deliveryCharge', sku: 'SAMPLE-DELIVERY', sellingPrice: 50, gstRate: 0, productType: 'SERVICE' },
+] as const;
 
 export function SetupWizardPage() {
   const { user } = useAuth();
@@ -119,6 +122,11 @@ export function SetupWizardPage() {
       bankAccount: company.bankAccount ?? '',
       upiId: company.upiId ?? '',
     });
+    // ONB-CR-001: show the draft already made instead of offering to create another one.
+    if (company.onboarding?.step === 'first_bill' && company.onboarding.firstBillDraftId) {
+      const draftId = company.onboarding.firstBillDraftId;
+      setCompletedInvoiceId((current) => current ?? draftId);
+    }
     if (!requestedStep) {
       const stored = company.onboarding?.uiStep ?? company.onboarding?.step;
       if (stored && stepKeys.includes(stored as StepKey)) setStepKey(stored as StepKey);
@@ -183,7 +191,8 @@ export function SetupWizardPage() {
     // the validation error once before eventually succeeding must not have
     // "signup" journey_started double-counted.
     trackJourneyStarted('signup');
-    if (registrationType === 'REGULAR' && !gstin.trim()) {
+    // ONB-CR-002: Composition dealers hold a GSTIN too, and the server requires it for both.
+    if (registrationType !== 'UNREGISTERED' && !gstin.trim()) {
       trackJourneyFailed('signup', 'validation');
       setError(t('setup.errors.gstinRequired'));
       return;
@@ -263,13 +272,15 @@ export function SetupWizardPage() {
     // to find and bulk-delete from Products later.
     if (!window.confirm(t('setup.addSamplesConfirm'))) return;
     void finishStep('catalog', async () => {
-      await Promise.all(
+      const created = await Promise.all(
         SAMPLE_PRODUCTS.map((sample) =>
           createProduct({
             name: t(sample.nameKey),
             sku: sample.sku,
             sellingPrice: sample.sellingPrice,
             gstRate: sample.gstRate,
+            productType: sample.productType,
+            trackInventory: false,
             description: t('cog.sampleDataNote'),
             purchasePrice: 0,
             reorderLevel: 0,
@@ -278,6 +289,8 @@ export function SetupWizardPage() {
           }),
         ),
       );
+      // The first bill uses the sample item, not whichever product the list happens to end with.
+      lastCreatedProductId.current = created[0]?.id ?? null;
       await productsQuery.refetch();
       await queryClient.invalidateQueries({ queryKey: ['products-count'] });
     });
@@ -335,6 +348,7 @@ export function SetupWizardPage() {
     });
 
   const currentKey = stepKeys[activeStep] ?? 'tax';
+  const billReady = currentKey === 'first_bill' && Boolean(completedInvoiceId);
   const seePack = () => void run(async () => {
     const result = await proposePack(packAnswers);
     setProposedPack(result.proposedPack);
@@ -405,11 +419,10 @@ export function SetupWizardPage() {
                 {registrationType !== 'UNREGISTERED' ? (
                   <TextField
                     label={t('setup.gstin')}
-                    required={registrationType === 'REGULAR'}
+                    required
                     value={gstin}
                     inputProps={{ maxLength: 15 }}
                     onChange={(e) => setGstin(e.target.value.toUpperCase())}
-                    helperText={registrationType === 'COMPOSITION' ? t('setup.gstinOptional') : undefined}
                   />
                 ) : null}
               </>
@@ -455,7 +468,7 @@ export function SetupWizardPage() {
                   <TextField fullWidth label={t('setup.gstRate')} type="number" value={product.gstRate} onChange={(e) => setProduct((v) => ({ ...v, gstRate: e.target.value }))} />
                 </Stack>
                 {registrationType === 'REGULAR' ? <TextField label={t('setup.hsnCode')} value={product.hsnCode} onChange={(e) => setProduct((v) => ({ ...v, hsnCode: e.target.value }))} /> : null}
-                <TextField label={t('setup.openingQty')} type="number" value={product.openingQty} onChange={(e) => setProduct((v) => ({ ...v, openingQty: e.target.value }))} />
+                <TextField label={t('setup.openingQty')} type="number" value={product.openingQty} helperText={t('setup.openingQtyHint')} onChange={(e) => setProduct((v) => ({ ...v, openingQty: e.target.value }))} />
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <Button variant="outlined" onClick={addSamples} disabled={busy}>{t('setup.addSamples')}</Button>
                   <Button component={RouterLink} to="/settings/import?kind=PRODUCTS&return=/setup?step=catalog" variant="outlined">{t('setup.importProducts')}</Button>
@@ -499,11 +512,11 @@ export function SetupWizardPage() {
               )
             ) : null}
 
-            {!completedInvoiceId ? (
+            {!billReady ? (
               <Stack direction="row" justifyContent="space-between" sx={{ display: { xs: 'none', sm: 'flex' } }}>
                 <Button disabled={activeStep === 0 || busy} onClick={() => moveTo(activeStep - 1)}>{t('common.back')}</Button>
                 <Button variant="contained" size="large" disabled={busy || productsQuery.isLoading} onClick={primary.action}>
-                  {busy ? <CircularProgress size={22} color="inherit" /> : primary.label}
+                  {busy ? <CircularProgress size={22} color="inherit" aria-label={t('common.loading')} /> : primary.label}
                 </Button>
               </Stack>
             ) : null}
@@ -511,12 +524,12 @@ export function SetupWizardPage() {
         </Paper>
       </Box>
 
-      {!completedInvoiceId ? (
+      {!billReady ? (
         <Paper elevation={6} sx={{ display: { sm: 'none' }, position: 'fixed', bottom: 0, insetInline: 0, p: 1.5, zIndex: 10 }}>
           <Stack direction="row" spacing={1}>
             {activeStep > 0 ? <Button onClick={() => moveTo(activeStep - 1)}>{t('common.back')}</Button> : null}
             <Button fullWidth variant="contained" disabled={busy || productsQuery.isLoading} onClick={primary.action}>
-              {busy ? <CircularProgress size={22} color="inherit" /> : primary.label}
+              {busy ? <CircularProgress size={22} color="inherit" aria-label={t('common.loading')} /> : primary.label}
             </Button>
           </Stack>
         </Paper>

@@ -1,0 +1,43 @@
+id: QOS-0153
+category: BUSINESS_GAP
+title: 'Agents: Postgres race run, live browser pass and the parts of the plan deliberately left out'
+persona:
+- P1
+journey: Use the business agents on real work
+problem: 'The agent safety tests for simultaneous approve, edit and run-start are written and passed on
+  a throwaway Postgres 17 on 2026-10-21; keep them in the Postgres CI lane. The new screens were tested
+  with component tests, not in a live browser on a phone, and the golden browser journey agents-order-intake.spec.ts
+  from the plan was not written. Left out on purpose: reading order photos and PDFs, loading a pasted
+  order into the Quick Order grid, drafts for dead stock and near-expiry, supplier bank-detail and new-GSTIN
+  checks (the data is not stored), and WhatsApp sending.'
+evidence:
+  strength: heuristic
+  source:
+  - docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md
+  detail: 'backend/tests/agents/test_races_postgres.py; the Build status section of docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md
+    lists each deviation with its reason. 2026-10-22: the race tests run in the PostgreSQL CI job, which
+    fails on any skipped postgres test (WP-A2). agents-golden.spec.ts covers the paste-order journey (paste,
+    fix one line, create the draft order, the next paste needs no fix) and the agent-off case; both passed
+    live against Django and Postgres 17 on 2026-10-22. The items left out on purpose stay listed in the
+    plan''s Build status section and are founder decisions under QOS-0151.'
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Impact Low. The behaviour is built and tested; this closes the human or data step.
+  Every agent stays off for every company until it is granted.
+effort: S
+recommendation: Keep the race tests in the Postgres CI lane; write the golden journey for the paste-order
+  flow, do a live browser pass of the paste panel, drafts tray and bill check on a phone-width screen;
+  decide which of the left-out items to build once the pilot shows a need, adding supplier bank and GSTIN
+  history fields first for the two bill checks.
+test_required: backend/tests/agents/test_races_postgres.py
+guard_ref:
+  test: backend/tests/agents/test_races_postgres.py
+lifecycle: fixed
+owner: founder
+opened: '2026-10-21'
+closed: '2026-10-22'

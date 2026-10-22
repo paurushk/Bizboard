@@ -2,6 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import Checkbox from '@mui/material/Checkbox';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import FormHelperText from '@mui/material/FormHelperText';
 import Link from '@mui/material/Link';
 import Paper from '@mui/material/Paper';
 import Stack from '@mui/material/Stack';
@@ -12,11 +15,13 @@ import { Controller, useForm } from 'react-hook-form';
 import { Link as RouterLink, Navigate, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { requestRegisterOtp } from '@/api/auth';
-import { getErrorMessage } from '@/api/client';
+import { getErrorMessage, getFieldErrors } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { PasswordField } from '@/components/PasswordField';
+import { PhoneField, phoneErrorMessage } from '@/components/PhoneField';
 import { StateSelect } from '@/components/StateSelect';
 import { getStateFromGstin } from '@/utils/indianStates';
+import { findPhoneCountry, isValidPhoneValue, splitPhone } from '@/utils/phone';
 import { t } from '@/i18n';
 import { formatOtpHint } from '@/pages/loginOtp';
 
@@ -30,7 +35,12 @@ const registerSchema = z.object({
       ctx.addIssue({ code: 'custom', message: t('cog.validEmail') });
     }
   }),
-  phone: z.string().trim().optional(),
+  // Optional, but when given it must be a complete number for the picked country.
+  phone: z.string().trim().superRefine((value, ctx) => {
+    if (!isValidPhoneValue(value)) {
+      ctx.addIssue({ code: 'custom', message: phoneErrorMessage(findPhoneCountry(splitPhone(value).iso)) });
+    }
+  }),
   // BB-000751: state drives GSTIN structure and place-of-supply on every
   // invoice this company issues — it must not be silently skippable.
   state: z.string().trim().superRefine((value, ctx) => {
@@ -42,9 +52,19 @@ const registerSchema = z.object({
   otpCode: z.string().trim().superRefine((value, ctx) => {
     if (value.length !== 6) ctx.addIssue({ code: 'custom', message: t('auth.emailCode') });
   }),
+  // WP-H5 (DPDP): an account needs the person's agreement to the Terms and Privacy Policy.
+  acceptTerms: z.boolean().superRefine((value, ctx) => {
+    if (!value) ctx.addIssue({ code: 'custom', message: t('auth.acceptTermsRequired') });
+  }),
 });
 
+const TERMS_URL = import.meta.env.VITE_TERMS_URL as string | undefined;
+const PRIVACY_URL = import.meta.env.VITE_PRIVACY_URL as string | undefined;
+
 type RegisterForm = z.infer<typeof registerSchema>;
+
+// Fields whose server errors are shown under the field rather than in the banner.
+const FORM_FIELDS = Object.keys(registerSchema.shape) as (keyof RegisterForm)[];
 
 export function RegisterPage() {
   const { register: registerUser, isAuthenticated } = useAuth();
@@ -61,6 +81,7 @@ export function RegisterPage() {
     setValue,
     watch,
     trigger,
+    setError: setFieldError,
     formState: { errors },
   } = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
@@ -72,6 +93,7 @@ export function RegisterPage() {
       state: '',
       gstin: '',
       otpCode: '',
+      acceptTerms: false,
     },
   });
 
@@ -122,7 +144,12 @@ export function RegisterPage() {
           { replace: true, state: { email: values.email } },
         );
       } catch (err) {
-        setError(getErrorMessage(err));
+        // Show a field's server error under that field, not in the banner.
+        const { fieldErrors, banner } = getFieldErrors(err, FORM_FIELDS);
+        for (const [field, message] of Object.entries(fieldErrors) as [keyof RegisterForm, string][]) {
+          setFieldError(field, { type: 'server', message });
+        }
+        setError(banner);
       } finally {
         setIsSubmitting(false);
       }
@@ -179,11 +206,18 @@ export function RegisterPage() {
             error={Boolean(passwordError)}
             helperText={passwordError}
           />
-          <TextField
-            label={`${t('auth.phone')} (optional)`}
-            error={Boolean(errors.phone)}
-            helperText={errors.phone?.message}
-            {...register('phone')}
+          <Controller
+            name="phone"
+            control={control}
+            render={({ field }) => (
+              <PhoneField
+                value={field.value}
+                onChange={field.onChange}
+                onBlur={field.onBlur}
+                optional
+                error={errors.phone?.message}
+              />
+            )}
           />
           <Controller
             name="state"
@@ -205,6 +239,30 @@ export function RegisterPage() {
             error={Boolean(errors.gstin)}
             helperText={errors.gstin?.message ?? t('auth.gstinHelper')}
             {...register('gstin')}
+          />
+          <Controller
+            name="acceptTerms"
+            control={control}
+            render={({ field }) => (
+              <Box>
+                <FormControlLabel
+                  control={<Checkbox checked={field.value} onChange={(e) => field.onChange(e.target.checked)} />}
+                  label={
+                    <Typography variant="body2">
+                      {t('auth.acceptTermsPrefix')}{' '}
+                      {TERMS_URL ? (
+                        <Link href={TERMS_URL} target="_blank" rel="noopener">{t('auth.termsOfService')}</Link>
+                      ) : t('auth.termsOfService')}{' '}
+                      {t('auth.and')}{' '}
+                      {PRIVACY_URL ? (
+                        <Link href={PRIVACY_URL} target="_blank" rel="noopener">{t('auth.privacyPolicy')}</Link>
+                      ) : t('auth.privacyPolicy')}
+                    </Typography>
+                  }
+                />
+                {errors.acceptTerms ? <FormHelperText error>{errors.acceptTerms.message}</FormHelperText> : null}
+              </Box>
+            )}
           />
           <Button type="submit" variant="contained" disabled={isSubmitting}>
             {t('auth.register')}

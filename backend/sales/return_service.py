@@ -1,5 +1,6 @@
 """Sales return lifecycle — extracted from SalesService (BB-000476)."""
 
+from accounting.books import posts_to_ledger
 from collections import defaultdict
 from decimal import Decimal
 
@@ -519,7 +520,7 @@ class ReturnService:
                 gst_guard_override_reason=gst_guard_override_reason,
             )
 
-        if sales_return.company.accounting_enabled:
+        if posts_to_ledger(sales_return.company):
             from accounting.services import PostingService
 
             PostingService.post_sales_return_cogs(sales_return, cogs_rev, user)
@@ -711,7 +712,7 @@ class ReturnService:
                 status=SCN.Status.COMPLETED,
             ).select_for_update():
                 SalesNotesService.cancel_credit_note(note, user)
-            if sales_return.company.accounting_enabled:
+            if posts_to_ledger(sales_return.company):
                 from accounting.models import JournalEntry
                 from accounting.services import PostingService
 

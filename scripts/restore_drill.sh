@@ -77,10 +77,20 @@ docker run -d --name "$DST_CONTAINER" \
 wait_ready "$DST_CONTAINER"
 
 echo "restore-drill: restoring dump into the scratch db (same pipeline as scripts/restore.sh) ..."
+RESTORE_START=$(date +%s)
 gunzip -c "$DUMP_FILE" | docker exec -i "$DST_CONTAINER" psql -U bizboard -d bizboard_drill_scratch -v ON_ERROR_STOP=1 >/dev/null
+
+# WP-B4: a restored database needs the app role's grants again (scripts/sql/app_role.sql), and the
+# books check must run as that NOSUPERUSER NOBYPASSRLS role, exactly as production reads it.
+echo "restore-drill: re-applying the app role grants ..."
+docker exec -i "$DST_CONTAINER" psql -U bizboard -d bizboard_drill_scratch -v ON_ERROR_STOP=1   -v app_user=bizboard_app -v app_pw=drill-app-pw -v owner=bizboard -v dbname=bizboard_drill_scratch   -f - < scripts/sql/app_role.sql >/dev/null
 
 echo "restore-drill: running the invariant sweep against the restored scratch db ..."
 export DATABASE_URL="postgresql://bizboard:bizboard@127.0.0.1:${DST_PORT}/bizboard_drill_scratch"
 (cd backend && "$PY_BIN" manage.py check_invariants)
 
-echo "restore-drill: PASS — restored data is invariant-clean."
+echo "restore-drill: per-company books check as the app role (RLS on) ..."
+(cd backend && DATABASE_URL="postgresql://bizboard_app:drill-app-pw@127.0.0.1:${DST_PORT}/bizboard_drill_scratch"   POSTGRES_RLS_ENABLED=1 "$PY_BIN" manage.py sweep_all_tenants --sync --full --fail-on-any)
+RESTORE_END=$(date +%s)
+
+echo "restore-drill: PASS — restored data is invariant-clean; restore + check took $((RESTORE_END - RESTORE_START)) s (record this as the measured RTO floor)."

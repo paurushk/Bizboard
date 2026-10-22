@@ -183,43 +183,20 @@ def _notify_invariant_failure(company, keys) -> None:
 
 
 @shared_task
-def nightly_invariants_task():
-    """5.6 — recon report: sweep every company; log failures, do not retry-storm."""
-    from accounts.models import Company
-    from core.invariants import run_invariants
+def nightly_invariants_task(full: bool = False):
+    """5.6 / WP-E1 — books check orchestrator: one ``sweep_company_task`` per company.
+
+    Platform-wide checks (Shopify gaps, RLS off in production) run here once a night,
+    not once per company. Per-company results land in ``TenantSweepResult``.
+    """
+    from core import sweep
     from core.rls import rls_bypass
 
-    failed = 0
-    checked = 0
-    with rls_bypass():
-        company_ids = list(Company.objects.values_list("id", flat=True))
-    for pk in company_ids:
-        with rls_bypass():
-            company = Company.objects.filter(pk=pk).first()
-            if company is None:
-                continue
-            checked += 1
-            failures = run_invariants(company)
-        if failures:
-            failed += 1
-            logger.error(
-                "nightly_invariants company=%s keys=%s",
-                pk,
-                sorted(failures.keys()),
-            )
-            from planwave.services import open_quarantine
-
-            # One company's write failure must not stop the sweep, and the insert needs the
-            # RLS bypass (the policy would otherwise reject it with no tenant set).
-            try:
-                with rls_bypass():
-                    open_quarantine(company, failures)
-                    _notify_invariant_failure(company, sorted(failures.keys()))
-            except Exception:  # noqa: BLE001 - keep checking the other companies
-                logger.exception("nightly_invariants could not quarantine company=%s", pk)
-            ops = getattr(settings, "OPS_ALERT_EMAIL", "") or ""
-            if ops:
-                logger.error("books quarantine ops_mailbox=%s company=%s", ops, pk)
+    run_id = sweep.new_run_id()
+    ids = sweep.all_company_ids()
+    for pk in ids:
+        sweep_company_task.delay(company_id=pk, run_id=run_id, force_full=bool(full))
+    pruned = sweep.prune_old_results()
     from integrations.shopify import notify_shopify_gaps
 
     with rls_bypass():
@@ -231,7 +208,16 @@ def nightly_invariants_task():
         logger.error(
             "Postgres RLS is off in production. Tenant isolation is application company_id only."
         )
-    return {"checked": checked, "failed": failed, "rls_enabled": rls_on}
+    return {"run_id": run_id, "queued": len(ids), "pruned": pruned, "rls_enabled": rls_on}
+
+
+@shared_task(soft_time_limit=15 * 60, time_limit=16 * 60)
+def sweep_company_task(company_id=None, run_id: str = "", force_full: bool = False):
+    """One company's nightly books check (WP-E1). ``company_id`` kwarg lets the worker set RLS."""
+    from core import sweep
+
+    row = sweep.sweep_company(company_id, run_id or sweep.new_run_id(), force_full=force_full)
+    return {"company_id": company_id, "status": getattr(row, "status", None)}
 
 
 SEAL_HEARTBEAT_KEY = "audit_seal_last_ok"
@@ -272,6 +258,16 @@ def alert_missed_seal(*, company, hours_late: float) -> None:
 
 
 @shared_task
+def alert_missed_seal_task(company_id=None, hours_late: float = 0.0):
+    """Owner notice for a missed audit seal, one company per task (WP-E1)."""
+    from accounts.models import Company
+
+    company = Company.objects.filter(pk=company_id).first()
+    if company is not None:
+        alert_missed_seal(company=company, hours_late=hours_late)
+
+
+@shared_task
 def seal_audit_chain_task():
     """F-SEC-03 — seal new audit events into the hash chain, then verify it.
 
@@ -282,20 +278,20 @@ def seal_audit_chain_task():
     from django.core.cache import cache
     from django.utils import timezone
 
-    from accounts.models import Company
-
     now = timezone.now()
     last_ok = cache.get(SEAL_HEARTBEAT_KEY)
     gap = seal_gap_seconds(last_ok, now)
     if gap is not None and gap > SEAL_GAP:
         hours = gap / 3600
-        from core.rls import rls_bypass as _bypass
+        from core import sweep
+        from core.services.telegram import send_ops_alert
 
-        # Notification rows are row-level secured: with no tenant set the insert is refused and
-        # the alert would be swallowed by the per-owner except below.
-        with _bypass():
-            for company in Company.objects.all().iterator():
-                alert_missed_seal(company=company, hours_late=hours)
+        # WP-E1: one page to on-call for the platform event, then one task per company for the
+        # owner notice (the worker sets RLS from company_id, so the Notification insert is allowed).
+        logger.error("audit seal missed hours_late=%.1f", hours)
+        send_ops_alert(f"Audit seal missed: last success {hours:.1f} h ago.")
+        for pk in sweep.all_company_ids():
+            alert_missed_seal_task.delay(company_id=pk, hours_late=hours)
     from core.models import AuditEvent
     from core.rls import rls_bypass
     from core.services import audit_chain

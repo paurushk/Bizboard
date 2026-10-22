@@ -44,6 +44,7 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { canAdjustInventory, canCancelDocuments, canCreatePurchases } from '@/utils/permissions';
 import { labelItemsParam } from '@/pages/inventory/labelHelpers';
 import { documentStatusTone, statusLabelKey } from '@/utils/status';
+import { AgentPrepareButton } from '@/components/agents/AgentPrepareButton';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import type { PaymentMode, PurchaseInvoice, PurchasePayNow, PurchaseRelatedDocument } from '@/types/domain';
 
@@ -353,6 +354,9 @@ export function PurchaseDetailPage() {
             >
               {t('common.complete')}
             </Button>
+          ) : null}
+          {inv.status === 'DRAFT' && canWrite ? (
+            <AgentPrepareButton agentKind="BILL_CHECK" dedupeKey={`BILL_CHECK:${inv.id}`} label={t('agents.billCheck.run')} />
           ) : null}
           {canPay ? (
             <Button variant="contained" onClick={openPayDialog}>

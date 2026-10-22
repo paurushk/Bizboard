@@ -179,6 +179,7 @@ def test_accounting_bank_recon_match(books):
     assert violations == [], f"QOS-0082 invariant violated: {violations}"
 
 
+@pytest.mark.no_invariant_check  # sets the GL match flag directly to build the picker's excluded rows
 def test_f2_028_unreconciled_gl_lines_endpoint_is_not_capped_and_filters(books):
     """F2-028: the bank-recon picker resolves unreconciled GL lines server-side
     for one account -- no client-side 'most recent 100 journals' cap, and
@@ -306,8 +307,11 @@ def test_books_health_missing_posting_gated_on_accounting_enabled(tenant_a):
     """BB-000322/BB-000364: with accounting OFF, PostingService.post() never
     posts anything — the missing-posting alert must not fire as false-positive
     noise for every completed document."""
+    # Shadow books (WP-F2): "books off" now still posts. This checks a legacy company whose
+    # documents were never posted, i.e. post_ledger off as well.
     tenant_a.company.accounting_enabled = False
-    tenant_a.company.save(update_fields=["accounting_enabled"])
+    tenant_a.company.post_ledger = False
+    tenant_a.company.save(update_fields=["accounting_enabled", "post_ledger"])
     product = make_product(tenant_a.company, sku="ACC-GATE")
     supplier = make_supplier(tenant_a.company)
     pur = create_draft_purchase(

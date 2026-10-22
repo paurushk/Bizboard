@@ -1,5 +1,6 @@
 """GST-08: Bill of Entry (import ITC) lifecycle."""
 
+from accounting.books import posts_to_ledger
 from decimal import Decimal
 
 from django.db import transaction
@@ -82,7 +83,7 @@ class BillOfEntryService:
         locked.updated_by = user
         locked.save(update_fields=["status", "completed_at", "updated_by", "updated_at"])
 
-        if getattr(locked.company, "accounting_enabled", False):
+        if posts_to_ledger(locked.company):
             from accounting.services import PostingService
 
             PostingService.post_bill_of_entry(locked, user=user)
@@ -131,7 +132,7 @@ class BillOfEntryService:
             assert_period_allows_money_amend(
                 locked.company, locked.boe_date, allow_soft_closed=True
             )
-            if getattr(locked.company, "accounting_enabled", False):
+            if posts_to_ledger(locked.company):
                 from accounting.services import PostingService
 
                 PostingService.reverse_bill_of_entry(locked, user=user)

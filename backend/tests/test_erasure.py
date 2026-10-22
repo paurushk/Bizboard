@@ -59,6 +59,7 @@ def test_erasure_model_coverage_has_not_drifted():
 
 # --- SR-40 tombstone -------------------------------------------------------------
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tombstone_keeps_scrubbed_tax_docs_and_company(tenant_a):
     from accounts.erasure import erase_company
     from accounts.models import Company, TenantErasureLog
@@ -138,6 +139,7 @@ def test_erase_endpoint_404_when_flag_off(tenant_a):
     assert resp.status_code == 404
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @override_settings(ENABLE_TENANT_ERASURE=True)
 def test_erase_endpoint_defaults_to_tombstone(tenant_a):
     from accounts.models import Company

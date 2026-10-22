@@ -50,6 +50,7 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
 | Guard | Consequence if it fails |
 |---|---|
 | `guard_no_raw_unit_cost_update` | Raw `unit_cost` write bypasses `stamp_cost`; running cost diverges from movements, all COGS/valuation/GL wrong silently. |
+| `guard_no_direct_stock_writes` (MFG R-1) | Manufacturing, quality or job work code created, updated or deleted `StockBalance` / `StockMovement` / `InventoryCostLayer` rows directly instead of `InventoryService.post_movement`; balance, ledger and valuation drift apart with no error. |
 | `guard_period_gate_coverage` (G-21/G-22) | A money-amend `complete()`/`cancel()` in the registry stops calling `assert_period_allows_money_amend`; a document dated inside a closed GST/accounting period could be written undetected. See `docs/CROSS_FLOW_IMPACT_MAP.md` §6. |
 | `guard_config_consistency` (FG-1) | A feature flag exists in code but is unclassified in `docs/FREEZE_SCOPE.md`; frozen surface undefined for it. |
 | `guard_runtime_alignment` (RT-1) | `backend/Dockerfile` / `web/Dockerfile` ship a different Python/Node than `ci.yml` tests; a green CI run no longer describes the shipped image. |
@@ -112,3 +113,9 @@ The behaviours the wave scripts *gestured* at are covered — properly — by:
   `test_sequences_intact_flags_a_gap` — the sweep provably can fail.
 - **Coverage map.** `docs/FREEZE_SCOPE_COVERAGE.md` maps every SUPPORTED /
   SUP item to its concrete test or an explicit GAP line.
+
+## Agents (AGT-109)
+
+| Gate | Where | What it executes |
+|---|---|---|
+| Agents safety suite | `.github/workflows/ci.yml` step "Agents safety suite" → `pytest tests/agents` | Tenant isolation (404 across tenants), role matrix, injection payloads, duplicate and stale approval, revision conflicts, limits, flag-off and kill-switch behaviour, spec contract for every registered agent, and `test_no_existing_app_imports_agents_except_the_allowed_places` (ADR-A5). |

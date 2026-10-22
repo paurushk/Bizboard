@@ -47,6 +47,7 @@ def test_bug_gst_003_section_16_2_blocks_claim_before_receipt(tenant_a):
     assert section_16_2_checklist(invoice)["passed"] is True
 
 
+@pytest.mark.invariant_skip("money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines")
 def test_bug_gst_002_time_barred_itc_excluded_until_override(tenant_a):
     supplier = make_supplier(tenant_a.company, gstin="29GST020000A1Z8")
     bill = PurchaseInvoice.objects.create(

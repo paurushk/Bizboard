@@ -378,6 +378,7 @@ def test_a_real_sealed_value_is_not_sealed_twice():
 # ---- percent referral reward base -------------------------------------------
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_percent_reward_ignores_invoices_from_before_the_deal_opened(tenant_a):
     from datetime import timedelta

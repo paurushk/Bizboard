@@ -893,7 +893,7 @@ export function SalesReturnsPage() {
             </Stack>
             {loadingInvoiceLines ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }} data-testid="return-lines-loading">
-                <CircularProgress size={28} />
+                <CircularProgress size={28} aria-label={t('common.loading')} />
               </Box>
             ) : lines.length > 0 ? (
               <>
@@ -1143,7 +1143,7 @@ export function SalesReturnsPage() {
                 ) : null}
                 {toNumber(detail.cessTotal) > 0 ? (
                   <Typography variant="body2">
-                    Cess: <strong>{formatMoney(detail.cessTotal ?? 0)}</strong>
+                    {t('phase1.detailCess')}: <strong>{formatMoney(detail.cessTotal ?? 0)}</strong>
                   </Typography>
                 ) : null}
                 {toNumber(detail.roundOff) !== 0 ? (

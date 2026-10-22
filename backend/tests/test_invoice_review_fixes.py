@@ -53,6 +53,7 @@ def test_email_share_uses_public_link_not_staff_url(tenant_a):
     assert "/sales/history/" not in body
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @override_settings(FRONTEND_URL="http://front.test")
 def test_cancelled_invoice_pdf_is_gone_on_public_link(tenant_a):
     invoice_id = _completed(tenant_a, sku="RVW-3")
@@ -74,6 +75,7 @@ def test_link_preview_bots_do_not_count_as_views(tenant_a):
     assert InvoicePublicLink.objects.get(token=token).view_count == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_profit_details_excludes_tcs_and_rejects_cancelled(tenant_a):
     invoice_id = _completed(tenant_a, sku="RVW-5")
     base = tenant_a.client.get(f"/api/v1/sales/invoices/{invoice_id}/profit-details/")

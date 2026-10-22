@@ -38,6 +38,7 @@ def test_unconfigured_falls_back_to_reorder_minus_available(tenant_a):
     assert suggestion.transfer_from_warehouse_id is None
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_configured_uses_velocity_lead_time_and_safety(tenant_a):
     product = make_product(tenant_a.company, sku="REP-2", reorder_level="1")

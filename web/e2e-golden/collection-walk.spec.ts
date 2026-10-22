@@ -44,11 +44,14 @@ test('collection walk: outstanding ledger + credit-hold setting', async ({ page 
   await page.getByRole('button', { name: 'Save & Complete' }).click();
   await expect(page).toHaveURL(/\/sales\/history/, { timeout: 20_000 });
 
-  await page.goto('/settings/company');
+  // Reminders and credit hold live on Money In rules; each form there has its own Save, and only
+  // the edited one is enabled. Turning reminders on asks for a confirmation first.
+  await page.goto('/settings/money-in');
   await page.getByLabel('Enable automatic reminders').click();
   await page.getByLabel('Auto credit hold on severe overdue').click();
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByText('Company settings saved')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Save', exact: true, disabled: false }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirm' }).click();
+  await expect(page.getByText('All changes saved').first()).toBeVisible({ timeout: 15_000 });
 
   await page.goto('/sales/customers');
   const row = page.getByRole('row', { name: new RegExp(customerName) });

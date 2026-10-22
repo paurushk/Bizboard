@@ -37,6 +37,32 @@ export function canManageManufacturing(user: User | null): boolean {
   return !!user && isOwner(user.role);
 }
 
+// Manufacturing roles mirror backend/manufacturing/permissions.py (the server enforces them; this only hides what would be refused).
+const MFG_VIEW_ROLES: Role[] = ['OWNER', 'MANAGER', 'INVENTORY_STAFF', 'ACCOUNTANT', 'AUDITOR', 'VIEWER'];
+const MFG_WORK_ROLES: Role[] = ['OWNER', 'MANAGER', 'INVENTORY_STAFF'];
+const MFG_PLAN_ROLES: Role[] = ['OWNER', 'MANAGER'];
+const MFG_COST_ROLES: Role[] = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'AUDITOR'];
+
+/** Can open the Manufacturing screens at all (read). */
+export function canViewManufacturing(user: User | null): boolean {
+  return !!user && MFG_VIEW_ROLES.includes(user.role);
+}
+
+/** Can raise work orders and post issues, returns and receipts. */
+export function canWorkManufacturing(user: User | null): boolean {
+  return !!user && MFG_WORK_ROLES.includes(user.role);
+}
+
+/** Can change recipes, settings and the plan; reverse or reopen documents. */
+export function canPlanManufacturing(user: User | null): boolean {
+  return !!user && MFG_PLAN_ROLES.includes(user.role);
+}
+
+/** Can see what things cost and the variances. */
+export function canSeeMfgCosts(user: User | null): boolean {
+  return !!user && MFG_COST_ROLES.includes(user.role);
+}
+
 export function canManagePayroll(user: User | null): boolean {
   return !!user && isOwner(user.role);
 }

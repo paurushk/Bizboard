@@ -212,3 +212,98 @@ describe('SetupWizard choosing the step', () => {
     expect(vi.mocked(updateCompany).mock.calls.filter((c) => (c[0] as { markOnboardingStarted?: boolean }).markOnboardingStarted)).toHaveLength(1);
   });
 });
+
+describe('SetupWizard onboarding review fixes', () => {
+  afterEach(() => setLocale('en'));
+  const base = (extra: Record<string, unknown> = {}) => ({
+    id: 9,
+    name: 'Funnel Mart',
+    registrationType: 'REGULAR',
+    gstin: '',
+    state: 'Karnataka',
+    address: '12 MG Road',
+    city: 'Bengaluru',
+    pincode: '560001',
+    bankAccount: '',
+    upiId: '',
+    onboarding: { started: true, uiStep: 'tax', step: 'tax' },
+    ...extra,
+  });
+
+  async function useCompany(value: Record<string, unknown>) {
+    const { getCompany } = await import('@/api/resources');
+    vi.mocked(getCompany).mockResolvedValue(value as unknown as import('@/types/domain').Company);
+  }
+
+  it('ONB-CR-002: a Composition business must enter its GSTIN, as the server requires', async () => {
+    const { updateCompany } = await import('@/api/resources');
+    vi.mocked(updateCompany).mockClear();
+    await useCompany(base({ registrationType: 'COMPOSITION' }));
+    wrap(['/setup?step=tax']);
+    const field = await screen.findByLabelText(/GSTIN/i);
+    expect(field).toBeRequired();
+    expect(screen.queryByText(/optional for composition/i)).toBeNull();
+    const save = await waitFor(() => {
+      const enabled = screen.getAllByRole('button', { name: /save & continue/i })
+        .find((b) => !(b as HTMLButtonElement).disabled);
+      if (!enabled) throw new Error('save still disabled');
+      return enabled;
+    });
+    await userEvent.click(save);
+    expect(await screen.findByText(t('setup.errors.gstinRequired'))).toBeInTheDocument();
+    expect(vi.mocked(updateCompany).mock.calls.some((c) => (c[0] as { confirmTaxProfile?: boolean }).confirmTaxProfile)).toBe(false);
+  });
+
+  it('ONB-CR-001: coming back with a draft first bill shows that draft, not a second "create"', async () => {
+    const { createSalesInvoice } = await import('@/api/resources');
+    vi.mocked(createSalesInvoice).mockClear();
+    await useCompany(base({
+      onboarding: { started: true, uiStep: 'first_bill', step: 'first_bill', firstBillDraftId: 55 },
+    }));
+    wrap(['/setup']);
+    expect(await screen.findByRole('link', { name: /review & finalize bill/i })).toHaveAttribute(
+      'href',
+      '/sales/history/55/edit',
+    );
+    expect(screen.queryByRole('button', { name: t('setup.createFirstBill') })).toBeNull();
+    expect(createSalesInvoice).not.toHaveBeenCalled();
+  });
+
+  it('ONB-CR-005: samples do not track stock, and the first bill uses the sample item', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const { createProduct, listProducts, listCustomers, createSalesInvoice } = await import('@/api/resources');
+    vi.mocked(createProduct).mockReset();
+    vi.mocked(createProduct)
+      .mockResolvedValueOnce({ id: 71 } as never)
+      .mockResolvedValueOnce({ id: 72 } as never)
+      .mockResolvedValueOnce({ id: 73 } as never);
+    vi.mocked(listProducts).mockResolvedValue([]);
+    vi.mocked(listCustomers).mockResolvedValue([{ id: 4, name: 'Walk-in Customer' } as never]);
+    vi.mocked(createSalesInvoice).mockReset();
+    vi.mocked(createSalesInvoice).mockResolvedValue({ id: 202 } as never);
+    await useCompany(base({ gstin: '29ABCDE1234F1Z5', onboarding: { started: true, uiStep: 'catalog', step: 'catalog' } }));
+    wrap(['/setup?step=catalog']);
+
+    await userEvent.click(await screen.findByRole('button', { name: t('setup.addSamples') }));
+    await waitFor(() => expect(createProduct).toHaveBeenCalledTimes(3));
+    for (const call of vi.mocked(createProduct).mock.calls) {
+      expect(call[0]).toEqual(expect.objectContaining({ trackInventory: false }));
+    }
+    expect(createProduct).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SAMPLE-SERVICE', productType: 'SERVICE' }));
+    expect(createProduct).toHaveBeenCalledWith(expect.objectContaining({ sku: 'SAMPLE-DELIVERY', productType: 'SERVICE' }));
+
+    // The list now ends with the delivery charge; the bill must still use the sample item.
+    vi.mocked(listProducts).mockResolvedValue([
+      { id: 71, name: 'Sample item', sellingPrice: 100, gstRate: 18 },
+      { id: 72, name: 'Sample service', sellingPrice: 500, gstRate: 18 },
+      { id: 73, name: 'Delivery charge', sellingPrice: 50, gstRate: 0 },
+    ] as never);
+    // Adding samples completes the catalog step and moves on to the first bill.
+    await userEvent.click((await screen.findAllByRole('button', { name: t('setup.createFirstBill') }))[0]);
+    await waitFor(() => expect(createSalesInvoice).toHaveBeenCalled());
+    expect(vi.mocked(createSalesInvoice).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ items: [expect.objectContaining({ product: 71 })] }),
+    );
+    confirmSpy.mockRestore();
+  });
+});

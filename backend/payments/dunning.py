@@ -458,7 +458,11 @@ def run_dunning_all(*, now: datetime | None = None) -> dict:
         company = Company.objects.filter(pk=cid, dunning_enabled=True).first()
         if company is None:
             continue
-        result = run_dunning_for_company(company, now=now)
+        try:
+            result = run_dunning_for_company(company, now=now)
+        except Exception:  # noqa: BLE001 - one company's failure must not stop the others (WP-E1)
+            logger.exception("ar dunning failed company=%s", cid)
+            continue
         totals["sent"] += result.get("sent", 0)
         totals["skipped"] += result.get("skipped", 0)
         totals["companies"] += 1

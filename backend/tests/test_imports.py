@@ -457,6 +457,7 @@ def test_void_single_row_when_other_sku_sold(tenant_a):
     assert kept.on_hand == Decimal("7")
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tally_export_and_tenant_backup_sanitize_formula_names(tenant_a):
     from datetime import date
 

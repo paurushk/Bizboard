@@ -120,7 +120,7 @@ export function PdfStatusPoller({
       }
       icon={
         status === 'NONE' || status === 'QUEUED' ? (
-          <CircularProgress size={18} />
+          <CircularProgress size={18} aria-label={t('common.loading')} />
         ) : undefined
       }
       action={

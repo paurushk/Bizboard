@@ -70,6 +70,11 @@ if [ -n "${BACKUP_DB_PASSWORD:-}" ]; then PGPASSWORD="$BACKUP_DB_PASSWORD"; expo
 pg_dump -h "${PGHOST:-db}" -U "${BACKUP_DB_USER:-${POSTGRES_USER}}" "${POSTGRES_DB}" > "$WORK_SQL" \
     || fail "pg_dump exited non-zero."
 [ -s "$WORK_SQL" ] || fail "pg_dump produced an empty file."
+# WP-B4: a dump taken by a role that row-level security hides has the schema but no rows.
+# The companies table must have at least one data line after its COPY header (the end-of-data
+# marker is the two characters backslash-dot; a real row is always longer).
+awk '/^COPY public[.]accounts_company /{getline; if (length($0) > 2) found=1} END{exit !found}' "$WORK_SQL" \
+    || fail "the dump has no company rows (dumped by a role that RLS hides?). Use the owner role in BACKUP_DB_USER."
 gzip -c "$WORK_SQL" > "$WORK_GZ" || fail "gzip failed."
 gzip -t "$WORK_GZ" || fail "compressed dump failed the gzip integrity test."
 rm -f "$WORK_SQL"

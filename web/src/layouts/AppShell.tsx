@@ -37,6 +37,7 @@ import { useFeatureFlagEpoch } from '@/config/featureFlags';
 import { getLocale, subscribeLocale, t } from '@/i18n';
 import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
 import { GlobalConfirmHost } from '@/components/GlobalConfirmHost';
+import { LegalAcceptanceGate } from '@/components/LegalAcceptanceGate';
 import { listDrafts } from '@/offline/invoiceDraftCache';
 import { drainPodPhotos } from '@/offline/photoOutbox';
 import { STOCK_FLUSHED_EVENT, useStockOffline } from '@/pages/inventory/useStockOffline';
@@ -455,6 +456,7 @@ export function AppShell() {
         </ErrorBoundary>
         <CommandPalette />
         <GlobalConfirmHost />
+        <LegalAcceptanceGate />
         <CompanyRequiredDialog />
         <Snackbar
           open={Boolean(pwaReloadFn)}

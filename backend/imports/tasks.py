@@ -130,6 +130,7 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
     from django.utils import timezone
 
     from core.exceptions import BusinessRuleError
+    from core.services import ai_spend
     from core.services.llm import extract_purchase_bill
     from imports.models import ImportJob
     from imports.services import BillImportService
@@ -178,11 +179,13 @@ def extract_purchase_bill_task(job_id: int, company_id=None):
                 job.refresh_from_db(fields=["status"])
                 if job.status == ImportJob.Status.CANCELLED:
                     return
-                payloads.append(extract_purchase_bill(batch))
+                with ai_spend.charging(job.company_id):
+                    payloads.append(extract_purchase_bill(batch))
                 ImportJob.objects.filter(pk=job.pk).update(extraction_heartbeat_at=timezone.now())
             payload = _merge_extraction_payloads(payloads)
         else:
-            payload = extract_purchase_bill(images)
+            with ai_spend.charging(job.company_id):
+                payload = extract_purchase_bill(images)
         job.refresh_from_db(fields=["status"])
         if job.status == ImportJob.Status.CANCELLED:
             return

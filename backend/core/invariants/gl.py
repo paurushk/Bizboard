@@ -46,6 +46,28 @@ def journals_balanced(company) -> list[str]:
 
 
 @invariant(
+    "gl.no_empty_posted_entries",
+    consequence="A posted journal entry has no lines — the document it came from is missing from the books.",
+)
+def no_empty_posted_entries(company) -> list[str]:
+    """QOS-0055 / WP-F6: new ones are refused by the database trigger; this finds legacy ones."""
+    from accounting.models import JournalEntry
+
+    empty = (
+        JournalEntry.objects.filter(
+            company=company,
+            status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            lines__isnull=True,
+        )
+        .values_list("pk", "number", "source_type", "source_id")[:20]
+    )
+    return [
+        f"entry #{pk} ({number or 'no number'}) from {source_type or 'manual'} #{source_id}: posted with no lines"
+        for pk, number, source_type, source_id in empty
+    ]
+
+
+@invariant(
     "gl.trial_balance_zero",
     consequence="Company trial balance does not net to zero — a posting is missing a side or is malformed.",
 )

@@ -5,6 +5,8 @@ import {
   getErrorCode,
   getErrorDetails,
   getErrorMessage,
+  getFieldErrors,
+  fieldLabel,
   getErrorRequestId,
   getLastRequestId,
   isNetworkError,
@@ -106,7 +108,29 @@ describe('getErrorMessage', () => {
         },
       },
     } as never;
-    expect(getErrorMessage(err)).toBe('gstin: Enter a valid GSTIN.; phone: Required.');
+    expect(getErrorMessage(err)).toBe('GSTIN: Enter a valid GSTIN.; Phone: Required.');
+  });
+
+  it('never shows raw snake_case field names from an older server message', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = {
+      status: 400,
+      data: {
+        success: false,
+        error: {
+          code: 'validation_error',
+          message: 'phone: Enter a valid number.; company_name: Required.; non_field_errors: Pick a plan.',
+          details: { phone: ['Enter a valid number.'], companyName: ['Required.'], nonFieldErrors: ['Pick a plan.'] },
+        },
+      },
+    } as never;
+    expect(getErrorMessage(err)).toBe('Phone: Enter a valid number.; Company name: Required.; Pick a plan.');
+  });
+
+  it('labels plain DRF field errors without an envelope', () => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = { status: 400, data: { credit_limit: ['Must be positive.'] } } as never;
+    expect(getErrorMessage(err)).toBe('Credit limit: Must be positive.');
   });
 
   it('falls back for plain errors', () => {
@@ -662,5 +686,51 @@ describe('OG2 request_id', () => {
       statusText: 'Bad',
     };
     expect(getErrorRequestId(err)).toBeNull();
+  });
+});
+
+describe('fieldLabel', () => {
+  it('turns keys into readable labels', () => {
+    expect(fieldLabel('company_name')).toBe('Company name');
+    expect(fieldLabel('companyName')).toBe('Company name');
+    expect(fieldLabel('gstin')).toBe('GSTIN');
+    expect(fieldLabel('otpCode')).toBe('OTP code');
+    expect(fieldLabel('customer_id')).toBe('Customer ID');
+    expect(fieldLabel('nonFieldErrors')).toBe('');
+  });
+});
+
+describe('getFieldErrors', () => {
+  const envelope = (details: unknown) => {
+    const err = new axios.AxiosError('Request failed with status code 400');
+    err.response = {
+      status: 400,
+      data: { success: false, error: { code: 'validation_error', message: 'Validation failed.', details } },
+    } as never;
+    return err;
+  };
+
+  it('puts camelCase and snake_case keys on the matching form field', () => {
+    const { fieldErrors, banner } = getFieldErrors(
+      envelope({ companyName: ['Required.'], otp_code: ['Wrong code.'] }),
+      ['companyName', 'otpCode'] as const,
+    );
+    expect(fieldErrors).toEqual({ companyName: 'Required.', otpCode: 'Wrong code.' });
+    expect(banner).toBeNull();
+  });
+
+  it('sends what no field shows to the banner, with labels', () => {
+    const { fieldErrors, banner } = getFieldErrors(
+      envelope({ phone: ['Bad.'], credit_limit: ['Too high.'], nonFieldErrors: ['Pick a plan.'] }),
+      ['phone'] as const,
+    );
+    expect(fieldErrors).toEqual({ phone: 'Bad.' });
+    expect(banner).toBe('Credit limit: Too high.; Pick a plan.');
+  });
+
+  it('falls back to the general message when no field got a message', () => {
+    const { fieldErrors, banner } = getFieldErrors(envelope({ phone: [] }), ['phone'] as const);
+    expect(fieldErrors).toEqual({});
+    expect(banner).toBe('Validation failed.');
   });
 });

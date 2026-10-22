@@ -97,6 +97,15 @@ class RegisterSerializer(serializers.Serializer):
     # Mandatory sign-up email verification — obtained from POST
     # /auth/register/otp/request/ first; checked against OtpChallenge in the view.
     otp_code = serializers.CharField(max_length=6, min_length=6)
+    # WP-H5: the person agrees to the current Terms and Privacy Policy (and, as owner, the DPA).
+    accept_terms = serializers.BooleanField(required=False, default=False)
+
+    def validate_accept_terms(self, value):
+        from django.conf import settings
+
+        if getattr(settings, "LEGAL_ACCEPTANCE_REQUIRED", True) and not value:
+            raise serializers.ValidationError("Agree to the Terms of Service and Privacy Policy to create an account.")
+        return value
 
     def validate_email(self, value):
         # BB-000251: do not raise on existing email (enumeration). View returns
@@ -110,13 +119,13 @@ class RegisterSerializer(serializers.Serializer):
         return (value or "").strip().upper()
 
     def validate_phone(self, value):
-        from accounts.otp_utils import canonicalize_user_phone
+        from accounts.otp_utils import canonicalize_new_phone
 
         raw = (value or "").strip()
         if not raw:
             return ""
         try:
-            return canonicalize_user_phone(raw)
+            return canonicalize_new_phone(raw)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
 
@@ -643,13 +652,13 @@ class InviteUserSerializer(serializers.Serializer):
         return role
 
     def validate_phone(self, value):
-        from accounts.otp_utils import canonicalize_user_phone, phone_taken
+        from accounts.otp_utils import canonicalize_new_phone, phone_taken
 
         raw = (value or "").strip()
         if not raw:
             return ""
         try:
-            canon = canonicalize_user_phone(raw)
+            canon = canonicalize_new_phone(raw)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
         if phone_taken(phone=canon):
@@ -685,6 +694,13 @@ class MeSerializer(serializers.Serializer):
     push_token = serializers.CharField(source="user.push_token", read_only=True, allow_blank=True)
     company_id = serializers.IntegerField(source="company.id")
     company = serializers.SerializerMethodField()
+    # WP-H5: legal documents (current versions) this person still has to accept.
+    legal_pending = serializers.SerializerMethodField()
+
+    def get_legal_pending(self, obj):
+        from accounts.legal import pending
+
+        return pending(obj.user, obj)
 
     def get_company(self, obj):
         # Non-owners don't get bank/UPI details embedded in their own

@@ -29,6 +29,13 @@ class Command(BaseCommand):
             summary = pending_summary(company)
             self.stdout.write(f"Pending: {summary['count']} expense(s), total {summary['total']}.")
             result = post_pending_expenses(company, user=None, dry_run=options["dry_run"])
+            if not options["dry_run"]:
+                from core.repair import record_repair
+
+                record_repair(
+                    command="backfill_expense_postings", company=company, stdout=self.stdout,
+                    summary={"posted": result["posted"], "total": result["total"], "skipped": len(result["skipped"])},
+                )
         verb = "Would post" if options["dry_run"] else "Posted"
         self.stdout.write(self.style.SUCCESS(f"{verb} {result['posted']} expense(s), total {result['total']}."))
         for row in result["skipped"]:

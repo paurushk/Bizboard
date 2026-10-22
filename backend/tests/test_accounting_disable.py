@@ -65,6 +65,9 @@ def test_disabling_an_empty_set_of_books_works_and_is_audited_with_the_reason(te
     assert event.metadata["posted_journals"] == 0 and event.user_id == tenant_a.owner.id
 
 
+# Builds ledger rows straight through the ORM with no documents behind them, so the
+# docs-vs-ledger and empty-entry invariants (WP-F4 / WP-F6) are expected to flag it.
+@pytest.mark.no_invariant_check
 def test_posted_entries_need_an_explicit_acknowledgement(tenant_a):
     _enable(tenant_a)
     _posted_entry(tenant_a)
@@ -116,6 +119,9 @@ def test_repeating_a_change_that_is_already_in_place_records_nothing(tenant_a):
     assert _events(tenant_a, "accounting.disable").count() == 1
 
 
+# Builds ledger rows straight through the ORM with no documents behind them, so the
+# docs-vs-ledger and empty-entry invariants (WP-F4 / WP-F6) are expected to flag it.
+@pytest.mark.no_invariant_check
 def test_preflight_reports_what_switching_off_would_do(tenant_a):
     _enable(tenant_a)
     _posted_entry(tenant_a, date(2026, 4, 2))

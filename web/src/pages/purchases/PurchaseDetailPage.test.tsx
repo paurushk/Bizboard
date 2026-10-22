@@ -17,6 +17,10 @@ const { getPurchase, completePurchase, cancelPurchase, recordPurchasePayment, do
 
 vi.mock('@/api/resources', () => ({ getPurchase, completePurchase, cancelPurchase, recordPurchasePayment, downloadPurchasePdf }));
 
+vi.mock('@/components/agents/AgentPrepareButton', () => ({
+  AgentPrepareButton: (p: { agentKind?: string; dedupeKey: string }) => <button type="button" data-testid="agent-check">{p.agentKind}:{p.dedupeKey}</button>,
+}));
+
 let role = 'OWNER';
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'Owner', role, companyId: 9 } }),
@@ -313,5 +317,27 @@ describe('PurchaseDetailPage', () => {
       await userEvent.click(await screen.findByRole('button', { name: /dismiss/i }));
       expect(screen.queryByText(/was not recorded/i)).not.toBeInTheDocument();
     });
+  });
+
+  it('offers the bill check on a draft bill only, for someone who can write', async () => {
+    getPurchase.mockResolvedValue(bill({ status: 'DRAFT' }));
+    renderPage();
+    expect(await screen.findByTestId('agent-check')).toHaveTextContent('BILL_CHECK:BILL_CHECK:5');
+  });
+
+  it('has no bill check on a completed bill', async () => {
+    getPurchase.mockResolvedValue(bill({ status: 'COMPLETED' }));
+    renderPage();
+    await screen.findByText('PUR-0005');
+    expect(screen.queryByTestId('agent-check')).toBeNull();
+  });
+
+  it('has no bill check for a viewer', async () => {
+    role = 'VIEWER';
+    getPurchase.mockResolvedValue(bill({ status: 'DRAFT' }));
+    renderPage();
+    await screen.findByText('PUR-0005');
+    expect(screen.queryByTestId('agent-check')).toBeNull();
+    role = 'OWNER';
   });
 });

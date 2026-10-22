@@ -52,6 +52,7 @@ def test_summary_rejects_a_range_longer_than_the_limit(tenant_a):
     assert resp.status_code == 400
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_sales_summary_agrees_with_the_dashboard_and_leaves_out_opening_dues(tenant_a):
     """The dashboard's "sales this month" and the Sales screen must be the same number for the same days,
     and an opening-balance invoice (a due brought in, not a sale) counts in neither."""

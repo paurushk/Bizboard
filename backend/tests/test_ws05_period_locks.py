@@ -127,6 +127,7 @@ def test_allocate_receipt_blocked_in_soft_closed_period(books):  # noqa: F811
     assert resp.status_code == 400, resp.data
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_allocate_supplier_payment_blocked_in_soft_closed_period(books):  # noqa: F811
     """R-018: allocate_supplier_payment gates on payment_date."""
     from purchases.models import PurchaseInvoice

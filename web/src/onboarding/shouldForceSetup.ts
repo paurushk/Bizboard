@@ -6,6 +6,10 @@ export function shouldForceSetup(
   company?: Company | null,
 ): boolean {
   if (!isSetupWizardEnabled() || user?.role !== 'OWNER') return false;
-  const status = company?.onboarding?.status;
+  const onboarding = company?.onboarding;
+  // ONB-CR-001: a draft first bill is waiting for review -- the dashboard checklist takes over from
+  // here; sending the owner back to the wizard would only offer to create another draft.
+  if (onboarding?.step === 'first_bill' && onboarding.firstBillDraftId) return false;
+  const status = onboarding?.status;
   return status === 'NOT_STARTED' || status === 'IN_PROGRESS';
 }

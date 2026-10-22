@@ -310,6 +310,7 @@ def test_override_reason_non_string_blocks_instead_of_crashing(tenant_a):
     assert order.credit_overridden_at is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_exposure_subtracts_only_ledger_counted_invoices(tenant_a):
     from sales.models import SalesInvoice
     from sales.order_gates import sales_order_exposure

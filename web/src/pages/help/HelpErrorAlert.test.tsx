@@ -51,8 +51,8 @@ describe('HelpErrorAlert — BE error → user message', () => {
       }),
     );
     const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent('gstin: Enter a valid GSTIN.');
-    expect(alert).toHaveTextContent('phone: Required.');
+    expect(alert).toHaveTextContent('GSTIN: Enter a valid GSTIN.');
+    expect(alert).toHaveTextContent('Phone: Required.');
     // never leaks the raw envelope
     expect(alert.textContent).not.toContain('{');
   });

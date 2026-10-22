@@ -34,6 +34,9 @@ from .settings import *  # noqa: E402,F401,F403
 
 DJANGO_ENV = "test"
 
+# Agents never reach a real provider from the suite; tests script the fake provider.
+LLM_AGENT_PROVIDER = "fake"
+
 # Existing restore tests exercise the in-place path; test_backup_page_honesty covers the default (off).
 TENANT_RESTORE_DESTROY_ENABLED = True
 
@@ -97,3 +100,13 @@ MFA_ENFORCE_WAIVER = False
 # Most test bills are priced freely against the default purchase price. The below-cost block
 # has its own tests, which set the company flag to False explicitly.
 ALLOW_BELOW_COST_SALES_DEFAULT = True
+
+
+# WP-F1: the whole suite proves the ledger coverage registry is complete. Tests that post
+# synthetic entries use these source types; they are never valid outside tests.
+LEDGER_REGISTRY_STRICT = True
+LEDGER_TEST_SOURCE_TYPES = ("TEST", "TEST_SALE", "CORRUPT", "BATCH", "INTERNAL", "MANUAL", "JOURNAL", "CAMPAIGN", "GRN_ITEM")
+
+# WP-H5: the many sign-up tests that exercise OTP rules post without the terms flag; the legal
+# acceptance tests switch this on with override_settings.
+LEGAL_ACCEPTANCE_REQUIRED = False

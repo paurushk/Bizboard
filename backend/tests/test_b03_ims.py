@@ -390,6 +390,7 @@ def test_reject_splits_ineligible_tax_to_cogs_when_goods_already_sold(tenant_a):
     assert lines.get("1390") == -tax
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_supplier_scorecard_aggregates_purchase_value_and_mismatches(tenant_a):
     """B5-016: bulk-fetch supplier + aggregate purchase value, not a

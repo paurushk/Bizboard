@@ -59,6 +59,13 @@ ROLLOUT_GRANTABLE_KEYS = frozenset({
 
 # Per-company staged rollouts with no env ceiling: company JSON true is the opt-in.
 COMPANY_ROLLOUT_KEYS = (
+    # Manufacturing sub-modules (docs/MANUFACTURING_IMPLEMENTATION_PLAN.md 4.7). Each needs
+    # ENABLE_MANUFACTURING as well; company JSON true is the opt-in, default off.
+    "MFG_PLANNING",
+    "MFG_QUALITY",
+    "MFG_JOB_WORK",
+    "MFG_COSTING_GL",
+    "MFG_SHOP_FLOOR",
     "QUOTE_CONVERSION_RELEASE",
     "QUOTE_LIFECYCLE",
     # Quick Order Entry staged rollout (docs/QUICK_ORDER_ENTRY_IMPLEMENTATION_PLAN.md QOE-15).
@@ -301,6 +308,7 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         flags["NAV_PACK_DEFAULT"] = bool(overrides.get("NAV_PACK_DEFAULT"))
         for key in COMPANY_ROLLOUT_KEYS:
             flags[key] = bool(overrides.get(key, key in COMPANY_DEFAULT_ON_KEYS))
+        _apply_agent_flags(flags, overrides)
     else:
         flags["ENABLE_ACCOUNTING"] = False
         flags["ENABLE_AI"] = False
@@ -308,7 +316,22 @@ def _build_feature_flags_uncached(*, company=None, user=None) -> dict[str, bool]
         flags["IS_VENDOR_COMPANY"] = False
         for key in COMPANY_ROLLOUT_KEYS:
             flags[key] = False
+        flags["ENABLE_AGENTS"] = False
     return flags
+
+
+# Agents (docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md 11.2). ENABLE_AGENTS is the master
+# switch; every key starting with AGENT_ is a per-agent opt-in read from the company JSON, so adding an
+# agent never needs a list edit here. All default off. A key without a registered spec enables nothing
+# (agents.policy checks the registry).
+AGENT_FLAG_PREFIX = "AGENT_"
+
+
+def _apply_agent_flags(flags: dict, overrides: dict) -> None:
+    flags["ENABLE_AGENTS"] = bool(overrides.get("ENABLE_AGENTS"))
+    for key, value in overrides.items():
+        if isinstance(key, str) and key.startswith(AGENT_FLAG_PREFIX):
+            flags[key] = bool(value)
 
 
 def flag_enabled(company, key: str) -> bool:

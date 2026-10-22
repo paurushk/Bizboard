@@ -319,3 +319,46 @@ class ContentSecurityPolicyMiddleware:
         if policy:
             response["Content-Security-Policy"] = policy
         return response
+
+
+class AppVersionMiddleware:
+    """WP-L1: refuse API calls from mobile app builds older than ``MIN_SUPPORTED_APP_VERSION``.
+
+    The Capacitor shell's web bundle sends ``X-App-Version`` (the browser never does). A build
+    below the minimum gets 426 with a plain message that any old bundle can show; health and the
+    CSRF cookie stay reachable. Empty ``MIN_SUPPORTED_APP_VERSION`` (default) turns this off.
+    Policy: docs/ops/MOBILE_VERSION_POLICY.md.
+    """
+
+    ALWAYS_OPEN = ("/api/v1/health/", "/api/v1/auth/csrf/", "/metrics/", "/api/v1/metrics/")
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    @staticmethod
+    def parse(version: str) -> tuple[int, ...] | None:
+        parts = (version or "").strip().lstrip("vV").split(".")
+        try:
+            return tuple(int(p) for p in parts if p != "")
+        except ValueError:
+            return None
+
+    def __call__(self, request):
+        from django.conf import settings
+        from django.http import JsonResponse
+
+        minimum = self.parse(getattr(settings, "MIN_SUPPORTED_APP_VERSION", "") or "")
+        sent = request.headers.get("X-App-Version")
+        if minimum and sent is not None and not request.path.startswith(self.ALWAYS_OPEN):
+            got = self.parse(sent)
+            if got is None or got < minimum:
+                message = (
+                    "This version of the BizBoard app is no longer supported. "
+                    "Update it from the Play Store to continue."
+                )
+                return JsonResponse(
+                    {"success": False, "error": {"code": "APP_UPDATE_REQUIRED", "message": message,
+                                                 "details": {"minimum": settings.MIN_SUPPORTED_APP_VERSION}}},
+                    status=426,
+                )
+        return self.get_response(request)

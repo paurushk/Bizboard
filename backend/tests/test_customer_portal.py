@@ -34,6 +34,7 @@ def _invoice(company, customer, number, grand="100"):
     )
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", FRONTEND_URL="http://localhost:5173")
 @pytest.mark.django_db
 def test_email_link_is_sent_and_reusable_until_expiry(tenant_a):
@@ -90,6 +91,7 @@ def test_whatsapp_without_opt_in_does_not_leak_the_token(tenant_a):
     assert CustomerPortalToken.objects.count() == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_portal_invoice_list_query_count_does_not_scale_with_invoice_count(tenant_a):
     """This endpoint is unauthenticated (magic-link-gated). It used to call
@@ -127,6 +129,7 @@ def test_portal_invoice_list_query_count_does_not_scale_with_invoice_count(tenan
     assert len(many_ctx.captured_queries) <= len(few_ctx.captured_queries) + 2
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_pay_path_uses_existing_payment_link(tenant_a):
     client = APIClient()
@@ -166,6 +169,7 @@ def test_request_is_rate_limited():
     assert statuses[5] == 429
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_other_company_customer_is_not_visible(tenant_a, tenant_b):
     client = APIClient()
@@ -234,6 +238,7 @@ def test_debug_echo_stays_absent_on_no_match(tenant_a, settings):
     assert "debug_token" not in resp.data
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_pay_view_happy_path_creates_a_link_when_none_exists(tenant_a):
     client = APIClient()
@@ -258,6 +263,7 @@ def test_pay_view_happy_path_creates_a_link_when_none_exists(tenant_a):
     assert PaymentLink.objects.filter(company=tenant_a.company, sales_invoice=invoice).count() == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_pay_view_is_idor_safe_against_another_customers_invoice(tenant_a):
     """F1-009 (top test gap from the COMP-003 review): a valid token for
@@ -281,6 +287,7 @@ def test_pay_view_is_idor_safe_against_another_customers_invoice(tenant_a):
     assert PaymentLink.objects.filter(company=tenant_a.company, sales_invoice=invoice_b).count() == 0
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_pay_view_is_idor_safe_across_companies(tenant_a, tenant_b):
     client = APIClient()
@@ -402,6 +409,7 @@ def test_whatsapp_opt_in_true_sends_via_the_template(tenant_a, monkeypatch):
     assert calls[0][1] == "invoice_share"
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_own_invoice_pdf_is_returned(tenant_a, monkeypatch):
     from django.core.cache import cache

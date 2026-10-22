@@ -1,49 +1,45 @@
-"""Work-order release / complete / cancel with BOM snapshot + optional WIP GL."""
+"""Work-order release / complete / cancel with BOM snapshot + optional WIP GL.
 
-from decimal import Decimal, ROUND_HALF_UP
+This is the original one-step flow: release issues every component at once, complete
+receives the whole quantity. Companies keep it (``WorkOrder.issue_mode = AUTO_AT_RELEASE``)
+until they switch to the document flow. Rev 2 fixes in this file:
+
+* DEF-1: completion posts exactly the value it put into stock; paise left over go to the
+  manufacturing variance account. A zero-cost completion is refused.
+* DEF-2: components used up are CONSUMED (with trace links), not SCRAPPED.
+* DEF-3: cancelling a completed order reverses with MANUFACTURE_REVERSAL, not ADJUSTMENT.
+"""
+
+from accounting.books import posts_to_ledger
 import logging
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 
-logger = logging.getLogger(__name__)
-
 from core.exceptions import BusinessRuleError
-from inventory.models import MovementType, SerialNumber, StockBalance, StockMovement
+from inventory.models import MovementType, SerialNumber, StockMovement
 from inventory.services import InventoryService, InventoryValuationService, SerialNumberService
 
-from .models import Bom, BomLine, WorkOrder, WorkOrderLine
+from manufacturing.models import Bom, WorkOrder, WorkOrderLine, WorkOrderOutput
 
+from . import trace
+from .allocation import allocate_batches
+from .bom import assert_no_bom_cycle
+from .common import money, rule
 
-def assert_no_bom_cycle(company, root_product_id, component_ids, *, ignore_bom_id=None):
-    """Refuse a component path that walks back to the finished good.
+logger = logging.getLogger(__name__)
 
-    Called before a BOM is saved and before a work order issues components.
-    """
-    root_id = getattr(root_product_id, "pk", root_product_id)
-    pending = []
-    for component in component_ids:
-        cid = getattr(component, "pk", component)
-        if cid == root_id:
-            raise BusinessRuleError("A BOM cannot list its finished good as a component.")
-        pending.append(cid)
-    children = {}
-    rows = BomLine.objects.filter(bom__company=company, bom__status=Bom.Status.ACTIVE)
-    if ignore_bom_id:
-        rows = rows.exclude(bom_id=ignore_bom_id)
-    for parent_id, child_id in rows.values_list("bom__product_id", "component_id"):
-        children.setdefault(parent_id, set()).add(child_id)
-    children[root_id] = set(pending)
-    stack = [(root_id, {root_id})]
-    while stack:
-        node, path = stack.pop()
-        for child in children.get(node, ()):
-            if child in path:
-                raise BusinessRuleError("This BOM contains a cycle.")
-            stack.append((child, path | {child}))
+__all__ = [
+    "assert_no_bom_cycle", "release_work_order", "complete_work_order", "cancel_work_order",
+    "_issue_cost_total", "_snapshot_bom", "_component_requirements", "_issue_batches",
+]
+
+MIN_QTY_PER_UNIT = Decimal("0.001")
 
 
 def _component_requirements(wo):
-    snaps = list(wo.component_lines.select_related("component", "batch").all())
+    # An alternate is a stand-in for its primary, not an extra requirement.
+    snaps = [ln for ln in wo.component_lines.select_related("component", "batch").all() if ln.alternate_of_id is None]
     if snaps:
         return [(line.component, line.qty, line) for line in snaps]
     return [
@@ -53,20 +49,53 @@ def _component_requirements(wo):
 
 
 def _snapshot_bom(wo):
-    if wo.component_lines.exists():
+    """Freeze the BOM's lines and planned outputs onto the work order (B8-019)."""
+    if wo.bom_id is None:
         return
-    WorkOrderLine.objects.bulk_create(
-        [
-            WorkOrderLine(
-                work_order=wo,
-                company_id=wo.company_id,
-                component=line.component,
-                qty_per_unit=line.qty,
-                qty=line.qty * wo.qty,
+    if not wo.component_lines.exists():
+        from .bom import snapshot_lines
+
+        items = snapshot_lines(wo.bom, wo.qty, wo.planned_start or wo.released_at)
+        # Lines in one alternate group are stand-ins for each other: the lowest priority number is
+        # the one the order needs; the rest are kept so they can be issued in its place.
+        primary_of = {}
+        for item in items:
+            grp = item["alternate_group"]
+            if grp is not None:
+                best = primary_of.get(grp)
+                if best is None or item["alternate_priority"] < best["alternate_priority"]:
+                    primary_of[grp] = item
+        made = {}
+        ordered = sorted(
+            range(len(items)),
+            key=lambda i: (items[i]["alternate_group"] is not None and primary_of[items[i]["alternate_group"]] is not items[i], i),
+        )
+        for i in ordered:
+            item = items[i]
+            per_unit = max(
+                item["per_unit"].quantize(MIN_QTY_PER_UNIT, rounding=ROUND_HALF_UP), MIN_QTY_PER_UNIT,
             )
-            for line in wo.bom.lines.select_related("component").all()
-        ]
-    )
+            grp = item["alternate_group"]
+            is_alt = grp is not None and primary_of[grp] is not item
+            made[i] = WorkOrderLine.objects.create(
+                work_order=wo, company_id=wo.company_id, component=item["component"],
+                qty_per_unit=per_unit, qty=item["qty"], unit=item["unit"], scrap_pct=item["scrap_pct"],
+                issue_method=item["issue_method"], is_optional=item["is_optional"],
+                alternate_group=grp, alternate_priority=item["alternate_priority"],
+                source_warehouse=item["source_warehouse"],
+                alternate_of=made[items.index(primary_of[grp])] if is_alt else None,
+            )
+    if not wo.planned_outputs.exists():
+        bom = wo.bom
+        scale = wo.qty / bom.output_qty
+        WorkOrderOutput.objects.bulk_create([
+            WorkOrderOutput(
+                work_order=wo, company_id=wo.company_id, product=out.product, kind=out.kind,
+                qty=(out.qty * scale).quantize(Decimal("0.001")), cost_share_pct=out.cost_share_pct,
+                recovery_rate=out.recovery_rate, target_warehouse=out.target_warehouse,
+            )
+            for out in bom.outputs.select_related("product")
+        ])
 
 
 def _issue_cost_total(wo) -> Decimal:
@@ -83,80 +112,12 @@ def _issue_cost_total(wo) -> Decimal:
 
 def _issue_batches(wo, component, qty, line=None):
     """BB-000723: explicit batch or lot_allocations on WorkOrderLine or FEFO allocate."""
-    if not component.track_batch:
-        return [(getattr(line, "batch", None) if line else None, qty)]
-    # B8-010: FEFO/availability reads below (available_quantity, fefo_batches)
-    # are not locked on their own -- two concurrent work-order releases for
-    # the same component could both plan against the same stale snapshot.
-    # post_movement() already locks (and re-checks) each individual balance
-    # row it writes to, so this can't silently overdraft stock -- but a
-    # legitimate concurrent release could still spuriously fail on the
-    # *first* batch it happens to try, instead of correctly falling through
-    # to the next FEFO batch, purely because its plan was made from a stale
-    # read. Lock every balance row for this component+warehouse up front so
-    # the allocation plan below is computed against a race-free view, for
-    # the lifetime of this work order's transaction.
-    warehouse_for_lock = wo.warehouse or InventoryService.default_warehouse(wo.company)
-    list(
-        StockBalance.objects.select_for_update().filter(
-            company=wo.company, product=component, warehouse=warehouse_for_lock,
-        )
-    )
-    batch = getattr(line, "batch", None) if line else None
-    if batch is not None:
-        warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
-        available = InventoryService.available_quantity(wo.company, component, warehouse, batch)
-        need = Decimal(str(qty))
-        if available < need:
-            raise BusinessRuleError(
-                f"Insufficient stock in batch '{getattr(batch, 'batch_no', batch)}' "
-                f"for '{component.name}': available {available}, required {need}."
-            )
-        return [(batch, qty)]
-
-    # Custom lot allocations specified by user
-    if line and getattr(line, "lot_allocations", None):
-        allocs = []
-        from inventory.models import BatchLot
-        for alloc in line.lot_allocations:
-            b_id = alloc.get("batch_id")
-            b_qty = Decimal(str(alloc.get("qty") or 0))
-            if b_id and b_qty > 0:
-                b_obj = BatchLot.objects.filter(
-                    company=wo.company, pk=b_id, product_id=component.pk,
-                ).first()
-                if not b_obj:
-                    raise BusinessRuleError(
-                        f"Lot allocation batch {b_id} does not belong to '{component.name}'."
-                    )
-                allocs.append((b_obj, b_qty))
-        if allocs:
-            tot = sum((q for _, q in allocs), Decimal("0"))
-            need = Decimal(str(qty))
-            if tot > need:
-                raise BusinessRuleError("Lot allocations exceed the required component quantity.")
-            if tot != need:
-                raise BusinessRuleError("Lot allocations must equal the required component quantity.")
-            return allocs
-
-    remaining = Decimal(str(qty))
-    allocations = []
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
-    for lot in InventoryValuationService.fefo_batches(wo.company, component, warehouse):
-        if remaining <= 0:
-            break
-        available = InventoryService.available_quantity(wo.company, component, warehouse, lot)
-        take = min(remaining, available)
-        if take > 0:
-            allocations.append((lot, take))
-            remaining -= take
-    if remaining > 0:
-        raise BusinessRuleError(
-            f"Insufficient batched stock for component '{component.name}': short {remaining}."
-        )
-    if not allocations:
-        raise BusinessRuleError(f"No stock batch is available for '{component.name}'.")
-    return allocations
+    return allocate_batches(
+        wo.company, warehouse, component, qty,
+        batch=getattr(line, "batch", None) if line else None,
+        lot_allocations=getattr(line, "lot_allocations", None) if line else None,
+    )
 
 
 @transaction.atomic
@@ -201,14 +162,12 @@ def release_work_order(wo, user, *, component_serials=None):
     # doesn't would issue negative/short stock with no explanation. Fail
     # loudly and specifically instead of letting a generic stock-shortage
     # error (or a negative-stock issue, if allowed) obscure the real cause.
-    from .models import Bom as _Bom
-
     subassembly_ids = {
         pk
-        for pk in _Bom.objects.filter(
+        for pk in Bom.objects.filter(
             company=wo.company,
             product_id__in=[component.pk for component, _qty, _line in requirements],
-            status=_Bom.Status.ACTIVE,
+            status=Bom.Status.ACTIVE,
         ).values_list("product_id", flat=True)
     }
     if subassembly_ids:
@@ -225,7 +184,8 @@ def release_work_order(wo, user, *, component_serials=None):
                 )
     for component, qty, line in requirements:
         lot_payload = []
-        for batch, take in _issue_batches(wo, component, qty, line):
+        plan = _issue_batches(wo, component, qty, line)
+        for batch, take in plan:
             unit_cost = InventoryValuationService.unit_cost(
                 wo.company, component, warehouse, batch=batch
             )
@@ -245,12 +205,14 @@ def release_work_order(wo, user, *, component_serials=None):
                 lot_payload.append(
                     {"batch_id": batch.pk, "batch_no": batch.batch_no, "qty": str(take)}
                 )
+        comp_serials = []
         if component.track_serial:
             comp_serials = getattr(line, "serial_numbers", []) if line else []
             if not comp_serials:
                 raise BusinessRuleError(
                     f"Serial numbers are required to issue '{component.name}'."
                 )
+            # DEF-2: used up, not scrapped.
             SerialNumberService.transition(
                 company=wo.company,
                 product=component,
@@ -258,39 +220,54 @@ def release_work_order(wo, user, *, component_serials=None):
                 numbers=comp_serials,
                 quantity=qty,
                 source=SerialNumber.Status.AVAILABLE,
-                target=SerialNumber.Status.SCRAPPED,
+                target=SerialNumber.Status.CONSUMED,
                 user=user,
             )
-        if line is not None and lot_payload:
-            line.lot_allocations = lot_payload
-            updates = ["lot_allocations"]
-            if len(lot_payload) == 1:
-                line.batch_id = lot_payload[0]["batch_id"]
-                updates.append("batch")
+        if comp_serials:
+            trace.record_inputs(
+                wo, document_type="work_order", document_id=wo.pk, component=component,
+                serials=comp_serials, qty=qty,
+            )
+        else:
+            for batch, take in plan:
+                trace.record_inputs(
+                    wo, document_type="work_order", document_id=wo.pk, component=component,
+                    batch=batch, qty=take,
+                )
+        if line is not None:
+            updates = ["qty_issued"]
+            line.qty_issued = line.qty
+            if lot_payload:
+                line.lot_allocations = lot_payload
+                updates.append("lot_allocations")
+                if len(lot_payload) == 1:
+                    line.batch_id = lot_payload[0]["batch_id"]
+                    updates.append("batch")
             line.save(update_fields=updates)
     wo.status = WorkOrder.Status.RELEASED
     if wo.released_at is None:
-        wo.released_at = timezone.now().date()
+        wo.released_at = timezone.localdate()
+    issue_cost = _issue_cost_total(wo)
+    wo.cost_issued = issue_cost
     wo.updated_by = user
-    wo.save(update_fields=["status", "warehouse", "released_at", "updated_at", "updated_by"])
-    if wo.company.accounting_enabled:
+    wo.save(update_fields=[
+        "status", "warehouse", "released_at", "cost_issued", "updated_at", "updated_by",
+    ])
+    if posts_to_ledger(wo.company):
         from accounting.services import PostingService
 
-        PostingService.post_work_order_release(wo, _issue_cost_total(wo), user=user)
+        PostingService.post_work_order_release(wo, issue_cost, user=user)
     return wo
 
 
 @transaction.atomic
 def complete_work_order(wo, user):
-    """B8-009 (documented limitation, not built here): this posts exactly one
-    MANUFACTURE_RECEIPT for wo.bom.product, loading 100% of issue_cost onto
-    the primary finished good. There is no model or code path for
-    by-products, co-products, or scrap yield — a real by-product must be
-    added via a separate manual stock adjustment with a manually-guessed
-    cost. Modeling this properly needs a BomOutput (product, qty,
-    cost-allocation %) concept and splitting issue_cost across it on
-    completion — a real feature build (new model + migration + UI), not a
-    quick fix, so it's flagged here rather than attempted speculatively."""
+    """One receipt of the full quantity for the primary finished good.
+
+    B8-009 note: by-products, co-products and scrap are handled by the document flow
+    (ProductionReceipt). This legacy path still loads 100 % of the issue cost onto the
+    primary finished good.
+    """
     wo = WorkOrder.objects.select_for_update().get(pk=wo.pk)
     from django.utils import timezone
 
@@ -303,14 +280,15 @@ def complete_work_order(wo, user):
         raise BusinessRuleError("Only released work orders can be completed.")
     warehouse = wo.warehouse or InventoryService.default_warehouse(wo.company)
     issue_cost = _issue_cost_total(wo)
-    if issue_cost > 0 and wo.qty:
-        unit_cost = (issue_cost / wo.qty).quantize(Decimal("0.0001"))
-    else:
-        unit_cost = Decimal("0")
-        for component, qty, _line in _component_requirements(wo):
-            unit_cost += (component.purchase_price or Decimal("0")) * qty
-        if wo.qty:
-            unit_cost = (unit_cost / wo.qty).quantize(Decimal("0.0001"))
+    if issue_cost <= 0:
+        # DEF-1 / D-6: no stock value to carry onto the finished good. Stock would appear from
+        # nowhere while the books showed nothing. Cost the components first.
+        raise rule(
+            "These materials have no cost on record, so the finished goods cannot be valued. "
+            "Add the cost to the materials (an opening-stock or purchase cost) and try again.",
+            "MFG_ZERO_COST_COMPLETE",
+        )
+    unit_cost = (issue_cost / wo.qty).quantize(Decimal("0.0001"))
     fg = wo.bom.product
     batch = getattr(wo, "batch", None)
     if fg.track_batch and batch is None:
@@ -377,15 +355,31 @@ def complete_work_order(wo, user):
         reference_type="work_order",
         reference_id=str(wo.id),
     )
+    # DEF-1: the books get exactly what went into stock (qty x 4dp unit cost, to the paisa);
+    # whatever the rounding left over goes to manufacturing variance so WIP ends at zero.
+    stock_value = money(unit_cost * wo.qty)
+    leftover = issue_cost - stock_value
     wo.status = WorkOrder.Status.COMPLETED
     wo.completed_at = wo.completed_at or gate_date
+    wo.qty_completed = wo.qty
+    wo.cost_received = stock_value
+    wo.cost_variance = leftover
     wo.updated_by = user
-    wo.save(update_fields=["status", "completed_at", "batch", "batch_no", "updated_at", "updated_by"])
-    gl_amount = issue_cost
-    if wo.company.accounting_enabled and issue_cost > 0:
+    wo.save(update_fields=[
+        "status", "completed_at", "batch", "batch_no", "qty_completed", "cost_received",
+        "cost_variance", "updated_at", "updated_by",
+    ])
+    trace.link_outputs(wo, product=fg, batch=batch, serials=wo.serial_numbers if fg.track_serial else None)
+    if posts_to_ledger(wo.company):
         from accounting.services import PostingService
 
-        PostingService.post_work_order_complete(wo, gl_amount, user=user)
+        PostingService.post_work_order_complete(wo, stock_value, user=user)
+        if leftover != 0:
+            PostingService.post_mfg_variance(
+                company=wo.company, source_type="WORK_ORDER", source_id=wo.id,
+                purpose="COMPLETE_ROUND", entry_date=wo.completed_at, amount=leftover,
+                narration=f"WO-{wo.id} rounding", user=user,
+            )
     return wo
 
 
@@ -431,7 +425,7 @@ def cancel_work_order(wo, user):
                 product=move.product,
                 warehouse=move.warehouse or warehouse,
                 batch=move.batch,
-                movement_type=MovementType.ADJUSTMENT,
+                movement_type=MovementType.MANUFACTURE_REVERSAL,
                 quantity=-abs(move.quantity),
                 unit_cost=move.unit_cost,
                 user=user,
@@ -464,7 +458,7 @@ def cancel_work_order(wo, user):
             product=move.product,
             warehouse=move.warehouse or warehouse,
             batch=move.batch,
-            movement_type=MovementType.ADJUSTMENT,
+            movement_type=MovementType.MANUFACTURE_REVERSAL,
             quantity=abs(move.quantity),
             unit_cost=move.unit_cost,
             user=user,
@@ -488,17 +482,18 @@ def cancel_work_order(wo, user):
                 warehouse=move.warehouse or warehouse,
                 numbers=all_comp_serials,
                 quantity=len(all_comp_serials),
-                source=SerialNumber.Status.SCRAPPED,
+                source=SerialNumber.Status.CONSUMED,
                 target=SerialNumber.Status.AVAILABLE,
                 user=user,
             )
             for cline in matching_lines:
                 cline.serial_numbers = []
                 cline.save(update_fields=["serial_numbers"])
-    if wo.company.accounting_enabled:
+    if posts_to_ledger(wo.company):
         from accounting.services import PostingService
 
         PostingService.reverse_work_order(wo, user=user)
+    trace.reverse_work_order(wo)
     wo.status = WorkOrder.Status.CANCELLED
     wo.updated_by = user
     wo.save(update_fields=["status", "updated_at", "updated_by"])

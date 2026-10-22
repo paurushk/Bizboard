@@ -1,0 +1,27 @@
+id: "QOS-0148"
+category: "BUSINESS_GAP"
+title: "Manufacturing: quality and job-work journeys, offline tablet, batch label and work order export (built)"
+persona: ["P1", "P2"]
+journey: "Run a production day, with the tablet on a poor connection, and print and export what the floor needs"
+problem: "Four smaller things were left out: browser journeys for quality and job work, the tablet working without a connection, a batch label for finished goods, and a spreadsheet export of the work order list. Closed: all four are built and tested; extra material also gained a real approval request."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "web/e2e-golden/manufacturing-golden.spec.ts has the quality hold-and-release and job-work out-and-back journeys; web/src/api/mfg.ts keeps taps with their time and a key while offline and resends them in order (the server replays by key); printing.batch_labels and the work order export action are covered by backend/tests/test_mfg_left_outs.py."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. Each is a convenience or a safety net; nothing posts wrongly without them."
+effort: "M"
+recommendation: "Done. The tablet queue and the browser journeys now guard these; nothing further is planned."
+test_required: "backend/tests/test_mfg_left_outs.py"
+guard_ref:
+  test: "backend/tests/test_mfg_left_outs.py"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-21"
+closed: "2026-10-21"

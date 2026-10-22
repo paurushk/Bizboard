@@ -1,5 +1,6 @@
 """Purchase Service — invoices, returns, status transitions (E3)."""
 
+from accounting.books import posts_to_ledger
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -479,7 +480,7 @@ class PurchaseService:
             # (restamp_fifo_layers_for_price_amend).
             record_edited_document_event(invoice=invoice, user=user, old_totals=old_totals)
             emit("purchase_invoice.edited", invoice=invoice, user=user, old_totals=old_totals)
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService
                 PostingService.adjust_purchase_invoice_postings(invoice, user=user)
 
@@ -658,7 +659,7 @@ class PurchaseService:
             variance += consumed_qty * delta
 
         variance = variance.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if variance == 0 or not getattr(invoice.company, "accounting_enabled", False):
+        if variance == 0 or not posts_to_ledger(invoice.company):
             return
         from accounting.services import PostingService
 
@@ -1264,7 +1265,7 @@ class PurchaseService:
                     user=user,
                 )
         if not is_tally_opening:
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService, apply_specified_person_tds
 
                 apply_specified_person_tds(invoice)
@@ -1303,7 +1304,7 @@ class PurchaseService:
             )
         else:
             # BB-000381: opening AP vs equity when books enabled.
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService
 
                 PostingService.post_opening_purchase_invoice(invoice, user)
@@ -1383,7 +1384,7 @@ class PurchaseService:
                 PaymentService.reverse_allocation(allocation=allocation, user=user)
 
         if invoice.status == PurchaseInvoice.Status.COMPLETED:
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.models import JournalEntry
                 from accounting.services import PostingService
 

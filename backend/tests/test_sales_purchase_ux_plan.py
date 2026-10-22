@@ -732,6 +732,7 @@ def test_record_payment_settlement_discount_does_not_change_gst(tenant_a):
     assert outstanding == obj.grand_total - Decimal("150.00")
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_settlement_discount_prorated_across_split_receipt_not_double_counted(tenant_a):
     """A single receipt's settlement_discount must be prorated across the
     invoices it's split-allocated to, in both the single-invoice and the

@@ -13,17 +13,22 @@ test('shared tickets stay empty, and suspend records a win-back after a reason',
 
   grantRolloutFlag(email, 'ENABLE_SUPPORT_TICKETS');
   await page.goto('/support/shared');
-  await expect(page.getByText('No shared tickets.')).toBeVisible();
+  await expect(page.getByText(/No tickets have been shared with you yet/)).toBeVisible();
 
   await page.goto('/settings/billing');
-  const suspend = page.getByRole('button', { name: 'Suspend' });
+  // Suspending lives in the collapsed Danger zone and asks for a reason, the company name and the password.
+  await page.getByRole('button', { name: 'Danger zone' }).click();
+  await page.getByRole('button', { name: 'Suspend workspace…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Suspend this workspace?' });
+  const suspend = dialog.getByRole('button', { name: 'Suspend workspace', exact: true });
   await expect(suspend).toBeDisabled();
-  await page.getByLabel('Churn reason').fill('Closed the shop');
+  await dialog.getByLabel('Churn reason').fill('Closed the shop');
+  await dialog.getByLabel(/Type the company name to confirm/).fill(companyName);
+  await dialog.getByLabel('Your password').fill('GoldenPath123!');
   await expect(suspend).toBeEnabled();
   const suspended = page.waitForResponse(
     (res) => res.url().includes('/billing/subscription/') && res.request().method() === 'POST',
   );
-  page.once('dialog', (dialog) => dialog.accept());
   await suspend.click();
   const response = await suspended;
   const raw = await response.text();

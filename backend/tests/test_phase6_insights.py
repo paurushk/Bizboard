@@ -370,6 +370,7 @@ def test_confirm_requires_message_id_not_client_payload(tenant_a):
     assert msg4.proposed_action is None
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_cash_tight_relative_silent(tenant_a):
     from purchases.models import PurchaseInvoice

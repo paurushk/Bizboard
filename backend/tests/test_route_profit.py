@@ -65,6 +65,7 @@ def _stop(route, customer, invoice, *, number):
     )
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "inventory.balance_equals_movements", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_profit_uses_taxable_total_and_abs_cogs(tenant_a):
     _enable(tenant_a.company)
@@ -90,6 +91,7 @@ def test_profit_uses_taxable_total_and_abs_cogs(tenant_a):
     assert done.stop_count == 2
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "inventory.balance_equals_movements", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_snapshot_is_frozen_after_complete(tenant_a):
     _enable(tenant_a.company)
@@ -110,6 +112,7 @@ def test_snapshot_is_frozen_after_complete(tenant_a):
     assert (done.realized_revenue, done.realized_cogs, done.realized_profit, done.invoiced_stop_count) == frozen
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "inventory.balance_equals_movements", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_planned_and_flag_off_stay_null(tenant_a):
     customer = make_customer(tenant_a.company)
@@ -145,6 +148,7 @@ def test_zero_stops_does_not_error():
     assert result.realized_profit == Decimal("-5.00")
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_cancelled_invoice_still_linked_is_excluded_from_revenue(tenant_a):
     """F1-004 regression: sales/services.py's invoice-cancel flow excludes
@@ -171,6 +175,7 @@ def test_cancelled_invoice_still_linked_is_excluded_from_revenue(tenant_a):
     assert done.stop_count == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "inventory.balance_equals_movements", "money.header_totals_identity", "projection.pdf_snapshot_differs_from_live_outstanding_after_return", reason="documents are built through the ORM with header totals that do not match their lines; invoice and return rows are built through the ORM; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_fully_returned_invoice_is_excluded_despite_unreduced_taxable_total(tenant_a):
     """F1-004 regression: return_service.py flips status to RETURNED on a full
@@ -193,6 +198,7 @@ def test_fully_returned_invoice_is_excluded_despite_unreduced_taxable_total(tena
     assert done.invoiced_stop_count == 0
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "inventory.balance_equals_movements", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie; stock balances or movements are written directly through the ORM")
 @pytest.mark.django_db
 def test_failed_stop_is_excluded_even_with_a_completed_invoice(tenant_a):
     """F1-004 regression: a driver marking a stop FAILED/RETURNED must not

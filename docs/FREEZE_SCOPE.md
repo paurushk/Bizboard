@@ -189,6 +189,15 @@ without TOTP does not receive a session). `MFA_ENFORCE_WAIVER` (must be `1` befo
 or staging may set `MFA_ENFORCE_FOR_MONEY_ROLES=0`). `ALLOW_BELOW_COST_SALES_DEFAULT` (default
 off: a bill priced under purchase cost is refused unless the company allows it or an Owner records a
 reason; a company setting overrides this process default, and the test settings turn it on). `E2E_RELAX_AUTH_THROTTLE` raises the login throttle for the golden-browser run and only takes effect when DEBUG is on.
+`AGENTS_GLOBAL_KILL` (default off: when on, every AI agent run on every company degrades to
+rules-only with no model call — the platform-wide emergency stop; per-company switching stays
+`ENABLE_AGENTS`). `AI_GLOBAL_KILL` (default off: when on, every model call — assistant, bill
+reading and agents — is refused before it is made). `AI_SPEND_FAIL_CLOSED` (default on: when the
+AI spend counters cannot be read, model calls are refused rather than left uncapped; daily caps are
+`AI_TENANT_DAILY_TOKEN_CAP` / `AI_PLATFORM_DAILY_TOKEN_CAP`, see `core/services/ai_spend.py`).
+`LEGAL_ACCEPTANCE_REQUIRED` (default on: sign-up needs the Terms / Privacy agreement and the web
+app asks for re-acceptance when `LEGAL_DOCUMENT_VERSIONS` changes; the test settings turn it off
+for the sign-up tests that exercise OTP rules).
 These control
 infra/runtime behaviour, not product surface. `GATEWAY_HOLDING_STATE` and
 `GSP_HTTP_SANDBOX` are sub-toggles of D3 / C2 respectively and follow those

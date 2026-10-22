@@ -18,8 +18,12 @@ evidence:
   - docs/FREEZE_SCOPE_COVERAGE.md 'P0/P1 issue-register sweep'
   - scripts/edge_tls_smoke.sh
   - docker-compose.yml (nginx service comment)
-  detail: Smoke script run against a real HTTPS host (pass) and a plain-HTTP host (correct fail); the
-    edge itself is still unbuilt, ops-owned.
+  detail: 'Smoke script run against a real HTTPS host (pass) and a plain-HTTP host (correct fail); the
+    edge itself is still unbuilt, ops-owned. 2026-10-22: the TLS edge exists as an option in the repo:
+    docker-compose.cloudflared.yml publishes nginx over HTTPS through a Cloudflare Tunnel, and nginx/default.conf
+    maps X-Forwarded-Proto and sends HSTS only on HTTPS hits. What is left is ops-only: create the tunnel
+    (an account and token), or choose another terminator, then run scripts/edge_tls_smoke.sh against the
+    real hostname (docs/ops/HOSTED_STAGING.md).'
 scoring:
   reach: 5
   severity: 5

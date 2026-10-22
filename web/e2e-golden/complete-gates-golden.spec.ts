@@ -65,8 +65,13 @@ test.describe('Complete-gate goldens (live Django)', () => {
     await page.goto('/settings/gst');
     await page.getByLabel('Out-of-Stock Billing Policy').click();
     await page.getByRole('option', { name: /Block Billing/i }).click();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.getByText('GST settings saved')).toBeVisible({ timeout: 15_000 });
+    // Block is the default for a new company; Save stays disabled when nothing changed.
+    const stock = page.getByRole('region', { name: 'Stock and tax rules' });
+    const save = stock.getByRole('button', { name: 'Save', exact: true });
+    if (await save.isEnabled()) {
+      await save.click();
+      await expect(stock.getByText('All changes saved')).toBeVisible({ timeout: 15_000 });
+    }
 
     await createProduct(page, {
       name: `CG03 Widget ${id}`,

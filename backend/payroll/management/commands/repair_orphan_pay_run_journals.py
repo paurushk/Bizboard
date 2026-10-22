@@ -25,6 +25,7 @@ class Command(BaseCommand):
             action="store_true",
             help="Reverse posted journals for companies whose books are on.",
         )
+        parser.add_argument("--company", type=int, help="Only this company id.")
 
     def handle(self, *args, **options):
         apply = bool(options["apply"])
@@ -34,6 +35,8 @@ class Command(BaseCommand):
                 purpose="PAYROLL",
                 status=JournalEntry.Status.POSTED,
             ).select_related("company")
+            if options.get("company"):
+                posted = posted.filter(company_id=options["company"])
             runs = []
             for entry in posted:
                 run = PayRun.objects.filter(pk=entry.source_id, company=entry.company).first()
@@ -44,6 +47,7 @@ class Command(BaseCommand):
                 self.stdout.write("No orphan payroll journals.")
                 return
             blocked = False
+            reversed_by_company: dict = {}
             for run, entry in runs:
                 line_bits = []
                 for line in entry.lines.select_related("account"):
@@ -61,6 +65,14 @@ class Command(BaseCommand):
                 if apply:
                     PostingService.reverse(entry, user=None)
                     self.stdout.write(f"reversed journal={entry.pk}")
+                    reversed_by_company.setdefault(run.company, []).append(entry.pk)
+            from core.repair import record_repair
+
+            for company, journals in reversed_by_company.items():
+                record_repair(
+                    command="repair_orphan_pay_run_journals", company=company, stdout=self.stdout,
+                    summary={"reversed_journals": journals},
+                )
             if blocked and apply:
                 self.stdout.write(
                     "Books are off for at least one company. Those journals were not reversed."

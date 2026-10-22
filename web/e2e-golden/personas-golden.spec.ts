@@ -37,6 +37,8 @@ async function registerAndLogin(request: import('@playwright/test').APIRequestCo
       registration_type: 'UNREGISTERED',
       otpCode,
       otp_code: otpCode,
+      acceptTerms: true,
+      accept_terms: true,
     },
   });
   expect(reg.ok(), `register failed: ${reg.status()} ${await reg.text()}`).toBeTruthy();

@@ -1,4 +1,5 @@
 
+from accounting.books import posts_to_ledger
 import csv
 import re
 from datetime import timedelta
@@ -188,7 +189,7 @@ class BankAccountViewSet(SettingsWriteMixin, CompanyScopedViewSet):
     def _post_opening_balance(self, bank_account):
         """PAY-14: keep the GL bank opening balance in step with the operational
         opening_balance field (idempotent; re-posts on an edit)."""
-        if not getattr(self.company, "accounting_enabled", False):
+        if not posts_to_ledger(self.company):
             return
         try:
             from accounting.services import PostingService
@@ -1960,7 +1961,7 @@ class BankStatementViewSet(CompanyScopedViewSet):
             )
             line.match_status = BankLineMatchStatus.MATCHED
             line.save(update_fields=["match_status", "updated_at"])
-            if self.company.accounting_enabled:
+            if posts_to_ledger(self.company):
                 bank_match.link_document_gl_line(self.company, match)
             # QOS-0043: learn this payee's narration pattern for future suggestions.
             from .recon import remember_payee
@@ -2265,7 +2266,7 @@ class ReconViewSet(viewsets.ViewSet):
                 )
             if line.match_status == BankLineMatchStatus.MATCHED:
                 raise BusinessRuleError("This statement line is already matched.")
-            if receipt.company.accounting_enabled:
+            if posts_to_ledger(receipt.company):
                 create_entry = JournalEntry.objects.filter(
                     company=self.company, source_type="CUSTOMER_RECEIPT", source_id=receipt.pk,
                     purpose="CREATE",

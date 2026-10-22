@@ -18,6 +18,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   createBom,
@@ -212,6 +213,9 @@ function BomsPageInner() {
                     />
                   </TableCell>
                   <TableCell align="right">
+                    <Button size="small" component={RouterLink} to={`/manufacturing/boms/${bom.id}`}>
+                      {t('mfg.recipe.open')}
+                    </Button>
                     <Button size="small" onClick={() => openEdit(bom)} disabled={writesBlocked}>
                       {t('common.edit')}
                     </Button>

@@ -300,6 +300,8 @@ export interface Company {
     paymentsDone: boolean;
     catalogDone: boolean;
     activationDone: boolean;
+    /** Newest draft bill while no bill is finalised yet (ONB-CR-001). */
+    firstBillDraftId?: number | null;
     started: boolean;
   };
   itemCustomFieldDefs?: ItemCustomFieldDef[];

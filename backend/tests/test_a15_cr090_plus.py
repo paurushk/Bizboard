@@ -52,6 +52,7 @@ def test_cr094_delivery_challan_rejects_cross_company_sales_order(tenant_a, tena
     assert "sales_order" in str(resp.data).lower() or "invalid" in str(resp.data).lower()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_cr100_purchase_invoice_outstanding_ignores_receipt_allocations(tenant_a):
     product = make_product(tenant_a.company, purchase_price="100", gst_rate="0")
     supplier = make_supplier(tenant_a.company)
@@ -156,6 +157,9 @@ def test_cr098_boe_cancel_unlinks_draft_purchase(tenant_a):
     assert boe.status == BillOfEntry.Status.CANCELLED
 
 
+# Builds ledger rows straight through the ORM with no documents behind them, so the
+# docs-vs-ledger and empty-entry invariants (WP-F4 / WP-F6) are expected to flag it.
+@pytest.mark.no_invariant_check
 def test_cr103_empty_posted_je_not_treated_as_done(tenant_a):
     from accounting.management.commands.backfill_missing_postings import _has_je
 

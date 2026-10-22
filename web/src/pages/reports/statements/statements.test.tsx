@@ -132,6 +132,28 @@ describe('Trial Balance', () => {
     expect(document.body.textContent).not.toMatch(/100\.00/);
   });
 
+  it('lists the activities that are not in these books yet (WP-F3)', async () => {
+    getReport.mockResolvedValue({
+      ...tb,
+      ledgerGaps: [
+        { flag: 'ENABLE_FIXED_ASSETS', covers: ['Fixed asset'], note: 'server note' },
+        { flag: 'SOME_NEW_FLAG', covers: ['New thing'], note: 'Server explains the new gap' },
+      ],
+    });
+    wrap(<TrialBalancePage />);
+    await screen.findByText('Cash');
+    expect(screen.getByText('Not in these books yet')).toBeTruthy();
+    expect(screen.getByText(/Fixed assets and depreciation/)).toBeTruthy();
+    expect(screen.getByText('Server explains the new gap')).toBeTruthy();
+  });
+
+  it('shows no gap note when every posting is on', async () => {
+    getReport.mockResolvedValue({ ...tb, ledgerGaps: [] });
+    wrap(<TrialBalancePage />);
+    await screen.findByText('Cash');
+    expect(screen.queryByTestId('ledger-gaps')).toBeNull();
+  });
+
   it('opens the ledger lines behind an account from its code', async () => {
     getReport.mockResolvedValue(tb);
     wrap(<TrialBalancePage />);

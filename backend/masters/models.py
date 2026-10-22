@@ -302,6 +302,23 @@ class Product(SoftDeleteFields, CompanyScopedModel):
     needs_review = models.BooleanField(default=False)
     track_batch = models.BooleanField(default=False)
     track_serial = models.BooleanField(default=False)
+
+    class MfgRole(models.TextChoices):
+        RAW = "RAW", "Raw material"
+        SEMI_FINISHED = "SEMI_FINISHED", "Semi-finished"
+        FINISHED = "FINISHED", "Finished good"
+        PACKING = "PACKING", "Packing material"
+        CONSUMABLE = "CONSUMABLE", "Consumable"
+        SCRAP = "SCRAP", "Scrap"
+        BY_PRODUCT = "BY_PRODUCT", "By-product"
+
+    # MFG-05: what this item is to a manufacturer. Blank = not classified. Used for default
+    # godowns, stock-by-stage reports and filters; never changes any posting on its own.
+    mfg_role = models.CharField(max_length=16, choices=MfgRole.choices, blank=True, default="", db_index=True)
+    # MFG-20: receive this item into quarantine until an inspection releases it.
+    receive_into_quarantine = models.BooleanField(default=False)
+    # MFG-21: a goods receipt for this item cannot be completed without an inspection.
+    requires_incoming_inspection = models.BooleanField(default=False)
     # D15 / QOS-0027: gates the ARCH-05 statutory-licence guard — a no-op for
     # every product unless explicitly set to DRUG or FOOD.
     regulated_category = models.CharField(

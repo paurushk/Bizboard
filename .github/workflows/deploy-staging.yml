@@ -1,0 +1,112 @@
+# WP-B2 / SR1-09: deploy one commit to hosted staging, or roll back to the previous deploy.
+#
+# Needs repository secrets (set by a human once the host exists, docs/ops/HOSTED_STAGING.md):
+#   STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_KEY (private key), STAGING_DIR (repo checkout on
+#   the host, with .env holding APP_DB_USER etc.), STAGING_BASE_URL, STAGING_SMOKE_EMAIL,
+#   STAGING_SMOKE_PASSWORD.
+# Images come from cd.yml (ghcr.io/<repo>/bizboard-api:<sha>); this never builds on the host.
+name: deploy-staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy or rollback"
+        required: true
+        default: deploy
+        type: choice
+        options: [deploy, rollback]
+      sha:
+        description: "Commit SHA to deploy (its CD images must exist). Ignored for rollback."
+        required: false
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    env:
+      SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+      SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+      STAGING_DIR: ${{ secrets.STAGING_DIR }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+      - name: Refuse without a configured host
+        run: |
+          if [ -z "$SSH_HOST" ] || [ -z "$STAGING_DIR" ]; then
+            echo "::error::STAGING_SSH_HOST / STAGING_DIR are not set. Hosted staging is not provisioned yet (WP-B1)."
+            exit 1
+          fi
+      - name: SSH key
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Resolve image digests for the commit
+        if: inputs.action == 'deploy'
+        id: img
+        run: |
+          prefix="ghcr.io/${GITHUB_REPOSITORY,,}"
+          sha="${{ inputs.sha }}"
+          test -n "$sha" || { echo "::error::sha is required to deploy"; exit 1; }
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          api=$(docker buildx imagetools inspect "$prefix/bizboard-api:$sha" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          web=$(docker buildx imagetools inspect "$prefix/bizboard-web:$sha" --format '{{json .Manifest.Digest}}' | tr -d '"')
+          echo "api=$prefix/bizboard-api@$api" >> "$GITHUB_OUTPUT"
+          echo "web=$prefix/bizboard-web@$web" >> "$GITHUB_OUTPUT"
+      - name: Deploy (records the previous digests for rollback)
+        if: inputs.action == 'deploy'
+        run: |
+          start=$(date +%s)
+          ssh -i ~/.ssh/id_deploy "$SSH_USER@$SSH_HOST" bash -s -- \
+            "${{ steps.img.outputs.api }}" "${{ steps.img.outputs.web }}" "$STAGING_DIR" <<'REMOTE'
+          set -euo pipefail
+          API="$1"; WEB="$2"; cd "$3"
+          compose() { docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+          if [ -f .deploy/current ]; then cp .deploy/current .deploy/previous; fi
+          mkdir -p .deploy
+          export BIZBOARD_API_IMAGE="$API" BIZBOARD_WEB_IMAGE="$WEB"
+          compose pull api worker beat web
+          compose --profile migrate run --rm migrate
+          scripts/db-app-role.sh .env docker-compose.yml docker-compose.prod.yml
+          compose up -d api worker beat web
+          printf 'BIZBOARD_API_IMAGE=%s\nBIZBOARD_WEB_IMAGE=%s\n' "$API" "$WEB" > .deploy/current
+          REMOTE
+          echo "deploy took $(( $(date +%s) - start )) s"
+      - name: Roll back to the previous deploy
+        if: inputs.action == 'rollback'
+        run: |
+          start=$(date +%s)
+          ssh -i ~/.ssh/id_deploy "$SSH_USER@$SSH_HOST" bash -s -- "$STAGING_DIR" <<'REMOTE'
+          set -euo pipefail
+          cd "$1"
+          test -f .deploy/previous || { echo "no previous deploy recorded"; exit 1; }
+          # Migrations are forward-only (docs/ops/FORWARD_FIX.md): roll back the images, not the schema.
+          set -a; . .deploy/previous; set +a
+          export BIZBOARD_API_PREVIOUS_IMAGE="$BIZBOARD_API_IMAGE" BIZBOARD_WEB_PREVIOUS_IMAGE="$BIZBOARD_WEB_IMAGE"
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.rollback.yml up -d api worker beat web
+          cp .deploy/current .deploy/rolled-back-from
+          cp .deploy/previous .deploy/current
+          REMOTE
+          echo "rollback took $(( $(date +%s) - start )) s"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Post-deploy smoke
+        env:
+          STAGING_BASE_URL: ${{ secrets.STAGING_BASE_URL }}
+          STAGING_EMAIL: ${{ secrets.STAGING_SMOKE_EMAIL }}
+          STAGING_PASSWORD: ${{ secrets.STAGING_SMOKE_PASSWORD }}
+        run: |
+          python scripts/post_deploy_smoke.py --base-url "$STAGING_BASE_URL" --email "$STAGING_EMAIL" --password "$STAGING_PASSWORD"

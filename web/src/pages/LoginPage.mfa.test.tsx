@@ -21,6 +21,16 @@ vi.mock('@/auth/AuthContext', () => ({
   }),
 }));
 
+const mfaApi = vi.hoisted(() => ({
+  startMfaSetup: vi.fn(),
+  confirmMfa: vi.fn(),
+}));
+
+vi.mock('@/api/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/auth')>();
+  return { ...actual, startMfaSetup: mfaApi.startMfaSetup, confirmMfa: mfaApi.confirmMfa };
+});
+
 function renderLogin() {
   return render(
     <MemoryRouter initialEntries={['/login']}>
@@ -114,6 +124,30 @@ describe('LoginPage two-step verification', () => {
     expect(await screen.findByText(/set up two-step verification/i)).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.queryByLabelText(/^password/i)).toBeNull();
+  });
+
+  it('ONB-CR-003: forced enrolment shows the QR, then brings the sign-in form back', async () => {
+    auth.login.mockRejectedValue(new MfaEnrollmentRequiredError('enrol-1'));
+    mfaApi.startMfaSetup.mockResolvedValue({
+      secret: 'KEY123',
+      otpauthUri: 'otpauth://x',
+      qrPng: 'data:image/png;base64,AAA',
+    });
+    mfaApi.confirmMfa.mockResolvedValue(['AAAAA-11111', 'BBBBB-22222']);
+    const { container } = renderLogin();
+    await signInWithPassword();
+    await userEvent.click(await screen.findByRole('button', { name: t('auth.mfa.enable') }));
+    await waitFor(() => expect(mfaApi.startMfaSetup).toHaveBeenCalledWith('enrol-1'));
+    expect(container.querySelector('img[src="data:image/png;base64,AAA"]')).not.toBeNull();
+    await userEvent.type(screen.getByLabelText(t('auth.mfa.enterCode')), '123456');
+    await userEvent.click(screen.getByRole('button', { name: t('auth.mfa.confirm') }));
+    expect(await screen.findByText('AAAAA-11111')).toBeTruthy();
+    // codes on screen: the sign-in form stays hidden until they are acknowledged
+    expect(screen.queryByLabelText(/^password/i)).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: t('auth.mfa.recoveryDone') }));
+    expect(screen.getByText(t('auth.mfa.enrolDone'))).toBeTruthy();
+    expect(await screen.findByLabelText(/^password/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeTruthy();
   });
 
   it('a genuine login failure still shows an error, not the code step', async () => {

@@ -14,8 +14,11 @@ from __future__ import annotations
 from . import (  # noqa: F401 — import = register
     audit,
     gl,
+    gl_parity,
     gst,
     inventory,
+    jobwork,
+    manufacturing,
     money,
     numbering,
     projection,

@@ -332,3 +332,45 @@ def test_pack_adds_four_flags_and_does_not_rewrite_a_hand_edit(tenant_a):
     apply_pack(tenant_a.company, "trade", answers, tenant_a.owner)
     tenant_a.company.refresh_from_db()
     assert tenant_a.company.feature_flags["ENABLE_GSTR"] is False
+
+
+def test_draft_first_bill_stops_forcing_setup_but_keeps_activation_open(tenant_a):
+    """ONB-CR-001: the wizard ends by saving a draft bill. The owner must not be bounced back
+    into the wizard from the dashboard, while activation still waits for a finalised bill."""
+    company = tenant_a.company
+    company.tax_profile_confirmed_at = timezone.now()
+    company.address = "12 Shop Street"
+    company.save(update_fields=["tax_profile_confirmed_at", "address"])
+    make_product(company, sku="DRAFT-FB")
+    assert should_force_setup(company=company, is_owner=True, wizard_enabled=True) is True
+
+    draft = SalesInvoice.objects.create(
+        company=company, customer=make_customer(company), status=SalesInvoice.Status.DRAFT,
+    )
+    derived = derive_onboarding(company)
+    assert derived["status"] == "IN_PROGRESS"
+    assert derived["step"] == "first_bill"
+    assert derived["activation_done"] is False
+    assert derived["first_bill_draft_id"] == draft.id
+    assert should_force_setup(company=company, is_owner=True, wizard_enabled=True) is False
+
+    draft.status = SalesInvoice.Status.COMPLETED
+    draft.save(update_fields=["status"])
+    done = derive_onboarding(company)
+    assert done["status"] == "COMPLETED"
+    assert done["first_bill_draft_id"] is None
+
+
+def test_draft_bill_does_not_skip_earlier_setup_steps(tenant_a):
+    """ONB-CR-001: only the last step is satisfied by a draft; a company still missing its tax
+    profile is sent to the wizard even if a draft bill exists."""
+    company = tenant_a.company
+    company.tax_profile_confirmed_at = None
+    company.address = "12 Shop Street"
+    company.onboarding_dismissed_at = None
+    company.save(update_fields=["tax_profile_confirmed_at", "address", "onboarding_dismissed_at"])
+    SalesInvoice.objects.create(
+        company=company, customer=make_customer(company), status=SalesInvoice.Status.DRAFT,
+    )
+    assert derive_onboarding(company)["step"] == "tax"
+    assert should_force_setup(company=company, is_owner=True, wizard_enabled=True) is True

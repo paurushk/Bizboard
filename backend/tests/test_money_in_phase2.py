@@ -357,6 +357,7 @@ def test_oldest_first_uses_cash_plus_discount_to_settle_a_bill_exactly(tenant_a)
     assert _outstanding(invoice) == Decimal("0")
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_direct_allocation_rows_get_the_same_discount_slice(tenant_a):
     """Any creator of an allocation row (an import, a fixture) gets correct figures."""
     customer = make_customer(tenant_a.company)

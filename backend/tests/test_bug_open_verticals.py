@@ -177,8 +177,13 @@ def test_bug_mfg_006_bom_cycle_is_refused(tenant_a):
     assert cycle.status_code == 400, cycle.data
 
 
+@pytest.mark.invariant_skip("manufacturing.wip_matches_gl", reason="work orders are built through the ORM as legacy data the ledger never saw")
 def test_bug_mfg_001_issue_posts_wip_only_when_books_are_on(tenant_a):
     company = tenant_a.company
+    # Shadow books (WP-F2): "books off" now still posts. This checks a legacy company whose
+    # documents were never posted, i.e. post_ledger off as well.
+    company.post_ledger = False
+    company.save(update_fields=["post_ledger"])
     finished = make_product(company, sku="WIP-FG")
     component = make_product(company, sku="WIP-COMP", purchase_price="80")
     add_stock(tenant_a, component, "10", unit_cost="80")

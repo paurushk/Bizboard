@@ -187,6 +187,7 @@ def test_cashflow_horizon_validation(tenant_a):
     assert tenant_a.client.get("/api/v1/insights/cashflow-forecast/?horizon=90").status_code == 200
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_cashflow_bills_due_today_and_overdue_land_on_day_one(tenant_a):
     today = timezone.localdate()
@@ -199,6 +200,7 @@ def test_cashflow_bills_due_today_and_overdue_land_on_day_one(tenant_a):
     assert cf["meta"]["overdue_payables"] == "3000.00"
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_cashflow_range_is_ordered_even_when_cash_is_negative(tenant_a):
     today = timezone.localdate()

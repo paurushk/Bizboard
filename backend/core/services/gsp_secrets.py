@@ -9,16 +9,23 @@ import logging
 from typing import Any
 
 from django.conf import settings
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken, MultiFernet
 
 logger = logging.getLogger(__name__)
 
 
-def _fernet() -> Fernet:
+def gsp_keys() -> list[str]:
+    """WP-B3: GSP_FERNET_KEY may list several keys, newest first ("new,old"). The first encrypts;
+    every key decrypts, so rotation is: prepend the new key, run rotate_encrypted_fields, drop the old."""
     raw = getattr(settings, "GSP_FERNET_KEY", None) or ""
-    if raw:
-        key = raw.encode("utf-8") if isinstance(raw, str) else raw
-        return Fernet(key)
+    raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    return [k.strip() for k in raw.split(",") if k.strip()]
+
+
+def _fernet() -> MultiFernet:
+    keys = gsp_keys()
+    if keys:
+        return MultiFernet([Fernet(k.encode("utf-8")) for k in keys])
     env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
     # BB-000248 / BB-000313: never derive Fernet from SECRET_KEY outside local DEBUG.
     if env in ("production", "staging") or not getattr(settings, "DEBUG", True):
@@ -28,7 +35,7 @@ def _fernet() -> Fernet:
             "GSP_FERNET_KEY is required when DEBUG=False or in production/staging."
         )
     digest = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
-    return Fernet(base64.urlsafe_b64encode(digest))
+    return MultiFernet([Fernet(base64.urlsafe_b64encode(digest))])
 
 
 def encrypt_gsp_credentials(payload: dict[str, Any] | None) -> str:

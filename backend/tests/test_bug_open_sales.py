@@ -46,6 +46,7 @@ def _posted_invoice(company, customer, total):
     )
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_bug_sales_014_paid_filter_ignores_reversed_receipts_and_counts_credit_notes(tenant_a):
     customer = make_customer(tenant_a.company, name="Paid Filter")
     voided = _posted_invoice(tenant_a.company, customer, "100")
@@ -293,6 +294,7 @@ def test_bug_sales_019_portal_complaints_are_paginated(tenant_a):
     assert len(capped.data["complaints"]) <= 250
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_bug_sales_020_portal_pdf_refuses_draft_and_cancelled(tenant_a, monkeypatch):
     customer = make_customer(tenant_a.company, name="PDF Buyer")
     flags = dict(tenant_a.company.feature_flags or {})

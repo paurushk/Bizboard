@@ -1,0 +1,26 @@
+id: "QOS-0151"
+category: "BUSINESS_GAP"
+title: "Agents: founder decisions that block the first pilot (provider, data policy, WhatsApp, pilot customer, packaging)"
+persona: ["P1"]
+journey: "Use the business agents on real work"
+problem: "The agents run without a model, and the model path has only been exercised against a scripted fake. Choosing a provider, deciding what data may leave the company, choosing the WhatsApp provider for the later send path, naming a pilot customer and deciding how agents are packaged are decisions only the founder can make. Until then nothing can be tried with real traffic."
+evidence:
+  strength: "heuristic"
+  source: ["docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md"]
+  detail: "docs/roadmap/AGENTIC_AI_ROADMAP_2026-10-21.md section 7 lists the six open decisions; docs/ops/AGENTS_RUNBOOK.md explains how to switch an agent on for one company."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human or data step. Every agent stays off for every company until it is granted."
+effort: "S"
+recommendation: "Decide the six items in section 7 of the roadmap, run the provider bake-off on the same fixtures, record the choice, then enable ENABLE_AGENTS and the agent flags for the pilot company only. Tell the pilot owner about the 20 percent collections holdout before turning AGENT_COLLECTIONS_HOLDOUT on."
+test_required: "backend/tests/agents/test_platform_contract.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

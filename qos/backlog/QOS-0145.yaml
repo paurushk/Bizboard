@@ -1,0 +1,26 @@
+id: "QOS-0145"
+category: "RELIABILITY_TRUST"
+title: "Manufacturing migrations: run them on a copy of real data before any company is switched on"
+persona: ["P1"]
+journey: "Upgrade a company that already has recipes and work orders"
+problem: "Three migrations change the manufacturing tables: they number the existing recipes as versions, copy existing work orders onto the new fields and mark consumed serial numbers. They were tested on empty and small test databases and on Postgres through the test suite with migrations skipped, never on a copy of a real company's data."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "Run only against the test databases. The data migration is manufacturing/migrations/0012_mfg_phase0_data.py; it must be safe to run twice and must leave every existing work order in the same status with the same stock."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "S"
+recommendation: "Restore a recent backup into a scratch Postgres database, run migrate, then run manage.py check_invariants and compare the work order and stock counts before and after."
+test_required: "backend/tests/test_mfg_phase0.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

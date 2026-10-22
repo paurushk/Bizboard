@@ -86,5 +86,11 @@ class Command(BaseCommand):
         )
         if apply:
             self.stdout.write(f"Posted {posted}; left alone {skipped}.")
+            from core.repair import record_repair
+
+            record_repair(
+                command="backfill_stock_adjustment_journals", company=company, stdout=self.stdout,
+                summary={"posted": posted, "skipped": skipped, "losses": loss, "gains": gain},
+            )
         else:
             self.stdout.write("Dry run. Nothing posted. Add --apply to post.")

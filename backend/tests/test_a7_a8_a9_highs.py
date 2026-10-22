@@ -224,6 +224,7 @@ def test_cr016_purchase_invoice_list_balance_nets_credit_note(tenant_a):
     assert list_balance == detail_balance == Decimal("750.00")
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_cr061_aging_ignores_supplier_payment_on_sales_invoice(tenant_a):
     product = make_product(tenant_a.company, gst_rate="0")
     add_stock(tenant_a, product, "2")
@@ -380,6 +381,7 @@ def test_cr034_cr035_purchase_cancel_guards(tenant_a):
     assert "credit" in str(blocked_cn.data).lower() or "debit" in str(blocked_cn.data).lower()
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_cr083_purchase_credit_note_reverses_tds_payable_not_advance(books):
     supplier = make_supplier(books.company)
     product = make_product(books.company, purchase_price="1000", selling_price="1200", gst_rate="18")

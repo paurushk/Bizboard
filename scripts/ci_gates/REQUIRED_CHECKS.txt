@@ -21,6 +21,7 @@ e2e-golden
 docker
 image-smoke       # advisory  — F-PORT-01: builds the API image and smokes it (python version, check --deploy, migrate, health)
 load-harness      # advisory  — presence check only, not a soak
+migration-ledger-gate # merge blocker — WP-F8: migrations must keep every seeded tenant's books clean
 postgres-rls      # merge blocker — D16 (2026-09-12): promoted from advisory. Test
                   # selection widened to tests/test_rls_coverage.py + tests/tenancy/
                   # (was 2 -k-filtered files; the RLS-policy-forced check never ran).

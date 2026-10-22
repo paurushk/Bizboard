@@ -135,6 +135,9 @@ def test_contract_and_recurring_sweeps_set_rls_per_company(tenant_a, monkeypatch
         seen.append(cid)
 
     monkeypatch.setattr("core.rls.set_rls_company", _set)
+    # WP-E1: the contract sweep visits only companies that have contracts; this one has none,
+    # so hand it in to check that the visit runs under the company's own RLS context.
+    monkeypatch.setattr("core.rls.company_ids_having", lambda *a, **k: [tenant_a.company.id])
     refresh_contract_statuses()
     assert tenant_a.company.id in seen
     assert seen[-1] is None

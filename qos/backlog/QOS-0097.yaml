@@ -11,8 +11,13 @@ evidence:
   source:
   - docs/UX_ACTION_ITEMS.md
   - docs/ux/L2_finding_ledger.csv
-  detail: Ledger rows CLAIM-1, CLAIM-2, CLAIM-3, UX-N17, UX-N19, UX-N20, UX-011, UX-019, UX-M14. Nothing
-    here is known to be wrong. It has not been checked with real data volumes or a real backend.
+  detail: 'Ledger rows CLAIM-1, CLAIM-2, CLAIM-3, UX-N17, UX-N19, UX-N20, UX-011, UX-019, UX-M14. Nothing
+    here is known to be wrong. It has not been checked with real data volumes or a real backend. 2026-10-22:
+    the whole golden suite (169 tests) ran against a real Django backend and Postgres 17. All 25 first-run
+    failures were traced: stale specs after the settings redesign, two helper bugs, an accounting-settings
+    race (fixed in the product), a dev-server connection leak (fixed) and the terms dialog for invited
+    staff; every one passed on rerun. The surface crawl over 150 routes found no serious or critical axe
+    issue. What stays human is the per-claim sign-off in the ledger and Lighthouse and INP on hosted staging.'
 scoring:
   reach: 4
   severity: 3

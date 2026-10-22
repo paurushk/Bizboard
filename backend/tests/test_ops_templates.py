@@ -100,7 +100,9 @@ def test_postgres_statement_timeouts_are_configured():
     assert "idle_in_transaction_session_timeout=60000" in src
     assert "CONN_HEALTH_CHECKS" in src
     pgb = (ROOT / "deploy" / "pgbouncer.ini").read_text(encoding="utf-8")
-    assert "pool_mode = transaction" in pgb
+    # SR0-06: session-level RLS GUCs (core/rls.py) are only safe behind session pooling.
+    assert "pool_mode = session" in pgb
+    assert "pool_mode = transaction\n" not in pgb
     assert "CONN_MAX_AGE" in pgb or "CONN_MAX_AGE" in (ROOT / "docs" / "ops" / "POSTGRES.md").read_text(
         encoding="utf-8"
     )

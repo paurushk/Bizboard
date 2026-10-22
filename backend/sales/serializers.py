@@ -1,3 +1,4 @@
+from accounting.books import posts_to_ledger
 from decimal import Decimal
 
 from drf_spectacular.utils import extend_schema_field
@@ -631,7 +632,7 @@ class SalesInvoiceSerializer(SourceQuotationsMixin, CompanyScopedSerializerMixin
                 with transaction.atomic():
                     SalesService.set_items(instance, payload, user)
                     # set_items already reversed+reposted COMPLETE via adjust_sales_invoice_postings.
-                    if instance.company.accounting_enabled:
+                    if posts_to_ledger(instance.company):
                         from decimal import Decimal as D
 
                         from accounting.models import JournalEntry, JournalLine

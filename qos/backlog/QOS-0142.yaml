@@ -1,0 +1,26 @@
+id: "QOS-0142"
+category: "RELIABILITY_TRUST"
+title: "Manufacturing job work: CA review of the goods-sent-out rules and the ITC-04 return"
+persona: ["P1"]
+journey: "Send goods to a job worker, take them back and file ITC-04"
+problem: "Job work keeps goods sent out as our stock at their cost, raises a challan, flags goods out beyond the time limit (one year for raw material, three for machinery), writes a second challan when a supplier ships straight to the job worker, keeps a customer's goods in a separate book, and prepares the ITC-04 tables 4, 5A, 5B and 5C by half-year or year. None of this has been read by a chartered accountant, and the filing rules change."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "Built and tested by the engineers only (backend/tests/test_mfg_jobwork.py). The time limits, the treatment of goods sent straight from the supplier and of scrap kept by the job worker, and the table layout against the current ITC-04 form are what to confirm. The screen prepares the tables; it does not file."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "S"
+recommendation: "A CA checks the job-work rules and the ITC-04 export against the current form and a real half-year of challans on a demo company, and signs off or returns changes. Do this before any company is granted the job-work switch."
+test_required: "backend/tests/test_mfg_jobwork.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

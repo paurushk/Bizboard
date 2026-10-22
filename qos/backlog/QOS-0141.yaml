@@ -1,0 +1,26 @@
+id: "QOS-0141"
+category: "RELIABILITY_TRUST"
+title: "Manufacturing: CA sign-off on how production cost is worked out and posted"
+persona: ["P1"]
+journey: "Run a factory month and close it with books that are on"
+problem: "Manufacturing now values output from the material issued: partial outputs are costed at an estimate and the final output takes the real remaining cost; co-products share cost by a set percentage, by-products and scrap come off at their recovery value, and labour and overhead are added to the cost of the goods. With the costing switch on it posts to inventory, work in progress, labour absorbed, overhead absorbed, manufacturing variance and scrap loss accounts. A chartered accountant has not reviewed any of it."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "Built and tested by the engineers only, under both weighted-average and FIFO valuation (backend/tests/test_mfg_costing.py, test_mfg_documents.py). The accounts, the sign of each posting and the rule that the closing difference goes to the variance account are the points to confirm. The costing switch is off for every company until granted."
+scoring:
+  reach: 2
+  severity: 3
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "S"
+recommendation: "A CA reads docs/MANUFACTURING_IMPLEMENTATION_PLAN.md section 4.14 and the completion record, runs the demo company (manage.py seed_manufacturing_demo, then simulate_manufacturing_month) with the costing switch on, and signs off the accounts and journals or returns changes. Do this before any company is granted the costing switch. Include the stock revaluation (Dr/Cr Inventory 1400 against Manufacturing Variance 5420 when a standard cost changes, Reports > Standard costs) in the same review."
+test_required: "backend/tests/test_mfg_costing.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

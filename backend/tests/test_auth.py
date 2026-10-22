@@ -1020,3 +1020,51 @@ def test_seed_demo_refuses_staging_and_non_debug():
     with override_settings(DJANGO_ENV="development", DEBUG=False):
         with pytest.raises(CommandError, match="refuses"):
             call_command("seed_demo")
+
+
+def test_register_with_taken_phone_says_so_after_the_code_is_proven(tenant_a):
+    """ONB-CR-006: a verified new email with someone else's mobile used to get the generic 200
+    without an account being made, so the user was sent to sign in and failed with 401."""
+    from accounts.models import User
+    from accounts.otp_utils import phone_taken
+
+    assert tenant_a.owner.phone and phone_taken(phone=tenant_a.owner.phone)
+    client = APIClient()
+    payload = {
+        "company_name": "Phone Clash Mart",
+        "email": "phoneclash@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "phone": tenant_a.owner.phone,
+    }
+    code = client.post(
+        "/api/v1/auth/register/otp/request/", {"email": payload["email"]}, format="json",
+    ).data["debug_code"]
+
+    clash = client.post("/api/v1/auth/register/", {**payload, "otp_code": code}, format="json")
+    assert clash.status_code == 400
+    assert "phone" in clash.data["error"]["details"]
+    assert not User.objects.filter(email__iexact=payload["email"]).exists()
+
+    # The code was not burnt: fixing the number with the same code creates the account.
+    fixed = client.post(
+        "/api/v1/auth/register/", {**payload, "phone": "", "otp_code": code}, format="json",
+    )
+    assert fixed.status_code == 200
+    assert User.objects.filter(email__iexact=payload["email"]).exists()
+
+
+def test_register_taken_phone_with_wrong_code_reveals_nothing_about_the_phone(tenant_a):
+    """ONB-CR-006: without the email code the caller only learns the code is wrong."""
+    client = APIClient()
+    payload = {
+        "company_name": "Probe Mart",
+        "email": "probe@mart.test",
+        "password": "StrongPass123!",
+        "state": "Karnataka",
+        "phone": tenant_a.owner.phone,
+    }
+    client.post("/api/v1/auth/register/otp/request/", {"email": payload["email"]}, format="json")
+    resp = client.post("/api/v1/auth/register/", {**payload, "otp_code": "000000"}, format="json")
+    assert resp.status_code == 400
+    assert "phone" not in str(resp.data).lower()

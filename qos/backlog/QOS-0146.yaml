@@ -1,0 +1,27 @@
+id: "QOS-0146"
+category: "BUSINESS_GAP"
+title: "Manufacturing standard costing: the period-end revaluation run (built)"
+persona: ["P1"]
+journey: "Change a standard cost and revalue the finished goods on hand"
+problem: "A changed standard cost applied only to new receipts; stock already on hand kept its old value. Closed: a preview-then-post revaluation now re-prices stock on hand to the standard in force and books the difference."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "backend/manufacturing/services/revaluation.py takes each lot out and back in through the stock ledger (ADJUSTMENT movements tagged mfg_revalue), so the running cost and FIFO layers agree, and posts one Inventory against Manufacturing Variance journal. Reversal is refused once a lot has moved. Both valuation methods are tested."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "M"
+recommendation: "Done. Switch the sub-module on for a real company only after the CA sign-off in QOS-0141, because it writes to the books."
+test_required: "backend/tests/test_mfg_revaluation.py"
+guard_ref:
+  test: "backend/tests/test_mfg_revaluation.py"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-21"
+closed: "2026-10-21"

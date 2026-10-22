@@ -6,5 +6,5 @@ On managed PG failover:
 
 1. DNS/IP of `DATABASE_URL` must follow the new primary (vendor behaviour).
 2. Bounce `api` `worker` `beat` if they hold dead sockets longer than health checks.
-3. With PgBouncer transaction pooling, set `CONN_MAX_AGE=0` first (`docs/ops/POSTGRES.md`).
+3. Behind PgBouncer (session pooling, see `docs/ops/POSTGRES.md`), keep `CONN_MAX_AGE=0`.
 4. Measure RTO; Human signs G7/G13. Do not invent a second AZ in compose.

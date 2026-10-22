@@ -34,6 +34,7 @@ import {
   snoozeAttentionRow,
 } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
+import { AgentPrepareButton } from '@/components/agents/AgentPrepareButton';
 import { AttentionRowActions } from '@/components/attention/AttentionRowActions';
 import { attentionActionLabel, attentionReason, attentionTitle } from '@/components/attention/rowText';
 import { DisclaimerBanner, MoneyText, PageHeader, SeverityChip } from '@/components/insights';
@@ -261,6 +262,8 @@ export function AttentionPage() {
   );
 
   const renderActions = (row: AttentionRow) => (
+    <>
+    {setAside ? null : <AgentPrepareButton code={row.code} dedupeKey={row.dedupeKey} />}
     <AttentionRowActions
       row={row}
       setAside={setAside}
@@ -293,6 +296,7 @@ export function AttentionPage() {
         }
       }}
     />
+    </>
   );
 
   function changeFilter(apply: () => void) {

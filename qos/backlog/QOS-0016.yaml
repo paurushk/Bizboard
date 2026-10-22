@@ -12,12 +12,18 @@ evidence:
   source:
   - docs/TESTING_STRATEGY.md#7 G-15
   - docs/TESTING_STRATEGY.md#6.10
-  detail: Backend observation landed 2026-09-16 (`tests/test_qos0016_dashboard_budget.py`,
-    400 COMPLETED invoices, 5s ReportService budget). A 12-month case now seeds 1,500
-    invoices over 365 days and asserts the query count stays flat as rows grow. Playwright
-    `e2e-golden/v95-dashboard-budget.spec.ts` times first Dashboard KPI paint
-    under a loose 15s budget. None of these is a signed p95 SLO; that
-    remains Human.
+  detail: 'Backend observation landed 2026-09-16 (`tests/test_qos0016_dashboard_budget.py`, 400 COMPLETED
+    invoices, 5s ReportService budget). A 12-month case now seeds 1,500 invoices over 365 days and asserts
+    the query count stays flat as rows grow. Playwright `e2e-golden/v95-dashboard-budget.spec.ts` times
+    first Dashboard KPI paint under a loose 15s budget. None of these is a signed p95 SLO; that remains
+    Human. 2026-10-22: a p95 budget now runs in the golden suite. The spec seeds 180 invoices spread over
+    twelve months through SalesService.complete (seed_load_tenant --span-days 360, four shards; returns
+    and part-paid receipts included), loads the dashboard ten times after a warm-up and asserts the nearest-rank
+    p95 of navigation start to the Customer outstanding KPI under 8 s (E2E_DASHBOARD_P95_MS). Measured
+    twice on a laptop with Postgres 17 in Docker and the Vite dev server: p95 2,819 ms and 6,028 ms (samples
+    3.3 to 6.0 s on the busier run), so the budget catches a regression of several times, not drift. The
+    signed production target stays in docs/ops/SLO.md for the founder; tighten the budget once hosted
+    staging numbers exist.'
 scoring:
   reach: 5
   severity: 2
@@ -32,8 +38,9 @@ recommendation: Once the observation layer lands, seed a 12-month fixture and as
   render under a p95 budget in a Playwright timing spec.
 test_required: a dashboard render-budget assertion in the e2e suite
 guard_ref:
-  test: web/e2e-golden/v95-dashboard-budget.spec.ts
-lifecycle: open
+  test: web/e2e-golden/v95-dashboard-p95.spec.ts::dashboard p95 stays within budget on twelve months of
+    invoices
+lifecycle: fixed
 owner: web
 opened: '2026-09-10'
-closed: null
+closed: '2026-10-22'

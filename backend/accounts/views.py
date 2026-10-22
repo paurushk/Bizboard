@@ -448,18 +448,16 @@ class RegisterView(APIView):
             return Response(_register_payload(), status=status.HTTP_200_OK)
         from accounts.otp_utils import phone_taken
 
-        # Same generic 200 as email collision — do not leak phone occupancy.
-        if data.get("phone") and phone_taken(phone=data["phone"]):
-            return Response(_register_payload(), status=status.HTTP_200_OK)
         # Mandatory sign-up email verification: a valid, unexpired, unconsumed
         # code for this email must exist before an account is created. Safe to
-        # check after the enumeration-sensitive early-returns above — an
+        # check after the enumeration-sensitive early-return above — an
         # attacker who reaches this point already knows the email is free.
         email_norm = data["email"].strip().lower()
         # BB-000209-style: persist a failed attempt before raising — an
         # exception raised inside this atomic() block would otherwise roll
         # back the attempts increment along with it.
         invalid = False
+        phone_conflict = False
         with transaction.atomic():
             challenge = (
                 OtpChallenge.objects.select_for_update()
@@ -475,11 +473,21 @@ class RegisterView(APIView):
                 challenge.attempts += 1
                 challenge.save(update_fields=["attempts"])
                 invalid = True
+            elif data.get("phone") and phone_taken(phone=data["phone"]):
+                # ONB-CR-006: checked only after the email code is proven, so it is not an
+                # anonymous phone-occupancy oracle. A silent 200 here used to send the user to
+                # sign in with an account that was never created. The code is left unconsumed
+                # so they can fix the number and resubmit.
+                phone_conflict = True
             else:
                 challenge.consumed = True
                 challenge.save(update_fields=["consumed"])
         if invalid:
             raise OtpInvalidError()
+        if phone_conflict:
+            raise ValidationError(
+                {"phone": "This mobile number is already used by another account. Use a different number or leave it blank."}
+            )
         # One atomic block for the whole creation (not a method-level
         # decorator around all of post()) — the OTP attempts-increment above
         # must survive a later IntegrityError/rollback here, not be undone
@@ -525,6 +533,11 @@ class RegisterView(APIView):
                     from accounting.services import seed_chart_of_accounts
 
                     seed_chart_of_accounts(company, user)
+                    from accounts.legal import record as record_legal
+
+                    # WP-H5: what the person agreed to at sign-up (current versions).
+                    if data.get("accept_terms"):
+                        record_legal(user, ["TOS", "PRIVACY", "DPA"], request=request, company_id=company.id)
                     if getattr(settings, "REQUIRE_SUBSCRIPTION", False):
                         from billing.services import ensure_register_trial
 
@@ -2086,3 +2099,38 @@ class CompanyEraseView(APIView):
             body["export_b64"] = base64.b64encode(blob).decode("ascii")
             body["export_sha256"] = __import__("hashlib").sha256(blob).hexdigest()
         return Response(body)
+
+
+class LegalAcceptanceView(APIView):
+    """WP-H5 (DPDP): GET what this person accepted and what is pending; POST to accept the
+    current version of the listed documents (``{"documents": ["TOS", "PRIVACY"]}``)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def _company_user(self, request):
+        try:
+            return get_company_user(request)
+        except Exception:  # noqa: BLE001 - a person without a company still has personal documents
+            return None
+
+    def get(self, request):
+        from accounts.legal import pending
+        from accounts.models import LegalAcceptance
+
+        history = [
+            {"document": a.document, "version": a.version, "company_id": a.company_id, "accepted_at": a.accepted_at}
+            for a in LegalAcceptance.objects.filter(user=request.user)[:50]
+        ]
+        return Response({"pending": pending(request.user, self._company_user(request)), "history": history})
+
+    def post(self, request):
+        from accounts.legal import pending, record, required_documents
+
+        cu = self._company_user(request)
+        allowed = {doc for doc, _cid in required_documents(request.user, cu)}
+        docs = [d for d in (request.data.get("documents") or []) if d in allowed]
+        if not docs:
+            raise ValidationError({"documents": "Name at least one document to accept."})
+        company_id = cu.company_id if (cu is not None and "DPA" in docs) else None
+        record(request.user, docs, request=request, company_id=company_id)
+        return Response({"pending": pending(request.user, cu)})

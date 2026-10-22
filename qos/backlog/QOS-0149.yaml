@@ -1,0 +1,26 @@
+id: "QOS-0149"
+category: "RELIABILITY_TRUST"
+title: "Agents: Hindi and English wording review of agent screens, reminders and supplier queries"
+persona: ["P1"]
+journey: "Use the business agents on real work"
+problem: "Business agents show text in English and Hindi: the drawer, the paste-order panel, the reminder templates (English and Hindi, polite and firm) and the supplier-query template. A native speaker who runs a small business has not read any of it."
+evidence:
+  strength: "heuristic"
+  source: ["docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md"]
+  detail: "docs/AGENTS_HINDI_REVIEW.csv lists every screen string with reviewer_status NEEDS_REVIEW. The reminder and supplier-query templates are in backend/agents/catalog/collections/context.py and backend/agents/catalog/bill_check/context.py."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human or data step. Every agent stays off for every company until it is granted."
+effort: "S"
+recommendation: "A Hindi reader and an English reader mark each row in docs/AGENTS_HINDI_REVIEW.csv as APPROVED or give a replacement, and read the four reminder variants and the supplier-query template. Apply the changes in web/src/i18n/agents.en.ts, agents.hi.ts and the template functions; keep numbers and names untouched."
+test_required: "web/src/i18n/quickEntryParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

@@ -156,6 +156,7 @@ def _ids_for(client, payment_status):
     return {row["id"]: row for row in _results(listed)}
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_settlement_parity_uses_the_same_bucket_as_the_filter(tenant_a):
     """SH-06a: chip bucket, payment filter, and Due share one number on real rows."""
     from django.utils import timezone
@@ -247,6 +248,7 @@ def test_settlement_parity_uses_the_same_bucket_as_the_filter(tenant_a):
     assert returned_row["status"] == "RETURNED"
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_due_sort_matches_the_ledger_and_does_not_query_per_row(tenant_a):
     from django.db import connection
     from django.test.utils import CaptureQueriesContext
@@ -564,6 +566,7 @@ def test_list_flags_a_pending_cancel_per_row(tenant_a, tenant_b):
     assert rows[foreign["id"]]["cancel_approval_pending"] is False
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_live_settlement_parts_reads_receipts_notes_and_discount_fresh(tenant_a):
     from payments.models import CustomerReceipt, PaymentAllocation
     from sales.models import SalesCreditNote, SalesInvoice

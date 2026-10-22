@@ -13,7 +13,7 @@ import { getErrorMessage } from '@/api/client';
 import * as api from '@/api/resources';
 import { ErrorState, LoadingState } from '@/components/PageState';
 import { formatMoney, toNumber } from '@/utils/money';
-import { t } from '@/i18n';
+import { t, tOptional } from '@/i18n';
 import { useAuth } from '@/auth/AuthContext';
 import { canExport } from '@/utils/permissions';
 import { AccountingBackfillBanner, useBooksState } from '@/components/AccountingBackfillBanner';
@@ -148,6 +148,22 @@ function AccountingReportPage({
       {report === 'trial-balance' ? (
         <Alert severity={(data.balanced as boolean) ? 'success' : 'warning'}>
           {t('statements.totalDebit')} {money(data.totalDebit)} · {t('statements.totalCredit')} {money(data.totalCredit)}
+        </Alert>
+      ) : null}
+      {report === 'trial-balance' && ((data.ledgerGaps as Row[]) || []).length ? (
+        // WP-F3: flag-gated postings that are off for this company are not in these totals.
+        <Alert severity="info" data-testid="ledger-gaps">
+          <Typography variant="subtitle2">{t('statements.ledgerGapsTitle')}</Typography>
+          <Typography variant="body2">{t('statements.ledgerGapsBody')}</Typography>
+          <ul style={{ margin: 0, paddingLeft: 20 }}>
+            {((data.ledgerGaps as Row[]) || []).map((gap) => (
+              <li key={String(gap.flag)}>
+                <Typography variant="body2">
+                  {tOptional(`statements.ledgerGap_${String(gap.flag)}`) ?? String(gap.note || gap.flag)}
+                </Typography>
+              </li>
+            ))}
+          </ul>
         </Alert>
       ) : null}
       <DataTable

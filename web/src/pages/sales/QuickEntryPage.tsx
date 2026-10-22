@@ -32,6 +32,7 @@ import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { todayIso } from '@/components/billing/lineHelpers';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
+import { PasteOrderPanel } from '@/components/agents/PasteOrderPanel';
 import { useCustomerSearch } from '@/hooks/usePartySearch';
 import { useProductSearch, PRODUCT_SEARCH_MIN_CHARS } from '@/hooks/useProductSearch';
 import { PageTitle } from '@/contextHelp';
@@ -629,6 +630,8 @@ export function QuickEntryPage() {
           </ToggleButtonGroup>
         </Stack>
       ) : null}
+
+      {mode === 'order' ? <PasteOrderPanel /> : null}
 
       <Paper sx={{ p: 1.5 }}>
         <Typography variant="subtitle2" component="p" color="text.secondary" gutterBottom>

@@ -1,3 +1,5 @@
+import { agentsHi } from './agents.hi';
+import { mfgHi } from './mfg.hi';
 import { careHi } from './care.hi';
 
 export const hi = {
@@ -165,6 +167,13 @@ export const hi = {
     manufacturing: 'विनिर्माण',
     boms: 'सामग्री बिल',
     workOrders: 'कार्य आदेश',
+    mfgQuick: 'त्वरित उत्पादन',
+    mfgPlanning: 'योजना',
+    mfgQuality: 'गुणवत्ता',
+    mfgJobWork: 'जॉब वर्क',
+    mfgShopFloor: 'शॉप फ्लोर',
+    mfgReports: 'मैन्युफैक्चरिंग रिपोर्ट',
+    mfgSettings: 'मैन्युफैक्चरिंग सेटिंग',
     payroll: 'पेरोल',
     employees: 'कर्मचारी',
     payRuns: 'वेतन रन',
@@ -304,6 +313,7 @@ export const hi = {
     endDate: 'समाप्ति तिथि',
     startDate: 'आरंभ तिथि',
     issueCode: 'कोड जारी करें',
+    shareReferralText: 'रेफ़रल कोड {code} का उपयोग करें',
     code: 'कोड',
     support: 'सहायता टिकट',
     contracts: 'अनुबंध',
@@ -511,6 +521,17 @@ export const hi = {
     contextReadOnly: 'यह पैनल केवल पढ़ने के लिए है। यह सेव, Complete, भुगतान या GST फाइल नहीं करता।',
   },
   auth: {
+    acceptTermsPrefix: 'मैं सहमत हूँ —',
+    termsOfService: 'सेवा की शर्तें',
+    and: 'और',
+    privacyPolicy: 'गोपनीयता नीति',
+    acceptTermsRequired: 'खाता बनाने के लिए सेवा की शर्तों और गोपनीयता नीति से सहमति दें।',
+    legalTitle: 'कृपया हमारी शर्तें देखें',
+    legalBody: 'BizBoard का उपयोग जारी रखने के लिए नीचे दिए दस्तावेज़ स्वीकार करें। यह पहली बार साइन इन करने पर और इनमें से किसी के बदलने पर दिखता है।',
+    legalAccept: 'मैं स्वीकार करता/करती हूँ',
+    legalDoc_TOS: 'सेवा की शर्तें',
+    legalDoc_PRIVACY: 'गोपनीयता नीति',
+    legalDoc_DPA: 'डेटा प्रोसेसिंग समझौता (आपकी कंपनी के लिए)',
     loginTitle: 'बिज़बोर्ड में साइन इन करें',
     registerTitle: 'अपना बिज़बोर्ड खाता बनाएं',
     email: 'ईमेल',
@@ -1817,7 +1838,6 @@ export const hi = {
     regular: 'रेगुलर GST',
     composition: 'कंपोजिशन योजना',
     gstin: 'GSTIN',
-    gstinOptional: 'कंपोजिशन व्यवसाय के लिए वैकल्पिक',
     address: 'दुकान का पता',
     city: 'शहर',
     pincode: 'पिन कोड',
@@ -1829,6 +1849,7 @@ export const hi = {
     gstRate: 'GST दर (%)',
     hsnCode: 'HSN / SAC कोड',
     openingQty: 'शुरुआती मात्रा (वैकल्पिक)',
+    openingQtyHint: 'अभी आपके पास जितना स्टॉक है। इसके बिना, शून्य से कम स्टॉक पर बिक्री रोकी होने पर इस आइटम का बिल पूरा नहीं होगा।',
     addSamples: 'नमूना उत्पाद जोड़ें',
     addSamplesWarning:
       'नमूने असली कैटलॉग आइटम हैं (SKU SAMPLE- से शुरू होते हैं)। अपने उत्पाद जोड़ने के बाद इन्हें Products से हटा दें।',
@@ -1865,7 +1886,7 @@ export const hi = {
       bos: 'यह सूची के पहले उत्पाद से गैर-GST बिल ऑफ सप्लाई बनाएगा।',
     },
     errors: {
-      gstinRequired: 'रेगुलर GST व्यवसाय के लिए GSTIN आवश्यक है।',
+      gstinRequired: 'रेगुलर या कंपोजिशन GST व्यवसाय के लिए GSTIN आवश्यक है।',
       addressRequired: 'दुकान का पता आवश्यक है।',
       productRequired: 'उत्पाद का नाम और शून्य से अधिक बिक्री मूल्य दर्ज करें।',
       hsnRequired: 'इस रेगुलर GST उत्पाद के लिए HSN / SAC आवश्यक है।',
@@ -3657,6 +3678,12 @@ export const hi = {
     totalDebit: 'कुल नामे',
     totalCredit: 'कुल जमा',
     noRows: 'कोई पंक्ति नहीं। अकाउंटिंग चालू करके दस्तावेज़ पोस्ट करें।',
+    ledgerGapsTitle: 'अभी इन खातों में शामिल नहीं',
+    ledgerGapsBody: 'ये काम आपकी कंपनी के लिए अभी खाता-बही में पोस्ट नहीं होते, इसलिए इनकी राशि इन जोड़ों में नहीं है:',
+    ledgerGap_ACCOUNTING_POST_STOCK_ADJUSTMENTS: 'स्टॉक समायोजन, गिनती, एक्सपायरी और सीरियल राइट-ऑफ़ (CA की मंज़ूरी बाकी)',
+    ledgerGap_MFG_COSTING_GL: 'उत्पादन लागत: जारी सामग्री, तैयार माल, ओवरहेड और अंतर (CA की मंज़ूरी बाकी)',
+    ledgerGap_ENABLE_FIXED_ASSETS: 'स्थायी संपत्ति और मूल्यह्रास (मासिक मूल्यह्रास जर्नल खुद पोस्ट करें)',
+    ledgerGap_ENABLE_BOE: 'आयात बिल ऑफ़ एंट्री (आयात को सामान्य खरीद बिल की तरह दर्ज करें)',
     healthy: 'ठीक',
     mismatch: 'अंतर',
     gl: 'बही',
@@ -3986,6 +4013,7 @@ export const hi = {
     detailGstPct: 'जीएसटी %',
     detailTaxable: 'कर योग्य',
     detailRoundOff: 'राउंड ऑफ',
+    detailCess: 'उपकर',
     purchaseReturnCompleted: 'खरीद वापसी पूर्ण हुई',
     originalInvoice: 'मूल इनवॉइस',
     originalPurchase: 'मूल खरीद',
@@ -4375,6 +4403,50 @@ export const hi = {
         title: 'छूट का पैटर्न देखें',
         reason: 'इस माह {count} बिलों में छूट है।',
       },
+      WO_LATE: {
+        title: 'कार्य आदेश {number} देर से है',
+        reason: '{product} की देय तारीख {due} थी और यह पूरा नहीं हुआ।',
+      },
+      WO_SHORTAGE: {
+        title: 'कार्य आदेश {number} के लिए माल कम है',
+        reason: '{number} के लिए {count} माल स्टॉक में नहीं है।',
+      },
+      WIP_STALE: {
+        title: '{number} बहुत समय से चल रहा है',
+        reason: '{number} में ₹{amount} का माल और लागत अटकी है। इसे पूरा करें या बंद करें।',
+      },
+      BATCH_ON_HOLD: {
+        title: 'बैच {batch} अभी भी रुका हुआ है',
+        reason: '{product} का बैच {batch} {days} दिन से ज़्यादा से निर्णय का इंतज़ार कर रहा है।',
+      },
+      WO_APPROVAL_WAITING: {
+        title: '{number} के अतिरिक्त माल की मंज़ूरी बाकी है',
+        reason: 'किसी ने {number} की ज़रूरत से ज़्यादा माल माँगा है। इसे मंज़ूर करें या नामंज़ूर करें।',
+      },
+      NCR_OVERDUE: {
+        title: 'गुणवत्ता समस्या {number} की तारीख निकल गई',
+        reason: '{number} की देय तारीख {due} थी और यह बंद नहीं हुई।',
+      },
+      JOBWORK_AGEING: {
+        overdue: {
+          title: 'जॉब वर्कर के पास माल समय-सीमा से आगे है',
+          reason: 'चालान {challan} पर भेजा {product} {days} दिन से बाहर है (सीमा {limit})।',
+        },
+        soon: {
+          title: 'जॉब वर्कर के पास माल लौटने की तारीख के करीब है',
+          reason: 'चालान {challan} पर भेजा {product} {days} दिन से बाहर है (सीमा {limit})।',
+        },
+      },
+      ITC04_DUE: {
+        overdue: {
+          title: '{period} का ITC-04 देर से है',
+          reason: '{period} का जॉब वर्क रिटर्न {due} तक देना था।',
+        },
+        soon: {
+          title: '{period} का ITC-04 जल्द देय है',
+          reason: '{period} का जॉब वर्क रिटर्न {due} तक देना है।',
+        },
+      },
       EXPIRING_STOCK: {
         title: 'समाप्त होता स्टॉक — {product}',
         expired: {
@@ -4709,6 +4781,9 @@ export const hi = {
     dialogTitle: 'अकाउंटिंग बंद करें?',
     whatItDoes:
       'नए बिल और भुगतान खातों में दर्ज होना बंद हो जाएँगे। पहले से दर्ज प्रविष्टियाँ रहेंगी। खाते बंद रहने के दौरान पूरा हुआ कुछ भी तब तक दर्ज नहीं होगा जब तक आप उन्हें चालू करके बैक-फ़िल न चलाएँ।',
+    whatItDoesShadow:
+      'अकाउंटिंग स्क्रीन छिप जाएँगी और आंकड़े आपके दस्तावेज़ों के अनुसार दिखेंगे। बिल और भुगतान पीछे खाता-बही में पोस्ट होते रहेंगे, इसलिए बाद में अकाउंटिंग दोबारा चालू करने पर कुछ भी बाकी नहीं रहेगा।',
+    understandShadow: 'मैं समझता/समझती हूँ कि अकाउंटिंग दोबारा चालू करने तक अकाउंटिंग स्क्रीन छिपी रहेंगी।',
     entriesPosted: 'खातों में {count} दर्ज प्रविष्टियाँ हैं, {from} से {to} तक।',
     noEntries: 'अभी कोई प्रविष्टि दर्ज नहीं हुई है।',
     softClosed: '{count} अवधि सॉफ़्ट-क्लोज़ है। इससे यह नहीं रुकता।',
@@ -5468,6 +5543,7 @@ export const hi = {
     stepDone: 'पूरा',
     leadFormFrom: 'आपका संदेश {company} को जाएगा।',
     leadFormBusy: 'इस डिवाइस से बहुत कोशिशें हो गईं। एक मिनट रुककर फिर कोशिश करें।',
+    leadFormLinkInvalid: 'यह फ़ॉर्म लिंक अब मान्य नहीं है। व्यवसाय से नया लिंक माँगें।',
     createQuotation: 'कोटेशन बनाएँ',
     combineTitle: 'एक ही पिनकोड के स्टॉप',
     combineEmpty: 'एक ही दिन के स्टॉप का पिनकोड मेल नहीं खाता।',
@@ -6804,7 +6880,17 @@ export const hi = {
     reload: 'नया लोड करें',
     overwrite: 'मेरे मान रखें',
   },
+  phoneField: {
+    countryCode: 'कोड',
+    optional: 'वैकल्पिक',
+    hintIndia: '10 अंकों का मोबाइल नंबर',
+    invalidIndia: '6, 7, 8 या 9 से शुरू होने वाला 10 अंकों का मोबाइल नंबर दर्ज करें',
+    invalidLength: '{min}–{max} अंकों का मोबाइल नंबर दर्ज करें',
+    invalidExact: '{n} अंकों का मोबाइल नंबर दर्ज करें',
+  },
   care: careHi,
+  mfg: mfgHi,
+  agents: agentsHi,
 } as const;
 
 export type HiMessageTree = typeof hi;

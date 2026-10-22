@@ -414,6 +414,7 @@ def _paid_invoice(tenant, customer, *, number, due, paid_on, total="40"):
     return invoice
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_dunning_is_silent_until_three_paid_invoices(tenant_a):
     from payments.predictive_dunning import collections_worklist, median_days_late, predicted_rows
     from tests.conftest import make_customer
@@ -458,6 +459,7 @@ def test_median_days_late_rounds_half_up_not_truncated(tenant_a):
     assert median_days_late(tenant_a.company, customer) == 2
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_row_opens_collections_only_inside_the_window(tenant_a):
     from payments.predictive_dunning import collections_worklist, median_days_late, predicted_rows
     from tests.conftest import make_customer
@@ -524,6 +526,7 @@ def _open_invoice(tenant, customer, *, number, due, total="200"):
     )
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_screen_jumps_a_confidently_late_customer_to_an_earlier_rung(tenant_a):
     """Wiring: a customer whose paid-invoice history is confidently ~10 days
     late is walked forward on the *existing* fixed-day ladder (3/7/14) so a
@@ -553,6 +556,7 @@ def test_predictive_screen_jumps_a_confidently_late_customer_to_an_earlier_rung(
     assert reminder.days_overdue == 7
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_screen_leaves_unconfident_customer_on_fixed_schedule(tenant_a):
     """Fewer than CONFIDENT_MIN_INVOICES paid invoices -> median_days_late is
     None -> the fixed-day ladder is used exactly as before."""
@@ -576,6 +580,7 @@ def test_predictive_screen_leaves_unconfident_customer_on_fixed_schedule(tenant_
     assert reminder.days_overdue == 3
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_screen_off_without_the_feature_flag(tenant_a):
     """Even a confidently-late customer is left on the fixed schedule unless
     ENABLE_PREDICTIVE_DUNNING is granted to the company (opt-in rollout, same
@@ -596,6 +601,7 @@ def test_predictive_screen_off_without_the_feature_flag(tenant_a):
     assert reminder.days_overdue == 3
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_screen_still_respects_quiet_hours(tenant_a):
     """A confidently-late customer jumping rungs must still be skipped during
     the company's configured quiet hours — the screen composes with the
@@ -617,6 +623,7 @@ def test_predictive_screen_still_respects_quiet_hours(tenant_a):
     assert not DunningReminder.objects.filter(invoice=invoice, status="SENT").exists()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_predictive_screen_still_respects_opt_out(tenant_a):
     """A confidently-late customer who has opted out of dunning is still
     skipped entirely — the predictive rung selection never overrides opt-in."""

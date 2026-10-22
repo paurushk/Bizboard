@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { getPublicLeadFormMeta, submitPublicLead } from '@/api/osPlan';
+import { ErrorState } from '@/components/PageState';
 import { t } from '@/i18n';
 
 export function LeadFormPage() {
@@ -54,15 +55,26 @@ export function LeadFormPage() {
     }
   };
 
+  // QOS-0098: a dead link says so instead of showing a form whose Send can only fail.
+  const metaStatus = axios.isAxiosError(meta.error) ? meta.error.response?.status : undefined;
+  const linkDead = meta.isError && metaStatus !== undefined && metaStatus >= 400 && metaStatus < 500;
+
   return (
     <Stack spacing={2} sx={{ maxWidth: 480, mx: 'auto', mt: 6, px: 2 }}>
       <Typography variant="h5">{t('osPlan.leadFormTitle')}</Typography>
+      {meta.isError ? (
+        linkDead ? (
+          <ErrorState message={t('osPlan.leadFormLinkInvalid')} />
+        ) : (
+          <ErrorState message={getErrorMessage(meta.error)} error={meta.error} onRetry={() => void meta.refetch()} />
+        )
+      ) : null}
       {meta.data?.companyName ? (
         <Typography variant="body2" color="text.secondary">
           {t('osPlan.leadFormFrom', { company: meta.data.companyName })}
         </Typography>
       ) : null}
-      {done ? <Typography>{t('osPlan.leadFormThanks')}</Typography> : (
+      {meta.isError ? null : done ? <Typography>{t('osPlan.leadFormThanks')}</Typography> : (
         <Paper variant="outlined" sx={{ p: 2 }}>
           <Stack spacing={2}>
             <TextField label={t('common.name')} required value={name} onChange={(e) => setName(e.target.value)} />

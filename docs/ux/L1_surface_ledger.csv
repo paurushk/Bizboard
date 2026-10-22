@@ -5,6 +5,7 @@ R:/forgot-password:ForgotPasswordPage,page,/forgot-password,ForgotPasswordPage,p
 R:/reset-password:ResetPasswordPage,page,/reset-password,ResetPasswordPage,pages/ResetPasswordPage.tsx,,,no,Audited-auto,,,1,6,0,yes,,,
 R:/invite:AcceptInvitePage,page,/invite,AcceptInvitePage,pages/AcceptInvitePage.tsx,,,yes,Audited-auto,,,1,3,0,yes,,no h1,
 R:/pay/:token:PublicPayPage,page,/pay/:token,PublicPayPage,pages/public/PublicPayPage.tsx,,,no,Audited-static,,,1,3,,,,"parameterised route; static scan only, not crawled",
+R:/floor:FloorTabletPage,page,/floor,FloorTabletPage,pages/manufacturing/FloorTabletPage.tsx,,,no,Pending,,,,,,,,,
 R:/i/:token:PublicInvoicePage,page,/i/:token,PublicInvoicePage,pages/public/PublicInvoicePage.tsx,,,yes,Pending,,,,,,,,,
 R:/q/:token:PublicQuotationPage,page,/q/:token,PublicQuotationPage,pages/public/PublicQuotationPage.tsx,,,yes,Pending,,,,,,,,,
 R:/portal:CustomerPortalRequestPage,page,/portal,CustomerPortalRequestPage,pages/public/CustomerPortalRequestPage.tsx,,nav.customerPortal,yes,Audited-auto,,,1,3,0,yes,,,
@@ -27,10 +28,9 @@ R:/:HomePage,page,/,HomePage,pages/HomePage.tsx,,nav.dashboard,no,Audited-auto,,
 R:/offline-outbox:OfflineOutboxPage,page,/offline-outbox,OfflineOutboxPage,pages/offline/OfflineOutboxPage.tsx,,nav.offlineOutbox,yes,Audited-auto,,,1,5,0,yes,,,
 R:/help:HelpPage,page,/help,HelpPage,pages/help/HelpPage.tsx,,nav.help,no,Audited-auto,,,1,4,0,yes,,no h1,
 R:/help/pilot-limits:PilotLimitsPage,page,/help/pilot-limits,PilotLimitsPage,pages/help/PilotLimitsPage.tsx,,,yes,Pending,,,,,,,,,
-R:/settings/help:HelpHealthPage,page,/settings/help,HelpHealthPage,pages/help/HelpHealthPage.tsx,allowHelpHealth,nav.helpHealth,no,Audited-auto,,,1,4,0,yes,,no h1,
+R:/insights/health:InsightsHealthPage,page,/insights/health,InsightsHealthPage,pages/insights/InsightsHealthPage.tsx,canViewFinancialReports,nav.insightsHealth,no,Consent-gate-only,,,1,1,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
 R:/insights:InsightsHubPage,page,/insights,InsightsHubPage,pages/insights/InsightsHubPage.tsx,allowAiInsights,nav.insightsHub,yes,Consent-gate-only,,,1,7,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
 R:/insights/alerts:InsightsAlertsPage,page,/insights/alerts,InsightsAlertsPage,pages/insights/InsightsAlertsPage.tsx,allowAiInsights,nav.insightsAlerts,no,Consent-gate-only,,,1,2,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
-R:/insights/health:InsightsHealthPage,page,/insights/health,InsightsHealthPage,pages/insights/InsightsHealthPage.tsx,allowAiInsights,nav.insightsHealth,no,Consent-gate-only,,,1,1,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
 R:/insights/cashflow:InsightsCashflowPage,page,/insights/cashflow,InsightsCashflowPage,pages/insights/InsightsCashflowPage.tsx,allowAiInsights,nav.insightsCashflow,no,Consent-gate-only,,,1,3,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
 R:/insights/assistant:InsightsAssistantPage,page,/insights/assistant,InsightsAssistantPage,pages/insights/InsightsAssistantPage.tsx,allowAiAssistant,nav.insightsAssistant,no,Consent-gate-only,,,1,10,,,,AI consent deliberately off (real LLM keys in dev); only the landing/consent gate is audited,G7
 R:/sales/new:SalesInvoiceEditor,page,/sales/new,SalesInvoiceEditor,pages/sales/NewInvoicePage.tsx,canCreateSales,nav.newInvoice,yes,Audited-auto,,,5,120,0,yes,,19 touch targets <44px at 393px,
@@ -142,25 +142,7 @@ R:/reports/missing-documents:MissingDocumentsPage,page,/reports/missing-document
 R:/ca-needs:MissingDocumentsPage,page,/ca-needs,MissingDocumentsPage,pages/reports/MissingDocumentsPage.tsx,allowGstrReports,,no,Audited-real,,,1,8,0,yes,,,G2
 R:/reports/gst-health:GstHealthPage,page,/reports/gst-health,GstHealthPage,pages/reports/GstHealthPage.tsx,allowGstrReports,nav.gstHealth,no,Audited-real,,,1,3,0,yes,,,G2
 R:/reports/gst-rate-exposure:GstRateExposurePage,page,/reports/gst-rate-exposure,GstRateExposurePage,pages/reports/GstRateExposurePage.tsx,allowGstrReports,nav.gstRateExposure,no,Audited-real,,,1,4,0,yes,,,G2
-R:/settings/packs:PackWizardPage,page,/settings/packs,PackWizardPage,pages/settings/PackWizardPage.tsx,canAccessSettings,nav.packWizard,no,Audited-auto,,,2,15,0,yes,,,
-R:/settings/company:CompanySettingsPage,page,/settings/company,CompanySettingsPage,pages/settings/CompanySettingsPage.tsx,canAccessSettings; canManageUsers,nav.company,no,Audited-auto,,,3,28,0,yes,,,
-R:/settings/series:SeriesSettingsPage,page,/settings/series,SeriesSettingsPage,pages/settings/SeriesSettingsPage.tsx,canAccessSettings; canManageUsers,nav.seriesSettings,yes,Audited-auto,,,1,9,0,yes,,17 touch targets <44px at 393px,
-R:/settings/units:UnitsSettingsPage,page,/settings/units,UnitsSettingsPage,pages/settings/UnitsSettingsPage.tsx,canAccessSettings; canManageUsers,nav.units,no,Audited-auto,,,2,13,0,yes,,,
-R:/settings/items:ItemSettingsPage,page,/settings/items,ItemSettingsPage,pages/settings/ItemSettingsPage.tsx,canAccessSettings; canManageUsers,nav.itemSettings,no,Audited-auto,,,2,21,0,yes,,21 touch targets <44px at 393px,
-R:/settings/templates:InvoiceTemplatesPage,page,/settings/templates,InvoiceTemplatesPage,pages/settings/InvoiceTemplatesPage.tsx,canAccessSettings; canManageUsers,nav.invoiceTemplates,no,Audited-auto,,,1,8,0,yes,,,
-R:/settings/users:UsersSettingsPage,page,/settings/users,UsersSettingsPage,pages/settings/UsersSettingsPage.tsx,canAccessSettings; canManageUsers,nav.users,yes,Audited-auto,,,4,50,0,yes,,,
-R:/settings/bank-accounts:BankAccountsPage,page,/settings/bank-accounts,BankAccountsPage,pages/settings/BankAccountsPage.tsx,canAccessSettings; canManageUsers,nav.bankAccounts,no,Audited-auto,,,1,0,0,yes,,,
-R:/settings/payment-gateway:PaymentGatewayPage,page,/settings/payment-gateway,PaymentGatewayPage,pages/settings/PaymentGatewayPage.tsx,canAccessSettings; canManageUsers,nav.paymentGateway,no,Audited-real,,,1,0,0,yes,,,G8
-R:/settings/billing:BillingPage,page,/settings/billing,BillingPage,pages/settings/BillingPage.tsx,canAccessSettings; canManageUsers,nav.billing,yes,Audited-real,,,1,7,0,yes,,,G8
-R:/settings/price-lists:PriceListsPage,page,/settings/price-lists,PriceListsPage,pages/settings/PriceListsPage.tsx,canAccessSettings; canManageUsers,nav.priceLists,no,Audited-real,,,1,0,0,yes,,,G8
-R:/settings/backup:BackupExportPage,page,/settings/backup,BackupExportPage,pages/settings/BackupExportPage.tsx,canAccessSettings; canExport,nav.backupExport,no,Audited-auto,,,1,6,0,yes,,,
-R:/settings/telegram:TelegramSettingsPage,page,/settings/telegram,TelegramSettingsPage,pages/settings/TelegramSettingsPage.tsx,canAccessSettings,nav.telegram,no,Audited-real,,,1,3,0,yes,,,G8
-R:/settings/ai:AiSettingsPage,page,/settings/ai,AiSettingsPage,pages/settings/AiSettingsPage.tsx,canAccessSettings; allowAiSettings,nav.aiSettings,no,Audited-auto,,,2,13,0,yes,,,
-R:/settings/accounting:AccountingSettingsPage,page,/settings/accounting,AccountingSettingsPage,pages/settings/AccountingSettingsPage.tsx,canAccessSettings; allowAccountingSettings,nav.accounting,no,Audited-auto,,,1,0,0,yes,,,
-R:/settings/gst:GstSettingsPage,page,/settings/gst,GstSettingsPage,pages/settings/GstSettingsPage.tsx,canAccessSettings; canManageGst,nav.gst,no,Audited-auto,,,4,54,0,yes,,,
-R:/settings/statutory-licences:StatutoryLicencesPage,page,/settings/statutory-licences,StatutoryLicencesPage,pages/settings/StatutoryLicencesPage.tsx,canAccessSettings; canManageGst,nav.statutoryLicences,no,Audited-real,,,2,17,0,yes,,,G3
-R:/settings/import:ImportPage,page,/settings/import,ImportPage,pages/settings/ImportPage.tsx,canAccessSettings; canImport,nav.importData,no,Audited-auto,,,2,26,0,yes,,,
-R:/settings/tally:TallyMigrationPage,page,/settings/tally,TallyMigrationPage,pages/settings/TallyMigrationPage.tsx,canAccessSettings; allowTally,nav.tallyMigration,no,Audited-real,,,2,14,0,yes,,,G8
+R:/settings:SettingsHubPage,page,/settings,SettingsHubPage,pages/settings/SettingsHubPage.tsx,canAccessSettings,nav.settingsOverview,yes,Pending,,,,,,,,,
 R:/accounting/accounts:ChartOfAccountsPage,page,/accounting/accounts,ChartOfAccountsPage,pages/accounting/ChartOfAccountsPage.tsx,allowAccounting,nav.chartOfAccounts,no,Audited-real,,,1,6,0,yes,,,G1
 R:/accounting/journals:JournalsPage,page,/accounting/journals,JournalsPage,pages/accounting/JournalsPage.tsx,allowAccounting,nav.journals,no,Audited-real,,,1,0,0,yes,,,G1
 R:/accounting/bank-reconciliation:AccountingBankReconPage,page,/accounting/bank-reconciliation,AccountingBankReconPage,pages/accounting/AccountingBankReconPage.tsx,allowAccounting,nav.bankReconciliation,no,Audited-real,,,1,0,0,yes,,,G1
@@ -169,7 +151,16 @@ R:/accounting/fixed-assets:FixedAssetsPage,page,/accounting/fixed-assets,FixedAs
 R:/accounting/periods:PeriodsPage,page,/accounting/periods,PeriodsPage,pages/accounting/PeriodsPage.tsx,allowAccounting,nav.accountingPeriods,no,Audited-real,,,1,0,0,yes,,,G1
 R:/manufacturing:Navigate,redirect,/manufacturing,Navigate,,allowManufacturing,,,N/A-redirect,,,,,,,,,
 R:/manufacturing/boms:BomsPage,page,/manufacturing/boms,BomsPage,pages/manufacturing/BomsPage.tsx,allowManufacturing,nav.boms,no,Audited-real,,,2,17,0,yes,,,G6
+R:/manufacturing/boms/:id:RecipePage,page,/manufacturing/boms/:id,RecipePage,pages/manufacturing/RecipePage.tsx,allowManufacturing,,no,Pending,,,,,,,,,
 R:/manufacturing/work-orders:WorkOrdersPage,page,/manufacturing/work-orders,WorkOrdersPage,pages/manufacturing/WorkOrdersPage.tsx,allowManufacturing,nav.workOrders,no,Audited-real,,,3,27,0,yes,,,G6
+R:/manufacturing/work-orders/:id:WorkOrderDetailPage,page,/manufacturing/work-orders/:id,WorkOrderDetailPage,pages/manufacturing/WorkOrderDetailPage.tsx,allowManufacturing,,no,Pending,,,,,,,,,
+R:/manufacturing/quick:QuickProductionPage,page,/manufacturing/quick,QuickProductionPage,pages/manufacturing/QuickProductionPage.tsx,allowManufacturing,nav.mfgQuick,no,Pending,,,,,,,,,
+R:/manufacturing/planning:PlanningPage,page,/manufacturing/planning,PlanningPage,pages/manufacturing/PlanningPage.tsx,allowManufacturing,nav.mfgPlanning,no,Pending,,,,,,,,,
+R:/manufacturing/quality:QualityPage,page,/manufacturing/quality,QualityPage,pages/manufacturing/QualityPage.tsx,allowManufacturing,nav.mfgQuality,no,Pending,,,,,,,,,
+R:/manufacturing/job-work:JobWorkPage,page,/manufacturing/job-work,JobWorkPage,pages/manufacturing/JobWorkPage.tsx,allowManufacturing,nav.mfgJobWork,no,Pending,,,,,,,,,
+R:/manufacturing/shop-floor:ShopFloorPage,page,/manufacturing/shop-floor,ShopFloorPage,pages/manufacturing/ShopFloorPage.tsx,allowManufacturing,nav.mfgShopFloor,no,Pending,,,,,,,,,
+R:/manufacturing/reports:MfgReportsPage,page,/manufacturing/reports,MfgReportsPage,pages/manufacturing/MfgReportsPage.tsx,allowManufacturing,nav.mfgReports,no,Pending,,,,,,,,,
+R:/manufacturing/settings:MfgSettingsPage,page,/manufacturing/settings,MfgSettingsPage,pages/manufacturing/MfgSettingsPage.tsx,allowManufacturing,nav.mfgSettings,no,Pending,,,,,,,,,
 R:/payroll:Navigate,redirect,/payroll,Navigate,,allowPayroll,,,N/A-redirect,,,,,,,,,
 R:/payroll/employees:EmployeesPage,page,/payroll/employees,EmployeesPage,pages/payroll/EmployeesPage.tsx,allowPayroll,nav.employees,no,Audited-real,,,3,22,0,yes,,,G6
 R:/payroll/pay-runs:PayRunsPage,page,/payroll/pay-runs,PayRunsPage,pages/payroll/PayRunsPage.tsx,allowPayroll,nav.payRuns,no,Audited-real,,,2,18,0,yes,,,G6
@@ -199,6 +190,28 @@ R:/contracts:ContractsPage,page,/contracts,ContractsPage,pages/contracts/Contrac
 R:/contracts/:id:ContractsPage,page,/contracts/:id,ContractsPage,pages/contracts/ContractsPage.tsx,allowContracts,,yes,Pending,,,,,,,,,
 R:/contracts/:id/certificate:ContractCertificatePage,page,/contracts/:id/certificate,ContractCertificatePage,pages/contracts/ContractCertificatePage.tsx,allowContracts,,no,Pending,,,,,,,,,
 R:/*:NotFoundPage,page,/*,NotFoundPage,pages/NotFoundPage.tsx,,,no,Audited-static,,,1,1,,,,"parameterised route; static scan only, not crawled",
+F:pages/help/HelpHealthPage.tsx,page-file-unrouted,,HelpHealthPage,pages/help/HelpHealthPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/AccountingSettingsPage.tsx,page-file-unrouted,,AccountingSettingsPage,pages/settings/AccountingSettingsPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/AiSettingsPage.tsx,page-file-unrouted,,AiSettingsPage,pages/settings/AiSettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/BackupExportPage.tsx,page-file-unrouted,,BackupExportPage,pages/settings/BackupExportPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/BankAccountsPage.tsx,page-file-unrouted,,BankAccountsPage,pages/settings/BankAccountsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/BillingPage.tsx,page-file-unrouted,,BillingPage,pages/settings/BillingPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/CompanySettingsPage.tsx,page-file-unrouted,,CompanySettingsPage,pages/settings/CompanySettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/CounterDiagnosticsPage.tsx,page-file-unrouted,,CounterDiagnosticsPage,pages/settings/CounterDiagnosticsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/GstSettingsPage.tsx,page-file-unrouted,,GstSettingsPage,pages/settings/GstSettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/ImportPage.tsx,page-file-unrouted,,ImportPage,pages/settings/ImportPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/InvoiceTemplatesPage.tsx,page-file-unrouted,,InvoiceTemplatesPage,pages/settings/InvoiceTemplatesPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/ItemSettingsPage.tsx,page-file-unrouted,,ItemSettingsPage,pages/settings/ItemSettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/MoneyInRulesPage.tsx,page-file-unrouted,,MoneyInRulesPage,pages/settings/MoneyInRulesPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/PackWizardPage.tsx,page-file-unrouted,,PackWizardPage,pages/settings/PackWizardPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/PaymentGatewayPage.tsx,page-file-unrouted,,PaymentGatewayPage,pages/settings/PaymentGatewayPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/PriceListsPage.tsx,page-file-unrouted,,PriceListsPage,pages/settings/PriceListsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/SeriesSettingsPage.tsx,page-file-unrouted,,SeriesSettingsPage,pages/settings/SeriesSettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/StatutoryLicencesPage.tsx,page-file-unrouted,,StatutoryLicencesPage,pages/settings/StatutoryLicencesPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/TallyMigrationPage.tsx,page-file-unrouted,,TallyMigrationPage,pages/settings/TallyMigrationPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/TelegramSettingsPage.tsx,page-file-unrouted,,TelegramSettingsPage,pages/settings/TelegramSettingsPage.tsx,,,no,Pending,,,,,,,,,
+F:pages/settings/UnitsSettingsPage.tsx,page-file-unrouted,,UnitsSettingsPage,pages/settings/UnitsSettingsPage.tsx,,,yes,Pending,,,,,,,,,
+F:pages/settings/UsersSettingsPage.tsx,page-file-unrouted,,UsersSettingsPage,pages/settings/UsersSettingsPage.tsx,,,yes,Pending,,,,,,,,,
 D:components/CompanyRequiredDialog.tsx,dialog,,CompanyRequiredDialog,components/CompanyRequiredDialog.tsx,,,no,Audited-static,,,1,1,,,,scanned with parent page; not crawled (opens on action),
 D:components/ConfirmDialog.tsx,dialog,,ConfirmDialog,components/ConfirmDialog.tsx,,,yes,Audited-static,,,1,2,,,,scanned with parent page; not crawled (opens on action),
 D:components/CreateDialog.tsx,dialog,,CreateDialog,components/CreateDialog.tsx,,,yes,Pending,,,,,,,,,
@@ -207,12 +220,16 @@ D:components/ProfitDetailsDialog.tsx,dialog,,ProfitDetailsDialog,components/Prof
 D:components/RecordInvoicePaymentDialog.tsx,dialog,,RecordInvoicePaymentDialog,components/RecordInvoicePaymentDialog.tsx,,,yes,Audited-static,,,2,16,,,,scanned with parent page; not crawled (opens on action),
 D:components/ShareInvoiceDialog.tsx,dialog,,ShareInvoiceDialog,components/ShareInvoiceDialog.tsx,,,yes,Audited-static,,,1,4,,,,scanned with parent page; not crawled (opens on action),
 D:components/ShareQuotationDialog.tsx,dialog,,ShareQuotationDialog,components/ShareQuotationDialog.tsx,,,no,Pending,,,,,,,,,
+D:components/accounting/DisableAccountingDialog.tsx,dialog,,DisableAccountingDialog,components/accounting/DisableAccountingDialog.tsx,,,no,Pending,,,,,,,,,
+D:components/agents/AgentDraftDrawer.tsx,dialog,,AgentDraftDrawer,components/agents/AgentDraftDrawer.tsx,,,no,Pending,,,,,,,,,
+D:components/billing/SuspendWorkspaceDialog.tsx,dialog,,SuspendWorkspaceDialog,components/billing/SuspendWorkspaceDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/accounting/expenses/CategoryDialog.tsx,dialog,,CategoryDialog,pages/accounting/expenses/CategoryDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/accounting/expenses/RecurringDialog.tsx,dialog,,RecurringDialog,pages/accounting/expenses/RecurringDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/crm/DedupeReviewDialog.tsx,dialog,,DedupeReviewDialog,pages/crm/DedupeReviewDialog.tsx,,,yes,Pending,,,,,,,,,
 D:pages/crm/WhatsappSettingsDialog.tsx,dialog,,WhatsappSettingsDialog,pages/crm/WhatsappSettingsDialog.tsx,,,yes,Pending,,,,,,,,,
 D:pages/inventory/ItemFormDialog.tsx,dialog,,ItemFormDialog,pages/inventory/ItemFormDialog.tsx,,,yes,Audited-static,,,5,102,,,,scanned with parent page; not crawled (opens on action),
 D:pages/inventory/StockConflictModal.tsx,dialog,,StockConflictModal,pages/inventory/StockConflictModal.tsx,,,no,Audited-static,,,1,3,,,,scanned with parent page; not crawled (opens on action),
+D:pages/manufacturing/SubcontractDialog.tsx,dialog,,SubcontractDialog,pages/manufacturing/SubcontractDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/sales/ActionDialog.tsx,dialog,,ActionDialog,pages/sales/ActionDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/sales/AllocationManagerDialog.tsx,dialog,,AllocationManagerDialog,pages/sales/AllocationManagerDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/sales/BulkAllocateDialog.tsx,dialog,,BulkAllocateDialog,pages/sales/BulkAllocateDialog.tsx,,,no,Pending,,,,,,,,,
@@ -230,5 +247,5 @@ D:pages/sales/recurring/RecurringScheduleDrawer.tsx,dialog,,RecurringScheduleDra
 D:pages/sales/routes/AcknowledgeDialog.tsx,dialog,,AcknowledgeDialog,pages/sales/routes/AcknowledgeDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/sales/routes/LinkReceiptDialog.tsx,dialog,,LinkReceiptDialog,pages/sales/routes/LinkReceiptDialog.tsx,,,no,Pending,,,,,,,,,
 D:pages/sales/routes/OrderDrawer.tsx,dialog,,OrderDrawer,pages/sales/routes/OrderDrawer.tsx,,,no,Pending,,,,,,,,,
-D:pages/settings/PackWizardPage.tsx,dialog,,PackWizardPage,pages/settings/PackWizardPage.tsx,,,no,Audited-static,,,2,15,,,,scanned with parent page; not crawled (opens on action),
+D:pages/settings/PackWizardPage.tsx,dialog,,PackWizardPage,pages/settings/PackWizardPage.tsx,,,yes,Audited-static,,,2,15,,,,scanned with parent page; not crawled (opens on action),
 D:pages/setup/SetupWizardPage.tsx,dialog,,SetupWizardPage,pages/setup/SetupWizardPage.tsx,,,yes,Audited-static,,,3,37,,,,scanned with parent page; not crawled (opens on action),

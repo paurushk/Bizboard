@@ -46,6 +46,7 @@ def test_a_paid_old_invoice_does_not_hold_credit(tenant_a):
     assert not blocked and total == 0
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_overdue_report_lists_only_what_is_still_owed(tenant_a):
     from planwave.finish import overdue_report
 
@@ -72,6 +73,7 @@ def test_one_open_quarantine_row_per_company(tenant_a):
 
 
 # ---- as-issued party snapshots are write-once
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_a_backfill_never_overwrites_an_issued_snapshot(tenant_a):
     from planwave.models import PartySnapshot
     from planwave.services import stamp_party

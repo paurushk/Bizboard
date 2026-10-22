@@ -106,6 +106,7 @@ vi.mock('@/hooks/useProductSearch', () => ({
 }));
 
 vi.mock('@/lib/telemetry', () => ({ trackShopFloor: vi.fn() }));
+vi.mock('@/components/agents/PasteOrderPanel', () => ({ PasteOrderPanel: () => <div data-testid="paste-order-panel" /> }));
 
 const navigate = vi.fn();
 vi.mock('react-router-dom', async (importOriginal) => {
@@ -671,5 +672,21 @@ describe('QuickEntryPage — QOS-0048 / Quick Order Entry', () => {
     fireEvent.click(saveNext());
     await waitFor(() => expect(createSalesInvoice).toHaveBeenCalled());
     expect((createSalesInvoice.mock.calls[0][0] as Record<string, unknown>).invoiceType).toBe('GST');
+  });
+
+  it('shows the paste-order panel in order mode only, never in draft-bill mode', async () => {
+    flags.QUICK_ENTRY_ORDER_MODE = true;
+    wrap(<QuickEntryPage />);
+    expect(await screen.findByTestId('paste-order-panel')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Draft bill' }));
+    await waitFor(() => expect(screen.queryByTestId('paste-order-panel')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Sales order' }));
+    expect(await screen.findByTestId('paste-order-panel')).toBeTruthy();
+  });
+
+  it('has no paste-order panel when order mode is not switched on', async () => {
+    wrap(<QuickEntryPage />);
+    await screen.findByLabelText(/search a customer/i);
+    expect(screen.queryByTestId('paste-order-panel')).toBeNull();
   });
 });

@@ -77,6 +77,12 @@ class Command(BaseCommand):
         parser.add_argument("--password", required=True)
         parser.add_argument("--shard", default="0/1")
         parser.add_argument(
+            "--span-days",
+            type=int,
+            default=None,
+            help="Spread the invoices evenly over this many days back from today (default: invoice i is dated i mod 360 days ago).",
+        )
+        parser.add_argument(
             "--bulk-fallback",
             action="store_true",
             help="Rejected. Bulk-inserted COMPLETED rows fail check_invariants.",
@@ -99,6 +105,7 @@ class Command(BaseCommand):
         n_products = max(1, options["products"])
         n_customers = max(1, options["customers"])
         shard_index, shard_count = _parse_shard(options["shard"])
+        self._span = (max(1, options["span_days"]), invoices) if options.get("span_days") else None
         with seed_load_scope():
             company, user = self._ensure_company(
                 options["company"], options["password"], n_products, n_customers, invoices
@@ -251,7 +258,11 @@ class Command(BaseCommand):
     def _service_one(self, company, user, customer, products, n_products, index, note):
         bucket = mix_bucket(index)
         line_count = 5 + (index % 11) if bucket == "b2b" else 1
-        day = timezone.localdate() - timedelta(days=int(index % 360))
+        if self._span:
+            span_days, total = self._span
+            day = timezone.localdate() - timedelta(days=int(index * span_days // total) % span_days)
+        else:
+            day = timezone.localdate() - timedelta(days=int(index % 360))
         invoice = SalesInvoice.objects.filter(company=company, notes=note).first()
         if invoice is not None and invoice.status == SalesInvoice.Status.RETURNED:
             return

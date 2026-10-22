@@ -54,6 +54,8 @@ export interface RegisterPayload {
   state?: string;
   gstin?: string;
   otpCode: string;
+  /** WP-H5: agrees to the current Terms of Service and Privacy Policy (recorded server-side). */
+  acceptTerms?: boolean;
 }
 
 function tokensFromBody(body: { access?: string | null; refresh?: string }): AuthTokens {
@@ -337,4 +339,22 @@ export async function confirmPasswordReset(token: string, newPassword: string): 
 
 function delay(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** WP-H5 (DPDP): legal documents the signed-in person still has to accept, and their history. */
+export interface LegalPending {
+  document: 'TOS' | 'PRIVACY' | 'DPA' | 'BETA';
+  version: string;
+  companyId: number | null;
+}
+
+export async function getLegalStatus(): Promise<{ pending: LegalPending[] }> {
+  if (shouldUseMocks()) return { pending: [] };
+  const { data } = await apiClient.get('/auth/legal/');
+  return unwrapData<{ pending: LegalPending[] }>(data);
+}
+
+export async function acceptLegal(documents: string[]): Promise<{ pending: LegalPending[] }> {
+  const { data } = await apiClient.post('/auth/legal/', { documents });
+  return unwrapData<{ pending: LegalPending[] }>(data);
 }

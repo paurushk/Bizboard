@@ -23,6 +23,7 @@ from .views import (
     RequestRegisterOtpView,
     RequestPasswordResetView,
     ConfirmPasswordResetView,
+    LegalAcceptanceView,
     SwitchCompanyView,
     VerifyOtpView,
 )
@@ -48,6 +49,7 @@ urlpatterns = [
     path("mfa/recovery-codes/", MfaRecoveryCodesView.as_view(), name="auth-mfa-recovery-codes"),
     path("mfa/verify/", MfaLoginVerifyView.as_view(), name="auth-mfa-verify"),
     path("me/", MeView.as_view(), name="auth-me"),
+    path("legal/", LegalAcceptanceView.as_view(), name="auth-legal"),
     path("memberships/", MembershipsListView.as_view(), name="auth-memberships"),
     path("switch-company/", SwitchCompanyView.as_view(), name="auth-switch-company"),
 ]

@@ -28,3 +28,50 @@
 /api/v1/public/quotations/{token}/pdf/   # covered by test_public_quotation_link_never_crosses_tenants
 /api/v1/public/customer-portal/{token}/receipts/{receipt_id}/voucher/   # covered by test_portal_receipt_voucher_never_crosses_customers_or_tenants
 /api/v1/public/receipt-voucher/{token}/   # covered by test_public_receipt_voucher_never_crosses_tenants
+/api/v1/manufacturing/boms/{id}/routing/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/finish/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/pause/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/reopen/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/report/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/start/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/subcontract-defaults/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/job-cards/{id}/subcontract/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/approve/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/discard/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/post/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/print/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/reject/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/request-approval/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-issues/{id}/reverse/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-returns/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-returns/{id}/discard/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-returns/{id}/post/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/material-returns/{id}/reverse/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/mrp-runs/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/mrp-runs/{id}/convert/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/production-receipts/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/production-receipts/{id}/discard/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/production-receipts/{id}/post/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/production-receipts/{id}/print-label/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/production-receipts/{id}/reverse/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/reports/{slug}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/tablet/cards/{id}/{verb}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/tablet/downtime/{verb}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/availability/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/cancel/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/close/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/complete/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/print/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/release/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/reopen/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/manufacturing/work-orders/{id}/set-priority/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/quality/batches/{id}/status/   # covered by test_manufacturing_routes_are_isolated
+/api/v1/agents/proposals/{id}/   # isolation proved by tests/agents/test_api.py::test_proposals_list_detail_and_cross_tenant_404 (404 across tenants, every verb)
+/api/v1/agents/proposals/{id}/approve/   # isolation proved by tests/agents/test_api.py::test_proposals_list_detail_and_cross_tenant_404 (404 across tenants, every verb)
+/api/v1/agents/proposals/{id}/cancel/   # isolation proved by tests/agents/test_api.py::test_proposals_list_detail_and_cross_tenant_404 (404 across tenants, every verb)
+/api/v1/agents/proposals/{id}/reject/   # isolation proved by tests/agents/test_api.py::test_proposals_list_detail_and_cross_tenant_404 (404 across tenants, every verb)
+/api/v1/agents/proposals/{id}/retry/   # isolation proved by tests/agents/test_api.py::test_proposals_list_detail_and_cross_tenant_404 (404 across tenants, every verb)
+/api/v1/agents/runs/{id}/   # isolation proved by tests/agents/test_api.py::test_run_detail_is_company_scoped (404 across tenants, every verb)

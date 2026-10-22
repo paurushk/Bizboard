@@ -37,6 +37,8 @@ api_v1_patterns = [
     path("insights/", include("insights.urls")),
     path("integrations/", include("integrations.urls")),
     path("manufacturing/", include("manufacturing.urls")),
+    path("quality/", include("quality.urls")),
+    path("jobwork/", include("jobwork.urls")),
     path("payroll/", include("payroll.urls")),
     path("crm/", include("crm.urls")),
     path("complaints/", include("complaints.urls")),
@@ -47,6 +49,7 @@ api_v1_patterns = [
     path("insurance/", include("insurance.urls")),
     path("banking/", include("banking.urls")),
     path("billing/", include("billing.urls")),
+    path("agents/", include("agents.urls")),
     path("", include("core.urls")),
     path("", include("planwave.urls")),
 ] + payments_public_urlpatterns + sales_public_urlpatterns

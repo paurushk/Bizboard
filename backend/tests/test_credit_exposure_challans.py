@@ -57,6 +57,7 @@ def gated(tenant_a):
     return tenant_a
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_wp3_01_uninvoiced_completed_challan_counts(gated):
     customer = make_customer(gated.company, credit_limit=Decimal("1000"))
     _invoice(gated, customer, "400")
@@ -67,6 +68,7 @@ def test_tc_wp3_01_uninvoiced_completed_challan_counts(gated):
         apply_order_gates(order, [item])
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_wp3_02_owner_can_override_with_a_reason(gated):
     customer = make_customer(gated.company, credit_limit=Decimal("1000"))
     _invoice(gated, customer, "400")
@@ -86,6 +88,7 @@ def test_tc_wp3_03_staff_cannot_override(gated):
         apply_order_gates(order, [item], override_reason="please", acting_user=staff)
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_wp3_04_challan_with_a_counted_invoice_is_not_counted_twice(gated):
     customer = make_customer(gated.company, credit_limit=Decimal("10000"))
     invoice = _invoice(gated, customer, "500")  # completed: the ledger already counts it
@@ -185,6 +188,7 @@ def test_tc_wp3_12_confirm_is_blocked_through_the_service(gated):
         SalesNotesService.confirm_sales_order(order, gated.owner)
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_wp3_affected_customer_report_lists_only_uncovered_shipments(gated):
     """The pre-enable report names customers whose exposure rises, and skips covered challans."""
     from sales.management.commands.list_credit_exposure_changes import affected_customers

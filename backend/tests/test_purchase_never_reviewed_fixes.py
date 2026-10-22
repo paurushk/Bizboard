@@ -292,6 +292,7 @@ def test_purchase_pdf_survives_markup_in_free_text_fields(tenant_a):
     assert render_gst_purchase_bill(inv).startswith(b"%PDF")
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_supplier_ledger_pdf_downloads_and_register_shows_claimable_tax(tenant_a):
     from purchases.models import PurchaseInvoice
     from reporting.services import ReportService

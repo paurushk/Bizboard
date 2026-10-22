@@ -746,6 +746,8 @@ def build_leakage_detectors(company, as_of: date | None = None, *, row_factory, 
             movement_type=MovementType.ADJUSTMENT,
             created_at__date__gte=since,
         )
+        # A standard-cost re-pricing takes a lot out and puts it back at a new cost: not a loss or a gain.
+        .exclude(reference_type__in=("mfg_revalue", "mfg_revalue_reverse"))
         .select_related("product")[:50]
     )
     for mv in adjs:

@@ -38,7 +38,7 @@ import {
   canViewCareSales,
   canImportPurchaseBill,
   canImportSalesBill,
-  canManageManufacturing,
+  canViewManufacturing,
   canManagePayroll,
   canManageCrm,
   canViewAiInsights,
@@ -190,6 +190,36 @@ const BomsPage = lazy(() =>
 const WorkOrdersPage = lazy(() =>
   import('@/pages/manufacturing/WorkOrdersPage').then((m) => ({ default: m.WorkOrdersPage })),
 );
+const QuickProductionPage = lazy(() =>
+  import('@/pages/manufacturing/QuickProductionPage').then((m) => ({ default: m.QuickProductionPage })),
+);
+const RecipePage = lazy(() =>
+  import('@/pages/manufacturing/RecipePage').then((m) => ({ default: m.RecipePage })),
+);
+const WorkOrderDetailPage = lazy(() =>
+  import('@/pages/manufacturing/WorkOrderDetailPage').then((m) => ({ default: m.WorkOrderDetailPage })),
+);
+const PlanningPage = lazy(() =>
+  import('@/pages/manufacturing/PlanningPage').then((m) => ({ default: m.PlanningPage })),
+);
+const QualityPage = lazy(() =>
+  import('@/pages/manufacturing/QualityPage').then((m) => ({ default: m.QualityPage })),
+);
+const JobWorkPage = lazy(() =>
+  import('@/pages/manufacturing/JobWorkPage').then((m) => ({ default: m.JobWorkPage })),
+);
+const MfgReportsPage = lazy(() =>
+  import('@/pages/manufacturing/MfgReportsPage').then((m) => ({ default: m.MfgReportsPage })),
+);
+const ShopFloorPage = lazy(() =>
+  import('@/pages/manufacturing/ShopFloorPage').then((m) => ({ default: m.ShopFloorPage })),
+);
+const MfgSettingsPage = lazy(() =>
+  import('@/pages/manufacturing/MfgSettingsPage').then((m) => ({ default: m.MfgSettingsPage })),
+);
+const FloorTabletPage = lazy(() =>
+  import('@/pages/manufacturing/FloorTabletPage').then((m) => ({ default: m.FloorTabletPage })),
+);
 const EmployeesPage = lazy(() =>
   import('@/pages/payroll/EmployeesPage').then((m) => ({ default: m.EmployeesPage })),
 );
@@ -283,7 +313,7 @@ const allowGstrReports = canViewGstrReports;
 const allowTdsReports = canViewTdsReports;
 
 function allowManufacturing(user: User | null): boolean {
-  return canManageManufacturing(user) && isManufacturingEnabled();
+  return canViewManufacturing(user) && isManufacturingEnabled();
 }
 
 function allowPayroll(user: User | null): boolean {
@@ -392,6 +422,7 @@ export function App() {
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/invite" element={<AcceptInvitePage />} />
         <Route path="/pay/:token" element={<PublicPayPage />} />
+        <Route path="/floor" element={<FloorTabletPage />} />
         <Route path="/i/:token" element={<PublicInvoicePage />} />
         <Route path="/q/:token" element={<PublicQuotationPage />} />
         <Route path="/portal" element={<CustomerPortalRequestPage />} />
@@ -618,7 +649,16 @@ export function App() {
             <Route element={<RoleRoute allow={allowManufacturing} />}>
               <Route path="manufacturing" element={<Navigate to="/manufacturing/boms" replace />} />
               <Route path="manufacturing/boms" element={<BomsPage />} />
+              <Route path="manufacturing/boms/:id" element={<RecipePage />} />
               <Route path="manufacturing/work-orders" element={<WorkOrdersPage />} />
+              <Route path="manufacturing/work-orders/:id" element={<WorkOrderDetailPage />} />
+              <Route path="manufacturing/quick" element={<QuickProductionPage />} />
+              <Route path="manufacturing/planning" element={<PlanningPage />} />
+              <Route path="manufacturing/quality" element={<QualityPage />} />
+              <Route path="manufacturing/job-work" element={<JobWorkPage />} />
+              <Route path="manufacturing/shop-floor" element={<ShopFloorPage />} />
+              <Route path="manufacturing/reports" element={<MfgReportsPage />} />
+              <Route path="manufacturing/settings" element={<MfgSettingsPage />} />
             </Route>
             <Route element={<RoleRoute allow={allowPayroll} />}>
               <Route path="payroll" element={<Navigate to="/payroll/employees" replace />} />

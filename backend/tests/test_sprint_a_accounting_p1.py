@@ -279,6 +279,7 @@ def test_backfill_skips_opening_cogs(books):
     ).exists()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_control_balances_flags_untagged_ar(books):
     customer = make_customer(books.company)
     invoice = _completed_invoice(books.company, customer)

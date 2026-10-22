@@ -70,10 +70,12 @@ export function AccountingSettingsPage() {
                 label={booksOn ? t('acctSettings.statusOn') : t('acctSettings.statusOff')}
               />
             ) : null}
-            {!booksOn ? (
+            {/* Neither button until the state is known: an "Enable" button rendered while loading turns
+                into "Switch off" under the pointer once the books turn out to be on. */}
+            {!state.data ? null : !booksOn ? (
               <Button
                 variant="contained"
-                disabled={writesBlocked || m.isPending || state.isLoading}
+                disabled={writesBlocked || m.isPending}
                 onClick={() => m.mutate({ enabled: true })}
               >
                 {t('sweep2.enableAccounting')}

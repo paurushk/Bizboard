@@ -376,6 +376,7 @@ def test_concurrent_next_number_allocates_two_values(tenant_a):
     assert len(set(results)) == 2
 
 
+@pytest.mark.invariant_skip("money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines")
 def test_campaign_rollup_stops_at_depth_five(tenant_a):
     customer = make_customer(tenant_a.company)
     parent = None

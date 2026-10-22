@@ -1,0 +1,26 @@
+id: "QOS-0152"
+category: "BUSINESS_GAP"
+title: "Agents: replace the synthetic evaluation sets with the pilot customer's real cases and run the timing study"
+persona: ["P1"]
+journey: "Use the business agents on real work"
+problem: "The evaluation sets for Collections, Order Intake, Inventory Risk and Bill Check are generated, so their scores show the rules work across a range but say nothing about real messages, handwriting or the pilot's habits. The order timing study (message to confirmed draft) and the collections outcome comparison need real use."
+evidence:
+  strength: "heuristic"
+  source: ["docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md"]
+  detail: "backend/tests/agents/eval/orders.json, tests/agents/test_eval_order_intake.py and tests/agents/test_eval_sets.py. Outcome report: manage.py agents_outcomes <company>."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human or data step. Every agent stays off for every company until it is granted."
+effort: "S"
+recommendation: "With the pilot owner's consent, add at least 30 anonymised real cases per agent (Hinglish and handwritten order photos included once image reading exists), re-run the sets, record the scores, run the timing study, and review the collections outcome report after three weeks."
+test_required: "backend/tests/agents/test_eval_order_intake.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

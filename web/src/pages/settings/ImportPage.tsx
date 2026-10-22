@@ -484,6 +484,7 @@ export function ImportPage() {
           {commitMutation.isPending ? (
             <Stack spacing={0.5}>
               <LinearProgress
+                aria-label={t('common.loading')}
                 variant="determinate"
                 value={Math.min(95, (commitElapsed / Math.max(3, Math.ceil((job?.validRows ?? 1) * 0.05))) * 100)}
               />

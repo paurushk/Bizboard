@@ -21,7 +21,12 @@ evidence:
   - scripts/migration_rehearsal.sh
   - .github/workflows/migration-rehearsal.yml
   - backend/accounts/management/commands/seed_synthetic_bulk.py
-  detail: 'Local end-to-end run: PASS (migrate clean + within an 8s/60s budget at 300 synthetic rows).'
+  detail: 'Local end-to-end run: PASS (migrate clean + within an 8s/60s budget at 300 synthetic rows).
+    2026-10-22: every pull request now rehearses its migrations on data: the required migration-ledger-gate
+    CI job seeds tenants through the real services at the base branch, migrates to the PR, and runs the
+    books check for every company. scripts/restore_drill.sh ran end to end on 2026-10-22 (restore plus
+    per-company books check as the app role, RLS on: 147 s). A copy of real, anonymised production data
+    is still the stronger test and needs a production dump.'
 scoring:
   reach: 2
   severity: 4

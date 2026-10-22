@@ -1,0 +1,113 @@
+# WP-D3: Prometheus alert rules for BizBoard. Each alert names its runbook row in
+# docs/ops/ALERTS.md. Severity "page" goes to the on-call phone (docs/ops/ONCALL_ROSTER.md);
+# "ticket" goes to the ops channel for the next business day.
+# Load with: rule_files: [alerts.yml] in deploy/prometheus/prometheus.yml.
+groups:
+  - name: bizboard-availability
+    rules:
+      - alert: BizBoardApiDown
+        expr: up{job="bizboard-api"} == 0
+        for: 3m
+        labels: {severity: page}
+        annotations:
+          summary: "API not answering /metrics for 3 minutes"
+          runbook: "docs/ops/ALERTS.md#health-down"
+      - alert: BizBoardHigh5xxRate
+        expr: |
+          sum(rate(bizboard_http_requests_total{status_class="5xx"}[10m]))
+            / clamp_min(sum(rate(bizboard_http_requests_total[10m])), 1e-9) > 0.02
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "More than 2% of requests are failing with 5xx"
+          runbook: "docs/ops/ALERTS.md#5xx-rate"
+      - alert: BizBoardSlowRequests
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(bizboard_http_latency_ms_bucket[15m]))) > 2000
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "p95 request latency above 2 s for 15 minutes"
+          runbook: "docs/ops/ALERTS.md#slow-requests"
+      - alert: BizBoardDatabaseDown
+        expr: bizboard_health_db == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "Database probe failing"
+          runbook: "docs/ops/ALERTS.md#ready-fail"
+      - alert: BizBoardBeatSilent
+        expr: bizboard_health_beat == 0
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "Celery beat heartbeat stale; scheduled jobs are not running"
+          runbook: "docs/ops/ALERTS.md#beat-silent"
+
+  - name: bizboard-queues
+    rules:
+      - alert: BizBoardHighPriorityBacklog
+        expr: bizboard_celery_queue_depth{queue="high_priority"} > 500
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "OTP / payment queue backlog above 500 for 10 minutes"
+          runbook: "docs/ops/ALERTS.md#queue-backlog"
+      - alert: BizBoardQueueBacklog
+        expr: bizboard_celery_queue_depth{queue!="high_priority"} > 2000
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "Queue {{ $labels.queue }} backlog above 2000 for 30 minutes"
+          runbook: "docs/ops/ALERTS.md#queue-backlog"
+      - alert: BizBoardWorkerDown
+        expr: up{job="bizboard-worker"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "A Celery worker stopped answering its metrics port"
+          runbook: "docs/ops/ALERTS.md#pdf-queue"
+      - alert: BizBoardTaskFailures
+        expr: sum(rate(bizboard_celery_task_failure_total[15m])) * 900 > 20
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "More than 20 Celery task failures in 15 minutes"
+          runbook: "docs/ops/ALERTS.md#task-failures"
+
+  - name: bizboard-money
+    rules:
+      - alert: BizBoardBooksCheckFailed
+        expr: bizboard_books_check_failures > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "{{ $value }} company(ies) failed the nightly books check"
+          runbook: "docs/ops/LEDGER_REPAIR_RUNBOOK.md"
+      - alert: BizBoardCircuitOpen
+        expr: bizboard_circuit_open == 1
+        for: 15m
+        labels: {severity: ticket}
+        annotations:
+          summary: "A money-path circuit breaker has been open for 15 minutes"
+          runbook: "docs/ops/ALERTS.md#circuit-open"
+      - alert: BizBoardDeadLetters
+        expr: bizboard_dead_letter_events > 0
+        for: 30m
+        labels: {severity: ticket}
+        annotations:
+          summary: "{{ $value }} pending dead-letter event(s)"
+          runbook: "docs/ops/ALERTS.md#webhook-4xx-burst"
+
+  - name: bizboard-error-budget
+    rules:
+      # 99.5% / 30 days (docs/ops/SLO.md): page-free ticket when half the monthly budget burns in 7 days.
+      - alert: BizBoardErrorBudgetBurn
+        expr: |
+          (sum(increase(bizboard_http_requests_total{status_class="5xx"}[7d]))
+            / clamp_min(sum(increase(bizboard_http_requests_total[7d])), 1)) > 0.0025
+        for: 1h
+        labels: {severity: ticket}
+        annotations:
+          summary: "Half of the 30-day error budget used in 7 days; freeze feature work per SLO.md"
+          runbook: "docs/ops/SLO.md"

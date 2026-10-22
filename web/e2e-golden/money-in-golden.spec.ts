@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  enableAccounting,
   addInvoiceItem,
   addStockAdjustment,
   createCustomer,
@@ -10,6 +11,7 @@ import {
   selectReceiptCustomer,
   unique,
 } from './helpers/documents';
+import { grantRolloutFlag } from './helpers/grantFlag';
 
 /**
  * Money In, end to end against the live backend (no mocks):
@@ -25,7 +27,8 @@ import {
 
 async function receiptsPage(page: Page) {
   await page.goto('/sales/receipts');
-  await expect(page.getByRole('button', { name: 'New receipt' })).toBeVisible({ timeout: 20_000 });
+  // The header and an empty list can each offer "New receipt".
+  await expect(page.getByRole('button', { name: 'New receipt' }).first()).toBeVisible({ timeout: 20_000 });
 }
 
 test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in block', async ({ page }) => {
@@ -35,14 +38,13 @@ test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in
   const productName = `MoneyIn Widget ${id}`;
   const sku = `MI-${id}`;
 
-  await registerTenant(page, {
-    companyName: `E2E Money In ${id}`,
-    email: `e2e-moneyin-${id}@example.test`,
-    password: 'GoldenPath123!',
-  });
-  await page.goto('/settings/accounting');
-  await page.getByRole('button', { name: 'Enable accounting' }).click();
-  await expect(page.getByText(/Accounting enabled/i)).toBeVisible();
+  const email = `e2e-moneyin-${id}@example.test`;
+  await registerTenant(page, { companyName: `E2E Money In ${id}`, email, password: 'GoldenPath123!' });
+  await enableAccounting(page); // sign-up already turns it on; the helper only switches it on when off
+  // The opening stock below comes in by a stock adjustment, which reaches the ledger only for a company
+  // that opted in (pending the CA's agreement). Without it the inventory account cannot tie to the
+  // stock value, the books count as not trusted, and the trial balance is masked.
+  grantRolloutFlag(email, 'ACCOUNTING_POST_STOCK_ADJUSTMENTS');
 
   await createProduct(page, { name: productName, sku, sellingPrice: '1000', purchasePrice: '700', gstRate: '0' });
   await addStockAdjustment(page, { sku, quantity: '20' });
@@ -61,7 +63,7 @@ test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in
 
   // 1. The customer pays 900 in cash and deducts 100 TDS: one receipt settles the whole bill.
   await receiptsPage(page);
-  await page.getByRole('button', { name: 'New receipt' }).click();
+  await page.getByRole('button', { name: 'New receipt' }).first().click();
   await selectReceiptCustomer(page, customerName);
   await page.getByLabel('Amount', { exact: true }).fill('900');
   await page.getByRole('combobox', { name: 'Apply to specific invoice (optional)' }).click();
@@ -100,7 +102,7 @@ test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in
 
   // 3. Two more receipts, then sort, filter and export.
   for (const amount of ['300', '50']) {
-    await page.getByRole('button', { name: 'New receipt' }).click();
+    await page.getByRole('button', { name: 'New receipt' }).first().click();
     await selectReceiptCustomer(page, customerName);
     await page.getByLabel('Amount', { exact: true }).fill(amount);
     await page.getByRole('button', { name: 'Save' }).click();
@@ -141,7 +143,7 @@ test('golden path: TDS receipt, vouchers, sort and export, refund, void, walk-in
   });
   expect(walkIn.ok()).toBeTruthy();
   await page.reload();
-  await page.getByRole('button', { name: 'New receipt' }).click();
+  await page.getByRole('button', { name: 'New receipt' }).first().click();
   const combo = page.getByPlaceholder(/search active customer by name or phone/i);
   await combo.click();
   await combo.fill('Walk');

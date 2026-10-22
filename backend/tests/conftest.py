@@ -49,7 +49,9 @@ def clear_cache_before_each_test():
 # still available (in the call phase, before pytest-django rolls back and revokes
 # access). OFF by default — enable with INVARIANTS_STRICT=1 (the advisory
 # `invariant-sweep` CI job does). Opt a test out with
-# @pytest.mark.no_invariant_check when it deliberately builds a broken mid-state.
+# @pytest.mark.no_invariant_check when it deliberately builds a broken mid-state, or skip only
+# named checks with @pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="...") when the
+# test builds documents straight through the ORM (no journals) and every other check still holds.
 # Workflow tests call assert_all_invariants() explicitly regardless of the flag.
 
 @pytest.fixture(autouse=True)
@@ -96,15 +98,58 @@ def pytest_runtest_call(item):
         return
     from core.invariants import InvariantViolation, assert_all_invariants
 
+    skip: set[str] = set()
+    for mark in item.iter_markers("invariant_skip"):
+        if not mark.kwargs.get("reason"):
+            raise pytest.UsageError(f"{item.nodeid}: invariant_skip needs reason=")
+        skip.update(mark.args)
+    if skip:
+        from core.invariants.base import _REGISTRY
+
+        unknown = skip - set(_REGISTRY)
+        if unknown:
+            raise pytest.UsageError(f"{item.nodeid}: invariant_skip names no such invariant: {sorted(unknown)}")
     try:
         with transaction.atomic():  # isolate the read; roll back cleanly on any error
             companies = list(Company.objects.filter(pk__in=pks))
             for company in companies:
-                assert_all_invariants(company)
+                assert_all_invariants(company, skip=skip)
     except InvariantViolation as exc:
         outcome.force_exception(exc)
     except DatabaseError:
         return  # transaction was already broken by the test body
+
+
+# --- Seeded reference data --------------------------------------------------
+# masters.HsnRate is seeded by data migrations (0010, 0014, 0015). A transaction=True test flushes
+# every table when it ends, so on a reused test DB (or a later test on the same xdist worker) the
+# catalogue is gone and HSN-based rates silently fall back to the product rate. Put it back.
+
+def _reseed_hsn_catalog() -> None:
+    import importlib
+
+    from django.apps import apps
+
+    importlib.import_module("masters.migrations.0010_b06_hsn_rate").seed_starter_rates(apps, None)
+    importlib.import_module("masters.migrations.0014_seed_hsn_rate_catalog").seed(apps, None)
+    importlib.import_module("masters.migrations.0015_fix_hsn_cess_unresolved_post_cutover").remove_stale_rows(apps, None)
+
+
+@pytest.fixture(autouse=True)
+def _hsn_catalog_seeded(request):
+    if request.node.get_closest_marker("django_db") is None and not (
+        {"db", "transactional_db"} & set(request.fixturenames)
+    ):
+        yield
+        return
+    request.getfixturevalue("django_db_setup")
+    blocker = request.getfixturevalue("django_db_blocker")
+    with blocker.unblock():
+        from masters.models import HsnRate
+
+        if not HsnRate.objects.exists():
+            _reseed_hsn_catalog()
+    yield
 
 
 # --- Phase 1 determinism ---------------------------------------------------
@@ -169,6 +214,31 @@ def _no_socket_opt_in():
         pytest_socket.enable_socket()
 
 
+# WP-A2: in the Postgres CI job, a `postgres`-marked test that skips proves nothing. With
+# PG_SKIP_REPORT=<path> set, every such skip is written there and
+# scripts/ci_gates/check_postgres_skips.py fails the job if the file is not empty.
+_PG_SKIPS: list[str] = []
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+    if report.skipped and item.get_closest_marker("postgres") is not None:
+        reason = report.longrepr[-1] if isinstance(report.longrepr, tuple) else str(report.longrepr)
+        _PG_SKIPS.append(f"{item.nodeid} :: {reason}")
+
+
+def pytest_sessionfinish(session, exitstatus):
+    import json
+    import os
+
+    path = os.environ.get("PG_SKIP_REPORT")
+    if path:
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(sorted(set(_PG_SKIPS)), fh, indent=1)
+
+
 def _stable_phone(slug: str) -> str:
     """Deterministic 10-digit phone for a tenant slug.
 
@@ -190,7 +260,7 @@ def register_via_api(client, payload):
     code = otp_resp.data.get("debug_code")
     assert code, f"expected debug_code in OTP response, got {otp_resp.data!r}"
     return client.post(
-        "/api/v1/auth/register/", {**payload, "otp_code": code}, format="json",
+        "/api/v1/auth/register/", {"accept_terms": True, **payload, "otp_code": code}, format="json",
     )
 
 

@@ -1,0 +1,26 @@
+id: "QOS-0150"
+category: "RELIABILITY_TRUST"
+title: "Agents: CA review of the tax-wording phrase list that blocks advice in drafted text"
+persona: ["P1"]
+journey: "Use the business agents on real work"
+problem: "Agent drafts may restate tax facts (a bill rate, a GST percentage) but must never give advice or a determination. The blocked phrases are a short list written by engineers. A chartered accountant has not checked whether it is too loose or too strict."
+evidence:
+  strength: "heuristic"
+  source: ["docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md"]
+  detail: "backend/agents/tax_policy.py holds the English and Hindi phrase lists; backend/tests/agents/test_text_safety.py tests them. Used by the supplier-query and reminder drafts."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human or data step. Every agent stays off for every company until it is granted."
+effort: "S"
+recommendation: "A CA reads backend/agents/tax_policy.py and the supplier-query template in backend/agents/catalog/bill_check/context.py, adds phrases that would amount to advice or a determination, and removes any that block a plain statement of fact. Add each change to test_text_safety.py. Do this before any company is granted AGENT_BILL_CHECK."
+test_required: "backend/tests/agents/test_text_safety.py"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

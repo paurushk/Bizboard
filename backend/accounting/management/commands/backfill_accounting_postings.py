@@ -6,6 +6,7 @@ require ``--company`` to post, or pass ``--dry-run`` to scan only.
 
 from decimal import Decimal
 
+from django.db.models import Q
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import Company
@@ -76,7 +77,8 @@ class Command(BaseCommand):
             raise CommandError("Pass --company=N to post, or --dry-run to scan.")
 
         with rls_bypass():
-            companies = Company.objects.filter(accounting_enabled=True)
+            # WP-F2: shadow-books companies post to the ledger too.
+            companies = Company.objects.filter(Q(accounting_enabled=True) | Q(post_ledger=True))
             if company_id:
                 companies = companies.filter(pk=company_id)
             posted = 0
@@ -93,6 +95,13 @@ class Command(BaseCommand):
                     f"Company {company.id}: posted={p} skipped={s} would_post={w} "
                     f"party_tags={tagged}"
                 )
+                if not dry_run:
+                    from core.repair import record_repair
+
+                    record_repair(
+                        command="backfill_accounting_postings", company=company, stdout=self.stdout,
+                        summary={"posted": p, "skipped": s, "party_tags": tagged},
+                    )
         if dry_run:
             self.stdout.write(
                 self.style.WARNING(f"Dry-run: would post {would} ({skipped} skipped).")

@@ -50,8 +50,12 @@ def env(tmp_path):
     bindir = tmp_path / "bin"
     bindir.mkdir()
     # pg_dump: emit a tiny SQL script unless told to fail.
+    # FAKE_PG_EMPTY=1 imitates a dump taken by a role that row-level security hides: schema, no rows.
     _shim(bindir, "pg_dump", 'if [ "${FAKE_PG_FAIL:-0}" = "1" ]; then echo boom >&2; exit 3; fi\n'
-                             'echo "CREATE TABLE t(x int);"\n')
+                             'echo "CREATE TABLE t(x int);"\n'
+                             'echo "COPY public.accounts_company (id, name) FROM stdin;"\n'
+                             'if [ "${FAKE_PG_EMPTY:-0}" != "1" ]; then printf \'1\\tAlpha Traders\\n\'; fi\n'
+                             'printf \'%s\\n\' "\\\\."\n')
     # age: -r RECIPIENT -o OUT IN   /   -d -i IDENT IN
     _shim(bindir, "age", 'if [ "$1" = "-d" ]; then cat "$4"; exit 0; fi\n'
                          'cp "$5" "$4"\n')
@@ -109,6 +113,16 @@ def test_plain_dump_when_explicitly_allowed(env):
     assert b"CREATE TABLE" in gzip.decompress((backups / name).read_bytes())
     assert (backups / "LAST_SUCCESS").read_text().split()[1] == name
     assert "UNENCRYPTED" in r.stderr and "this host only" in r.stderr
+
+
+def test_a_dump_with_no_company_rows_is_refused(env):
+    """WP-B4: a dump taken by a role that row-level security hides has the schema and no rows."""
+    e, backups, _ = env
+    r = run(BACKUP, e, BACKUP_ALLOW_UNENCRYPTED="1", FAKE_PG_EMPTY="1")
+    assert r.returncode != 0
+    assert "no company rows" in r.stderr
+    assert dumps(backups) == []
+    assert not (backups / "LAST_SUCCESS").exists()
 
 
 def test_encrypted_dump_uses_age_and_is_not_plaintext_named(env):

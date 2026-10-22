@@ -91,7 +91,7 @@ services:
   worker:
     build: ./backend
     restart: unless-stopped
-    command: celery -A config worker -l info -Q celery,high_priority,media_heavy,reports --concurrency=${CELERY_CONCURRENCY:-2}
+    command: celery -A config worker -l info -Q celery,high_priority,media_heavy,reports,agents,agents_interactive --concurrency=${CELERY_CONCURRENCY:-2}
     # BB-000314: required:false for local/dev; a prod overlay should set required:true.
     env_file:
       - path: .env

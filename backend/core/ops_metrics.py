@@ -1,12 +1,19 @@
-"""Process-local + infra gauges for GET /metrics (O-Gate 1).
+"""Process-local + infra gauges for GET /metrics (O-Gate 1), plus multiprocess mode (WP-D2).
 
-HTTP counters are per-process (gunicorn workers scrape independently), so a
-scrape reaches ONE worker. The latency histogram therefore carries a ``pid``
-label: aggregate with ``sum without (pid) (...)`` and query ``histogram_quantile``
-over a window long enough to hit every worker. (True cross-process aggregation
-needs prometheus_client multiprocess mode; not adopted yet.)
-Queue / health / DLQ gauges are read from Redis/DB with the same ~15s cache
-as HealthView.
+Without ``PROMETHEUS_MULTIPROC_DIR`` (dev, tests): HTTP counters are per-process, a
+scrape reaches ONE gunicorn worker, and the latency histogram carries a ``pid`` label
+(aggregate with ``sum without (pid) (...)``).
+
+With ``PROMETHEUS_MULTIPROC_DIR`` set (staging, production): every counter and
+histogram is also recorded through ``prometheus_client`` in multiprocess mode, and
+``/metrics`` renders the sum across all worker processes of the container. Each Celery
+worker container serves its own task metrics on ``WORKER_METRICS_PORT``
+(``config/celery.py``); the collector scrapes the api and every worker. The directory
+must be emptied before the server starts (the Compose command) and dead
+gunicorn workers are marked in ``child_exit`` (``config/gunicorn.conf.py``).
+
+Queue / health / DLQ / books-check gauges are read at scrape time from Redis/DB with
+the same ~15s cache as HealthView. Never put a company id in a label.
 """
 
 from __future__ import annotations
@@ -25,11 +32,51 @@ _CELERY_FAILURES = 0
 LATENCY_BUCKETS_MS = (50, 100, 250, 500, 800, 1000, 2000, 5000, 8000, 30000)
 _BUCKET_COUNTS = [0] * (len(LATENCY_BUCKETS_MS) + 1)  # last slot = +Inf
 
+# Every Celery queue a worker must consume (config/celery.py routes). Depth is read per queue.
+CELERY_QUEUES = ("celery", "high_priority", "media_heavy", "reports", "agents", "agents_interactive")
+
+
+def multiprocess_enabled() -> bool:
+    return bool(os.environ.get("PROMETHEUS_MULTIPROC_DIR"))
+
+
+_MP: dict | None = None
+
+
+def _mp() -> dict | None:
+    """The prometheus_client metric objects, created once per process (multiprocess mode only)."""
+    global _MP
+    if _MP is not None or not multiprocess_enabled():
+        return _MP
+    try:
+        from prometheus_client import Counter, Histogram
+    except ImportError:  # pragma: no cover - requirements.txt pins it
+        return None
+    _MP = {
+        "requests": Counter("bizboard_http_requests", "HTTP requests handled.", ["status_class"]),
+        "http_5xx": Counter("bizboard_http_5xx", "HTTP responses with status >= 500."),
+        "latency": Histogram(
+            "bizboard_http_latency_ms",
+            "Request latency in milliseconds.",
+            buckets=[*LATENCY_BUCKETS_MS, float("inf")],
+        ),
+        "events": Counter("bizboard_business_events", "Business events (receipts created, voided...).", ["event"]),
+        "celery_failures": Counter("bizboard_celery_task_failure", "Celery task failures."),
+        "celery_duration": Histogram(
+            "bizboard_celery_task_duration_seconds",
+            "Celery task run time in seconds.",
+            ["task", "status"],
+            buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900, float("inf")),
+        ),
+    }
+    return _MP
+
 
 def bump_request_count() -> None:
     global _REQUEST_COUNT
     with _lock:
         _REQUEST_COUNT += 1
+    # The multiprocess request counter is bumped in record_http_result, which knows the status.
 
 
 def get_request_count() -> int:
@@ -46,6 +93,15 @@ def record_http_result(*, status: int, duration_ms: int) -> None:
         _BUCKET_COUNTS[slot] += 1
         if int(status) >= 500:
             _HTTP_5XX += 1
+    mp = _mp()
+    if mp is not None:
+        try:
+            mp["requests"].labels(status_class=f"{int(status) // 100}xx").inc()
+            mp["latency"].observe(d)
+            if int(status) >= 500:
+                mp["http_5xx"].inc()
+        except Exception:  # noqa: BLE001 - metrics must never break a request
+            pass
 
 
 _EVENTS: dict[str, int] = {}
@@ -56,6 +112,12 @@ def bump_event(name: str) -> None:
     key = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in str(name))[:64] or "unknown"
     with _lock:
         _EVENTS[key] = _EVENTS.get(key, 0) + 1
+    mp = _mp()
+    if mp is not None:
+        try:
+            mp["events"].labels(event=key).inc()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def get_event_counts() -> dict[str, int]:
@@ -67,10 +129,69 @@ def bump_celery_failure() -> None:
     global _CELERY_FAILURES
     with _lock:
         _CELERY_FAILURES += 1
+    mp = _mp()
+    if mp is not None:
+        try:
+            mp["celery_failures"].inc()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def get_celery_failure_count() -> int:
     return _CELERY_FAILURES
+
+
+def observe_celery_task(*, task: str, status: str, duration_ms: int | None) -> None:
+    """Record one finished Celery task (worker side). Never raises."""
+    mp = _mp()
+    if mp is None or duration_ms is None:
+        return
+    try:
+        mp["celery_duration"].labels(task=str(task)[:120], status=str(status)).observe(max(0, duration_ms) / 1000)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def queue_depths() -> dict[str, int]:
+    """Broker depth per Celery queue (Redis LLEN). All zero when eager; empty when Redis is unreachable."""
+    from django.conf import settings
+
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        return {q: 0 for q in CELERY_QUEUES}
+    url = getattr(settings, "CELERY_BROKER_URL", None) or getattr(settings, "REDIS_URL", None)
+    if not url:
+        return {}
+    try:
+        import redis
+
+        client = redis.from_url(url, socket_connect_timeout=1, socket_timeout=1)
+        return {q: int(client.llen(q) or 0) for q in CELERY_QUEUES}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def books_check_failures() -> int:
+    """Companies whose latest nightly books check FAILED or hit an ERROR (cached 60 s)."""
+    from django.core.cache import cache
+
+    key = "bizboard:metrics_books_failures"
+    try:
+        cached = cache.get(key)
+    except Exception:  # noqa: BLE001
+        cached = None
+    if cached is not None:
+        return int(cached)
+    try:
+        from core.sweep import failing_company_count
+
+        value = failing_company_count()
+    except Exception:  # noqa: BLE001
+        return 0
+    try:
+        cache.set(key, value, 60)
+    except Exception:  # noqa: BLE001
+        pass
+    return value
 
 
 def _gauge_snapshot() -> dict:
@@ -121,6 +242,33 @@ def _gauge_snapshot() -> dict:
     }
 
 
+_GAUGE_HELP = (
+    ("pdf_queue_depth", "Broker queue depth for the default Celery queue."),
+    ("dead_letter_events", "Pending billing DeadLetterEvent rows."),
+    ("circuit_open", "1 if any money-path circuit breaker is open."),
+    ("health_db", "1 if the database connection probe succeeded."),
+    ("health_redis", "1 if the cache/Redis probe succeeded."),
+    ("health_celery", "1 if Celery workers responded to inspect.ping (or eager)."),
+    ("health_beat", "1 if the celery-beat heartbeat is fresh."),
+)
+
+
+def _scrape_time_lines(gauges: dict) -> list[str]:
+    """Gauges read at scrape time: the same value whichever worker answers."""
+    lines: list[str] = []
+    for name, help_text in _GAUGE_HELP:
+        lines += [f"# HELP bizboard_{name} {help_text}", f"# TYPE bizboard_{name} gauge", f"bizboard_{name} {gauges[name]}"]
+    lines += [
+        "# HELP bizboard_celery_queue_depth Broker depth per Celery queue.",
+        "# TYPE bizboard_celery_queue_depth gauge",
+        *[f'bizboard_celery_queue_depth{{queue="{q}"}} {n}' for q, n in sorted(queue_depths().items())],
+        "# HELP bizboard_books_check_failures Companies whose latest nightly books check failed or crashed.",
+        "# TYPE bizboard_books_check_failures gauge",
+        f"bizboard_books_check_failures {books_check_failures()}",
+    ]
+    return lines
+
+
 def _histogram_lines() -> list[str]:
     pid = os.getpid()
     with _lock:
@@ -141,7 +289,19 @@ def _histogram_lines() -> list[str]:
     return lines
 
 
+def render_multiprocess() -> str:
+    """Counters and histograms summed across every worker process, plus the scrape-time gauges."""
+    from prometheus_client import CollectorRegistry, generate_latest, multiprocess
+
+    registry = CollectorRegistry()
+    multiprocess.MultiProcessCollector(registry)
+    body = generate_latest(registry).decode("utf-8")
+    return body + "\n".join(_scrape_time_lines(_gauge_snapshot())) + "\n"
+
+
 def render_prometheus() -> str:
+    if multiprocess_enabled() and _mp() is not None:
+        return render_multiprocess()
     gauges = _gauge_snapshot()
     lines = [
         "# HELP bizboard_http_requests_total Total HTTP requests handled by this process.",
@@ -159,27 +319,7 @@ def render_prometheus() -> str:
         "# HELP bizboard_celery_task_failure_total Celery task failures seen by this process.",
         "# TYPE bizboard_celery_task_failure_total counter",
         f"bizboard_celery_task_failure_total {get_celery_failure_count()}",
-        "# HELP bizboard_pdf_queue_depth Broker queue depth for the default Celery queue.",
-        "# TYPE bizboard_pdf_queue_depth gauge",
-        f"bizboard_pdf_queue_depth {gauges['pdf_queue_depth']}",
-        "# HELP bizboard_dead_letter_events Pending billing DeadLetterEvent rows.",
-        "# TYPE bizboard_dead_letter_events gauge",
-        f"bizboard_dead_letter_events {gauges['dead_letter_events']}",
-        "# HELP bizboard_circuit_open 1 if any money-path circuit breaker is open.",
-        "# TYPE bizboard_circuit_open gauge",
-        f"bizboard_circuit_open {gauges['circuit_open']}",
-        "# HELP bizboard_health_db 1 if the database connection probe succeeded.",
-        "# TYPE bizboard_health_db gauge",
-        f"bizboard_health_db {gauges['health_db']}",
-        "# HELP bizboard_health_redis 1 if the cache/Redis probe succeeded.",
-        "# TYPE bizboard_health_redis gauge",
-        f"bizboard_health_redis {gauges['health_redis']}",
-        "# HELP bizboard_health_celery 1 if Celery workers responded to inspect.ping (or eager).",
-        "# TYPE bizboard_health_celery gauge",
-        f"bizboard_health_celery {gauges['health_celery']}",
-        "# HELP bizboard_health_beat 1 if the celery-beat heartbeat is fresh.",
-        "# TYPE bizboard_health_beat gauge",
-        f"bizboard_health_beat {gauges['health_beat']}",
+        *_scrape_time_lines(gauges),
         "# HELP bizboard_business_events_total Business events counted by this process (receipts created, voided...).",
         "# TYPE bizboard_business_events_total counter",
         *[

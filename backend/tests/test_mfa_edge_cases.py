@@ -128,7 +128,11 @@ def test_confirm_twice_is_refused_and_does_not_reissue_recovery_codes(tenant_a):
     assert again.status_code == 400 and "recovery_codes" not in again.data
 
 
-def test_the_code_used_to_confirm_cannot_be_reused_to_log_in(tenant_a):
+def test_the_code_used_to_confirm_cannot_be_reused_to_log_in(tenant_a, monkeypatch):
+    # Hold the clock 5 s into one 30 s step: on a slow run the real clock could cross into the next
+    # step between confirm and verify, and the "reused" code would then be a fresh one.
+    frozen = (time.time() // mfa.STEP_SECONDS) * mfa.STEP_SECONDS + 5
+    monkeypatch.setattr(time, "time", lambda: frozen)
     _enrol(tenant_a)  # confirm consumed the current time step
     token = _challenge(tenant_a)
     assert _verify(token, code=_code(tenant_a.owner)).status_code == 401

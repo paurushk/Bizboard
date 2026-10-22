@@ -25,10 +25,17 @@ if (rawServerUrl) {
   serverUrl = rawServerUrl;
 }
 
+// WP-L1: the WebView loads the live SPA, so the bundle cannot know which native build it runs in.
+// The shell says so in its user agent ("BizBoardApp/<version>"); the SPA forwards it as
+// X-App-Version, and the API refuses builds below MIN_SUPPORTED_APP_VERSION
+// (docs/ops/MOBILE_VERSION_POLICY.md). Keep it equal to the Gradle versionName.
+const appVersion = (process.env.BIZBOARD_APP_VERSION || '1.0').trim();
+
 const config: CapacitorConfig = {
   appId: 'in.bizboard.app',
   appName: 'Bizboard',
   webDir: '../web/dist',
+  appendUserAgent: `BizBoardApp/${appVersion}`,
   server: {
     androidScheme: 'https',
     // Load the SPA from the same origin as the API so JWT cookies (SameSite=Lax)

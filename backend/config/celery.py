@@ -2,7 +2,14 @@ import inspect
 import os
 
 from celery import Celery
-from celery.signals import before_task_publish, task_failure, task_postrun, task_prerun
+from celery.signals import (
+    before_task_publish,
+    task_failure,
+    task_postrun,
+    task_prerun,
+    worker_init,
+    worker_process_shutdown,
+)
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
@@ -19,6 +26,9 @@ app.conf.task_routes = {
     "sales.tasks.generate_invoice_pdf": {"queue": "media_heavy"},
     "ocr.tasks.process_bill_image": {"queue": "media_heavy"},
     "reporting.tasks.*": {"queue": "reports"},
+    # Agents: user-triggered runs must never wait behind a background sweep.
+    "agents.tasks.run_agent_async": {"queue": "agents_interactive"},
+    "agents.tasks.*": {"queue": "agents"},
 }
 app.autodiscover_tasks()
 
@@ -305,6 +315,12 @@ def _log_celery_task(*, task, task_id, state, error):
         status = "failure"
     elif st == "RETRY":
         status = "retry"
+    try:
+        from core.ops_metrics import observe_celery_task
+
+        observe_celery_task(task=name, status=status, duration_ms=duration_ms)
+    except Exception:  # noqa: BLE001 - metrics must never break a task
+        pass
     logging.getLogger("bizboard.celery").info(
         json.dumps(
             {
@@ -322,3 +338,35 @@ def _log_celery_task(*, task, task_id, state, error):
         )
     )
 
+
+
+# WP-D2: worker metrics. Task metrics are recorded in the worker container, which the api's
+# /metrics cannot see, so each worker serves its own on WORKER_METRICS_PORT (private network
+# only). The main worker process serves the sum of its prefork children (multiprocess mode).
+@worker_init.connect
+def _start_worker_metrics_server(**_kwargs):
+    port = os.environ.get("WORKER_METRICS_PORT", "").strip()
+    if not port or not os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        return
+    try:
+        from prometheus_client import CollectorRegistry, multiprocess, start_http_server
+
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)
+        start_http_server(int(port), registry=registry)
+    except Exception:  # noqa: BLE001 - a metrics port problem must not stop the worker
+        import logging
+
+        logging.getLogger("bizboard.celery").exception("worker metrics server did not start on port %s", port)
+
+
+@worker_process_shutdown.connect
+def _mark_worker_process_dead(pid=None, **_kwargs):
+    if not os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        return
+    try:
+        from prometheus_client import multiprocess
+
+        multiprocess.mark_process_dead(pid or os.getpid())
+    except Exception:  # noqa: BLE001
+        pass

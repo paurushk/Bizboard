@@ -11,8 +11,15 @@ evidence:
   source:
   - docs/UX_ACTION_ITEMS.md
   - docs/ux/L2_finding_ledger.csv
-  detail: Ledger rows UX-N10, UX-N11, UX-M07. Attribute strings were swept into en and hi on 2026-10-01.
-    JSX text in 22 more files and the Collections page were moved on 2026-10-01 (guarded by jsxLiteralRatchet.test.ts). Still to do are the other ~29 files with JSX text, the page-state audit and the inline create forms.
+  detail: 'Ledger rows UX-N10, UX-N11, UX-M07. Attribute strings were swept into en and hi on 2026-10-01.
+    JSX text in 22 more files and the Collections page were moved on 2026-10-01 (guarded by jsxLiteralRatchet.test.ts).
+    Still to do are the other ~29 files with JSX text, the page-state audit and the inline create forms.
+    2026-10-22: the JSX text ratchet now scans every .tsx file under src (the help centre FAQ is exempt
+    as long-form content); the last strings (the Cess total on returns and the referral share text) moved
+    to en and hi. The state scan found two real gaps, both fixed: manufacturing grids said ''nothing yet''
+    while loading and stayed silent on a failed request (Grid now takes the query, mfgGridStates.test.tsx),
+    and a dead lead-form link showed a form whose Send could only fail (LeadFormPage.test.tsx). The inline
+    create forms (UX-M07) were already dialogs; Referrals keeps a three-field issue row by design.'
 scoring:
   reach: 3
   severity: 3
@@ -26,8 +33,10 @@ recommendation: Re-run the state scan page by page, apply one shared wrapper, an
   a dialog. Extend the literal ratchet to cover JSX text.
 test_required: The literal ratchet passes on every page, and each list page has a test for its loading,
   error and empty states.
-guard_ref: null
-lifecycle: in_progress
+guard_ref:
+  test: web/src/i18n/jsxLiteralRatchet.test.ts::keeps every screen free of hard-coded English between
+    tags
+lifecycle: fixed
 owner: web
 opened: '2026-10-01'
-closed: null
+closed: '2026-10-22'

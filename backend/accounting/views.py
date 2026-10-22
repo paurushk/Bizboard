@@ -1374,6 +1374,8 @@ def accounting_disable_preflight(company) -> dict:
             latest_closed.isoformat() if (latest_closed := closed.aggregate(last=Max("end_date"))["last"]) else None
         ),
         "backfill_running": running,
+        # WP-F2: with shadow books the ledger keeps posting after the switch is off.
+        "post_ledger": bool(getattr(company, "post_ledger", False)),
         "blockers": blockers,
         "can_disable": bool(company.accounting_enabled) and not blockers,
     }
@@ -1794,7 +1796,11 @@ class AccountingReportView(AccountingEnabledMixin, APIView):
         date_from, date_to = _qp_date("from"), _qp_date("to")
         cost_center = _qp_cost_center()
         if report == "trial-balance":
-            return self._report_response(report, trial_balance(self.company, as_of), request)
+            from accounting.coverage import ledger_gaps
+
+            # WP-F3: flag-gated postings that are off for this company are not in these numbers.
+            payload = {**trial_balance(self.company, as_of), "ledger_gaps": ledger_gaps(self.company)}
+            return self._report_response(report, payload, request)
         if report == "profit-and-loss":
             return self._report_response(report, profit_and_loss(self.company, date_from, date_to, cost_center), request)
         if report == "balance-sheet":

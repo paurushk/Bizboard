@@ -108,6 +108,10 @@ STOCK_CODES = frozenset({
     "EXPIRING_STOCK",
     "ABNORMAL_STOCK_ADJUSTMENT",
 })
+MANUFACTURING_CODES = frozenset({
+    "WO_LATE", "WO_SHORTAGE", "WIP_STALE", "BATCH_ON_HOLD", "NCR_OVERDUE", "JOBWORK_AGEING", "ITC04_DUE",
+    "WO_APPROVAL_WAITING",
+})
 HINT_SKIP_IF_ALERT = frozenset({
     "CUSTOMER_CONCENTRATION",
     "MARGIN_DROP_SKU",
@@ -146,6 +150,9 @@ KNOWN_CODES = frozenset({
     "VOID_RATE_HIGH", "WALK_IN_UNALLOCATED_RECEIPT",
     # classified above but not emitted by any detector today
     "EINVOICE_FAILED", "EINVOICE_PENDING", "GSTR2B_UNMATCHED",
+    # Manufacturing (manufacturing/attention.py)
+    "WO_LATE", "WO_SHORTAGE", "WIP_STALE", "BATCH_ON_HOLD", "NCR_OVERDUE", "JOBWORK_AGEING", "ITC04_DUE",
+    "WO_APPROVAL_WAITING",
 })
 NON_SNOOZABLE = frozenset({"FEED_DEGRADED"})
 NON_ASSIGNABLE = frozenset({"FEED_DEGRADED"})
@@ -172,6 +179,7 @@ FALLBACK_HREF_BY_KIND = {
     "discount": "/reports/sales-discounts",
     "purchase": "/purchases/history",
     "cash": "/insights/cashflow",
+    "manufacturing": "/manufacturing/work-orders",
 }
 
 
@@ -289,6 +297,12 @@ def _can_see(company_user, code: str) -> bool:
             company_user.can_manage_inventory
             or company_user.can_view_financial_reports
             or company_user.can_create_purchases
+        )
+    if code in MANUFACTURING_CODES:
+        return bool(
+            company_user.can_manage_inventory
+            or company_user.can_view_financial_reports
+            or company_user.role in {"MANAGER", "INVENTORY_STAFF"}
         )
     if code in {"PAID_PENDING_BOOKS", "DUPLICATE_PAYMENT", "WALK_IN_UNALLOCATED_RECEIPT", "VOID_RATE_HIGH"}:
         return bool(company_user.can_create_payments or company_user.can_view_financial_reports)
@@ -753,6 +767,12 @@ def _expiry_rows(company) -> list[dict]:
     return rows
 
 
+def _manufacturing_rows(company, as_of) -> list[dict]:
+    from manufacturing import attention as mfg_attention
+
+    return mfg_attention.rows(company, as_of, _row)
+
+
 def _merge_and_rank(raw: list[dict]) -> list[dict]:
     by_key: dict[str, dict] = {}
     for row in raw:
@@ -896,6 +916,10 @@ DETECTOR_CODES: dict[str, set[str]] = {
     "predicted_dunning": {"PREDICTED_LATE_PAYMENT", "AR_CUSTOMER"},
     "customer_actions": {"CHURN_RISK", "REPEAT_ORDER_DUE", "CROSS_SELL"},
     "residual_returns": {"AR_RESIDUAL_AFTER_RETURN"},
+    "manufacturing": {
+        "WO_LATE", "WO_SHORTAGE", "WIP_STALE", "BATCH_ON_HOLD", "NCR_OVERDUE", "JOBWORK_AGEING", "ITC04_DUE",
+    "WO_APPROVAL_WAITING",
+    },
 }
 
 
@@ -980,6 +1004,7 @@ def _build_raw_rows(company, as_of: date) -> tuple[list[dict], dict]:
         raw.extend(_guard("overdue_customers", status, _overdue_customer_rows, company, as_of))
         raw.extend(_guard("expiry", status, _expiry_rows, company))
         raw.extend(_guard("promise_to_pay", status, _promise_to_pay_rows, company, as_of))
+        raw.extend(_guard("manufacturing", status, _manufacturing_rows, company, as_of))
     return raw, {"failed": list(status["failed"]), "truncated": list(status["truncated"])}
 
 

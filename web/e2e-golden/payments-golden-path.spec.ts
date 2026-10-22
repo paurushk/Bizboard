@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  enableAccounting,
   addInvoiceItem,
   addStockAdjustment,
   createCustomer,
@@ -41,9 +42,7 @@ test('golden path: register -> enable accounting -> invoice -> receipt -> GL pos
   // company.accountingEnabled=true — it's a one-time boot fetch, not
   // react-query, so the earlier settings mutation's cache invalidation
   // alone never refreshes it.
-  await page.goto('/settings/accounting');
-  await page.getByRole('button', { name: 'Enable accounting' }).click();
-  await expect(page.getByText(/Accounting enabled/i)).toBeVisible();
+  await enableAccounting(page); // sign-up already turns it on; the helper only switches it on when off
 
   // 3. Create a product with 0% GST to match the flat ₹100 payment.
   await createProduct(page, { name: productName, sku: productSku, sellingPrice: '100', purchasePrice: '80', gstRate: '0' });

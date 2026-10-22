@@ -1,5 +1,6 @@
 """Sales Service — quotations, invoices, returns, status transitions (E4)."""
 
+from accounting.books import posts_to_ledger
 import logging
 from collections import defaultdict
 from decimal import Decimal
@@ -917,7 +918,7 @@ class SalesService:
                 old_totals=old_totals,
                 amend=True,
             )
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService
                 PostingService.adjust_sales_invoice_postings(invoice, user=user)
             from core.models import StatutoryDocumentEvent, log_statutory_event
@@ -1208,7 +1209,10 @@ class SalesService:
                 items, ["cgst", "sgst", "igst", "cess", "line_total"]
             )
         apply_tcs_fold(invoice)
-        customer = Customer.objects.select_for_update().get(pk=invoice.customer_id)
+        # FOR NO KEY UPDATE: still one complete at a time per customer (credit limit), but it does not block
+        # the KEY SHARE that a concurrent receipt's foreign-key check takes at commit. FOR UPDATE did, and
+        # with both holding the journal-number lock that deadlocked (found 2026-10-22, shadow books).
+        customer = Customer.objects.select_for_update(no_key=True).get(pk=invoice.customer_id)
         limit = customer.credit_limit or Decimal("0")
         from sales.order_gates import invoice_credit_override_covers
 
@@ -1612,7 +1616,7 @@ class SalesService:
             InvoiceProfitService.write_snapshot(invoice, cogs_total, cost_basis_counts, user=user)
 
         if not is_tally_opening:
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService
 
                 PostingService.post_sales_invoice(invoice, user)
@@ -1657,7 +1661,7 @@ class SalesService:
             )
         else:
             # BB-000381: opening AR vs equity when books enabled.
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.services import PostingService
 
                 PostingService.post_opening_sales_invoice(invoice, user)
@@ -1761,7 +1765,7 @@ class SalesService:
 
         posted_sale_cancelled = invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED)
         if invoice.status in (SalesInvoice.Status.COMPLETED, SalesInvoice.Status.RETURNED):
-            if invoice.company.accounting_enabled:
+            if posts_to_ledger(invoice.company):
                 from accounting.models import JournalEntry
                 from accounting.services import PostingService
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from accounting.books import posts_to_ledger
 import logging
 import secrets
 from datetime import timedelta
@@ -200,7 +201,7 @@ def _reverse_allocation_journals(allocation, user=None):
     from accounting.services import PostingService
 
     company = allocation.company
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return
     # BB-000701: reverse on original JE / money-doc date (not localdate).
     money_date = None
@@ -230,7 +231,7 @@ def _reverse_money_document_journal(*, company, source_type, source_id, user=Non
     from accounting.models import JournalEntry
     from accounting.services import PostingService
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return
     entry = (
         JournalEntry.objects.filter(
@@ -252,7 +253,7 @@ def _reverse_bank_repoints(receipt, *, user=None, entry_date=None):
     from accounting.models import JournalEntry
     from accounting.services import PostingService
 
-    if not getattr(receipt.company, "accounting_enabled", False):
+    if not posts_to_ledger(receipt.company):
         return
     entries = JournalEntry.objects.filter(
         company=receipt.company,
@@ -543,7 +544,7 @@ class PaymentService:
         if receipt_date:
             receipt.receipt_date = receipt_date
         receipt.save()
-        if company.accounting_enabled:
+        if posts_to_ledger(company):
             from accounting.services import PostingService
 
             PostingService.post_receipt(receipt, user)
@@ -679,7 +680,7 @@ class PaymentService:
         if payment_date:
             payment.payment_date = payment_date
         payment.save()
-        if company.accounting_enabled:
+        if posts_to_ledger(company):
             from accounting.services import PostingService
 
             PostingService.post_supplier_payment(payment, user)
@@ -752,7 +753,7 @@ class PaymentService:
         )
         alloc._shares_set = True
         alloc.save()
-        if receipt.company.accounting_enabled:
+        if posts_to_ledger(receipt.company):
             from accounting.services import PostingService
 
             PostingService.post_receipt_allocation(alloc, user)
@@ -921,7 +922,7 @@ class PaymentService:
             created_by=user,
             updated_by=user,
         )
-        if payment.company.accounting_enabled:
+        if posts_to_ledger(payment.company):
             from accounting.services import PostingService
 
             PostingService.post_supplier_payment_allocation(alloc, user)
@@ -1086,7 +1087,7 @@ class PaymentService:
         # The GST return of the receipt's own period reads the customer's place of supply.
         assert_period_allows_money_amend(rec.company, rec.receipt_date)
         old_customer = rec.customer
-        if rec.company.accounting_enabled:
+        if posts_to_ledger(rec.company):
             from accounting.models import JournalEntry
             from accounting.services import PostingService
 
@@ -1201,7 +1202,7 @@ class PaymentService:
 
         if not update_fields:
             return rec
-        if repoint is not None and rec.company.accounting_enabled:
+        if repoint is not None and posts_to_ledger(rec.company):
             from accounting.models import JournalEntry
             from accounting.services import PostingService
 
@@ -1325,7 +1326,7 @@ class PaymentService:
             from sales.pos_shift import mark_paid_from_till
 
             mark_paid_from_till(refund, rec.company, user)
-        if rec.company.accounting_enabled:
+        if posts_to_ledger(rec.company):
             from accounting.services import PostingService
 
             PostingService.post_advance_refund(refund, user)
@@ -1468,7 +1469,7 @@ class PaymentService:
     @staticmethod
     def _post_dishonour_fee(*, receipt, fee, user):
         """Debit the customer and credit bank-charge recovery through PostingService."""
-        if not receipt.company.accounting_enabled:
+        if not posts_to_ledger(receipt.company):
             return None
         from accounting.services import PostingService
 
@@ -2461,7 +2462,7 @@ class PaymentService:
                 receipt.status = ReceiptStatus.REFUNDED
             receipt.updated_by = user
             receipt.save(update_fields=["notes", "status", "updated_by", "updated_at"])
-        if receipts and getattr(company, "accounting_enabled", False):
+        if receipts and posts_to_ledger(company):
             from accounting.services import PostingService
             from reporting.gst_periods import assert_period_allows_money_amend
 

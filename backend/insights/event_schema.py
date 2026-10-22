@@ -61,6 +61,14 @@ EVENT_SOURCES = {
     "REPEAT_ORDER_DUE": {"kind": "sales", "entity": "product"},
     "CROSS_SELL": {"kind": "sales", "entity": "product"},
     "PROMISE_TO_PAY_DUE": {"kind": "receivable", "entity": "customer"},
+    "WO_LATE": {"kind": "manufacturing", "entity": "work_order"},
+    "WO_SHORTAGE": {"kind": "manufacturing", "entity": "work_order"},
+    "WIP_STALE": {"kind": "manufacturing", "entity": "work_order"},
+    "BATCH_ON_HOLD": {"kind": "manufacturing", "entity": "batch"},
+    "NCR_OVERDUE": {"kind": "manufacturing", "entity": "ncr"},
+    "JOBWORK_AGEING": {"kind": "manufacturing", "entity": "challan_line"},
+    "ITC04_DUE": {"kind": "gst", "entity": "company"},
+    "WO_APPROVAL_WAITING": {"kind": "manufacturing", "entity": "material_issue"},
 }
 
 

@@ -285,6 +285,7 @@ def _body(resp):
         return None
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", "inventory.serial_traceability", "roadmap.vendor_share_company_is_vendor", reason="cross-tenant fixture rows are built through the ORM; serial rows are created directly through the ORM, without a godown or movement; stock balances or movements are written directly through the ORM")
 def test_every_detail_route_is_isolated_across_tenants(tenant_a, tenant_b):
 
     # Turn every rollout-grantable flag on for both tenants so a flag gate does not
@@ -559,6 +560,7 @@ def test_dead_letter_replay_and_list_are_isolated(tenant_a, tenant_b):
     assert b"iso-evt-b" not in listing.content and b"b-only" not in listing.content
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", "inventory.serial_traceability", "roadmap.vendor_share_company_is_vendor", "tenancy.stock_rows_same_company", reason="cross-tenant fixture rows are built through the ORM; serial rows are created directly through the ORM, without a godown or movement; stock balances or movements are written directly through the ORM")
 def test_matrix_detects_removed_scoping(tenant_a, tenant_b, monkeypatch):
     """Test the test: with the tenant filter removed from the base viewset the matrix
     must report leaks. A matrix that cannot fail proves nothing."""
@@ -784,3 +786,102 @@ def test_portal_receipt_voucher_never_crosses_customers_or_tenants(tenant_a, ten
     assert anon.get(f"{base}/{own.pk}/voucher/").status_code == 200
     assert anon.get(f"{base}/{others.pk}/voucher/").status_code == 404  # another customer, same company
     assert anon.get(f"{base}/{foreign.pk}/voucher/").status_code == 404  # another tenant
+
+
+def test_manufacturing_routes_are_isolated(tenant_a, tenant_b):
+    """Tenant A cannot read or act on tenant B's manufacturing records through any route the matrix cannot drive.
+
+    The generic matrix needs one path parameter and a row it can build on its own; the manufacturing documents need a
+    recipe, stock and a released order first, so they are built here and every route is tried with tenant B's ids.
+    """
+    from rest_framework.test import APIClient
+
+    from inventory.models import BatchLot
+    from manufacturing.models import DowntimeReason, WorkCentre
+    from manufacturing.services import issue as issue_svc
+    from manufacturing.services import planning, release_work_order, shopfloor
+    from tests.conftest import make_product
+    from tests.mfg_helpers import make_bom, make_wo, prepare, stocked
+
+    for t in (tenant_a, tenant_b):
+        prepare(t, separate=True)
+        t.company.feature_flags = {
+            **(t.company.feature_flags or {}), "manufacturing_pack_grant": True, "MFG_PLANNING": True,
+            "MFG_QUALITY": True, "MFG_JOB_WORK": True, "MFG_COSTING_GL": True, "MFG_SHOP_FLOOR": True,
+        }
+        t.company.save(update_fields=["feature_flags"])
+
+    company, user = tenant_b.company, tenant_b.owner
+    centre = WorkCentre.objects.create(company=company, code="ISO", name="Bench")
+    fg = make_product(company, sku="ISO-FG", name="Secret finished good")
+    raw = stocked(tenant_b, "ISO-RAW", 100, 10)
+    bom = make_bom(company, fg, [(raw, 1)], user=user)
+    shopfloor.set_routing(bom, [{"sequence": 10, "name": "Secret step", "work_centre": centre, "run_minutes_per_unit": 1}], user)
+    wo = release_work_order(make_wo(company, bom, 10, user=user), user)
+    card = shopfloor.create_job_cards(wo, user)[0]
+    from manufacturing.services import receipt as receipt_svc
+
+    issue = issue_svc.create_issue(wo, user)
+
+    receipt = receipt_svc.create_receipt(wo, user, {"lines": [{"kind": "MAIN", "qty_good": 1}]})
+    taken = issue_svc.post_issue(issue_svc.create_issue(wo, user, [{"wo_line": wo.component_lines.first(), "qty": 2}]), user)
+    ret = issue_svc.create_return(wo, user, [{"wo_line": wo.component_lines.first().pk, "qty": 1}])
+    assert taken.status == "POSTED"
+    run = planning.run_mrp(company, user, horizon_days=7)
+    lot = BatchLot.objects.create(company=company, product=fg, batch_no="ISO-SECRET")
+    reason = DowntimeReason.objects.create(company=company, code="ISO", name="Secret reason")
+    event = shopfloor.start_downtime(company, None, work_centre=centre, reason=reason)
+
+    # control: the owner of B reaches all of it, so a 404 for A means something
+    assert tenant_b.client.get(f"/api/v1/manufacturing/work-orders/{wo.pk}/").status_code == 200
+    assert tenant_b.client.get(f"/api/v1/manufacturing/job-cards/{card.pk}/").status_code == 200
+    assert tenant_b.client.get(f"/api/v1/manufacturing/material-issues/{issue.pk}/").status_code == 200
+    assert tenant_b.client.get(f"/api/v1/manufacturing/production-receipts/{receipt.pk}/").status_code == 200
+
+    base = "/api/v1/manufacturing"
+    tries = [
+        ("get", f"{base}/boms/{bom.pk}/routing/"),
+        ("put", f"{base}/boms/{bom.pk}/routing/"),
+        ("get", f"{base}/job-cards/{card.pk}/"),
+        ("get", f"{base}/job-cards/{card.pk}/subcontract-defaults/"),
+        *[("post", f"{base}/job-cards/{card.pk}/{v}/") for v in ("start", "pause", "report", "finish", "reopen", "subcontract")],
+        ("get", f"{base}/material-issues/{issue.pk}/"),
+        ("get", f"{base}/material-issues/{issue.pk}/print/"),
+        *[("post", f"{base}/material-issues/{issue.pk}/{v}/") for v in ("post", "reverse", "approve", "reject", "request-approval")],
+        ("delete", f"{base}/material-issues/{issue.pk}/discard/"),
+        ("get", f"{base}/production-receipts/{receipt.pk}/"),
+        ("get", f"{base}/production-receipts/{receipt.pk}/print-label/"),
+        *[("post", f"{base}/production-receipts/{receipt.pk}/{v}/") for v in ("post", "reverse")],
+        ("delete", f"{base}/production-receipts/{receipt.pk}/discard/"),
+        ("get", f"{base}/material-returns/{ret.pk}/"),
+        *[("post", f"{base}/material-returns/{ret.pk}/{v}/") for v in ("post", "reverse")],
+        ("delete", f"{base}/material-returns/{ret.pk}/discard/"),
+        ("get", f"{base}/mrp-runs/{run.pk}/"),
+        ("post", f"{base}/mrp-runs/{run.pk}/convert/"),
+        ("get", f"{base}/work-orders/{wo.pk}/"),
+        ("get", f"{base}/work-orders/{wo.pk}/print/"),
+        ("get", f"{base}/work-orders/{wo.pk}/availability/"),
+        *[("post", f"{base}/work-orders/{wo.pk}/{v}/") for v in ("release", "complete", "close", "cancel", "reopen", "set-priority")],
+        ("post", f"/api/v1/quality/batches/{lot.pk}/status/"),
+    ]
+    for method, url in tries:
+        resp = getattr(tenant_a.client, method)(url, {}, format="json") if method != "get" and method != "delete" else getattr(tenant_a.client, method)(url)
+        _assert_isolated(resp, f"{method.upper()} {url}")
+        for secret in (b"Secret finished good", b"Secret step", b"ISO-SECRET"):
+            assert secret not in resp.content, f"{url} leaked {secret!r}"
+
+    # a report is scoped by the company, not by an id in the path
+    rep = tenant_a.client.get(f"{base}/reports/consumption/")
+    assert rep.status_code == 200 and b"Secret finished good" not in rep.content and b"ISO-RAW" not in rep.content
+
+    # the tablet: tenant A's operator cannot touch tenant B's job card or stoppage
+    shopfloor.create_operator(tenant_a.company, tenant_a.owner, code="OPA", name="Asha", pin="4821")
+    tablet = APIClient()
+    login = tablet.post(f"{base}/tablet/login/", {"company": tenant_a.company.pk, "code": "OPA", "pin": "4821"}, format="json")
+    assert login.status_code == 200, login.content[:200]
+    hdr = {"HTTP_X_OPERATOR_TOKEN": login.json()["data"]["token"]}
+    for verb in ("start", "pause", "report", "finish"):
+        _assert_isolated(tablet.post(f"{base}/tablet/cards/{card.pk}/{verb}/", {}, format="json", **hdr), f"tablet {verb}")
+    _assert_isolated(tablet.post(f"{base}/tablet/downtime/end/", {"event": event.pk}, format="json", **hdr), "tablet downtime end")
+    cards = tablet.get(f"{base}/tablet/cards/", **hdr)
+    assert cards.status_code == 200 and b"Secret step" not in cards.content

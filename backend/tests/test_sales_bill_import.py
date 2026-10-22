@@ -799,6 +799,7 @@ def test_void_bill_removes_draft_and_archives_unused_created_entities(mock_llm, 
     assert not Customer.objects.filter(company=tenant_a.company, name="Retail Buyer LLP").exists()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @patch(LLM)
 def test_void_bill_refused_once_invoice_is_no_longer_draft(mock_llm, tenant_a):
     mock_llm.return_value = _payload(1)

@@ -224,6 +224,7 @@ def _owing_customer(tenant, name, amount="100"):
     return customer
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_credit_exposure_reuses_a_supplied_document_map_and_matches_the_default(tenant_a):
     from ledgers.services import LedgerService
 
@@ -235,6 +236,7 @@ def test_credit_exposure_reuses_a_supplied_document_map_and_matches_the_default(
     assert reused[customer.id] == documents[customer.id] > 0
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_credit_exposure_does_not_recompute_when_given_documents(tenant_a, monkeypatch):
     from ledgers.services import LedgerService
 

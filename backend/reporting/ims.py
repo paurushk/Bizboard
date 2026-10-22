@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -13,6 +14,8 @@ from core.exceptions import BusinessRuleError
 
 from .models import Gstr2bIngest, ImsActionHistory
 from purchases.status_semantics import OPEN_PAYABLE_STATUSES
+
+logger = logging.getLogger(__name__)
 
 IMS_BULK_CHUNK = 500
 EXPIRING_DAYS = 30
@@ -680,9 +683,23 @@ def send_itc_expiry_digests(*, as_of: date | None = None, now=None) -> dict:
 
     now = now or timezone.now()
     as_of = as_of or timezone.localdate(now)
+    from core.rls import company_ids_having, set_rls_company
+
     counts = {"sent": 0, "skipped": 0, "quiet": 0, "empty": 0}
-    company_ids = Gstr2bIngest.objects.values_list("company_id", flat=True).distinct()
-    for company in Company.objects.filter(id__in=company_ids):
-        outcome = send_itc_expiry_digest_for_company(company, as_of=as_of, now=now)
-        counts[outcome] = counts.get(outcome, 0) + 1
+    # A beat task has no tenant: list the companies under the bypass, then build each digest
+    # under that company's RLS context, or every read finds nothing (WP-C2).
+    try:
+        for cid in company_ids_having(Gstr2bIngest):
+            set_rls_company(cid)
+            company = Company.objects.filter(pk=cid).first()
+            if company is None:
+                continue
+            try:
+                outcome = send_itc_expiry_digest_for_company(company, as_of=as_of, now=now)
+            except Exception:  # noqa: BLE001 - keep sending the other companies' digests
+                logger.exception("itc expiry digest failed company=%s", cid)
+                outcome = "skipped"
+            counts[outcome] = counts.get(outcome, 0) + 1
+    finally:
+        set_rls_company(None)
     return counts

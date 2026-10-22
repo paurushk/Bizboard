@@ -40,6 +40,7 @@ def test_check_invariants_single_company_filter(tenant_a, tenant_b):
     assert f"company={tenant_b.company.id}" not in body
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_check_invariants_raises_and_reports_a_broken_company(tenant_a):
     """QOS-0022: a corrupted restore (balance drifted from movements) must
     fail the drill loudly, not print 'ok' and exit 0."""
@@ -68,5 +69,10 @@ def test_nightly_invariants_beat_is_registered_and_dry_runs(tenant_a):
     result = nightly_invariants_task.apply()
     assert result.successful(), result.result
     payload = result.result
-    assert payload["failed"] == 0
-    assert payload["checked"] >= 1
+    assert payload["queued"] >= 1
+    # WP-E1: each company's check is its own task; the result rows carry the outcome.
+    from core.models import TenantSweepResult
+
+    rows = TenantSweepResult.objects.filter(run_id=payload["run_id"])
+    assert rows.filter(company=tenant_a.company, status=TenantSweepResult.Status.CLEAN).exists()
+    assert not rows.filter(status__in=["FAILED", "ERROR"]).exists()

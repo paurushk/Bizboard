@@ -122,6 +122,7 @@ def test_bb_000619_620_rcm_moves_cess_and_return_cn_copies_rate(tenant_a):
     assert note.cess_total == Decimal("1.00")
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_bb_000609_reverse_copies_customer_fk(tenant_a):
     tenant_a.company.accounting_enabled = True
     tenant_a.company.save(update_fields=["accounting_enabled"])

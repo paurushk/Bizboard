@@ -65,6 +65,7 @@ def test_create_promise_stamps_audit_and_defaults(tenant_a):
     ).exists()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_create_promise_can_attach_an_invoice(tenant_a):
     customer = make_customer(tenant_a.company, name="Invoice Promise Co")
     invoice = _invoice(tenant_a.company, customer, "PP-1")

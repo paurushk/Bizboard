@@ -505,7 +505,8 @@ describe('CustomersPage review fixes', () => {
     const dialog = await openDialog(user);
     await user.type(within(dialog).getByRole('textbox', { name: /^Name/ }), 'Odd Co');
     await user.click(within(dialog).getByRole('button', { name: 'Save' }));
-    expect(await within(dialog).findByText(/mystery: Odd\./)).toBeTruthy();
+    // Unknown server fields are shown with a readable label (fieldLabel in api/client.ts).
+    expect(await within(dialog).findByText(/Mystery: Odd\./)).toBeTruthy();
     expect(within(dialog).getByText('Name is taken.')).toBeTruthy();
   });
 });

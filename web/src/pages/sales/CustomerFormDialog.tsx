@@ -17,7 +17,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { getErrorDetails, getErrorMessage } from '@/api/client';
+import { getErrorMessage, getFieldErrors } from '@/api/client';
 import {
   createCustomer,
   getCompany,
@@ -92,6 +92,12 @@ const EMPTY_CUSTOMER_FORM: CustomerForm = {
   priceList: '',
   customFields: {},
 };
+
+// Fields that show a server error under themselves; any other field's error goes to the banner
+// (mapping it to a field with no helper text would hide it).
+const CUSTOMER_FORM_FIELDS = [
+  'name', 'phone', 'email', 'gstin', 'state', 'creditLimit', 'creditDays', 'pincode',
+] as const satisfies readonly (keyof CustomerForm)[];
 
 function formFromCustomer(c: Customer | null): CustomerForm {
   if (!c) return EMPTY_CUSTOMER_FORM;
@@ -277,18 +283,10 @@ export function CustomerFormDialog({ open, customer, onClose, onSaved }: Props) 
         setDialogError(null);
         return;
       }
-      const details = getErrorDetails(err);
-      const mapped: Record<string, string> = {};
-      const unmatched: string[] = [];
-      for (const [field, value] of Object.entries(details ?? {})) {
-        const first = Array.isArray(value) ? value.find((v) => typeof v === 'string') : value;
-        if (typeof first !== 'string') continue;
-        if (field in EMPTY_CUSTOMER_FORM) mapped[field] = first;
-        else unmatched.push(`${field}: ${first}`);
-      }
-      setFieldErrors(mapped);
       // A field the form does not have, or no field at all, still has to be said somewhere.
-      setDialogError(unmatched.length ? unmatched.join('; ') : Object.keys(mapped).length ? null : getErrorMessage(err));
+      const { fieldErrors: mapped, banner } = getFieldErrors(err, CUSTOMER_FORM_FIELDS);
+      setFieldErrors(mapped as Record<string, string>);
+      setDialogError(banner);
     },
   });
 

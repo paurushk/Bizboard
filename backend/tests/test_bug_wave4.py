@@ -14,6 +14,7 @@ from tests.conftest import make_supplier
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.invariant_skip("money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines")
 def test_bug_gst_007_matches_supplier_bill_number(tenant_a):
     supplier = make_supplier(tenant_a.company, gstin="29CCCCC0000C1Z5")
     bill = PurchaseInvoice.objects.create(

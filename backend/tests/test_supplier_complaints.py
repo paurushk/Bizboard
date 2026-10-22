@@ -15,6 +15,7 @@ def _flags(company):
     company.save(update_fields=["feature_flags"])
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_supplier_complaint_debit_note_is_a_draft_and_staff_cannot_open_it(tenant_a, tenant_b):
     _flags(tenant_a.company)

@@ -57,6 +57,7 @@ def test_valid_gstin_constant_passes_checksum():
     validate_gstin(VALID_GSTIN)
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_blank_buyer_gstin_is_skipped(tenant_a):
     _enable(tenant_a.company)
@@ -65,6 +66,7 @@ def test_blank_buyer_gstin_is_skipped(tenant_a):
     assert _codes(tenant_a.company, inv.id) == set()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_bad_checksum_alerts_and_does_not_call_provider(tenant_a, monkeypatch):
     _enable(tenant_a.company)
@@ -85,6 +87,7 @@ def test_bad_checksum_alerts_and_does_not_call_provider(tenant_a, monkeypatch):
     assert inv.number in alerts[0]["message"]
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_flag_off_does_not_alert(tenant_a):
     customer = make_customer(tenant_a.company, gstin="")
@@ -92,6 +95,7 @@ def test_flag_off_does_not_alert(tenant_a):
     assert _codes(tenant_a.company, inv.id) == set()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 @pytest.mark.parametrize("provider_status", ["INVALID", "CANCELLED", "SUSPENDED"])
 def test_inactive_buyer_gstin_alerts(tenant_a, monkeypatch, provider_status):
@@ -116,6 +120,7 @@ def test_inactive_buyer_gstin_alerts(tenant_a, monkeypatch, provider_status):
     assert provider_status in alerts[0]["message"]
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_unverified_and_null_provider_skip(tenant_a, monkeypatch, caplog):
     _enable(tenant_a.company)
@@ -137,6 +142,7 @@ def test_unverified_and_null_provider_skip(tenant_a, monkeypatch, caplog):
     assert "UNVERIFIED" in caplog.text
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_retail_is_included_non_gst_is_not(tenant_a):
     _enable(tenant_a.company)
@@ -151,6 +157,7 @@ def test_retail_is_included_non_gst_is_not(tenant_a):
     assert _codes(tenant_a.company, non_gst.id) == set()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 @pytest.mark.parametrize("provider_status", ["VALID", ""])
 def test_unrecognized_or_valid_status_does_not_alert(tenant_a, monkeypatch, provider_status):
@@ -174,6 +181,7 @@ def test_unrecognized_or_valid_status_does_not_alert(tenant_a, monkeypatch, prov
     assert _codes(tenant_a.company, inv.id) == set()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_flag_off_also_suppresses_the_live_lookup_branch(tenant_a, monkeypatch):
     """test_flag_off_does_not_alert only exercises a format-invalid GSTIN,
@@ -192,6 +200,7 @@ def test_flag_off_also_suppresses_the_live_lookup_branch(tenant_a, monkeypatch):
     assert _codes(tenant_a.company, inv.id) == set()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_live_provider_called_once_per_unique_buyer_gstin(tenant_a, monkeypatch):
     """F1-006: confirms the per-run cache (gst_health.py's buyer_gstin_cache)
@@ -218,6 +227,7 @@ def test_live_provider_called_once_per_unique_buyer_gstin(tenant_a, monkeypatch)
     assert calls["count"] == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_invalid_format_buyer_gstin_reaches_today_via_business_alerts(tenant_a):
     """The Attention-page path is covered by
@@ -234,6 +244,7 @@ def test_invalid_format_buyer_gstin_reaches_today_via_business_alerts(tenant_a):
     assert len(rows) == 1
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_critical_buyer_gstin_becomes_a_named_attention_row(tenant_a):
     from insights.attention import _itc_and_gst_rows
@@ -280,6 +291,7 @@ def test_attention_gst_cap_filters_critical_before_capping(tenant_a, monkeypatch
     assert any(row["code"] == "GST_GUARDRAIL" and row["entity_ref"]["id"] == 999 for row in rows)
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_gst_guard_log_records_format_check_and_skipped_active_status(tenant_a, caplog):
     import logging

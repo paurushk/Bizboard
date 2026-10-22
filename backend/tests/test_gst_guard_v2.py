@@ -169,6 +169,7 @@ def test_check_rate_consistency_no_history_is_clean(tenant_a):
     ) is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_check_rate_consistency_matching_history_is_clean(tenant_a):
     product = make_product(tenant_a.company, sku="RC-0", hsn_code="1905", gst_rate="18")
@@ -188,6 +189,7 @@ def test_check_rate_consistency_matching_history_is_clean(tenant_a):
     ) is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_check_rate_consistency_mismatch_is_warning(tenant_a):
     product = make_product(tenant_a.company, sku="RC-1", hsn_code="1905", gst_rate="18")
@@ -208,6 +210,7 @@ def test_check_rate_consistency_mismatch_is_warning(tenant_a):
     assert "1905" in issue.message
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_check_rate_consistency_never_flags_price_only_differences(tenant_a):
     """Rate consistency is about the GST%, never the unit price / discount /
@@ -230,6 +233,7 @@ def test_check_rate_consistency_never_flags_price_only_differences(tenant_a):
     ) is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_check_rate_consistency_ignores_overridden_lines(tenant_a):
     product = make_product(tenant_a.company, sku="RC-2", hsn_code="1905", gst_rate="18")
@@ -251,6 +255,7 @@ def test_check_rate_consistency_ignores_overridden_lines(tenant_a):
     ) is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_check_rate_consistency_is_tenant_scoped(tenant_a, tenant_b):
     product = make_product(tenant_a.company, sku="RC-3", hsn_code="1905", gst_rate="18")
@@ -704,6 +709,7 @@ def test_credit_note_completion_is_gated_the_same_way(tenant_a):
     ).exists()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", "money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_complete_credit_note_direct_service_raises_typed_exception(tenant_a):
     """Service-level: complete_credit_note raises GstGuardBlocked (catchable),

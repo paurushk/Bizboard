@@ -149,19 +149,21 @@ def retry_pending_gateway_refunds():
 
     from django.db.models import Q
 
-    from core.rls import iter_company_ids, set_rls_company
+    from core.rls import rls_bypass, set_rls_company
     from payments.models import GatewayRefundOutbox, GatewayRefundOutboxStatus
 
     cutoff = timezone.now() - timedelta(minutes=10)
     now = timezone.now()
-    for cid in iter_company_ids():
+    due = Q(status__in=(GatewayRefundOutboxStatus.PENDING, GatewayRefundOutboxStatus.FAILED)) | Q(
+        status=GatewayRefundOutboxStatus.IN_PROGRESS, updated_at__lte=cutoff,
+    )
+    ready = Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now)
+    # WP-E1: visit only companies with a refund due, not every tenant every few minutes.
+    with rls_bypass():
+        due_ids = sorted(set(GatewayRefundOutbox.objects.filter(due).filter(ready).values_list("company_id", flat=True)))
+    for cid in due_ids:  # inline-company-loop-ok: only companies with a refund due; body only queues
         set_rls_company(cid)
-        qs = GatewayRefundOutbox.objects.filter(company_id=cid).filter(
-            Q(status__in=(GatewayRefundOutboxStatus.PENDING, GatewayRefundOutboxStatus.FAILED))
-            | Q(status=GatewayRefundOutboxStatus.IN_PROGRESS, updated_at__lte=cutoff),
-        ).filter(
-            Q(next_attempt_at__isnull=True) | Q(next_attempt_at__lte=now)
-        ).order_by("id")[:50]
+        qs = GatewayRefundOutbox.objects.filter(company_id=cid).filter(due).filter(ready).order_by("id")[:50]
         for row in qs:
             if (row.attempts or 0) >= MAX_REFUND_ATTEMPTS:
                 continue
@@ -206,16 +208,25 @@ def run_ar_dunning_task():
 
 @shared_task
 def reconcile_gateway_captures_task():
-    from core.rls import iter_company_ids, set_rls_company
+    from core.rls import company_ids_having, set_rls_company
+    from payments.models import GatewayPayment, GatewayPaymentStatus
     from payments.services import PaymentService
 
     posted = attempted = 0
-    for cid in iter_company_ids():
-        set_rls_company(cid)
-        p, a = PaymentService.reconcile_gateway_captures(company_id=cid, older_than_minutes=5)
-        posted += p
-        attempted += a
-    set_rls_company(None)
+    # WP-E1: visit only companies with a parked capture, not every tenant every five minutes.
+    held = company_ids_having(GatewayPayment, status=GatewayPaymentStatus.CAPTURED_PENDING_BOOKS)
+    try:
+        for cid in held:  # inline-company-loop-ok: only companies with a parked capture
+            set_rls_company(cid)
+            try:
+                p, a = PaymentService.reconcile_gateway_captures(company_id=cid, older_than_minutes=5)
+            except Exception:  # noqa: BLE001 - keep reconciling the other companies
+                logger.exception("reconcile_gateway_captures failed company=%s", cid)
+                continue
+            posted += p
+            attempted += a
+    finally:
+        set_rls_company(None)
     replayed = _replay_pending_payment_dead_letters()
     logger.info(
         "Gateway holding reconcile attempted=%s posted=%s dead_letters_replayed=%s",

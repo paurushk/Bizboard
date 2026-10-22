@@ -31,6 +31,14 @@ Default key, when a detector does not set one: `{code}:{entity_type}:{entity_id}
 | `PROMISE_TO_PAY_DUE:{promise.id}` | one promise (inside `AR_CUSTOMER`) | attention.py |
 | `{code}:hint:{company.id}` | company growth hint | attention.py |
 | `{code}:{raw.get('subject_key') or f'{doc_type}:{doc_id}'}` | legacy alert subject | attention.py |
+| `WO_LATE:{wo.pk}` | one work order | manufacturing/attention.py |
+| `WO_SHORTAGE:{wo.pk}` | one work order | manufacturing/attention.py |
+| `WIP_STALE:{wo.pk}` | one work order | manufacturing/attention.py |
+| `BATCH_ON_HOLD:{lot.pk}` | one batch | manufacturing/attention.py |
+| `NCR_OVERDUE:{ncr.pk}` | one quality problem | manufacturing/attention.py |
+| `JOBWORK_AGEING:{r['challan_line']}` | one challan line | manufacturing/attention.py |
+| `ITC04_DUE:{label}` | one ITC-04 period | manufacturing/attention.py |
+| `WO_APPROVAL_WAITING:{issue.pk}` | one extra-material request | manufacturing/attention.py |
 | `CHURN_RISK:{customer_id}` | one customer | customer_actions.py |
 | `CROSS_SELL:{customer_id}:{missing}` | customer and product | customer_actions.py |
 | `REPEAT_ORDER_DUE:{customer_id}:{product_id}` | customer and product | customer_actions.py |
@@ -48,7 +56,10 @@ GST_GUARDRAIL, GST_HEALTH_CRITICAL_OPEN, GST_RATE_EXPOSURE, IRN_FAILED, ITC_AT_R
 JOB_READY_TO_INVOICE, LOW_STOCK_FAST_MOVER, MARGIN_COMPRESSION, MARGIN_DROP_SKU, MILESTONE_OVERDUE,
 NO_SALES_TODAY, OVERDUE_CONCENTRATION, PAID_PENDING_BOOKS, PREDICTED_LATE_PAYMENT,
 PROMISE_TO_PAY_DUE, PURCHASE_PRICE_CREEP, PURCHASE_PRICE_JUMP, QUOTATION_EXPIRED,
-REPEAT_ORDER_DUE, SALE_BELOW_COST, TICKET_SLA_BREACH, VOID_RATE_HIGH, WALK_IN_UNALLOCATED_RECEIPT
+REPEAT_ORDER_DUE, SALE_BELOW_COST, TICKET_SLA_BREACH, VOID_RATE_HIGH, WALK_IN_UNALLOCATED_RECEIPT,
+WO_LATE, WO_SHORTAGE, WIP_STALE, BATCH_ON_HOLD, NCR_OVERDUE, JOBWORK_AGEING, ITC04_DUE, WO_APPROVAL_WAITING
+
+The last seven are the Manufacturing rows (`manufacturing/attention.py`). They appear only for a company with Manufacturing on, and the quality and job-work ones only with those sub-modules on.
 
 Every code above is in `KNOWN_CODES` in `attention.py`; dismiss, snooze and assign refuse a key whose code is not. A code must also have an entry in the `attention.rows` catalogue (`web/src/i18n/en.ts` and `hi.ts`), except `GST_GUARDRAIL`, whose text is the GST health module's own message.
 

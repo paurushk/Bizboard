@@ -1,5 +1,6 @@
 """Import Service — CSV pipeline + purchase-bill LLM extraction."""
 
+from accounting.books import posts_to_ledger
 import csv
 import hashlib
 import io
@@ -1569,7 +1570,7 @@ class ImportService:
             reference_id=job.pk,
             user=user,
         )
-        if job.company.accounting_enabled:
+        if posts_to_ledger(job.company):
             from accounting.services import PostingService
 
             for movement in movements:
@@ -2116,7 +2117,7 @@ class ImportService:
                         company=job.company, product=product,
                         serial_number__in=serials, import_job_ref__isnull=True,
                     ).update(import_job_ref=job.pk)
-                if job.company.accounting_enabled:
+                if posts_to_ledger(job.company):
                     from accounting.services import PostingService
 
                     PostingService.post_opening_stock(movement, user)
@@ -2177,7 +2178,7 @@ class ImportService:
             batch=movement.batch,
             skip_negative_check=False,
         )
-        if job.company.accounting_enabled:
+        if posts_to_ledger(job.company):
             from accounting.models import JournalEntry
             from accounting.services import PostingService
 

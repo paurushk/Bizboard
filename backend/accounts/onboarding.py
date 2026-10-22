@@ -19,6 +19,17 @@ def derive_onboarding(company) -> dict:
         company=company,
         status=SalesInvoice.Status.COMPLETED,
     ).exists()
+    # ONB-CR-001: the wizard's last step saves a draft bill for the owner to review and finalise.
+    # Until it is finalised activation is not done, but the owner must not be bounced back into
+    # the wizard (which would offer to create yet another draft).
+    first_bill_draft_id = None
+    if not activation_done:
+        first_bill_draft_id = (
+            SalesInvoice.objects.filter(company=company, status=SalesInvoice.Status.DRAFT)
+            .order_by("-id")
+            .values_list("id", flat=True)
+            .first()
+        )
 
     # Payments are optional and must not block catalog / first_bill.
     blocking_steps = (
@@ -65,6 +76,7 @@ def derive_onboarding(company) -> dict:
         "payments_done": payments_done,
         "catalog_done": catalog_done,
         "activation_done": activation_done,
+        "first_bill_draft_id": first_bill_draft_id,
         "started": company.onboarding_started_at is not None,
     }
 
@@ -73,4 +85,6 @@ def should_force_setup(*, company, is_owner: bool, wizard_enabled: bool) -> bool
     if not wizard_enabled or not is_owner:
         return False
     derived = derive_onboarding(company)
+    if derived["step"] == "first_bill" and derived["first_bill_draft_id"]:
+        return False
     return derived["status"] in ("NOT_STARTED", "IN_PROGRESS")

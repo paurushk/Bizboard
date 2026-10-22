@@ -69,6 +69,7 @@ def test_taxable_charges_require_hsn_and_rate():
     assert doc.taxable_total == Decimal("200.00")  # 100 line + 100 freight
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_supply_nature_splits_gstr3b(tenant_a):
     from sales.models import SalesInvoice
     from sales.services import SalesService

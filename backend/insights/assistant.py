@@ -745,7 +745,13 @@ def _redact_tool_result_for_llm(value):
 def _run_llm_tools(
     company, content: str, *, cu=None, history: list[dict] | None = None, usage: dict | None = None,
 ) -> tuple[str, list, dict | None, str, int, int]:
-    from core.services.llm import chat_with_tools
+    from core.services import ai_spend
+    from core.services.llm import chat_with_tools as _chat
+
+    def chat_with_tools(**kwargs):
+        # WP-I1: charge the model calls to this company's daily AI counter.
+        with ai_spend.charging(company.pk):
+            return _chat(**kwargs)
 
     usage = usage if usage is not None else {"in": 0, "out": 0}
     system = (

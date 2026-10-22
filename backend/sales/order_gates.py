@@ -245,7 +245,9 @@ def apply_order_gates(order, items, *, override_reason=None, acting_user=None) -
     if not flag_enabled(order.company, "ENABLE_ORDER_GATES"):
         return []
     log_flag_event(order.company, "ENABLE_ORDER_GATES", "order_gate_checked", order_id=order.id)
-    customer = Customer.objects.select_for_update().get(pk=order.customer_id)
+    # NO KEY UPDATE, as in SalesService.complete: serialises credit checks without blocking foreign-key
+    # checks on the customer, which deadlocked against concurrent receipts.
+    customer = Customer.objects.select_for_update(no_key=True).get(pk=order.customer_id)
     limit = Decimal(str(customer.credit_limit or 0))
     if limit > 0:
         exposure = sales_order_exposure(order.company, customer, order)

@@ -57,7 +57,9 @@ export function DisableAccountingDialog({
             const blocked = !info.canDisable;
             return (
               <Stack spacing={2} sx={{ mt: 1 }}>
-                <Typography variant="body2">{t('acctSettings.whatItDoes')}</Typography>
+                <Typography variant="body2">
+                  {t(info.postLedger ? 'acctSettings.whatItDoesShadow' : 'acctSettings.whatItDoes')}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {info.postedJournals > 0
                     ? t('acctSettings.entriesPosted', {
@@ -90,7 +92,7 @@ export function DisableAccountingDialog({
                     {needsAck ? (
                       <FormControlLabel
                         control={<Checkbox checked={understood} onChange={(e) => setUnderstood(e.target.checked)} />}
-                        label={t('acctSettings.understand')}
+                        label={t(info.postLedger ? 'acctSettings.understandShadow' : 'acctSettings.understand')}
                       />
                     ) : null}
                   </>

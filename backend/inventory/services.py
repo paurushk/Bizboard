@@ -12,8 +12,9 @@ from django.utils import timezone
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 
+from .costing_refs import RESTORE_INBOUND_REFS, RETIRE_SPECIFIC_LAYER_REFS
 from .models import (
-    MOVEMENT_SIGN, BatchLot, InventoryCostLayer, InventoryRunningCost,
+    MOVEMENT_SIGN, SIGNED_MOVEMENT_TYPES, BatchLot, InventoryCostLayer, InventoryRunningCost,
     InventoryValuationSnapshot, MovementType, StockBalance,
     StockMovement, SerialNumber, StockTransfer, Warehouse,
 )
@@ -138,7 +139,7 @@ class InventoryService:
     def post_movement(*, company, product, movement_type, quantity, unit_cost=None,
                       reference_type="", reference_id="", reason="", user=None,
                       skip_negative_check=False, warehouse=None, batch=None, movement_date=None,
-                      reason_code=""):
+                      reason_code="", allow_held=False):
         """
         Append a typed movement and update the balance cache atomically.
         `quantity` is a positive magnitude for typed movements; for ADJUSTMENT
@@ -164,7 +165,8 @@ class InventoryService:
 
         if not tracks_inventory(product):
             raise BusinessRuleError("Stock cannot be posted for a service or non-stock item.")
-        inbound = Decimal(quantity) > 0 if movement_type == MovementType.ADJUSTMENT else MOVEMENT_SIGN.get(movement_type, 0) > 0
+        signed = movement_type in SIGNED_MOVEMENT_TYPES
+        inbound = Decimal(quantity) > 0 if signed else MOVEMENT_SIGN.get(movement_type, 0) > 0
         if inbound and not warehouse.is_active:
             raise BusinessRuleError(f"Godown '{warehouse.name}' is inactive and cannot receive stock.")
         if batch is not None:
@@ -172,7 +174,25 @@ class InventoryService:
                 raise BusinessRuleError("Batch does not belong to this product and company.")
         if product.track_batch and batch is None:
             raise BusinessRuleError(f"A batch is required for tracked product '{product.name}'.")
-        if movement_type == MovementType.ADJUSTMENT:
+        # MFG-20: stock in a lot that quality has not released cannot be sold, issued to production or
+        # transferred on. The check is cheap for ordinary lots (RELEASED is the default); the company
+        # flag is only read for a lot that is actually held.
+        if (
+            batch is not None and not allow_held
+            and getattr(batch, "quality_status", "RELEASED") != "RELEASED"
+            and movement_type in (
+                MovementType.SALE, MovementType.MANUFACTURE_ISSUE, MovementType.TRANSFER_OUT,
+            )
+        ):
+            from core.services.feature_flags import flag_enabled
+
+            if flag_enabled(company, "MFG_QUALITY"):
+                raise BusinessRuleError(
+                    f"Batch '{batch.batch_no}' is {batch.get_quality_status_display().lower()} and cannot be "
+                    f"used until quality releases it.",
+                    code="MFG_BATCH_ON_HOLD",
+                )
+        if signed:
             if quantity == 0:
                 raise BusinessRuleError("Adjustment quantity cannot be zero.")
             delta = quantity
@@ -258,7 +278,7 @@ class InventoryService:
                 unit_cost=unit_cost,
                 movement_type=movement_type,
             )
-            InventoryService._apply_running_cost(
+            consumed_avg = InventoryService._apply_running_cost(
                 company=company,
                 warehouse=warehouse,
                 product=product,
@@ -266,6 +286,20 @@ class InventoryService:
                 delta=delta,
                 unit_cost=movement.unit_cost,
             )
+            # MFG-01 (D-16): under weighted average the pool consumes at its own average, but the
+            # movement kept whatever cost the caller read before the lock. Record what was actually
+            # consumed, so every later reader (COGS, work-order cost, returns) sees the real number.
+            # FIFO already stamps its peeled cost in _apply_cost_layers.
+            if (
+                delta < 0
+                and consumed_avg is not None
+                and consumed_avg > 0
+                and (getattr(company, "inventory_valuation_method", "WAVG") or "WAVG") != "FIFO"
+            ):
+                stamped = Decimal(consumed_avg).quantize(Decimal("0.0001"))
+                if movement.unit_cost is None or Decimal(str(movement.unit_cost)) != stamped:
+                    StockMovement.stamp_cost(movement.pk, unit_cost=stamped)
+                    movement.unit_cost = stamped
         return movement
 
     @staticmethod
@@ -518,6 +552,7 @@ class InventoryService:
         row = InventoryRunningCost.objects.select_for_update().get(pk=row.pk)
         qty = Decimal(str(row.qty or 0))
         value = Decimal(str(row.value or 0))
+        consumed_avg = None
         if delta > 0:
             qty += delta
             value += delta * cost
@@ -534,6 +569,7 @@ class InventoryService:
             # gate was qty drift — value was never checked, so this was
             # invisible until now (see the value-drift check added below).
             avg = (value / qty) if qty else Decimal("0")
+            consumed_avg = avg
             value -= issue * avg
             qty -= issue
             # CR-051: under WARN oversell, StockBalance.on_hand goes negative —
@@ -556,6 +592,7 @@ class InventoryService:
         row.qty = qty
         row.value = value
         row.save(update_fields=["qty", "value", "updated_at"])
+        return consumed_avg
 
     @staticmethod
     def rebuild_running_cost(company):
@@ -655,16 +692,7 @@ class InventoryService:
         method = getattr(company, "inventory_valuation_method", "WAVG") or "WAVG"
         if method != "FIFO":
             return
-        cancel_restore = (movement.reference_type or "") in (
-            "sales_invoice_cancel",
-            "sales_invoice_cancel_challan",
-            "delivery_challan_cancel",
-            "work_order_cancel",
-            "stock_transfer_cancel",
-            "purchase_return_cancel",
-            "purchase_return_damaged_cancel",
-            "sales_return_damaged_cancel",
-        )
+        cancel_restore = (movement.reference_type or "") in RESTORE_INBOUND_REFS
         if delta > 0 and cancel_restore:
             return
         # BB-000720: sales returns restore original sale peels via restore_fifo_peels —
@@ -674,6 +702,8 @@ class InventoryService:
             MovementType.OPENING_STOCK,
             MovementType.TRANSFER_IN,
             MovementType.MANUFACTURE_RECEIPT,
+            MovementType.MANUFACTURE_RETURN,
+            MovementType.MANUFACTURE_REVERSAL,
             MovementType.ADJUSTMENT,
         ):
             cost = Decimal(str(unit_cost or 0))
@@ -702,15 +732,7 @@ class InventoryService:
             return
         # BB-000718/719/724: negative reverses that retire a specific inbound layer
         # (caller invokes retire_source_layers) — do not peel FIFO-oldest.
-        if delta < 0 and (movement.reference_type or "") in (
-            "purchase_invoice_cancel",
-            "purchase_invoice_edit",
-            "purchase_return",
-            "purchase_return_damaged",
-            "stock_transfer_cancel",
-            "work_order_cancel",
-            "sales_return_cancel",
-        ):
+        if delta < 0 and (movement.reference_type or "") in RETIRE_SPECIFIC_LAYER_REFS:
             return
         if delta < 0:
             need = -delta
@@ -1269,6 +1291,9 @@ class InventoryService:
                 product=product,
                 batch=batch,
                 released_at__isnull=True,
+                # MFG-10: a hold owned by a document (a work order) is released by that
+                # document, never used up by an unrelated sale releasing its own hold.
+                reference_type="",
             )
             .order_by("id")
         )
@@ -2468,6 +2493,12 @@ class InventoryValuationService:
             qs = qs.filter(stock_balances__warehouse=warehouse)
         if getattr(company, "block_expired_stock", True):
             qs = qs.exclude(expiry_date__lt=business_date(company))
+        # MFG-20: a lot quality has not released is not offered for use. Only looked up when there is one.
+        if qs.exclude(quality_status="RELEASED").exists():
+            from core.services.feature_flags import flag_enabled
+
+            if flag_enabled(company, "MFG_QUALITY"):
+                qs = qs.filter(quality_status="RELEASED")
         return qs.order_by(
             F("expiry_date").asc(nulls_last=True),
             F("manufacturing_date").asc(nulls_last=True),

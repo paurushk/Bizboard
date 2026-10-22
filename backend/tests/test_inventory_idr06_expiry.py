@@ -81,6 +81,7 @@ def test_a_write_off_can_be_dated_in_the_past_but_not_the_future(tenant_a):
     assert _moves(tenant_a, product).count() == 1
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_lots_in_the_system_in_transit_godown_are_not_listed(tenant_a):
     product, balance = _expired_lot(tenant_a, "IDR6-5")
     transit = Warehouse.objects.create(company=tenant_a.company, name="In transit", code="TRANSIT", is_system=True)

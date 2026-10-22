@@ -1,5 +1,6 @@
 """Sales credit/debit notes, orders, and delivery challans (Phase 1 / 1.5)."""
 
+from accounting.books import posts_to_ledger
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
@@ -488,7 +489,7 @@ class SalesNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
-        if note.company.accounting_enabled:
+        if posts_to_ledger(note.company):
             from accounting.services import PostingService
 
             PostingService.post_note(
@@ -523,7 +524,7 @@ class SalesNotesService:
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
-        if note.company.accounting_enabled:
+        if posts_to_ledger(note.company):
             from accounting.models import JournalEntry
             from accounting.services import PostingService
             entry = JournalEntry.objects.filter(company=note.company, source_type="SALES_CREDIT_NOTE",
@@ -764,7 +765,7 @@ class SalesNotesService:
         note.updated_by = user
         note.save()
         mark_period_dirty_if_snapshotted(note.company, note.note_date)
-        if note.company.accounting_enabled:
+        if posts_to_ledger(note.company):
             from accounting.services import PostingService
 
             PostingService.post_note(
@@ -790,7 +791,7 @@ class SalesNotesService:
         from reporting.gst_periods import assert_period_allows_money_amend, mark_period_dirty_if_snapshotted
 
         assert_period_allows_money_amend(note.company, note.note_date, allow_soft_closed=True)
-        if note.company.accounting_enabled:
+        if posts_to_ledger(note.company):
             from accounting.models import JournalEntry
             from accounting.services import PostingService
             entry = JournalEntry.objects.filter(company=note.company, source_type="SALES_DEBIT_NOTE",

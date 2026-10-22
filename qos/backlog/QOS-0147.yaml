@@ -1,0 +1,27 @@
+id: "QOS-0147"
+category: "BUSINESS_GAP"
+title: "Manufacturing routing: a step done outside raises the job work and writes back (built)"
+persona: ["P1"]
+journey: "Mark a routing step as done by an outside party"
+problem: "A routing step could be marked as done by a job worker but raised no job work. Closed: a subcontract job card raises the job-work order and challan with the step material, the return receipt writes the quantity and charge back to the card, drafts the issue into the work order, and the order cannot finish while a step is still out."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "backend/manufacturing/services/subcontract.py links JobCard and JobWorkOrder (work_order_id, job_card_id); hooks in jobwork/services/out.py call it on challan issue, receipt post and reverse, and order close. The job charge is in the cost of the returned goods and is not absorbed twice."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "M"
+recommendation: "Done. Needs MFG_JOB_WORK and MFG_SHOP_FLOOR, and the job-work CA review in QOS-0142 before a real company uses it."
+test_required: "backend/tests/test_mfg_subcontract.py"
+guard_ref:
+  test: "backend/tests/test_mfg_subcontract.py"
+lifecycle: "fixed"
+owner: "founder"
+opened: "2026-10-21"
+closed: "2026-10-21"

@@ -22,7 +22,7 @@ local/dev).
 
 ## Backend layout
 
-`backend/` is 27 Django apps under a service-layer pattern:
+`backend/` is 29 Django apps under a service-layer pattern:
 
 - **Domain apps** — `sales`, `purchases`, `inventory`, `payments`, `masters`,
   `ledgers`, `reporting`, `accounting`, `billing` (SaaS entitlements),
@@ -30,8 +30,13 @@ local/dev).
 - **Dark modules** — `manufacturing`, `payroll`, `crm`. These three are the only
   apps named by `DARK_MODULE_KEYS`.
 - **Installed, not dark modules** — `complaints`, `support`, `contracts`,
-  `workshop`, `projects`, `insurance`, `banking`, `ops`, `planwave`. They ship in
-  `INSTALLED_APPS` and are flag-gated, but they are not dark modules.
+  `workshop`, `projects`, `insurance`, `banking`, `ops`, `planwave`, `quality`,
+  `jobwork`, `agents`. They ship in `INSTALLED_APPS` and are flag-gated, but they are not
+  dark modules. `agents` is the AI agents runtime (`ENABLE_AGENTS` per company,
+  `AGENTS_GLOBAL_KILL` / `AI_GLOBAL_KILL` platform-wide; every model call goes through the
+  daily spend counter in `core/services/ai_spend.py`). `quality` and `jobwork` are the quality and job-work parts of
+  Manufacturing: they switch on with `MFG_QUALITY` and `MFG_JOB_WORK` once
+  Manufacturing itself is on.
   `planwave` holds the cross-cutting controls added by the register fixes:
   approvals, the books quarantine, sealed secrets (`planwave.crypto`), rate
   limits, POS cart holds, party snapshots, and the 16(2)/16(4) ITC checks.

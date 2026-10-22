@@ -104,8 +104,11 @@ def test_cannot_delete_employee_with_payslips(tenant_a):
 # B9-037 — post a completed run to the GL after accounting is turned on
 # --------------------------------------------------------------------------- #
 def test_post_pay_run_gl_catch_up(tenant_a):
+    # Shadow books (WP-F2): "books off" now still posts. This checks a legacy company whose
+    # documents were never posted, i.e. post_ledger off as well.
     tenant_a.company.accounting_enabled = False
-    tenant_a.company.save(update_fields=["accounting_enabled"])
+    tenant_a.company.post_ledger = False
+    tenant_a.company.save(update_fields=["accounting_enabled", "post_ledger"])
     emp = _emp(tenant_a, salary=Decimal("30000.00"), pf_applicable=False)
     run = PayRun.objects.create(
         company=tenant_a.company, period="2026-06",

@@ -17,6 +17,7 @@ import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link as RouterLink } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import {
   cancelWorkOrder,
@@ -29,6 +30,7 @@ import {
   updateWorkOrder,
   type WorkOrder,
 } from '@/api/manufacturing';
+import { exportWorkOrders, saveBlob } from '@/api/mfg';
 import { getProduct, listWarehouses } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
@@ -234,9 +236,22 @@ function WorkOrdersPageInner() {
       <MvpModuleBanner module="manufacturing" />
       <Stack direction="row" justifyContent="space-between" alignItems="center">
         <PageTitle>{t('nav.workOrders')}</PageTitle>
-        <Button variant="contained" onClick={openCreate}>
-          {t('common.add')}
-        </Button>
+        <Stack direction="row" spacing={1}>
+          <Button
+            onClick={async () => {
+              try {
+                saveBlob(await exportWorkOrders(), 'work-orders.csv');
+              } catch (err) {
+                setError(getErrorMessage(err));
+              }
+            }}
+          >
+            {t('mfg.common.exportCsv')}
+          </Button>
+          <Button variant="contained" onClick={openCreate}>
+            {t('common.add')}
+          </Button>
+        </Stack>
       </Stack>
       {error ? <HelpErrorAlert message={error} /> : null}
       {query.isLoading ? <LoadingState /> : null}
@@ -275,6 +290,9 @@ function WorkOrdersPageInner() {
                     />
                   </TableCell>
                   <TableCell align="right">
+                    <Button size="small" component={RouterLink} to={`/manufacturing/work-orders/${wo.id}`}>
+                      {t('mfg.wo.details')}
+                    </Button>
                     {wo.status === 'DRAFT' ? (
                       <>
                         <Button size="small" onClick={() => openEdit(wo)}>

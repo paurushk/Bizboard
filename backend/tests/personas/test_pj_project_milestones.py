@@ -45,7 +45,11 @@ def test_j_proj_p1_milestone_invoices_services_and_blocks_close(tenant_a):
     assert SalesInvoice.objects.filter(company=tenant_a.company).count() == 2
     draft_close = tenant_a.client.post(f"/api/v1/projects/{pid}/close/")
     assert draft_close.status_code == 400
-    SalesInvoice.objects.filter(company=tenant_a.company).update(status=SalesInvoice.Status.COMPLETED)
+    # Complete through the real endpoint (it posts to the ledger); a raw status update would leave
+    # receivables that the books never saw, which gl.ar_ties_to_documents rightly flags.
+    for inv_id in SalesInvoice.objects.filter(company=tenant_a.company).values_list("pk", flat=True):
+        done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv_id}/complete/")
+        assert done.status_code == 200, done.data
     closed = tenant_a.client.post(f"/api/v1/projects/{pid}/close/")
     assert closed.status_code == 200, closed.data
     assert closed.data["status"] == "CLOSED"

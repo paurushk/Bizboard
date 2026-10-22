@@ -1,0 +1,48 @@
+# WP-F5 / DIM6-08: the long run of the ledger property test. The pull-request suite runs it with
+# 15 examples per test; this runs 300 against real Postgres every night. A failure prints the shrunk
+# operation sequence: add it to REGRESSIONS in tests/property/test_ledger_state_machine.py.
+name: nightly-ledger
+
+on:
+  schedule:
+    - cron: "30 21 * * *"  # 03:00 IST
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ledger-property:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: bizboard_ci
+          POSTGRES_USER: bizboard
+          POSTGRES_PASSWORD: bizboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings_test
+      DATABASE_URL: postgresql://bizboard:bizboard@localhost:5432/bizboard_ci
+      LEDGER_PROPERTY_EXAMPLES: "300"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -c constraints.txt -r requirements-dev.txt
+      - name: Ledger property test (300 examples)
+        run: pytest tests/property -q --tb=long -p no:randomly

@@ -243,6 +243,7 @@ def test_won_lead_creates_one_draft_invoice(tenant_a, tenant_b):
     assert hidden.status_code == 404
 
 
+@pytest.mark.invariant_skip("inventory.serial_traceability", reason="serial rows are created directly through the ORM, without a godown or movement")
 def test_job_serial_history_is_capped_and_company_scoped(tenant_a, tenant_b):
     hidden = tenant_a.client.get("/api/v1/workshop/job-cards/")
     assert hidden.status_code == 404

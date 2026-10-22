@@ -247,6 +247,7 @@ def test_sales_package_does_not_import_contracts():
             assert not any(name == "contracts" or name.startswith("contracts.") for name in names), path
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_gst_guard_runs_from_the_trial_plan_alone(tenant_a, monkeypatch):
     from reporting.gst_health import build_gst_health
     from sales.models import SalesInvoice

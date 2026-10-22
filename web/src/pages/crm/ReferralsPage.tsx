@@ -186,7 +186,7 @@ function ReferralsInner() {
           <Button
             size="small"
             href={`https://wa.me/?text=${encodeURIComponent(
-              shareUrl ? `${shareUrl}` : `Use referral code ${issued}`,
+              shareUrl ? `${shareUrl}` : t('growth.shareReferralText', { code: issued }),
             )}`}
             target="_blank"
             rel="noopener"

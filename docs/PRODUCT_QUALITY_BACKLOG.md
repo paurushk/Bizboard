@@ -11,35 +11,35 @@ PRODUCT QUALITY BACKLOG - dashboard
 🟠 User dissatisfaction       :   1
 🟡 Usability improvements     :   5
 🟣 Persona gaps               :   1
-🔵 Business gaps              :   5
-🟤 Reliability & trust issues :  15
+🔵 Business gaps              :   7
+🟤 Reliability & trust issues :  18
 🔗 Cross-flow consistency     :   0
 🟢 Performance improvements   :   1
-⚫ Security & privacy fixes   :   4
-✨ Delight opportunities      :   1
+⚫ Security & privacy fixes   :   3
+✨ Delight opportunities      :   0
 💡 Innovation opportunities   :   3
 
 Leading indicator - risk surface with ZERO evidence: 2 / 52 journeys
 ```
 
-## Do next - sequenced frontier (top 12 of 36 open)
+## Do next - sequenced frontier (top 12 of 39 open)
 
 | # | id | title | category | priority | effort | value | moves | blocked by |
 |--:|---|---|---|---|---|--:|---|---|
 | 1 | QOS-0021 | Pilot Go/No-Go gates are unsigned | BUSINESS_GAP | P1 | S | 40.0 | none | - |
 | 2 | QOS-0020 | No TLS termination at the application edge | SECURITY_PRIVACY | P1 | M | 20.0 | renewal | - |
-| 3 | QOS-0096 | Keyboard, touch-target and heading gaps remain on some screens | USABILITY | P1 | M | 20.0 | none | - |
-| 4 | QOS-0098 | Some pages still lack loading, error or empty states, or show English text in Hindi | USABILITY | P1 | M | 13.33 | none | - |
-| 5 | QOS-0095 | The invoice and purchase editors show too many controls at first sight | USABILITY | P1 | L | 7.5 | time_to_first_invoice | - |
-| 6 | QOS-0103 | No multi-factor authentication; phone-OTP and invite paths would have bypassed one | SECURITY_PRIVACY | P1 | L | 7.5 | renewal | - |
-| 7 | QOS-0003 | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | PERFORMANCE | P1 | L | 5.0 | renewal | - |
-| 8 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
-| 9 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
-| 10 | QOS-0125 | Customers: audit and export retention policy, and Hindi review of the new strings | SECURITY_PRIVACY | P2 | S | 5.0 | none | - |
-| 11 | QOS-0129 | Money hub: Hindi review of the new strings and CA sign-off on the tax-dues wording | RELIABILITY_TRUST | P2 | S | 5.0 | none | - |
-| 12 | QOS-0016 | Dashboard render budget is unmeasured with realistic data volume | DELIGHT | P1-investigate | M | 4.0 | activation | - |
+| 3 | QOS-0095 | The invoice and purchase editors show too many controls at first sight | USABILITY | P1 | L | 7.5 | time_to_first_invoice | - |
+| 4 | QOS-0003 | Pilot scale is unvalidated - no executed load, soak, or large-tenant test | PERFORMANCE | P1 | L | 5.0 | renewal | - |
+| 5 | QOS-0049 | DPDP controls checklist is unsigned | SECURITY_PRIVACY | P2 | S | 5.0 | renewal | - |
+| 6 | QOS-0052 | Q-OS scoring rubric, ADR-0001, and locked decisions are not formally ratified | BUSINESS_GAP | P2 | S | 5.0 | none | - |
+| 7 | QOS-0125 | Customers: audit and export retention policy, and Hindi review of the new strings | SECURITY_PRIVACY | P2 | S | 5.0 | none | - |
+| 8 | QOS-0129 | Money hub: Hindi review of the new strings and CA sign-off on the tax-dues wording | RELIABILITY_TRUST | P2 | S | 5.0 | none | - |
+| 9 | QOS-0097 | UX fixes and claims have not been verified on a real backend | RELIABILITY_TRUST | P1-investigate | M | 4.0 | none | - |
+| 10 | QOS-0004 | No practising CA has filed GST returns from Bizboard worksheets (H-05) | BUSINESS_GAP | P1-investigate | L | 2.25 | renewal | - |
+| 11 | QOS-0029 | UX readiness is untested with real non-technical staff (readiness dim 4) | DISSATISFACTION | P1-investigate | L | 2.25 | activation | - |
+| 12 | QOS-0030 | Operational readiness is untested - can a business run a full day unaided? (dim 8) | BUSINESS_GAP | P1-investigate | L | 1.5 | renewal | - |
 
-Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
+Risk retired by this frontier: **71.4%** of open High/Medium-impact risk.
 
 ## 1. 🔴 Critical bugs  (0 open / 1 tracked)
 
@@ -56,19 +56,21 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0029](../qos/backlog/QOS-0029.yaml) | UX readiness is untested with real non-technical staff (readiness dim 4) | P2,P4,P5 | A first-time non-technical operator running a daily task unaided | P1-investigate | L | hypothesis | High | founder | open |
 | [QOS-0025](../qos/backlog/QOS-0025.yaml) | No regression guard for non-owner 403-spamming queries (UX-002) | P2,P5 | First page load as a non-owner role | P2 | S | heuristic | High | web | fixed |
 
-## 3. 🟡 Usability improvements  (5 open / 9 tracked)
+## 3. 🟡 Usability improvements  (5 open / 11 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
 | [QOS-0007](../qos/backlog/QOS-0007.yaml) | No keyboard-only accessibility journey for POS or the invoice form | P2 | Keyboard-only operation of POS + invoice form | P1 | M | heuristic | Medium | web | fixed |
 | [QOS-0095](../qos/backlog/QOS-0095.yaml) | The invoice and purchase editors show too many controls at first sight | P1,P2 | Create an invoice or purchase bill | P1 | L | heuristic | High | web | open |
-| [QOS-0096](../qos/backlog/QOS-0096.yaml) | Keyboard, touch-target and heading gaps remain on some screens | P2,P4 | Use the editors and POS by keyboard or on a phone | P1 | M | heuristic | High | web | in_progress |
-| [QOS-0098](../qos/backlog/QOS-0098.yaml) | Some pages still lack loading, error or empty states, or show English text in Hindi | P2 | Any list or create flow | P1 | M | heuristic | Medium | web | in_progress |
+| [QOS-0096](../qos/backlog/QOS-0096.yaml) | Keyboard, touch-target and heading gaps remain on some screens | P2,P4 | Use the editors and POS by keyboard or on a phone | P1 | M | heuristic | High | web | fixed |
+| [QOS-0098](../qos/backlog/QOS-0098.yaml) | Some pages still lack loading, error or empty states, or show English text in Hindi | P2 | Any list or create flow | P1 | M | heuristic | Medium | web | fixed |
 | [QOS-0010](../qos/backlog/QOS-0010.yaml) | ~90 pages have at most one smoke each; page-level UX is largely unguarded | P1,P2,P5 | Any secondary screen (settings, list, detail) | P2 | L | heuristic | Medium | web | fixed |
 | [QOS-0026](../qos/backlog/QOS-0026.yaml) | No visual-regression guard for mobile-viewport clipping (UX-003/004/005) | P1,P2 | Using the app on a phone-width viewport | P2 | M | heuristic | Medium | web | fixed |
 | [QOS-0113](../qos/backlog/QOS-0113.yaml) | A partly converted quotation could neither be cancelled nor stop blocking a unit change | P1,P2 | Abandon the unconverted rest of a quotation | P2 | M | heuristic | Low | backend | fixed |
 | [QOS-0100](../qos/backlog/QOS-0100.yaml) | Several UX improvements are deferred and need a founder decision | P1 | Reconciliation, navigation and POS lots | P3 | M | heuristic | Low | founder | open |
 | [QOS-0139](../qos/backlog/QOS-0139.yaml) | Needs attention and dashboard: a check on one physical phone | P1 | Use the dashboard and Needs attention page on a phone in bright light | P3 | S | heuristic | Low | founder | open |
+| [QOS-0143](../qos/backlog/QOS-0143.yaml) | Manufacturing screens: a Hindi language review by a native speaker | P1,P2 | Use recipes, work orders, quality, job work and the shop floor in Hindi | P3 | S | heuristic | Low | founder | open |
+| [QOS-0144](../qos/backlog/QOS-0144.yaml) | Shop-floor tablet: try it on a real device on the floor | P2 | An operator starts, pauses and finishes a job card on a tablet with gloves and poor light | P3 | S | heuristic | Low | founder | open |
 
 ## 4. 🟣 Persona gaps  (1 open / 6 tracked)
 
@@ -81,7 +83,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0028](../qos/backlog/QOS-0028.yaml) | ARCH-07 milestone billing, job-work, and technician dispatch are unbuilt | P1,P5 | Service-contract milestone invoicing and job-work | P2 | XL | heuristic | Medium | backend | open |
 | [QOS-0035](../qos/backlog/QOS-0035.yaml) | ARCH-06 bulk serial scanner-paste workflow is not built out | P4 | Inward-ing a large consignment of serialised units | P2 | M | heuristic | Medium | web | fixed |
 
-## 5. 🔵 Business gaps  (5 open / 23 tracked)
+## 5. 🔵 Business gaps  (7 open / 29 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -108,8 +110,14 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0092](../qos/backlog/QOS-0092.yaml) | Won opportunity amount is not shown next to invoices | P2 | Pipeline | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0093](../qos/backlog/QOS-0093.yaml) | Route suggest has no stop cap | P1 | Delivery route | P3 | S | heuristic | Low | founder | verified |
 | [QOS-0127](../qos/backlog/QOS-0127.yaml) | Credit notes: enforce the annual-return filing date in the Section 34(2) time limit | P1 | Issue a credit note late in the financial year after the annual return | P3 | M | heuristic | Low | founder | fixed |
+| [QOS-0146](../qos/backlog/QOS-0146.yaml) | Manufacturing standard costing: the period-end revaluation run (built) | P1 | Change a standard cost and revalue the finished goods on hand | P3 | M | heuristic | Low | founder | fixed |
+| [QOS-0147](../qos/backlog/QOS-0147.yaml) | Manufacturing routing: a step done outside raises the job work and writes back (built) | P1 | Mark a routing step as done by an outside party | P3 | M | heuristic | Low | founder | fixed |
+| [QOS-0148](../qos/backlog/QOS-0148.yaml) | Manufacturing: quality and job-work journeys, offline tablet, batch label and work order export (built) | P1,P2 | Run a production day, with the tablet on a poor connection, and print and export what the floor needs | P3 | M | heuristic | Low | founder | fixed |
+| [QOS-0151](../qos/backlog/QOS-0151.yaml) | Agents: founder decisions that block the first pilot (provider, data policy, WhatsApp, pilot customer, packaging) | P1 | Use the business agents on real work | P3 | S | heuristic | Low | founder | open |
+| [QOS-0152](../qos/backlog/QOS-0152.yaml) | Agents: replace the synthetic evaluation sets with the pilot customer's real cases and run the timing study | P1 | Use the business agents on real work | P3 | S | heuristic | Low | founder | open |
+| [QOS-0153](../qos/backlog/QOS-0153.yaml) | Agents: Postgres race run, live browser pass and the parts of the plan deliberately left out | P1 | Use the business agents on real work | P3 | S | heuristic | Low | founder | fixed |
 
-## 6. 🟤 Reliability & trust issues  (15 open / 45 tracked)
+## 6. 🟤 Reliability & trust issues  (18 open / 50 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -151,13 +159,18 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0130](../qos/backlog/QOS-0130.yaml) | Accounting screens: CA sign-off on expense posting and tax, asset acquisition, year-end close reversal and the reconciliation write-off rule | P1 | Close a month and a year with books that are on | P3 | S | heuristic | Low | founder | open |
 | [QOS-0131](../qos/backlog/QOS-0131.yaml) | Accounting screens: a native-speaker review of the new Hindi strings | P1 | Run the accounting screens in Hindi | P3 | S | heuristic | Low | founder | open |
 | [QOS-0132](../qos/backlog/QOS-0132.yaml) | Accounting screens: a real-device and screen-reader pass | P1 | Use the accounting screens on a phone and with a screen reader | P3 | S | heuristic | Low | founder | open |
-| [QOS-0133](../qos/backlog/QOS-0133.yaml) | Accounting screens: run the PostgreSQL concurrency lane and a browser pass in CI | P1 | Two people post, reconcile or close at the same time | P3 | S | heuristic | Low | founder | open |
-| [QOS-0134](../qos/backlog/QOS-0134.yaml) | Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI | P1 | Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or milestone at once | P3 | S | heuristic | Low | founder | open |
+| [QOS-0133](../qos/backlog/QOS-0133.yaml) | Accounting screens: run the PostgreSQL concurrency lane and a browser pass in CI | P1 | Two people post, reconcile or close at the same time | P3 | S | heuristic | Low | founder | fixed |
+| [QOS-0134](../qos/backlog/QOS-0134.yaml) | Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI | P1 | Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or milestone at once | P3 | S | heuristic | Low | founder | fixed |
 | [QOS-0135](../qos/backlog/QOS-0135.yaml) | Customer care and jobs: Hindi wording review | P1 | A shop owner who works in Hindi uses tickets, complaints, jobs, contracts and projects | P3 | S | heuristic | Low | founder | open |
 | [QOS-0136](../qos/backlog/QOS-0136.yaml) | Customer care and jobs: warranty, commission and renewal accounting sign-off | P1 | A company gives parts free under warranty, bills a contract on a cadence, or renews it in place | P3 | S | heuristic | Low | founder | open |
 | [QOS-0137](../qos/backlog/QOS-0137.yaml) | Needs attention: a native-speaker review of the new Hindi strings | P1 | Run the Needs attention page and dashboard in Hindi | P3 | S | heuristic | Low | founder | open |
 | [QOS-0138](../qos/backlog/QOS-0138.yaml) | Needs attention: what the Amount involved column means, signed off by an accountant | P1 | An owner reads the amount beside an overdue, GST or unposted-payment row and decides what to do | P3 | S | heuristic | Low | founder | open |
 | [QOS-0140](../qos/backlog/QOS-0140.yaml) | Needs attention: two people dismissing or snoozing the same item at once, on Postgres | P1 | Two staff act on the same Needs attention row at the same moment | P3 | S | heuristic | Low | founder | fixed |
+| [QOS-0141](../qos/backlog/QOS-0141.yaml) | Manufacturing: CA sign-off on how production cost is worked out and posted | P1 | Run a factory month and close it with books that are on | P3 | S | heuristic | Low | founder | open |
+| [QOS-0142](../qos/backlog/QOS-0142.yaml) | Manufacturing job work: CA review of the goods-sent-out rules and the ITC-04 return | P1 | Send goods to a job worker, take them back and file ITC-04 | P3 | S | heuristic | Low | founder | open |
+| [QOS-0145](../qos/backlog/QOS-0145.yaml) | Manufacturing migrations: run them on a copy of real data before any company is switched on | P1 | Upgrade a company that already has recipes and work orders | P3 | S | heuristic | Low | founder | open |
+| [QOS-0149](../qos/backlog/QOS-0149.yaml) | Agents: Hindi and English wording review of agent screens, reminders and supplier queries | P1 | Use the business agents on real work | P3 | S | heuristic | Low | founder | open |
+| [QOS-0150](../qos/backlog/QOS-0150.yaml) | Agents: CA review of the tax-wording phrase list that blocks advice in drafted text | P1 | Use the business agents on real work | P3 | S | heuristic | Low | founder | open |
 
 ## 7. 🔗 Cross-flow consistency  (0 open / 3 tracked)
 
@@ -175,7 +188,7 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0107](../qos/backlog/QOS-0107.yaml) | No latency histogram on /metrics and no frontend bundle budget | P1,P2 | Measure p95 from the server; keep first load fast on a phone | P1 | S | measured | Medium | backend | fixed |
 | [QOS-0116](../qos/backlog/QOS-0116.yaml) | The quotation list ran extra queries per row | P2 | Open the quotation list | P1 | S | measured | Medium | backend | fixed |
 
-## 9. ⚫ Security & privacy fixes  (4 open / 10 tracked)
+## 9. ⚫ Security & privacy fixes  (3 open / 10 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
@@ -183,18 +196,18 @@ Risk retired by this frontier: **60.8%** of open High/Medium-impact risk.
 | [QOS-0002](../qos/backlog/QOS-0002.yaml) | Not every inbound webhook has a signature-forgery test | P1 | Any inbound webhook (payment capture, refund, SaaS billing) | P1 | M | heuristic | High | backend | fixed |
 | [QOS-0020](../qos/backlog/QOS-0020.yaml) | No TLS termination at the application edge | P1 | All traffic to the deployed app | P1 | M | heuristic | High | ops | in_progress |
 | [QOS-0102](../qos/backlog/QOS-0102.yaml) | Audit log was mutable and had no tamper evidence | P1,P5 | A CA or owner investigates who changed what | P1 | M | heuristic | Medium | backend | fixed |
-| [QOS-0103](../qos/backlog/QOS-0103.yaml) | No multi-factor authentication; phone-OTP and invite paths would have bypassed one | P1,P5 | Owner or accountant signs in to a company that moves money | P1 | L | heuristic | High | founder | in_progress |
+| [QOS-0103](../qos/backlog/QOS-0103.yaml) | No multi-factor authentication; phone-OTP and invite paths would have bypassed one | P1,P5 | Owner or accountant signs in to a company that moves money | P1 | L | heuristic | High | founder | verified |
 | [QOS-0115](../qos/backlog/QOS-0115.yaml) | Product purchase price masking by permission never runs (duplicate to_representation) | P2 | Read a product as a user who only sells | P1 | S | heuristic | Medium | backend | fixed |
 | [QOS-0011](../qos/backlog/QOS-0011.yaml) | CSP is not implemented in-app; no external penetration test yet | P1 | Cross-cutting web security posture | P2 | M | heuristic | Low | ops | fixed |
 | [QOS-0023](../qos/backlog/QOS-0023.yaml) | CD pushes mutable sha tags without a digest pin | P1 | Container image supply chain | P2 | S | heuristic | Low | devops | fixed |
 | [QOS-0049](../qos/backlog/QOS-0049.yaml) | DPDP controls checklist is unsigned | P1 | Data-protection governance for the pilot | P2 | S | heuristic | Low | ops | investigating |
 | [QOS-0125](../qos/backlog/QOS-0125.yaml) | Customers: audit and export retention policy, and Hindi review of the new strings | P1 | Review who changed a customer and export the customer list | P2 | S | heuristic | Low | founder | open |
 
-## 10. ✨ Delight opportunities  (1 open / 8 tracked)
+## 10. ✨ Delight opportunities  (0 open / 8 tracked)
 
 | id | title | persona | journey | priority | effort | evidence | impact | owner | lifecycle |
 |---|---|---|---|---|---|---|---|---|---|
-| [QOS-0016](../qos/backlog/QOS-0016.yaml) | Dashboard render budget is unmeasured with realistic data volume | P1 | Dashboard first render with 12 months of data | P1-investigate | M | hypothesis | Medium | web | open |
+| [QOS-0016](../qos/backlog/QOS-0016.yaml) | Dashboard render budget is unmeasured with realistic data volume | P1 | Dashboard first render with 12 months of data | P1-investigate | M | hypothesis | Medium | web | fixed |
 | [QOS-0017](../qos/backlog/QOS-0017.yaml) | POS friction (modal count, focus loss) has no automated budget | P2 | POS checkout friction | P1-investigate | M | hypothesis | Medium | web | fixed |
 | [QOS-0036](../qos/backlog/QOS-0036.yaml) | Recurring retainer / subscription invoices are re-typed every cycle | P5 | Monthly retainer or subscription billing | P2 | M | hypothesis | Medium | backend | verified |
 | [QOS-0037](../qos/backlog/QOS-0037.yaml) | Onboarding does not infer legal name / state / PIN from the GSTIN | P1 | First-run company setup | P2 | M | hypothesis | Low | web | fixed |

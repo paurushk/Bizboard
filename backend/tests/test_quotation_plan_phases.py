@@ -361,6 +361,7 @@ def _complete(model, pk, taxable="1000.00"):
     model.objects.filter(pk=pk).update(status="COMPLETED", taxable_total=Decimal(taxable))
 
 
+@pytest.mark.invariant_skip("money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines")
 def test_campaign_revenue_counts_partial_quote_to_order_to_invoice(tenant_a):
     from crm.campaigns import _won_revenue
     from sales.models import SalesInvoice, SalesOrder
@@ -386,6 +387,7 @@ def test_campaign_revenue_counts_partial_quote_to_order_to_invoice(tenant_a):
     assert (amount, source) == (Decimal("1000.00"), "completed_invoice_taxable_net")
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_campaign_revenue_ignores_released_conversions(tenant_a):
     from crm.campaigns import _won_revenue
     from sales.models import SalesInvoice

@@ -18,6 +18,16 @@ def iter_company_ids():
     return Company.objects.values_list("id", flat=True)
 
 
+def company_ids_having(model, **filters) -> list:
+    """WP-E1: ids of the companies that have at least one ``model`` row matching ``filters``.
+
+    Read under the RLS bypass (a beat task has no tenant). A beat task visits only these
+    companies instead of every tenant, so a frequent job stays cheap at thousands of tenants.
+    """
+    with rls_bypass():
+        return sorted(set(model.objects.filter(**filters).values_list("company_id", flat=True)))
+
+
 def set_rls_company(company_id) -> None:
     """SET SESSION app.company_id for the current DB connection.
 

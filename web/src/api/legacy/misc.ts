@@ -626,6 +626,8 @@ export interface AccountingDisablePreflight {
   softClosedPeriods: number;
   latestClosedPeriodEnd: string | null;
   backfillRunning: boolean;
+  /** WP-F2 shadow books: documents keep posting to the ledger while the books are switched off. */
+  postLedger?: boolean;
   /** Reasons the books cannot be switched off right now: closed_period, backfill_running. */
   blockers: string[];
   canDisable: boolean;

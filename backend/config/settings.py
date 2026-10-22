@@ -179,6 +179,8 @@ INSTALLED_APPS = [
     "insights",
     "integrations",
     "manufacturing",
+    "quality",
+    "jobwork",
     "payroll",
     "crm",
     "complaints",
@@ -191,6 +193,7 @@ INSTALLED_APPS = [
     "billing",
     "ops",
     "planwave",
+    "agents",
 ]
 
 MIDDLEWARE = [
@@ -204,6 +207,7 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "core.middleware.RequestIdMiddleware",
+    "core.middleware.AppVersionMiddleware",  # WP-L1
     "core.middleware.PostgresRlsMiddleware",
     "billing.middleware.SubscriptionWriteGateMiddleware",
     "core.middleware.ContentSecurityPolicyMiddleware",  # QOS-0011
@@ -211,6 +215,8 @@ MIDDLEWARE = [
 ]
 
 CONTENT_SECURITY_POLICY = os.environ.get("CONTENT_SECURITY_POLICY")  # None -> middleware default
+# WP-L1: oldest mobile app build (X-App-Version) the API still serves, e.g. "1.4.0". Empty = no floor.
+MIN_SUPPORTED_APP_VERSION = os.environ.get("MIN_SUPPORTED_APP_VERSION", "").strip()
 
 ROOT_URLCONF = "config.urls"
 
@@ -236,7 +242,9 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": dj_database_url.config(
         default=f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+        # DB_CONN_MAX_AGE=0 for `runserver`: it serves each request on a new thread, and every thread
+        # would keep its own persistent connection until Postgres runs out of slots.
+        conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "600")),
     )
 }
 # BB-000544: production/staging must never silently fall back to SQLite.
@@ -639,6 +647,23 @@ CELERY_BEAT_SCHEDULE = {
         "task": "crm.tasks.reap_stale_lead_ingest_jobs",
         "schedule": crontab(minute="*/10"),
     },
+    # Agents (AGT-113): one spec-driven dispatcher; each agent's schedule lives in its AgentSpec.
+    "agents-dispatch-scheduled": {
+        "task": "agents.tasks.dispatch_scheduled_agents",
+        "schedule": crontab(minute="*/15"),
+    },
+    "agents-expire-proposals": {
+        "task": "agents.tasks.expire_proposals",
+        "schedule": crontab(minute="*/15"),
+    },
+    "agents-cancel-resolved": {
+        "task": "agents.tasks.cancel_resolved",
+        "schedule": crontab(minute=20),
+    },
+    "agents-purge-steps": {
+        "task": "agents.tasks.purge_steps",
+        "schedule": crontab(day_of_week="sun", hour=3, minute=45),
+    },
     "celery-beat-heartbeat": {
         "task": "core.tasks.celery_beat_heartbeat",
         "schedule": crontab(minute="*/2"),
@@ -905,6 +930,11 @@ MFA_ENCRYPTION_KEY = os.environ.get("MFA_ENCRYPTION_KEY", "")
 # Required in production and staging. planwave.crypto reads it from settings; without this line
 # the setting never existed and every save of a bank number raised there.
 PLANWAVE_DATA_KEY = os.environ.get("PLANWAVE_DATA_KEY", "")
+# WP-B3: the id written into new sealed values (gcm1.<id>.<blob>), and older keys still readable,
+# as "id:key,id:key". Rotation: set a new key and id, move the old one here, run
+# rotate_encrypted_fields --apply, then remove it from this list.
+PLANWAVE_DATA_KEY_ID = os.environ.get("PLANWAVE_DATA_KEY_ID", "k1").strip() or "k1"
+PLANWAVE_RETIRED_KEYS = os.environ.get("PLANWAVE_RETIRED_KEYS", "")
 # Where the nightly books-integrity failures are mailed (read by core.tasks).
 OPS_ALERT_EMAIL = os.environ.get("OPS_ALERT_EMAIL", "")
 
@@ -1004,6 +1034,35 @@ LLM_BILL_MODEL = _env_value("LLM_BILL_MODEL")
 LLM_BILL_MAX_PAGES = int(_env_value("LLM_BILL_MAX_PAGES", "20") or "20")
 LLM_BILL_MAX_PAGES_HARD = int(_env_value("LLM_BILL_MAX_PAGES_HARD", "50") or "50")
 
+# Agents (docs/roadmap/AGENTIC_AI_IMPLEMENTATION_PLAN_2026-10-21.md). Provider/model fall back to
+# LLM_PROVIDER / LLM_MODEL. "fake" is the scripted provider used by tests and local dry runs.
+LLM_AGENT_PROVIDER = _env_value("LLM_AGENT_PROVIDER")
+LLM_AGENT_MODEL = _env_value("LLM_AGENT_MODEL")
+# WP-H5 (DPDP): current versions of the legal documents a person accepts (accounts.legal). Counsel
+# publishes the texts (G16); bump a version here and every user is asked to accept again at login.
+LEGAL_DOCUMENT_VERSIONS = {
+    "TOS": os.environ.get("LEGAL_TOS_VERSION", "draft-2026-10"),
+    "PRIVACY": os.environ.get("LEGAL_PRIVACY_VERSION", "draft-2026-10"),
+    "DPA": os.environ.get("LEGAL_DPA_VERSION", "draft-2026-10"),
+}
+LEGAL_ACCEPTANCE_REQUIRED = _env_bool("LEGAL_ACCEPTANCE_REQUIRED", "1")
+AGENTS_GLOBAL_KILL = _env_bool("AGENTS_GLOBAL_KILL")
+# WP-I1 (core/services/ai_spend.py): every model call reserves tokens against a daily company
+# counter and a daily platform counter before it runs. 0 = no cap. AI_GLOBAL_KILL refuses every
+# model call (assistant, bill reading, agents). Counters down -> refuse unless fail-open is chosen.
+AI_GLOBAL_KILL = _env_bool("AI_GLOBAL_KILL")
+AI_TENANT_DAILY_TOKEN_CAP = _env_int("AI_TENANT_DAILY_TOKEN_CAP", 300_000)
+AI_PLATFORM_DAILY_TOKEN_CAP = _env_int("AI_PLATFORM_DAILY_TOKEN_CAP", 5_000_000)
+AI_SPEND_FAIL_CLOSED = _env_bool("AI_SPEND_FAIL_CLOSED", "1")
+AGENTS = {
+    "MAX_STEPS": int(_env_value("AGENTS_MAX_STEPS", "6") or "6"),
+    "MAX_TOOL_CALLS_PER_STEP": 3,
+    "RUN_TIMEOUT_S": float(_env_value("AGENTS_RUN_TIMEOUT_S", "60") or "60"),
+    "PER_RUN_TOKEN_CAP": int(_env_value("AGENTS_PER_RUN_TOKEN_CAP", "20000") or "20000"),
+    "PER_COMPANY_DAILY_RUNS": int(_env_value("AGENTS_PER_COMPANY_DAILY_RUNS", "200") or "200"),
+    "STEP_RETENTION_DAYS": 180,
+}
+
 # GSP credential encryption (Fernet). If unset, derived from SECRET_KEY at use site.
 GSP_FERNET_KEY = _env_value("GSP_FERNET_KEY")
 # Tenant export wrapping key (BB-000668). Falls back to GSP_FERNET_KEY, then SECRET_KEY in local DEBUG/test.
@@ -1075,7 +1134,7 @@ if _require_dedicated_secrets:
             f"DJANGO_ENV={DJANGO_ENV} "
             "(do not rely on SECRET_KEY-derived Fernet keys)."
         )
-    if GSP_FERNET_KEY.strip().rstrip("=").replace("A", "") == "":
+    if any(k.strip().rstrip("=").replace("A", "") == "" for k in GSP_FERNET_KEY.split(",") if k.strip()):
         raise ImproperlyConfigured(
             "GSP_FERNET_KEY must not be the all-A placeholder from .env.example."
         )
@@ -1120,6 +1179,10 @@ TWILIO_FROM_NUMBER = os.environ.get("TWILIO_FROM_NUMBER", "").strip()
 # off (BUG-SEC-019). Celery tenant context (BUG-SEC-001) is already in place.
 # PostgresRlsMiddleware SETs app.company_id per request and clears GUCs afterwards.
 POSTGRES_RLS_ENABLED = _env_bool("POSTGRES_RLS_ENABLED", "0")
+
+# WP-F1: an unregistered posting source raises in tests (settings_test), is logged here.
+LEDGER_REGISTRY_STRICT = False
+LEDGER_TEST_SOURCE_TYPES: tuple[str, ...] = ()
 
 
 def _assert_postgres_rls_required(*, django_env: str, engine: str, rls_enabled: bool) -> None:

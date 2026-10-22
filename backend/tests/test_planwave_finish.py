@@ -73,6 +73,7 @@ def test_2b_blocked_invoice_is_not_eligible():
     assert rows[0]["band"] == "BLOCKED"
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_overdue_report_suggests_a_provision(tenant_a):
     from sales.models import SalesInvoice
     from tests.conftest import make_customer

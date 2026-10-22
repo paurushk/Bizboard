@@ -1,26 +1,37 @@
-id: "QOS-0134"
-category: "RELIABILITY_TRUST"
-title: "Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI"
-persona: ["P1"]
-journey: "Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or milestone at once"
-problem: "The row-lock and status-precondition guards on care and jobs actions only run on PostgreSQL, and the five golden journeys have not been run against a live stack by the pipeline."
+id: QOS-0134
+category: RELIABILITY_TRUST
+title: 'Customer care and jobs: run the PostgreSQL concurrency lane and a live browser pass in CI'
+persona:
+- P1
+journey: Two people claim, close, complete or invoice the same ticket, complaint, job card, contract or
+  milestone at once
+problem: The row-lock and status-precondition guards on care and jobs actions only run on PostgreSQL,
+  and the five golden journeys have not been run against a live stack by the pipeline.
 evidence:
-  strength: "heuristic"
-  source: ["CUSTOMER_CARE_JOBS_CONTRACTS_PLAN.md"]
-  detail: "backend/tests/test_ccj_concurrency_postgres.py is Postgres-only. It passed against a throwaway container; web/e2e-golden/care-jobs-contracts-golden.spec.ts is written but has not been run live."
+  strength: heuristic
+  source:
+  - CUSTOMER_CARE_JOBS_CONTRACTS_PLAN.md
+  detail: 'backend/tests/test_ccj_concurrency_postgres.py is Postgres-only. It passed against a throwaway
+    container; web/e2e-golden/care-jobs-contracts-golden.spec.ts is written but has not been run live.
+    2026-10-22: the CI test job runs on PostgreSQL and fails if any postgres-marked test skips (WP-A2).
+    care-jobs-contracts-golden.spec.ts is part of the e2e-golden job (every spec in e2e-golden/ runs)
+    and its four journeys passed live against Django and Postgres 17 on 2026-10-22, as did workshop-job-golden
+    and insurance-desk-golden.'
 scoring:
   reach: 2
   severity: 2
   frequency: 2
-  impact_band: "Low"
-business_metric: "none"
-priority: "P3"
-priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human sign-off."
-effort: "S"
-recommendation: "Add test_ccj_concurrency_postgres.py to the Postgres lane in CI and include care-jobs-contracts-golden.spec.ts in the e2e-golden job."
-test_required: "backend/tests/test_ccj_concurrency_postgres.py"
-guard_ref: null
-lifecycle: "open"
-owner: "founder"
-opened: "2026-10-19"
-closed: null
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Impact Low. The behaviour is built and tested; this closes the human sign-off.
+effort: S
+recommendation: Add test_ccj_concurrency_postgres.py to the Postgres lane in CI and include care-jobs-contracts-golden.spec.ts
+  in the e2e-golden job.
+test_required: backend/tests/test_ccj_concurrency_postgres.py
+guard_ref:
+  test: backend/tests/test_ccj_concurrency_postgres.py
+lifecycle: fixed
+owner: founder
+opened: '2026-10-19'
+closed: '2026-10-22'

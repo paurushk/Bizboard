@@ -294,6 +294,7 @@ def test_search_by_email_and_status_validation(tenant_a):
     assert tenant_a.client.get(URL, {"q": "z" * 500}).status_code == 200  # capped, not an error
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_balance_sort_orders_by_outstanding_and_pages(tenant_a):
     from sales.models import SalesInvoice
 
@@ -494,6 +495,7 @@ def test_strict_validation_defaults_on():
 
 # ---- summary figures with real data --------------------------------------------------------------------------------
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_summary_totals_over_limit_and_advances(tenant_a, accountant):
     from sales.models import SalesInvoice
 
@@ -610,6 +612,7 @@ def test_indian_mobile_numbers_starting_91_are_valid(tenant_a):
 
 # ---- review batch 2: archive refuses with a balance, schedules pause -----------------------------------------------------
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_archive_is_refused_with_a_balance_or_an_advance(tenant_a, monkeypatch):
     from ledgers.services import LedgerService
     from sales.models import SalesInvoice

@@ -94,6 +94,7 @@ def test_twenty_signups_stay_unique_and_under_ten_seconds(db, monkeypatch):
     assert p95 <= 10
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_cashflow_uses_settled_invoices(tenant_a):
     from payments.models import CustomerReceipt, PaymentAllocation
     from sales.models import SalesInvoice

@@ -42,6 +42,11 @@ const FLAG_GATED_NAV: Record<string, string> = {
   'report-gstr7': 'ENABLE_GSTR_EXTENDED',
   'report-gstr8': 'ENABLE_GSTR_EXTENDED',
   'report-gstr9': 'ENABLE_GSTR_EXTENDED',
+  // Manufacturing sub-modules are off until a company is granted them.
+  'mfg-planning': 'MFG_PLANNING',
+  'mfg-quality': 'MFG_QUALITY',
+  'mfg-job-work': 'MFG_JOB_WORK',
+  'mfg-shop-floor': 'MFG_SHOP_FLOOR',
 };
 /** Hidden only while a new company is still on the archetype-pack sidebar. */
 const PACK_HIDDEN_SECTIONS = new Set([
@@ -72,6 +77,9 @@ import {
   canImportSalesBill,
   canManageCrm,
   canManageUsers,
+  canViewManufacturing,
+  canWorkManufacturing,
+  canPlanManufacturing,
   canUseAiAssistant,
   canViewAiInsights,
   canViewFinancialReports,
@@ -276,10 +284,17 @@ export const navigation: NavItem[] = [
   {
     id: 'manufacturing',
     labelKey: 'nav.manufacturing',
-    visible: (user) => canManageUsers(user) && isManufacturingEnabled(),
+    visible: (user) => canViewManufacturing(user) && isManufacturingEnabled(),
     children: [
+      { id: 'mfg-quick', labelKey: 'nav.mfgQuick', path: '/manufacturing/quick', visible: canWorkManufacturing },
       { id: 'boms', labelKey: 'nav.boms', path: '/manufacturing/boms' },
       { id: 'work-orders', labelKey: 'nav.workOrders', path: '/manufacturing/work-orders' },
+      { id: 'mfg-planning', labelKey: 'nav.mfgPlanning', path: '/manufacturing/planning' },
+      { id: 'mfg-quality', labelKey: 'nav.mfgQuality', path: '/manufacturing/quality' },
+      { id: 'mfg-job-work', labelKey: 'nav.mfgJobWork', path: '/manufacturing/job-work' },
+      { id: 'mfg-shop-floor', labelKey: 'nav.mfgShopFloor', path: '/manufacturing/shop-floor' },
+      { id: 'mfg-reports', labelKey: 'nav.mfgReports', path: '/manufacturing/reports' },
+      { id: 'mfg-settings', labelKey: 'nav.mfgSettings', path: '/manufacturing/settings', visible: canPlanManufacturing },
     ],
   },
   {

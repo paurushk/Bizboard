@@ -56,3 +56,18 @@ def test_post_deploy_smoke_health_login_complete_invariants(tenant_a):
         tenant_a.owner.email,
         "StrongPass123!",
     )
+
+
+def test_live_comms_asks_for_one_otp_and_one_email():
+    smoke = _smoke_mod()
+    calls = []
+
+    def post(path, body):
+        calls.append((path, body))
+        return 200, {}
+
+    smoke.check_live_comms(post, "9876543210", "oncall@example.com")
+    assert calls == [
+        ("/api/v1/auth/otp/request/", {"phone": "9876543210"}),
+        ("/api/v1/auth/password/reset/", {"email": "oncall@example.com"}),
+    ]

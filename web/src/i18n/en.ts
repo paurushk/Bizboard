@@ -1,3 +1,5 @@
+import { agentsEn } from './agents.en';
+import { mfgEn } from './mfg.en';
 import { careEn } from './care.en';
 
 export const en = {
@@ -168,6 +170,13 @@ export const en = {
     manufacturing: 'Manufacturing',
     boms: 'Bills of Material',
     workOrders: 'Work Orders',
+    mfgQuick: 'Quick production',
+    mfgPlanning: 'Planning',
+    mfgQuality: 'Quality',
+    mfgJobWork: 'Job work',
+    mfgShopFloor: 'Shop floor',
+    mfgReports: 'Manufacturing reports',
+    mfgSettings: 'Manufacturing settings',
     payroll: 'Payroll',
     employees: 'Employees',
     payRuns: 'Pay Runs',
@@ -307,6 +316,7 @@ export const en = {
     endDate: 'End date',
     startDate: 'Start date',
     issueCode: 'Issue code',
+    shareReferralText: 'Use referral code {code}',
     code: 'Code',
     support: 'Support tickets',
     contracts: 'Contracts',
@@ -514,6 +524,17 @@ export const en = {
     contextReadOnly: 'This panel is read-only. It never saves, Completes, pays, or files GST.',
   },
   auth: {
+    acceptTermsPrefix: 'I agree to the',
+    termsOfService: 'Terms of Service',
+    and: 'and',
+    privacyPolicy: 'Privacy Policy',
+    acceptTermsRequired: 'Agree to the Terms of Service and Privacy Policy to create an account.',
+    legalTitle: 'Please review our terms',
+    legalBody: 'Accept the documents below to keep using BizBoard. You see this the first time you sign in and whenever one of them changes.',
+    legalAccept: 'I accept',
+    legalDoc_TOS: 'Terms of Service',
+    legalDoc_PRIVACY: 'Privacy Policy',
+    legalDoc_DPA: 'Data Processing Agreement (for your company)',
     loginTitle: 'Sign in to Bizboard',
     registerTitle: 'Create your Bizboard account',
     email: 'Email',
@@ -2210,7 +2231,6 @@ export const en = {
     regular: 'Regular GST',
     composition: 'Composition scheme',
     gstin: 'GSTIN',
-    gstinOptional: 'Optional for composition businesses',
     address: 'Shop address',
     city: 'City',
     pincode: 'PIN code',
@@ -2222,6 +2242,7 @@ export const en = {
     gstRate: 'GST rate (%)',
     hsnCode: 'HSN / SAC code',
     openingQty: 'Opening quantity (optional)',
+    openingQtyHint: 'Stock you have now. Without it, a bill for this item cannot be finalised while selling below zero stock is blocked.',
     addSamples: 'Add sample products',
     addSamplesWarning:
       'Samples are real catalog items (SKUs start with SAMPLE-). Delete them from Products once you have added your own.',
@@ -2258,7 +2279,7 @@ export const en = {
       bos: 'This will create a non-GST Bill of Supply using the first product in your catalog.',
     },
     errors: {
-      gstinRequired: 'GSTIN is required for a Regular GST business.',
+      gstinRequired: 'GSTIN is required for a Regular or Composition GST business.',
       addressRequired: 'Shop address is required.',
       productRequired: 'Enter a product name and a selling price greater than zero.',
       hsnRequired: 'HSN / SAC is required for this Regular GST product.',
@@ -3667,6 +3688,12 @@ export const en = {
     totalDebit: 'Total debit',
     totalCredit: 'Total credit',
     noRows: 'No rows. Post documents with accounting switched on.',
+    ledgerGapsTitle: 'Not in these books yet',
+    ledgerGapsBody: 'These activities do not post to the ledger for your company yet, so their amounts are not in these totals:',
+    ledgerGap_ACCOUNTING_POST_STOCK_ADJUSTMENTS: 'Stock adjustments, counts, expiry and serial write-offs (waiting for CA sign-off)',
+    ledgerGap_MFG_COSTING_GL: 'Production costs: materials issued, finished goods, overheads and variances (waiting for CA sign-off)',
+    ledgerGap_ENABLE_FIXED_ASSETS: 'Fixed assets and depreciation (post the monthly depreciation journal yourself)',
+    ledgerGap_ENABLE_BOE: 'Import bills of entry (book imports as ordinary purchase bills)',
     healthy: 'Healthy',
     mismatch: 'Mismatch',
     gl: 'Books',
@@ -3996,6 +4023,7 @@ export const en = {
     detailGstPct: 'GST %',
     detailTaxable: 'Taxable',
     detailRoundOff: 'Round off',
+    detailCess: 'Cess',
     purchaseReturnCompleted: 'Purchase return completed',
     originalInvoice: 'Original invoice',
     originalPurchase: 'Original purchase',
@@ -4385,6 +4413,50 @@ export const en = {
         title: 'Review discounting pattern',
         reason: '{count} invoices this month carry discounts.',
       },
+      WO_LATE: {
+        title: 'Work order {number} is late',
+        reason: '{product} was due {due} and is not finished.',
+      },
+      WO_SHORTAGE: {
+        title: 'Work order {number} is short of material',
+        reason: '{count} material(s) are not in stock for {number}.',
+      },
+      WIP_STALE: {
+        title: '{number} has been in progress a long time',
+        reason: '₹{amount} of material and cost is still sitting in {number}. Finish it or close it.',
+      },
+      BATCH_ON_HOLD: {
+        title: 'Batch {batch} is still on hold',
+        reason: '{product} batch {batch} has waited over {days} days for a decision.',
+      },
+      WO_APPROVAL_WAITING: {
+        title: 'Extra material for {number} is waiting for approval',
+        reason: 'Someone asked for more material than {number} needs. Approve it or turn it down.',
+      },
+      NCR_OVERDUE: {
+        title: 'Quality problem {number} is overdue',
+        reason: '{number} was due {due} and is not closed.',
+      },
+      JOBWORK_AGEING: {
+        overdue: {
+          title: 'Goods at job worker are past the time limit',
+          reason: '{product} sent on challan {challan} has been out {days} days (limit {limit}).',
+        },
+        soon: {
+          title: 'Goods at job worker are nearly due back',
+          reason: '{product} sent on challan {challan} has been out {days} days (limit {limit}).',
+        },
+      },
+      ITC04_DUE: {
+        overdue: {
+          title: 'ITC-04 for {period} is overdue',
+          reason: 'The job work return for {period} was due {due}.',
+        },
+        soon: {
+          title: 'ITC-04 for {period} is due soon',
+          reason: 'The job work return for {period} is due {due}.',
+        },
+      },
       EXPIRING_STOCK: {
         title: 'Expiring stock — {product}',
         expired: {
@@ -4719,6 +4791,9 @@ export const en = {
     dialogTitle: 'Switch accounting off?',
     whatItDoes:
       'New bills and payments stop being posted to the books. Entries already posted stay. Anything completed while the books are off has no entry until you switch them on and post a back-fill.',
+    whatItDoesShadow:
+      'The accounting screens are hidden and figures go back to what your documents say. Bills and payments keep posting to the books in the background, so you can switch accounting on again later with nothing to catch up.',
+    understandShadow: 'I understand that the accounting screens will be hidden until I switch accounting on again.',
     entriesPosted: 'The books hold {count} posted entries, from {from} to {to}.',
     noEntries: 'No entries have been posted yet.',
     softClosed: '{count} soft-closed period(s). They do not stop this.',
@@ -5478,6 +5553,7 @@ export const en = {
     stepDone: 'Done',
     leadFormFrom: 'Your message goes to {company}.',
     leadFormBusy: 'Too many tries from this device. Please wait a minute and try again.',
+    leadFormLinkInvalid: 'This form link is not valid any more. Ask the business for a new one.',
     createQuotation: 'Create quotation',
     combineTitle: 'Stops that share a pincode',
     combineEmpty: 'No same-day stops share a pincode.',
@@ -6814,7 +6890,17 @@ export const en = {
     reload: 'Reload latest',
     overwrite: 'Overwrite with mine',
   },
+  phoneField: {
+    countryCode: 'Code',
+    optional: 'Optional',
+    hintIndia: '10-digit mobile number',
+    invalidIndia: 'Enter a 10-digit mobile number starting with 6, 7, 8 or 9',
+    invalidLength: 'Enter a mobile number of {min}–{max} digits',
+    invalidExact: 'Enter a {n}-digit mobile number',
+  },
   care: careEn,
+  mfg: mfgEn,
+  agents: agentsEn,
 } as const;
 
 export type MessageTree = typeof en;

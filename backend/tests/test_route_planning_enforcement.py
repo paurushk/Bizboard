@@ -226,6 +226,7 @@ def test_tc_pl05_01_a_clean_route_starts(tenant_a):
     assert resp.data["status"] == "IN_TRANSIT"
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_tc_pl05_02_a_risk_that_appears_after_planning_needs_a_new_acknowledgement(tenant_a):
     product = make_product(tenant_a.company, sku="START-1")
     add_stock(tenant_a, product, "5")

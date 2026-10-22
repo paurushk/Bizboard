@@ -44,6 +44,7 @@ def _won_deal(tenant, amount="1000", phone="9000001001", **capture):
 # ------------------------------------------------------------------ WP-5: revenue
 
 
+@pytest.mark.invariant_skip("money.header_totals_identity", reason="documents are built through the ORM with header totals that do not match their lines")
 def test_revenue_follows_the_invoice_link_net_of_credit_notes(tenant_a):
     _flags(tenant_a.company)
     _lead, deal = _won_deal(tenant_a)

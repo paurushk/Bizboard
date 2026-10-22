@@ -20,6 +20,7 @@ from sales.services import SalesService
 from tests.conftest import make_customer, make_product, make_supplier
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_bb_000695_sales_rcm_posts_no_output_gst(tenant_a):
     company = tenant_a.company
@@ -154,6 +155,7 @@ def test_bb_000708_multi_gstin_requires_explicit_stamp(tenant_a):
         SalesService.complete(inv, tenant_a.owner)
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_bb_000716_gstr2b_partial_no_sticky_fk(tenant_a):
     company = tenant_a.company
@@ -186,6 +188,7 @@ def test_bb_000716_gstr2b_partial_no_sticky_fk(tenant_a):
 
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 @pytest.mark.django_db
 def test_bb_000711_tcs_posts_without_enable_tds(tenant_a, settings):
     company = tenant_a.company

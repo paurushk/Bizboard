@@ -383,20 +383,23 @@ def purge_old_invoice_zips_task(days: int = 7) -> int:
     from django.utils import timezone
 
     from core.models import FileAsset
+    from core.rls import rls_bypass
 
-    old = FileAsset.objects.filter(
-        kind=FileAsset.Kind.EXPORT,
-        original_name="invoices.zip",
-        created_at__lt=timezone.now() - timedelta(days=days),
-    )
+    # A cross-tenant retention sweep: under FORCE RLS it sees nothing without the bypass (WP-C2).
     removed = 0
-    for asset in old.iterator():
-        try:
-            asset.file.delete(save=False)
-        except Exception:  # noqa: BLE001
-            logger.exception("Failed to remove zip file for asset %s", asset.pk)
-        asset.delete()
-        removed += 1
+    with rls_bypass():
+        old = FileAsset.objects.filter(
+            kind=FileAsset.Kind.EXPORT,
+            original_name="invoices.zip",
+            created_at__lt=timezone.now() - timedelta(days=days),
+        )
+        for asset in old.iterator():
+            try:
+                asset.file.delete(save=False)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to remove zip file for asset %s", asset.pk)
+            asset.delete()
+            removed += 1
     return removed
 
 

@@ -60,12 +60,17 @@ services:
       DJANGO_ENV: staging
       DJANGO_DEBUG: "0"
       BIZBOARD_COMPOSE_ENV: staging
+      # WP-D2: multiprocess metrics; the directory is a tmpfs emptied at every start.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prom
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
       DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER in .env.staging}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging django_env=staging' &&
-      exec gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120"
+      mkdir -p /tmp/prom && rm -rf /tmp/prom/* &&
+      exec gunicorn config.wsgi:application -c config/gunicorn.conf.py --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 120"
+    tmpfs:
+      - /tmp/prom
   worker:
     image: bizboard-api:latest
     env_file:
@@ -75,12 +80,18 @@ services:
       DJANGO_ENV: staging
       DJANGO_DEBUG: "0"
       BIZBOARD_COMPOSE_ENV: staging
+      # WP-D2: multiprocess metrics; the directory is a tmpfs emptied at every start.
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prom
+      WORKER_METRICS_PORT: "9100"
       POSTGRES_RLS_ENABLED: ${POSTGRES_RLS_ENABLED:-1}
       DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER in .env.staging}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env.staging}@db:5432/${POSTGRES_DB}
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     command: >
       sh -c "echo '[bizboard] compose_env=staging worker' &&
-      exec celery -A config worker -l info -Q celery,high_priority,media_heavy,reports"
+      mkdir -p /tmp/prom && rm -rf /tmp/prom/* &&
+      exec celery -A config worker -l info -Q celery,high_priority,media_heavy,reports,agents,agents_interactive"
+    tmpfs:
+      - /tmp/prom
   beat:
     image: bizboard-api:latest
     env_file:

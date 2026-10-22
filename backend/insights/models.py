@@ -189,8 +189,11 @@ class AiUsageLedger(CompanyScopedModel):
         EXTRACT = "EXTRACT"
         ASSISTANT = "ASSISTANT"
         SUMMARY_NARRATIVE = "SUMMARY_NARRATIVE"
+        # One feature for every agent; the agent is in ``agent_kind`` so a new agent needs no migration.
+        AGENT = "AGENT"
 
     feature = models.CharField(max_length=32, choices=Feature.choices)
+    agent_kind = models.CharField(max_length=48, blank=True, default="")
     tokens_in = models.PositiveIntegerField(default=0)
     tokens_out = models.PositiveIntegerField(default=0)
     cost_estimate = models.DecimalField(max_digits=12, decimal_places=6, default=0)
@@ -199,7 +202,10 @@ class AiUsageLedger(CompanyScopedModel):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["company", "feature", "created_at"])]
+        indexes = [
+            models.Index(fields=["company", "feature", "created_at"]),
+            models.Index(fields=["company", "feature", "agent_kind", "created_at"], name="insights_ai_agent_idx"),
+        ]
 
 
 class ShopFloorEvent(CompanyScopedModel):

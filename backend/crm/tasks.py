@@ -89,21 +89,29 @@ def _fail(job_id: int, message: str) -> None:
 @shared_task
 def reap_stale_lead_ingest_jobs() -> dict:
     """A job stuck RUNNING (worker died) is retried once, then marked FAILED."""
+    from core.rls import company_scope, rls_bypass
     from crm.models import LeadIngestJob
 
     cutoff = timezone.now() - STALE_AFTER
     retried = failed = 0
-    for job in LeadIngestJob.objects.filter(status=LeadIngestJob.Status.RUNNING, updated_at__lt=cutoff):
-        payload = dict(job.payload or {})
-        if int(payload.get("_retries") or 0) >= 1:
-            _fail(job.id, "The import did not finish in time. Upload it again.")
-            failed += 1
-            continue
-        payload["_retries"] = 1
-        LeadIngestJob.objects.filter(pk=job.id).update(
-            status=LeadIngestJob.Status.PENDING, payload=payload, updated_at=timezone.now(),
+    # A beat task has no tenant: under FORCE RLS an unscoped read finds no job (WP-C2).
+    with rls_bypass():
+        stale = list(
+            LeadIngestJob.objects.filter(status=LeadIngestJob.Status.RUNNING, updated_at__lt=cutoff)
+            .values_list("id", "company_id", "payload")
         )
-        process_lead_ingest.delay(job.id, company_id=job.company_id)
+    for job_id, company_id, payload in stale:
+        payload = dict(payload or {})
+        with company_scope(company_id):
+            if int(payload.get("_retries") or 0) >= 1:
+                _fail(job_id, "The import did not finish in time. Upload it again.")
+                failed += 1
+                continue
+            payload["_retries"] = 1
+            LeadIngestJob.objects.filter(pk=job_id).update(
+                status=LeadIngestJob.Status.PENDING, payload=payload, updated_at=timezone.now(),
+            )
+        process_lead_ingest.delay(job_id, company_id=company_id)
         retried += 1
     return {"retried": retried, "failed": failed}
 
@@ -111,17 +119,41 @@ def reap_stale_lead_ingest_jobs() -> dict:
 @shared_task
 def remind_due_lead_activities() -> dict:
     """One in-app reminder per due lead activity. Quiet hours leave reminded_at empty."""
+    from crm.models import LeadActivity
+
+    from core.rls import company_ids_having, set_rls_company
+
+    now = timezone.now()
+    sent = 0
+    quiet = 0
+    due_filter = {"due_at__isnull": False, "reminded_at__isnull": True, "due_at__lte": now}
+    # A beat task has no tenant: find the companies with a due activity under the bypass,
+    # then read and notify one company at a time under its own RLS context (WP-C2).
+    try:
+        for cid in company_ids_having(LeadActivity, **due_filter):  # inline-company-loop-ok: only companies with a due activity
+            set_rls_company(cid)
+            try:
+                s, q = _remind_company_activities(cid, now, due_filter)
+            except Exception:  # noqa: BLE001 - keep reminding the other companies
+                logger.exception("remind_due_lead_activities failed company=%s", cid)
+                continue
+            sent += s
+            quiet += q
+    finally:
+        set_rls_company(None)
+    return {"sent": sent, "quiet": quiet}
+
+
+def _remind_company_activities(company_id, now, due_filter) -> tuple[int, int]:
     from accounts.models import CompanyUser
     from core.models import Notification
     from core.services.notifications import NotificationService
     from crm.models import LeadActivity
     from payments.dunning import in_quiet_hours
 
-    now = timezone.now()
-    sent = 0
-    quiet = 0
+    sent = quiet = 0
     due = (
-        LeadActivity.objects.filter(due_at__isnull=False, reminded_at__isnull=True, due_at__lte=now)
+        LeadActivity.objects.filter(company_id=company_id, **due_filter)
         .select_related("lead", "lead__assigned_to__user", "company")
         .order_by("id")
     )
@@ -153,4 +185,4 @@ def remind_due_lead_activities() -> dict:
         activity.reminded_at = now
         activity.save(update_fields=["reminded_at", "updated_at"])
         sent += 1
-    return {"sent": sent, "quiet": quiet}
+    return sent, quiet

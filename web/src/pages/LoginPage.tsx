@@ -77,6 +77,7 @@ export function LoginPage() {
   const [enrolToken, setEnrolToken] = useState<string | null>(null);
   const consumedEnrolToken = useRef<string | null | undefined>(undefined);
   const [enrolSecret, setEnrolSecret] = useState<string | null>(null);
+  const [enrolQr, setEnrolQr] = useState<string | null>(null);
   const [enrolDone, setEnrolDone] = useState(false);
   // Shown once, right after the authenticator is confirmed. The server never returns them again.
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
@@ -154,6 +155,7 @@ export function LoginPage() {
     try {
       const setup = await startMfaSetup(enrolToken);
       setEnrolSecret(setup.secret);
+      setEnrolQr(setup.qrPng || null);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -173,6 +175,7 @@ export function LoginPage() {
       setRecoveryCodes(codes);
       setEnrolDone(true);
       setEnrolSecret(null);
+      setEnrolQr(null);
       setEnrolToken(null);
     } catch (err) {
       setError(getErrorMessage(err));
@@ -256,7 +259,7 @@ export function LoginPage() {
           {searchParams.get('invited') === '1' ? (
             <Alert severity="success">{t('auth.inviteAccepted')}</Alert>
           ) : null}
-          {otpEnabled && !mfaToken && !enrolToken && !enrolDone ? (
+          {otpEnabled && !mfaToken && !enrolToken && !recoveryCodes ? (
             <Tabs value={tab} onChange={(_, v) => setTab(v)} aria-label={t('auth.loginTabs')}>
               <Tab label={t('auth.passwordLogin')} />
               <Tab label={t('auth.otpLogin')} />
@@ -265,7 +268,7 @@ export function LoginPage() {
           {error ? <Alert severity="error">{error}</Alert> : null}
           {otpEnabled && otpHint ? <Alert severity="info">{otpHint}</Alert> : null}
 
-          {enrolDone ? (
+          {enrolDone && !mfaToken ? (
             <Alert severity="success">{t('auth.mfa.enrolDone')}</Alert>
           ) : null}
           {recoveryCodes ? (
@@ -295,7 +298,12 @@ export function LoginPage() {
               <Typography variant="h6">{t('auth.mfa.enrolTitle')}</Typography>
               <Typography color="text.secondary">{t('auth.mfa.enrolPrompt')}</Typography>
               {enrolSecret ? (
-                <TextField label={t('auth.mfa.manualKey')} value={enrolSecret} slotProps={{ htmlInput: { readOnly: true } }} />
+                <>
+                  {enrolQr ? (
+                    <Box component="img" src={enrolQr} alt="" sx={{ width: 180, height: 180, alignSelf: 'flex-start' }} />
+                  ) : null}
+                  <TextField label={t('auth.mfa.manualKey')} value={enrolSecret} slotProps={{ htmlInput: { readOnly: true } }} />
+                </>
               ) : (
                 <Button type="button" variant="outlined" disabled={isSubmitting} onClick={() => void startEnrolment()}>
                   {t('auth.mfa.enable')}
@@ -342,7 +350,7 @@ export function LoginPage() {
                 {t('auth.mfa.back')}
               </Link>
             </Stack>
-          ) : enrolToken || enrolDone ? null : !otpEnabled || tab === 0 ? (
+          ) : enrolToken || recoveryCodes ? null : !otpEnabled || tab === 0 ? (
             <Stack spacing={2} component="form" onSubmit={submitPasswordLogin} noValidate>
               <TextField
                 label={t('auth.email')}

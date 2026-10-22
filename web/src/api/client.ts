@@ -105,6 +105,24 @@ function applyCsrfHeader(config: InternalAxiosRequestConfig): void {
   }
 }
 
+/** WP-L1: the native shell's build, read from its user agent ("BizBoardApp/1.4.0", set in
+ * mobile/capacitor.config.ts). The SPA itself is served live, so its own version says nothing. */
+export function nativeAppVersion(): string | null {
+  if (typeof navigator === 'undefined') return null;
+  const match = /BizBoardApp\/([\d.]+)/.exec(navigator.userAgent || '');
+  return match ? match[1] : null;
+}
+
+function runningInNativeShell(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+    return Boolean(cap?.isNativePlatform?.());
+  } catch {
+    return false;
+  }
+}
+
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   // BB-000375: rely on httpOnly access cookie (withCredentials). Do not attach Bearer from memory.
   // BB-000602: cookie JWT requires CSRF on unsafe methods.
@@ -135,6 +153,16 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
       } else {
         (config.headers as Record<string, unknown>)['X-Company-Id'] = companyId;
       }
+    }
+  }
+  // WP-L1: the native app tells the API which build it is, so an unsupported build is asked to
+  // update (HTTP 426, APP_UPDATE_REQUIRED). The browser sends nothing: it always runs the latest bundle.
+  const appVersion = runningInNativeShell() ? nativeAppVersion() : null;
+  if (appVersion) {
+    if (typeof config.headers.set === 'function') {
+      config.headers.set('X-App-Version', appVersion);
+    } else {
+      (config.headers as Record<string, unknown>)['X-App-Version'] = appVersion;
     }
   }
   if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
@@ -496,20 +524,105 @@ export function isDefinitiveRejection(error: unknown): boolean {
   return true;
 }
 
+// Words shown in capitals when a field name becomes a label (gstin → GSTIN). Same list as
+// field_label in backend/core/exceptions.py.
+const LABEL_ACRONYMS = new Set([
+  'bom', 'cgst', 'cin', 'grn', 'gst', 'gstin', 'hsn', 'id', 'ifsc', 'igst', 'irn',
+  'mrp', 'otp', 'pan', 'pdf', 'po', 'sac', 'sgst', 'sku', 'tan', 'tcs', 'tds',
+  'uom', 'upi', 'url',
+]);
+const NO_LABEL_FIELDS = new Set(['non_field_errors', '__all__', 'detail', 'message', 'string']);
+
+/** `companyName` / `company_name` → `company_name`. */
+function toSnakeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+/** `company_name` / `companyName` → `companyName` (form field names are camelCase). */
+export function toCamelKey(key: string): string {
+  return key.replace(/_+([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+/**
+ * Readable label for an error key: `company_name` → `Company name`, `gstin` → `GSTIN`.
+ * Keys that name no field (`non_field_errors`) give '' so the message stands alone.
+ */
+export function fieldLabel(key: string): string {
+  const snake = toSnakeKey(key);
+  if (NO_LABEL_FIELDS.has(snake)) return '';
+  const words = snake.split(/[_.\s]+/).filter(Boolean);
+  if (!words.length) return '';
+  const out = words.map((w) => (LABEL_ACRONYMS.has(w) ? w.toUpperCase() : w));
+  if (out[0] === words[0]) out[0] = out[0].charAt(0).toUpperCase() + out[0].slice(1);
+  return out.join(' ');
+}
+
+function labelled(field: string, text: string): string {
+  const label = fieldLabel(field);
+  return label ? `${label}: ${text}` : text;
+}
+
+/** First readable message in a DRF field-error value (string or list of strings). */
+function firstFieldMessage(value: unknown): string | null {
+  const first = Array.isArray(value) ? value.find((v) => typeof v === 'string' && v.trim()) : value;
+  return typeof first === 'string' && first.trim() ? first.trim() : null;
+}
+
 function formatErrorDetails(details: unknown): string | null {
   if (!details || typeof details !== 'object' || Array.isArray(details)) return null;
   const parts: string[] = [];
   for (const [field, messages] of Object.entries(details as Record<string, unknown>)) {
     if (Array.isArray(messages)) {
-      const joined = messages.map(String).filter(Boolean).join(', ');
-      if (joined) parts.push(`${field}: ${joined}`);
+      const joined = messages.filter((m) => typeof m !== 'object').map(String).filter(Boolean).join(', ');
+      if (joined) parts.push(labelled(field, joined));
     } else if (typeof messages === 'string' && messages.trim()) {
-      parts.push(`${field}: ${messages.trim()}`);
+      parts.push(labelled(field, messages.trim()));
     } else if (messages != null && typeof messages !== 'object') {
-      parts.push(`${field}: ${String(messages)}`);
+      parts.push(labelled(field, String(messages)));
     }
   }
   return parts.length ? parts.join('; ') : null;
+}
+
+/**
+ * A server that predates readable labels builds its message as `phone: …; company_name: …`.
+ * Swap each raw key that names a detail field for its label.
+ */
+function relabelServerMessage(message: string, details: unknown): string {
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return message;
+  let out = message;
+  for (const key of Object.keys(details as Record<string, unknown>)) {
+    const label = fieldLabel(key);
+    for (const raw of new Set([key, toSnakeKey(key)])) {
+      const escaped = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(`(^|; )${escaped}: `, 'g'), label ? `$1${label}: ` : '$1');
+    }
+  }
+  return out;
+}
+
+/**
+ * Split a 400's field errors between the form's own fields and the rest.
+ * Server keys arrive camelCase (or snake_case from non-camelizing endpoints); both
+ * match a camelCase form field. Anything no field shows comes back as `banner`
+ * (with readable labels), so no error is ever silently dropped.
+ */
+export function getFieldErrors<K extends string>(
+  error: unknown,
+  formFields: readonly K[],
+): { fieldErrors: Partial<Record<K, string>>; banner: string | null } {
+  const known = new Set<string>(formFields);
+  const fieldErrors: Partial<Record<K, string>> = {};
+  const rest: string[] = [];
+  for (const [key, value] of Object.entries(getErrorDetails(error) ?? {})) {
+    const message = firstFieldMessage(value);
+    if (!message) continue;
+    const field = toCamelKey(key);
+    if (known.has(field)) fieldErrors[field as K] = message;
+    else rest.push(labelled(key, message));
+  }
+  const banner = rest.length ? rest.join('; ') : Object.keys(fieldErrors).length ? null : getErrorMessage(error);
+  return { fieldErrors, banner };
 }
 
 function isGenericValidationMessage(msg: string): boolean {
@@ -584,7 +697,7 @@ export function getErrorMessage(error: unknown): string {
       const envelope = nested as { message?: unknown; details?: unknown };
       const msg = typeof envelope.message === 'string' ? envelope.message.trim() : '';
       const fromDetails = formatErrorDetails(envelope.details);
-      if (msg && !isGenericValidationMessage(msg)) return friendlyAuthMessage(msg);
+      if (msg && !isGenericValidationMessage(msg)) return friendlyAuthMessage(relabelServerMessage(msg, envelope.details));
       if (fromDetails) return fromDetails;
       if (msg) return friendlyAuthMessage(msg);
     }
@@ -606,7 +719,7 @@ export function getErrorMessage(error: unknown): string {
       for (const [field, value] of Object.entries(data as Record<string, unknown>)) {
         const first = Array.isArray(value) ? value.find((v) => typeof v === 'string') : typeof value === 'string' ? value : undefined;
         if (typeof first === 'string' && first.trim() && !['detail', 'message', 'error', 'details', 'success', 'code'].includes(field)) {
-          return `${field}: ${first}`;
+          return labelled(field, first);
         }
       }
     }

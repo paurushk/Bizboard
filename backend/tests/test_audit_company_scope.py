@@ -13,6 +13,7 @@ from django.test import override_settings
 from core.models import AuditEvent
 from core.rls import company_scope
 from core.services.audit import AuditService
+from tests.rls_helpers import restricted_db_role  # noqa: F401 - pytest fixture
 
 
 def test_company_scope_is_a_noop_without_rls(tenant_a):
@@ -56,33 +57,11 @@ def test_company_scope_keeps_an_enclosing_bypass(tenant_a):
     assert _guc("app.rls_bypass") == ""
 
 
-@pytest.fixture
-def restricted_db_role(db):
-    """Run the test's connection as a NOSUPERUSER NOBYPASSRLS role (the real staging app role).
-
-    The Postgres test DB is owned by a superuser, which bypasses FORCE RLS and hides exactly the
-    bugs this file is about, so switch the session to a restricted role for the test.
-    """
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = 'bb_rls_test_app'")
-        if cursor.fetchone() is None:
-            cursor.execute("CREATE ROLE bb_rls_test_app NOSUPERUSER NOBYPASSRLS NOLOGIN")
-        cursor.execute("GRANT USAGE ON SCHEMA public TO bb_rls_test_app")
-        cursor.execute("GRANT ALL ON ALL TABLES IN SCHEMA public TO bb_rls_test_app")
-        cursor.execute("GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO bb_rls_test_app")
-        cursor.execute("SET ROLE bb_rls_test_app")
-    try:
-        yield
-    finally:
-        with connection.cursor() as cursor:
-            cursor.execute("RESET ROLE")
-
-
 @needs_pg
 @pytest.mark.postgres
 @pytest.mark.django_db(transaction=True)
 @override_settings(POSTGRES_RLS_ENABLED=True)
-def test_signup_works_under_a_non_superuser_role(restricted_db_role):
+def test_signup_works_under_a_non_superuser_role(restricted_db_role):  # noqa: F811 - pytest fixture
     """Sign-up creates the company and then writes tenant tables before any tenant is known."""
     from rest_framework.test import APIClient
 

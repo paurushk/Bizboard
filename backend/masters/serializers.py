@@ -450,6 +450,7 @@ class ProductSerializer(serializers.ModelSerializer):
             "purchase_price", "selling_price", "mrp", "wholesale_price",
             "reorder_level", "product_type", "track_inventory",
             "track_batch", "track_serial", "regulated_category",
+            "mfg_role", "receive_into_quarantine", "requires_incoming_inspection",
             "selling_tax_inclusive", "purchase_tax_inclusive",
             "custom_fields", "alternate_unit", "alternate_unit_name", "conversion_rate",
             "default_discount_percent", "has_movements", "status", "created_at", "updated_at",

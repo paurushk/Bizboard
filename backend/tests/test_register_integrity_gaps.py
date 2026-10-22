@@ -81,6 +81,7 @@ def test_check_invariants_passes_on_balanced_postings(books):
     assert f"ok    company={books.company.id}" in out.getvalue()
 
 
+@pytest.mark.no_invariant_check  # deliberately inserts an unbalanced journal to prove detection
 def test_check_invariants_fails_on_unbalanced_journal_inserted_via_orm(books):
     cash, cap = _post_balanced(books.company)
     # Bypass the service: a POSTED entry whose lines do not balance.

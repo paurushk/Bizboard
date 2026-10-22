@@ -24,6 +24,7 @@ from tests.conftest import (
 pytestmark = pytest.mark.django_db
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", "gl.ar_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie; sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_cr063_registers_exclude_cancelled_by_default(tenant_a):
     product = make_product(tenant_a.company, sku="A4-CAN")
     add_stock(tenant_a, product, "50")

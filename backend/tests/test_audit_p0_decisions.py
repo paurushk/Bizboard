@@ -407,6 +407,10 @@ def test_backfill_confirm_blocks_a_closed_period_and_a_large_company(tenant_a):
     from accounting.models import AccountingPeriod
 
     company = tenant_a.company
+    # Shadow books (WP-F2): "books off" now still posts. This checks a legacy company whose
+    # documents were never posted, i.e. post_ledger off as well.
+    company.post_ledger = False
+    company.save(update_fields=["post_ledger"])
     product = make_product(company, sku="P0-CLOSED")
     add_stock(tenant_a, product, "2")
     customer = make_customer(company, name="Closed")

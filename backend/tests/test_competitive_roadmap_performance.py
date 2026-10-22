@@ -51,6 +51,7 @@ def _purchase(company, supplier, product, number):
     )
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_supplier_price_history_query_count_stays_flat(tenant_a):
     _enable(tenant_a.company, "ENABLE_SUPPLIER_PRICE_HISTORY")
     supplier = make_supplier(tenant_a.company)
@@ -84,6 +85,7 @@ def _sales(company, customer, number):
     )
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_customer_portal_list_query_growth_is_linear(tenant_a):
     cache.clear()
     _enable(tenant_a.company, "ENABLE_CUSTOMER_PORTAL")

@@ -1319,6 +1319,168 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agents/catalog/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What the UI renders from: agents this user can use, their trigger codes and proposal renderers. */
+        get: operations["agents_catalog_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["agents_proposals_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["agents_proposals_retrieve_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["agents_proposals_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/{id}/approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agents_proposals_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agents_proposals_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/{id}/reject/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agents_proposals_reject_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/{id}/retry/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agents_proposals_retry_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/proposals/bulk-approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Reminders only (kinds with bulk_approvable). Each item is its own transaction. */
+        post: operations["agents_proposals_bulk_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/runs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["agents_runs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/agents/runs/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["agents_runs_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/audit/": {
         parameters: {
             query?: never;
@@ -1405,6 +1567,30 @@ export interface paths {
         put?: never;
         /** @description BB-000418: set password from signed invite token (dead-end fix). */
         post: operations["auth_invite_accept_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/legal/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description WP-H5 (DPDP): GET what this person accepted and what is pending; POST to accept the
+         *     current version of the listed documents (``{"documents": ["TOS", "PRIVACY"]}``).
+         */
+        get: operations["auth_legal_retrieve"];
+        put?: never;
+        /**
+         * @description WP-H5 (DPDP): GET what this person accepted and what is pending; POST to accept the
+         *     current version of the listed documents (``{"documents": ["TOS", "PRIVACY"]}``).
+         */
+        post: operations["auth_legal_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4572,6 +4758,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/insights/ai-consent/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description D12: the owner switches AI features (Insights, Assistant, bill scan) on or off for the company.
+         *
+         *     Dedicated endpoint, because the company PATCH keeps ``ai_features_enabled`` read-only. Every
+         *     change is written to the audit log.
+         */
+        get: operations["insights_ai_consent_retrieve"];
+        put?: never;
+        /**
+         * @description D12: the owner switches AI features (Insights, Assistant, bill scan) on or off for the company.
+         *
+         *     Dedicated endpoint, because the company PATCH keeps ``ai_features_enabled`` read-only. Every
+         *     change is written to the audit log.
+         */
+        post: operations["insights_ai_consent_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/insights/alerts/": {
         parameters: {
             query?: never;
@@ -6306,6 +6520,452 @@ export interface paths {
         patch: operations["inventory_warehouses_partial_update"];
         trace?: never;
     };
+    "/api/v1/jobwork/ageing/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_ageing_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/balance/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What job workers hold of ours, and what customers have left with us. */
+        get: operations["jobwork_balance_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/challans/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_challans_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_challans_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/challans/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_challans_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/challans/{id}/issue/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_challans_issue_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/challans/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_challans_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/itc04/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_itc04_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/itc04-filings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_itc04_filings_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/itc04-filings/{id}/mark-filed/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_itc04_filings_mark_filed_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/itc04-filings/due/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_itc04_filings_due_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/itc04-filings/prepare/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Build and record the return for a period. ``fy`` is the year it starts in; ``half`` is 1 or 2 when half-yearly. */
+        post: operations["jobwork_itc04_filings_prepare_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_orders_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_orders_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_orders_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/{id}/close/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_orders_close_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/{id}/receive-material/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_orders_receive_material_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/{id}/record-loss/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_orders_record_loss_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/orders/{id}/return-material/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_orders_return_material_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/principal-movements/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_principal_movements_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/receipts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_receipts_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_receipts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/receipts/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["jobwork_receipts_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/receipts/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_receipts_post_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobwork/receipts/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["jobwork_receipts_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ledgers/customers/": {
         parameters: {
             query?: never;
@@ -6406,6 +7066,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/manufacturing/atp/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_atp_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/batches/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET ?q=<text>&product=<id>: lots whose number matches, for the trace and inspection pickers.
+         *
+         *     Read-only and open to every manufacturing role. The inventory lot list needs inventory rights, which an
+         *     accountant or auditor reading a trace does not have.
+         */
+        get: operations["manufacturing_batches_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/board/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_board_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/manufacturing/boms/": {
         parameters: {
             query?: never;
@@ -6414,14 +7136,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         get: operations["manufacturing_boms_list"];
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         post: operations["manufacturing_boms_create"];
         delete?: never;
@@ -6438,28 +7160,1799 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         get: operations["manufacturing_boms_retrieve"];
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         put: operations["manufacturing_boms_update"];
         post?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         delete: operations["manufacturing_boms_destroy"];
         options?: never;
         head?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         patch: operations["manufacturing_boms_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/{id}/activate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_boms_activate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/{id}/archive/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_boms_archive_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/{id}/revise/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Copy this revision into the next one, as a draft. */
+        post: operations["manufacturing_boms_revise_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/{id}/routing/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET or PUT a BOM revision's routing (its operations in order). */
+        get: operations["manufacturing_boms_routing_retrieve"];
+        /** @description GET or PUT a BOM revision's routing (its operations in order). */
+        put: operations["manufacturing_boms_routing_update"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_boms_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/import/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Upload a spreadsheet of recipes. Without ``commit=true`` it only checks the file. */
+        post: operations["manufacturing_boms_import_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/boms/import-template/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_boms_import_template_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/can-make/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_can_make_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/cost-rollup/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_cost_rollup_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/downtime/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_downtime_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/downtime-reasons/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_downtime_reasons_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_downtime_reasons_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/downtime-reasons/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_downtime_reasons_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["manufacturing_downtime_reasons_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_downtime_reasons_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["manufacturing_downtime_reasons_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/downtime/{id}/end/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_downtime_end_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/downtime/start/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_downtime_start_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/explode/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET ?product=&qty=&expand=all|phantom|none: the indented materials list. */
+        get: operations["manufacturing_explode_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_job_cards_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_job_cards_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/finish/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_finish_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/pause/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_pause_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/report/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_report_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/start/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_start_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/subcontract/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Raise the job-work order and challan for a step done by a job worker. */
+        post: operations["manufacturing_job_cards_subcontract_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/{id}/subcontract-defaults/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What would go out for this step: the material the order still has to take, and the usual job worker. */
+        get: operations["manufacturing_job_cards_subcontract_defaults_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/job-cards/create-for-order/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_job_cards_create_for_order_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/load/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_load_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/machines/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_machines_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_machines_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/machines/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_machines_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["manufacturing_machines_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_machines_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["manufacturing_machines_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/machines/{id}/breakdown/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_machines_breakdown_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-log/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_maintenance_log_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-log/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_maintenance_log_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-log/{id}/resolve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_maintenance_log_resolve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-plans/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_maintenance_plans_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_maintenance_plans_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-plans/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_maintenance_plans_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["manufacturing_maintenance_plans_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_maintenance_plans_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["manufacturing_maintenance_plans_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-plans/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_maintenance_plans_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/maintenance-plans/due/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_maintenance_plans_due_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_material_issues_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_issues_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_material_issues_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/approve/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A manager approves the request, which posts the issue. */
+        post: operations["manufacturing_material_issues_approve_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/discard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_material_issues_discard_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_issues_post_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/print/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The issue as a slip to hand over with the material. */
+        get: operations["manufacturing_material_issues_print_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/reject/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_issues_reject_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/request-approval/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description A floor user asks a manager to approve extra material. */
+        post: operations["manufacturing_material_issues_request_approval_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-issues/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_issues_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-returns/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_material_returns_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_returns_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-returns/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_material_returns_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-returns/{id}/discard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_material_returns_discard_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-returns/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_returns_post_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/material-returns/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_material_returns_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/mrp-runs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_mrp_runs_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/mrp-runs/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_mrp_runs_retrieve_2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/mrp-runs/{id}/convert/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_mrp_runs_convert_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/mrp-runs/run/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Plan material now. Nothing is created until suggestions are converted. */
+        post: operations["manufacturing_mrp_runs_run_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/operators/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_operators_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_operators_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/operators/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_operators_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/operators/{id}/activate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_operators_activate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/operators/{id}/deactivate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_operators_deactivate_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/operators/{id}/set-pin/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_operators_set_pin_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_production_receipts_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_production_receipts_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_production_receipts_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/{id}/discard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_production_receipts_discard_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_production_receipts_post_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/{id}/print-label/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Labels for the batches this receipt made (one per batch, ``copies`` of each). */
+        get: operations["manufacturing_production_receipts_print_label_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/production-receipts/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_production_receipts_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/quick-production/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST one request, get a closed work order with everything posted. */
+        post: operations["manufacturing_quick_production_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/reports/{slug}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_reports_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/sales-order-status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What production is doing for a sales order. Sales staff may read this. */
+        get: operations["manufacturing_sales_order_status_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/settings/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET the company's manufacturing settings; PATCH to change them. */
+        get: operations["manufacturing_settings_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description GET the company's manufacturing settings; PATCH to change them. */
+        patch: operations["manufacturing_settings_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/shortages/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_shortages_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-costs/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_standard_costs_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_standard_costs_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-costs/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_standard_costs_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["manufacturing_standard_costs_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_standard_costs_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["manufacturing_standard_costs_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-revaluations/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_standard_revaluations_list"];
+        put?: never;
+        /** @description Preview: nothing moves. The run lists every lot that would change and by how much. */
+        post: operations["manufacturing_standard_revaluations_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-revaluations/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_standard_revaluations_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-revaluations/{id}/discard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_standard_revaluations_discard_destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-revaluations/{id}/post/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_standard_revaluations_post_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/standard-revaluations/{id}/reverse/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_standard_revaluations_reverse_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/tablet/cards/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The job cards an operator can pick up: not finished, on running orders. */
+        get: operations["manufacturing_tablet_cards_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/tablet/cards/{id}/{verb}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_tablet_cards_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/tablet/downtime/{verb}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_tablet_downtime_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/tablet/login/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_tablet_login_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/trace/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET ?batch=<id>&direction=back|forward: where a lot came from, or where it went. */
+        get: operations["manufacturing_trace_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/utilisation/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_utilisation_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/where-used/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_where_used_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-centres/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_work_centres_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_work_centres_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-centres/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_work_centres_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["manufacturing_work_centres_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["manufacturing_work_centres_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["manufacturing_work_centres_partial_update"];
         trace?: never;
     };
     "/api/v1/manufacturing/work-orders/": {
@@ -6470,14 +8963,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         get: operations["manufacturing_work_orders_list"];
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         post: operations["manufacturing_work_orders_create"];
         delete?: never;
@@ -6494,28 +8987,48 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         get: operations["manufacturing_work_orders_retrieve"];
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         put: operations["manufacturing_work_orders_update"];
         post?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         delete: operations["manufacturing_work_orders_destroy"];
         options?: never;
         head?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         patch: operations["manufacturing_work_orders_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/availability/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["manufacturing_work_orders_availability_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/manufacturing/work-orders/{id}/cancel/": {
@@ -6528,10 +9041,27 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         post: operations["manufacturing_work_orders_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/close/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Settle a completed order: variance report, and clear what is left in WIP. */
+        post: operations["manufacturing_work_orders_close_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6548,10 +9078,27 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         post: operations["manufacturing_work_orders_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/print/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The work order as a print-ready page for the floor (no costs on it). */
+        get: operations["manufacturing_work_orders_print_retrieve"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6568,10 +9115,87 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * @description Base viewset enforcing tenant isolation: querysets filtered by the
-         *     requesting user's company; created rows stamped with company + audit fields.
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
          */
         post: operations["manufacturing_work_orders_release_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/reopen/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_work_orders_reopen_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/{id}/set-priority/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_work_orders_set_priority_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/export/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The work orders on screen (same filters) as a spreadsheet. Costs only for roles that may see them. */
+        get: operations["manufacturing_work_orders_export_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/manufacturing/work-orders/from-sales-order/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["manufacturing_work_orders_from_sales_order_create"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10534,6 +13158,352 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/batches/{id}/status/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Hold or release a lot by hand. A manager's decision, always with a reason. */
+        post: operations["quality_batches_status_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/defect-codes/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_defect_codes_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_defect_codes_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/defect-codes/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_defect_codes_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["quality_defect_codes_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["quality_defect_codes_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["quality_defect_codes_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_inspections_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_inspections_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_inspections_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/{id}/cancel/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_inspections_cancel_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/{id}/certificate/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Certificate of analysis: a print-ready page for a finished inspection. */
+        get: operations["quality_inspections_certificate_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/{id}/complete/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_inspections_complete_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/inspections/{id}/record-results/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_inspections_record_results_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/non-conformances/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_non_conformances_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_non_conformances_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/non-conformances/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_non_conformances_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["quality_non_conformances_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["quality_non_conformances_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["quality_non_conformances_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/quality/non-conformances/{id}/advance/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_non_conformances_advance_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/supplier-scorecard/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_supplier_scorecard_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/templates/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_templates_list"];
+        put?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        post: operations["quality_templates_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/quality/templates/{id}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        get: operations["quality_templates_retrieve"];
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        put: operations["quality_templates_update"];
+        post?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        delete: operations["quality_templates_destroy"];
+        options?: never;
+        head?: never;
+        /**
+         * @description Put first in a view's bases. A number or id the screen should have sent but did not (``abc`` for a quantity or a
+         *     filter) is the caller's mistake, so it answers 400 with a plain message, not 500.
+         */
+        patch: operations["quality_templates_partial_update"];
         trace?: never;
     };
     "/api/v1/reports/cancelled-document-numbers/": {
@@ -14981,6 +17951,14 @@ export interface components {
             /** Format: date-time */
             readonly voidedAt: string | null;
         };
+        /**
+         * @description * `NONE` - Not needed
+         *     * `REQUESTED` - Waiting for a manager
+         *     * `APPROVED` - Approved
+         *     * `REJECTED` - Turned down
+         * @enum {string}
+         */
+        ApprovalEnum: "NONE" | "REQUESTED" | "APPROVED" | "REJECTED";
         AssistantMessage: {
             readonly id: number;
             role: components["schemas"]["AssistantMessageRoleEnum"];
@@ -15145,7 +18123,7 @@ export interface components {
          *     * `PERCENT` - Percent
          * @enum {string}
          */
-        BasisEnum: "FLAT" | "PERCENT";
+        Basis867Enum: "FLAT" | "PERCENT";
         BatchLot: {
             readonly id: number;
             product: number;
@@ -15202,22 +18180,83 @@ export interface components {
         BillOfEntryItcEligibilityEnum: "ELIGIBLE" | "INELIGIBLE";
         /** @enum {unknown} */
         BlankEnum: "";
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
         Bom: {
             readonly id: number;
             product: number;
             name: string;
             status?: components["schemas"]["BomStatusEnum"];
+            readonly revisionNo: number;
+            /** Format: date */
+            effectiveFrom?: string | null;
+            /** Format: date */
+            effectiveTo?: string | null;
+            readonly isDefault: boolean;
+            customer?: number | null;
+            readonly parentRevision: number | null;
+            changeReason?: string;
+            /** Format: decimal */
+            outputQty?: string;
+            /** Format: decimal */
+            yieldPct?: string;
+            fgWarehouse?: number | null;
+            notes?: string;
+            readonly isLocked: boolean;
+            /** Format: date-time */
+            readonly lockedAt: string | null;
             lines?: components["schemas"]["BomLine"][];
+            outputs?: components["schemas"]["BomOutput"][];
+            additionalCosts?: components["schemas"]["BomAdditionalCost"][];
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        BomAdditionalCost: {
+            readonly id: number;
+            label: string;
+            element?: components["schemas"]["ElementEnum"];
+            basis?: components["schemas"]["BomAdditionalCostBasisEnum"];
+            /** Format: decimal */
+            amount: string;
+        };
+        /**
+         * @description * `PER_UNIT` - Per unit made
+         *     * `PER_BATCH` - Per batch
+         * @enum {string}
+         */
+        BomAdditionalCostBasisEnum: "PER_UNIT" | "PER_BATCH";
         BomLine: {
             readonly id: number;
             component: number;
             /** Format: decimal */
             qty: string;
+            unit?: number | null;
+            /** Format: decimal */
+            scrapPct?: string;
+            issueMethod?: components["schemas"]["IssueMethodEnum"];
+            isOptional?: boolean;
+            isPhantom?: boolean;
+            /** Format: int64 */
+            alternateGroup?: number | null;
+            /** Format: int64 */
+            alternatePriority?: number;
+            sourceWarehouse?: number | null;
+            /** Format: int64 */
+            sequence?: number;
+            notes?: string;
+        };
+        BomOutput: {
+            readonly id: number;
+            product: number;
+            kind: components["schemas"]["KindD4cEnum"];
+            /** Format: decimal */
+            qty: string;
+            /** Format: decimal */
+            costSharePct?: string;
+            /** Format: decimal */
+            recoveryRate?: string | null;
+            targetWarehouse?: number | null;
         };
         /**
          * @description * `DRAFT` - Draft
@@ -15233,7 +18272,7 @@ export interface components {
         BusinessAlertEvent: {
             readonly id: number;
             code: string;
-            severity: components["schemas"]["SeverityEnum"];
+            severity: components["schemas"]["BusinessAlertEventSeverityEnum"];
             message: string;
             subjectKey?: string;
             payload?: unknown;
@@ -15249,6 +18288,13 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        /**
+         * @description * `critical` - Critical
+         *     * `warning` - Warning
+         *     * `info` - Info
+         * @enum {string}
+         */
+        BusinessAlertEventSeverityEnum: "critical" | "warning" | "info";
         /**
          * @description * `OPEN` - Open
          *     * `SNOOZED` - Snoozed
@@ -15371,6 +18417,22 @@ export interface components {
          * @enum {string}
          */
         Category5e0Enum: "DAMAGED" | "WRONG_DELIVERY" | "QUALITY" | "OTHER";
+        ChallanLine: {
+            readonly id: number;
+            readonly product: number;
+            readonly productName: string;
+            readonly batch: number | null;
+            /** Format: decimal */
+            readonly qty: string;
+            readonly goodsKind: components["schemas"]["GoodsKindEnum"];
+            readonly serialNumbers: unknown;
+            /** Format: decimal */
+            readonly unitCost: string | null;
+            /** Format: decimal */
+            readonly qtySettled: string;
+            /** Format: decimal */
+            readonly qtyOpen: string;
+        };
         /**
          * @description * `EMAIL` - Email
          *     * `WHATSAPP` - Whatsapp
@@ -15804,6 +18866,41 @@ export interface components {
             notice: string;
             error: string;
         };
+        /**
+         * @description * `PENDING` - Pending
+         *     * `PASS` - Pass
+         *     * `FAIL` - Fail
+         *     * `HOLD` - Hold
+         *     * `REWORK` - Rework
+         * @enum {string}
+         */
+        DecisionEnum: "PENDING" | "PASS" | "FAIL" | "HOLD" | "REWORK";
+        DefectCode: {
+            readonly id: number;
+            code: string;
+            name: string;
+            severity?: components["schemas"]["DefectCodeSeverityEnum"];
+            isActive?: boolean;
+        };
+        /**
+         * @description * `MINOR` - Minor
+         *     * `MAJOR` - Major
+         *     * `CRITICAL` - Critical
+         * @enum {string}
+         */
+        DefectCodeSeverityEnum: "MINOR" | "MAJOR" | "CRITICAL";
+        /**
+         * @description * `MATERIAL_SHORTAGE` - Material shortage
+         *     * `MACHINE` - Machine or tool
+         *     * `LABOUR` - Labour
+         *     * `QUALITY` - Quality problem
+         *     * `POWER` - Power or utilities
+         *     * `CUSTOMER` - Customer change
+         *     * `PLANNING` - Planning
+         *     * `OTHER` - Other
+         * @enum {string}
+         */
+        DelayReasonEnum: "MATERIAL_SHORTAGE" | "MACHINE" | "LABOUR" | "QUALITY" | "POWER" | "CUSTOMER" | "PLANNING" | "OTHER";
         DeliveryChallan: {
             readonly id: number;
             readonly number: string;
@@ -16046,6 +19143,34 @@ export interface components {
          */
         DeliveryRouteStopStatusEnum: "PENDING" | "DELIVERED" | "FAILED" | "REJECTED" | "RETURNED";
         /**
+         * @description * `OUT` - We send material out
+         *     * `IN` - We process a customer's material
+         * @enum {string}
+         */
+        DirectionEnum: "OUT" | "IN";
+        DowntimeEvent: {
+            readonly id: number;
+            readonly workCentre: number;
+            readonly workCentreCode: string;
+            readonly jobCard: number | null;
+            readonly reason: number;
+            readonly reasonName: string;
+            /** Format: date-time */
+            readonly startedAt: string;
+            /** Format: date-time */
+            readonly endedAt: string | null;
+            /** Format: decimal */
+            readonly minutes: string;
+            readonly notes: string;
+        };
+        DowntimeReason: {
+            readonly id: number;
+            code: string;
+            name: string;
+            isPlanned?: boolean;
+            isActive?: boolean;
+        };
+        /**
          * @description * `NONE` - None
          *     * `READY` - Ready
          *     * `QUEUED` - Queued
@@ -16056,6 +19181,14 @@ export interface components {
          * @enum {string}
          */
         EinvoiceStatusEnum: "NONE" | "READY" | "QUEUED" | "GENERATED" | "MANUAL_IRN" | "FAILED" | "CANCELLED";
+        /**
+         * @description * `OTHER` - Other expense
+         *     * `LABOUR` - Labour
+         *     * `OVERHEAD` - Overhead
+         *     * `MACHINE` - Machine
+         * @enum {string}
+         */
+        ElementEnum: "OTHER" | "LABOUR" | "OVERHEAD" | "MACHINE";
         Employee: {
             readonly id: number;
             name: string;
@@ -16286,6 +19419,12 @@ export interface components {
          * @enum {string}
          */
         GatewayPaymentStatusEnum: "CREATED" | "CAPTURED" | "CAPTURED_PENDING_BOOKS" | "FAILED" | "REFUNDED" | "PARTIALLY_REFUNDED";
+        /**
+         * @description * `INPUT` - Inputs
+         *     * `CAPITAL_GOOD` - Capital goods (moulds, dies, tools excluded)
+         * @enum {string}
+         */
+        GoodsKindEnum: "INPUT" | "CAPITAL_GOOD";
         GoodsReceipt: {
             readonly id: number;
             readonly number: string;
@@ -16437,6 +19576,85 @@ export interface components {
          * @enum {string}
          */
         ImsActionEnum: "NO_ACTION" | "ACCEPT" | "REJECT" | "PENDING";
+        Inspection: {
+            readonly id: number;
+            readonly number: string;
+            readonly template: number | null;
+            readonly templateName: string;
+            readonly stage: components["schemas"]["StageCcbEnum"];
+            readonly status: components["schemas"]["StatusD0fEnum"];
+            readonly decision: components["schemas"]["DecisionEnum"];
+            readonly sourceType: components["schemas"]["InspectionSourceTypeEnum"];
+            readonly product: number;
+            readonly productName: string;
+            readonly batch: number | null;
+            /** @default  */
+            readonly batchNo: string;
+            readonly grnItem: number | null;
+            readonly receiptId: number | null;
+            readonly supplier: number | null;
+            /** Format: decimal */
+            readonly qtyInspected: string;
+            /** Format: decimal */
+            readonly qtyAccepted: string;
+            /** Format: decimal */
+            readonly qtyRejected: string;
+            readonly inspector: number | null;
+            /** Format: date */
+            readonly inspectedOn: string | null;
+            /** Format: date-time */
+            readonly decidedAt: string | null;
+            readonly notes: string;
+            readonly results: components["schemas"]["InspectionResult"][];
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        InspectionParameter: {
+            readonly id: number;
+            name: string;
+            kind?: components["schemas"]["Kind1ceEnum"];
+            /** Format: decimal */
+            minValue?: string | null;
+            /** Format: decimal */
+            maxValue?: string | null;
+            unit?: string;
+            mandatory?: boolean;
+            /** Format: int64 */
+            sequence?: number;
+        };
+        InspectionResult: {
+            readonly id: number;
+            readonly name: string;
+            readonly kind: components["schemas"]["Kind1ceEnum"];
+            /** Format: decimal */
+            readonly minValue: string | null;
+            /** Format: decimal */
+            readonly maxValue: string | null;
+            readonly unit: string;
+            readonly mandatory: boolean;
+            /** Format: decimal */
+            readonly valueNumeric: string | null;
+            readonly valueText: string;
+            readonly passed: boolean | null;
+        };
+        /**
+         * @description * `GRN_ITEM` - Goods receipt line
+         *     * `RECEIPT` - Production receipt
+         *     * `BATCH` - Batch in stock
+         * @enum {string}
+         */
+        InspectionSourceTypeEnum: "GRN_ITEM" | "RECEIPT" | "BATCH";
+        InspectionTemplate: {
+            readonly id: number;
+            name: string;
+            product?: number | null;
+            stage?: components["schemas"]["StageCcbEnum"];
+            /** Format: int64 */
+            sampleSize?: number;
+            notes?: string;
+            isActive?: boolean;
+            parameters?: components["schemas"]["InspectionParameter"][];
+        };
         InvoiceBulkPdfZip: {
             url: string;
             fileId: number;
@@ -16467,6 +19685,38 @@ export interface components {
          */
         InvoiceTypeEnum: "GST" | "TAX" | "RETAIL" | "NON_GST";
         /**
+         * @description * `MANUAL` - Issue by hand
+         *     * `BACKFLUSH` - Take at completion
+         * @enum {string}
+         */
+        IssueMethodEnum: "MANUAL" | "BACKFLUSH";
+        /**
+         * @description * `AUTO_AT_RELEASE` - Issue everything at release
+         *     * `SEPARATE` - Issue materials separately
+         * @enum {string}
+         */
+        IssueModeEnum: "AUTO_AT_RELEASE" | "SEPARATE";
+        Itc04Filing: {
+            readonly id: number;
+            readonly periodLabel: string;
+            /** Format: date */
+            readonly fromDate: string;
+            /** Format: date */
+            readonly toDate: string;
+            readonly status: components["schemas"]["Itc04FilingStatusEnum"];
+            readonly summary: unknown;
+            /** Format: date */
+            readonly filedOn: string | null;
+            readonly acknowledgement: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `EXPORTED` - Exported
+         *     * `FILED` - Filed
+         * @enum {string}
+         */
+        Itc04FilingStatusEnum: "DRAFT" | "EXPORTED" | "FILED";
+        /**
          * @description * `UNREVIEWED` - Unreviewed
          *     * `CLAIMABLE` - Claimable
          *     * `INELIGIBLE` - Ineligible
@@ -16476,42 +19726,38 @@ export interface components {
         ItcEligibility28fEnum: "UNREVIEWED" | "CLAIMABLE" | "INELIGIBLE" | "REVERSED";
         JobCard: {
             readonly id: number;
-            readonly number: string;
-            customer: number;
-            readonly customerName: string;
-            technician?: number | null;
-            readonly technicianName: string;
-            readonly status: components["schemas"]["Status53bEnum"];
-            complaint?: string;
-            registrationNo?: string;
-            vehicleModel?: string;
+            readonly workOrder: number;
+            readonly workOrderNumber: string;
+            readonly sequence: number;
+            readonly name: string;
+            readonly workCentre: number;
+            readonly workCentreCode: string;
+            readonly status: components["schemas"]["JobCardStatusEnum"];
             /** Format: decimal */
-            odometerReading?: string | null;
-            serviceBay?: number | null;
-            readonly serviceBayName: string;
+            readonly qtyPlanned: string;
+            /** Format: decimal */
+            readonly qtyGood: string;
+            /** Format: decimal */
+            readonly qtyRejected: string;
+            /** Format: decimal */
+            readonly plannedMinutes: string;
+            /** Format: decimal */
+            readonly minutesWorked: string;
             /** Format: date-time */
-            scheduledStart?: string | null;
+            readonly startedAt: string | null;
             /** Format: date-time */
-            scheduledEnd?: string | null;
-            readonly salesInvoice: number | null;
-            readonly invoiceNumber: string;
-            readonly invoiceStatus: string;
-            contract?: number | null;
-            readonly contractNumber: string;
-            ticket?: number | null;
-            readonly ticketNumber: string;
-            sourceComplaint?: number | null;
-            readonly complaintNumber: string;
-            warehouse?: number | null;
-            readonly subtotal: string;
-            readonly gstTotal: string;
-            readonly total: string;
-            /** Format: date-time */
-            readonly createdAt: string;
-            /** Format: date-time */
-            readonly updatedAt: string;
-            readonly lines: components["schemas"]["JobCardLine"][];
-            readonly serialHistory: string;
+            readonly finishedAt: string | null;
+            /** Format: decimal */
+            readonly labourCost: string;
+            /** Format: decimal */
+            readonly machineCost: string;
+            /** Format: decimal */
+            readonly overheadCost: string;
+            readonly isSubcontract: boolean;
+            readonly running: string;
+            readonly jobworkOrderId: number | null;
+            /** Format: decimal */
+            readonly outsideCost: string;
         };
         JobCardLine: {
             readonly id: number;
@@ -16577,6 +19823,85 @@ export interface components {
             readonly updatedAt: string;
             readonly lineCount: string;
         };
+        /**
+         * @description * `PLANNED` - Planned
+         *     * `IN_PROGRESS` - In Progress
+         *     * `PAUSED` - Paused
+         *     * `DONE` - Done
+         *     * `CANCELLED` - Cancelled
+         * @enum {string}
+         */
+        JobCardStatusEnum: "PLANNED" | "IN_PROGRESS" | "PAUSED" | "DONE" | "CANCELLED";
+        JobWorkChallan: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["JobWorkChallanStatusEnum"];
+            readonly order: number;
+            readonly orderNumber: string;
+            /** Format: date */
+            readonly challanDate: string;
+            readonly origin: components["schemas"]["OriginEnum"];
+            readonly warehouse: number | null;
+            readonly sourceChallan: number | null;
+            readonly supplierInvoiceRef: string;
+            readonly vehicleNo: string;
+            readonly ewayBillNo: string;
+            readonly purpose: string;
+            readonly notes: string;
+            readonly lines: components["schemas"]["ChallanLine"][];
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+        };
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `ISSUED` - Issued
+         *     * `REVERSED` - Reversed
+         * @enum {string}
+         */
+        JobWorkChallanStatusEnum: "DRAFT" | "ISSUED" | "REVERSED";
+        JobWorkOrder: {
+            readonly id: number;
+            readonly number: string;
+            readonly direction: components["schemas"]["DirectionEnum"];
+            readonly status: components["schemas"]["Status796Enum"];
+            readonly supplier: number | null;
+            /** @default  */
+            readonly supplierName: string;
+            readonly customer: number | null;
+            /** @default  */
+            readonly customerName: string;
+            readonly process: string;
+            /** Format: date */
+            readonly expectedReturnDate: string | null;
+            readonly serviceSac: string;
+            readonly directSupplyDeclared: boolean;
+            readonly jobWorkerWarehouse: number | null;
+            readonly workOrderId: number | null;
+            readonly jobCardId: number | null;
+            readonly notes: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        JobWorkReceipt: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["Status3f8Enum"];
+            readonly order: number;
+            readonly orderNumber: string;
+            /** Format: date */
+            readonly receiptDate: string;
+            readonly warehouse: number | null;
+            readonly notes: string;
+            readonly lines: components["schemas"]["ReceiptLine"][];
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+        };
         JournalEntry: {
             readonly id: number;
             number?: string;
@@ -16633,6 +19958,20 @@ export interface components {
             /** Format: date-time */
             readonly reconciledAt: string | null;
         };
+        /**
+         * @description * `NUMERIC` - Number within limits
+         *     * `TEXT` - Text
+         *     * `PASS_FAIL` - Pass or fail
+         * @enum {string}
+         */
+        Kind1ceEnum: "NUMERIC" | "TEXT" | "PASS_FAIL";
+        /**
+         * @description * `CO_PRODUCT` - Co-product
+         *     * `BY_PRODUCT` - By-product
+         *     * `SCRAP` - Scrap
+         * @enum {string}
+         */
+        KindD4cEnum: "CO_PRODUCT" | "BY_PRODUCT" | "SCRAP";
         Lead: {
             readonly id: number;
             name: string;
@@ -16720,6 +20059,52 @@ export interface components {
          * @enum {string}
          */
         LostReasonEnum: "PRICE" | "COMPETITOR" | "NO_RESPONSE" | "NOT_A_FIT" | "DUPLICATE" | "OTHER";
+        Machine: {
+            readonly id: number;
+            code: string;
+            name: string;
+            workCentre?: number | null;
+            /** Format: decimal */
+            readonly runHours: string;
+            isActive?: boolean;
+            notes?: string;
+        };
+        MaintenanceLog: {
+            readonly id: number;
+            readonly machine: number;
+            readonly machineName: string;
+            readonly plan: number | null;
+            readonly kind: components["schemas"]["MaintenanceLogKindEnum"];
+            /** Format: date-time */
+            readonly reportedAt: string;
+            /** Format: date-time */
+            readonly resolvedAt: string | null;
+            readonly description: string;
+            /** Format: decimal */
+            readonly cost: string;
+            /** Format: decimal */
+            readonly downtimeMinutes: string;
+        };
+        /**
+         * @description * `PREVENTIVE` - Preventive
+         *     * `BREAKDOWN` - Breakdown
+         * @enum {string}
+         */
+        MaintenanceLogKindEnum: "PREVENTIVE" | "BREAKDOWN";
+        MaintenancePlan: {
+            readonly id: number;
+            machine: number;
+            name: string;
+            /** Format: int64 */
+            intervalDays?: number | null;
+            /** Format: int64 */
+            intervalHours?: number | null;
+            /** Format: date */
+            readonly lastDoneOn: string | null;
+            /** Format: decimal */
+            readonly lastDoneHours: string;
+            isActive?: boolean;
+        };
         /**
          * @description * `exact` - Exact
          *     * `value_mismatch` - Value Mismatch
@@ -16732,12 +20117,102 @@ export interface components {
          * @enum {string}
          */
         MatchClassEnum: "exact" | "value_mismatch" | "missing_in_books" | "missing_in_ims" | "wrong_gstin" | "duplicate" | "potentially_ineligible" | "other";
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        MaterialIssue: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["Status3f8Enum"];
+            readonly workOrder: number;
+            readonly workOrderNumber: string;
+            /** Format: date */
+            readonly docDate: string | null;
+            readonly notes: string;
+            readonly lines: components["schemas"]["MaterialIssueLine"][];
+            readonly approval: components["schemas"]["ApprovalEnum"];
+            readonly approvalNote: string;
+            /** Format: date-time */
+            readonly approvalDecidedAt: string | null;
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        MaterialIssueLine: {
+            readonly id: number;
+            readonly woLine: number | null;
+            readonly component: number;
+            readonly componentName: string;
+            readonly warehouse: number;
+            readonly batch: number | null;
+            /** Format: decimal */
+            readonly qty: string;
+            readonly lotAllocations: unknown;
+            readonly serialNumbers: unknown;
+            readonly isExtra: boolean;
+            readonly extraReason: string;
+            /** Format: decimal */
+            readonly unitCost: string | null;
+            /** Format: decimal */
+            readonly costAmount: string;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        MaterialReturn: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["Status3f8Enum"];
+            readonly workOrder: number;
+            readonly workOrderNumber: string;
+            /** Format: date */
+            readonly docDate: string | null;
+            readonly notes: string;
+            readonly lines: components["schemas"]["MaterialReturnLine"][];
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        MaterialReturnLine: {
+            readonly id: number;
+            readonly woLine: number | null;
+            readonly component: number;
+            readonly componentName: string;
+            readonly warehouse: number;
+            readonly batch: number | null;
+            /** Format: decimal */
+            readonly qty: string;
+            readonly serialNumbers: unknown;
+            readonly sourceIssueLine: number | null;
+            /** Format: decimal */
+            readonly unitCost: string | null;
+            /** Format: decimal */
+            readonly costAmount: string;
+            readonly sources: unknown;
+        };
         /**
          * @description * `SLM` - Straight line
          *     * `WDV` - Written down value
          * @enum {string}
          */
         MethodEnum: "SLM" | "WDV";
+        /**
+         * @description * `RAW` - Raw material
+         *     * `SEMI_FINISHED` - Semi-finished
+         *     * `FINISHED` - Finished good
+         *     * `PACKING` - Packing material
+         *     * `CONSUMABLE` - Consumable
+         *     * `SCRAP` - Scrap
+         *     * `BY_PRODUCT` - By-product
+         * @enum {string}
+         */
+        MfgRoleEnum: "RAW" | "SEMI_FINISHED" | "FINISHED" | "PACKING" | "CONSUMABLE" | "SCRAP" | "BY_PRODUCT";
         /**
          * @description * `CASH` - Cash
          *     * `UPI` - Upi
@@ -16759,15 +20234,61 @@ export interface components {
          *     * `TRANSFER_IN` - Transfer In
          *     * `MANUFACTURE_ISSUE` - Manufacture Issue
          *     * `MANUFACTURE_RECEIPT` - Manufacture Receipt
+         *     * `MANUFACTURE_RETURN` - Manufacture Return
+         *     * `MANUFACTURE_REVERSAL` - Manufacture Reversal
          * @enum {string}
          */
-        MovementTypeEnum: "OPENING_STOCK" | "PURCHASE" | "SALE" | "PURCHASE_RETURN" | "SALES_RETURN" | "ADJUSTMENT" | "TRANSFER_OUT" | "TRANSFER_IN" | "MANUFACTURE_ISSUE" | "MANUFACTURE_RECEIPT";
+        MovementTypeEnum: "OPENING_STOCK" | "PURCHASE" | "SALE" | "PURCHASE_RETURN" | "SALES_RETURN" | "ADJUSTMENT" | "TRANSFER_OUT" | "TRANSFER_IN" | "MANUFACTURE_ISSUE" | "MANUFACTURE_RECEIPT" | "MANUFACTURE_RETURN" | "MANUFACTURE_REVERSAL";
         /**
          * @description * `BLOCK` - Block
          *     * `WARN` - Warn
          * @enum {string}
          */
         NegativeStockPolicyEnum: "BLOCK" | "WARN";
+        NonConformance: {
+            readonly id: number;
+            readonly number: string;
+            readonly sourceType: components["schemas"]["NonConformanceSourceTypeEnum"];
+            readonly inspection: number | null;
+            complaint?: number | null;
+            product?: number | null;
+            /** @default  */
+            readonly productName: string;
+            batch?: number | null;
+            supplier?: number | null;
+            customer?: number | null;
+            defectCode?: number | null;
+            /** Format: decimal */
+            qty?: string;
+            description?: string;
+            rootCause?: string;
+            actionTaken?: string;
+            preventiveAction?: string;
+            owner?: number | null;
+            /** Format: date */
+            dueDate?: string | null;
+            readonly status: components["schemas"]["NonConformanceStatusEnum"];
+            /** Format: date-time */
+            readonly closedAt: string | null;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        /**
+         * @description * `INSPECTION` - Failed inspection
+         *     * `GRN` - Goods receipt rejection
+         *     * `COMPLAINT` - Customer complaint
+         *     * `INTERNAL` - Found inside
+         * @enum {string}
+         */
+        NonConformanceSourceTypeEnum: "INSPECTION" | "GRN" | "COMPLAINT" | "INTERNAL";
+        /**
+         * @description * `OPEN` - Open
+         *     * `ACTION` - Action under way
+         *     * `VERIFIED` - Verified
+         *     * `CLOSED` - Closed
+         * @enum {string}
+         */
+        NonConformanceStatusEnum: "OPEN" | "ACTION" | "VERIFIED" | "CLOSED";
         Notification: {
             readonly id: number;
             channel: components["schemas"]["ChannelEnum"];
@@ -16788,6 +20309,14 @@ export interface components {
          * @enum {string}
          */
         NotificationStatusEnum: "QUEUED" | "SENT" | "LINK_READY" | "FAILED";
+        Operator: {
+            readonly id: number;
+            code: string;
+            name: string;
+            isActive?: boolean;
+            /** Format: date-time */
+            readonly lockedUntil: string | null;
+        };
         Opportunity: {
             readonly id: number;
             lead?: number | null;
@@ -16801,7 +20330,7 @@ export interface components {
             /** Format: date */
             expectedCloseDate?: string | null;
             competitor?: string;
-            stage?: components["schemas"]["StageEnum"];
+            stage?: components["schemas"]["OpportunityStageEnum"];
             /** Format: date-time */
             readonly closedAt: string | null;
             readonly stageMoveCount: number;
@@ -16827,6 +20356,22 @@ export interface components {
             /** Format: date-time */
             readonly createdAt: string;
         };
+        /**
+         * @description * `OPEN` - Open
+         *     * `QUALIFIED` - Qualified
+         *     * `NEGOTIATION` - Negotiation
+         *     * `WON` - Won
+         *     * `LOST` - Lost
+         * @enum {string}
+         */
+        OpportunityStageEnum: "OPEN" | "QUALIFIED" | "NEGOTIATION" | "WON" | "LOST";
+        /**
+         * @description * `OWN_PREMISES` - From our premises
+         *     * `DIRECT_FROM_SUPPLIER` - Straight from the supplier
+         *     * `FROM_OTHER_JOB_WORKER` - From another job worker
+         * @enum {string}
+         */
+        OriginEnum: "OWN_PREMISES" | "DIRECT_FROM_SUPPLIER" | "FROM_OTHER_JOB_WORKER";
         PaginatedAccountList: {
             /** @example 123 */
             count: number;
@@ -17187,6 +20732,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["CustomerReceipt"][];
         };
+        PaginatedDefectCodeList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["DefectCode"][];
+        };
         PaginatedDeliveryChallanList: {
             /** @example 123 */
             count: number;
@@ -17231,6 +20791,36 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["DeliveryRoute"][];
+        };
+        PaginatedDowntimeEventList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["DowntimeEvent"][];
+        };
+        PaginatedDowntimeReasonList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["DowntimeReason"][];
         };
         PaginatedEmployeeList: {
             /** @example 123 */
@@ -17382,6 +20972,66 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["ImportJob"][];
         };
+        PaginatedInspectionList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Inspection"][];
+        };
+        PaginatedInspectionTemplateList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["InspectionTemplate"][];
+        };
+        PaginatedItc04FilingList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Itc04Filing"][];
+        };
+        PaginatedJobCardList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["JobCard"][];
+        };
         PaginatedJobCardListList: {
             /** @example 123 */
             count: number;
@@ -17396,6 +21046,51 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["JobCardList"][];
+        };
+        PaginatedJobWorkChallanList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["JobWorkChallan"][];
+        };
+        PaginatedJobWorkOrderList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["JobWorkOrder"][];
+        };
+        PaginatedJobWorkReceiptList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["JobWorkReceipt"][];
         };
         PaginatedJournalEntryList: {
             /** @example 123 */
@@ -17442,6 +21137,96 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["Lead"][];
         };
+        PaginatedMachineList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Machine"][];
+        };
+        PaginatedMaintenanceLogList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["MaintenanceLog"][];
+        };
+        PaginatedMaintenancePlanList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["MaintenancePlan"][];
+        };
+        PaginatedMaterialIssueList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["MaterialIssue"][];
+        };
+        PaginatedMaterialReturnList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["MaterialReturn"][];
+        };
+        PaginatedNonConformanceList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["NonConformance"][];
+        };
         PaginatedNotificationList: {
             /** @example 123 */
             count: number;
@@ -17456,6 +21241,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Notification"][];
+        };
+        PaginatedOperatorList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Operator"][];
         };
         PaginatedOpportunityLineList: {
             /** @example 123 */
@@ -17622,6 +21422,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["PriceList"][];
         };
+        PaginatedPrincipalMovementList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["PrincipalMovement"][];
+        };
         PaginatedProductList: {
             /** @example 123 */
             count: number;
@@ -17636,6 +21451,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["Product"][];
+        };
+        PaginatedProductionReceiptList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["ProductionReceipt"][];
         };
         PaginatedProjectListList: {
             /** @example 123 */
@@ -17847,6 +21677,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["ReturnableLine"][];
         };
+        PaginatedRevaluationList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["Revaluation"][];
+        };
         PaginatedSalesCreditNoteList: {
             /** @example 123 */
             count: number;
@@ -17951,6 +21796,21 @@ export interface components {
              */
             previous?: string | null;
             results: components["schemas"]["ServiceBay"][];
+        };
+        PaginatedStandardCostList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["StandardCost"][];
         };
         PaginatedStatutoryDocumentEventList: {
             /** @example 123 */
@@ -18162,6 +22022,21 @@ export interface components {
             previous?: string | null;
             results: components["schemas"]["WarehouseReorderLevel"][];
         };
+        PaginatedWorkCentreList: {
+            /** @example 123 */
+            count: number;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=4
+             */
+            next?: string | null;
+            /**
+             * Format: uri
+             * @example http://api.example.org/accounts/?page=2
+             */
+            previous?: string | null;
+            results: components["schemas"]["WorkCentre"][];
+        };
         PaginatedWorkOrderList: {
             /** @example 123 */
             count: number;
@@ -18307,12 +22182,33 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
         PatchedBom: {
             readonly id?: number;
             product?: number;
             name?: string;
             status?: components["schemas"]["BomStatusEnum"];
+            readonly revisionNo?: number;
+            /** Format: date */
+            effectiveFrom?: string | null;
+            /** Format: date */
+            effectiveTo?: string | null;
+            readonly isDefault?: boolean;
+            customer?: number | null;
+            readonly parentRevision?: number | null;
+            changeReason?: string;
+            /** Format: decimal */
+            outputQty?: string;
+            /** Format: decimal */
+            yieldPct?: string;
+            fgWarehouse?: number | null;
+            notes?: string;
+            readonly isLocked?: boolean;
+            /** Format: date-time */
+            readonly lockedAt?: string | null;
             lines?: components["schemas"]["BomLine"][];
+            outputs?: components["schemas"]["BomOutput"][];
+            additionalCosts?: components["schemas"]["BomAdditionalCost"][];
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -18678,6 +22574,13 @@ export interface components {
             readonly voidedAt?: string | null;
             readonly voidedByName?: string;
         };
+        PatchedDefectCode: {
+            readonly id?: number;
+            code?: string;
+            name?: string;
+            severity?: components["schemas"]["DefectCodeSeverityEnum"];
+            isActive?: boolean;
+        };
         PatchedDeliveryChallan: {
             readonly id?: number;
             readonly number?: string;
@@ -18803,6 +22706,13 @@ export interface components {
             readonly createdAt?: string;
             /** Format: date-time */
             readonly updatedAt?: string;
+        };
+        PatchedDowntimeReason: {
+            readonly id?: number;
+            code?: string;
+            name?: string;
+            isPlanned?: boolean;
+            isActive?: boolean;
         };
         PatchedEmployee: {
             readonly id?: number;
@@ -19022,6 +22932,17 @@ export interface components {
             /** @description Product and opening-stock imports can be undone while their stock is unused; bills while still a draft. Customer and supplier imports cannot be undone. */
             readonly canUndo?: boolean;
         };
+        PatchedInspectionTemplate: {
+            readonly id?: number;
+            name?: string;
+            product?: number | null;
+            stage?: components["schemas"]["StageCcbEnum"];
+            /** Format: int64 */
+            sampleSize?: number;
+            notes?: string;
+            isActive?: boolean;
+            parameters?: components["schemas"]["InspectionParameter"][];
+        };
         PatchedJobCard: {
             readonly id?: number;
             readonly number?: string;
@@ -19117,6 +23038,58 @@ export interface components {
             /** Format: date-time */
             readonly updatedAt?: string;
         };
+        PatchedMachine: {
+            readonly id?: number;
+            code?: string;
+            name?: string;
+            workCentre?: number | null;
+            /** Format: decimal */
+            readonly runHours?: string;
+            isActive?: boolean;
+            notes?: string;
+        };
+        PatchedMaintenancePlan: {
+            readonly id?: number;
+            machine?: number;
+            name?: string;
+            /** Format: int64 */
+            intervalDays?: number | null;
+            /** Format: int64 */
+            intervalHours?: number | null;
+            /** Format: date */
+            readonly lastDoneOn?: string | null;
+            /** Format: decimal */
+            readonly lastDoneHours?: string;
+            isActive?: boolean;
+        };
+        PatchedNonConformance: {
+            readonly id?: number;
+            readonly number?: string;
+            readonly sourceType?: components["schemas"]["NonConformanceSourceTypeEnum"];
+            readonly inspection?: number | null;
+            complaint?: number | null;
+            product?: number | null;
+            /** @default  */
+            readonly productName: string;
+            batch?: number | null;
+            supplier?: number | null;
+            customer?: number | null;
+            defectCode?: number | null;
+            /** Format: decimal */
+            qty?: string;
+            description?: string;
+            rootCause?: string;
+            actionTaken?: string;
+            preventiveAction?: string;
+            owner?: number | null;
+            /** Format: date */
+            dueDate?: string | null;
+            readonly status?: components["schemas"]["NonConformanceStatusEnum"];
+            /** Format: date-time */
+            readonly closedAt?: string | null;
+            /** Format: date-time */
+            readonly createdAt?: string;
+        };
         PatchedOpportunity: {
             readonly id?: number;
             lead?: number | null;
@@ -19130,7 +23103,7 @@ export interface components {
             /** Format: date */
             expectedCloseDate?: string | null;
             competitor?: string;
-            stage?: components["schemas"]["StageEnum"];
+            stage?: components["schemas"]["OpportunityStageEnum"];
             /** Format: date-time */
             readonly closedAt?: string | null;
             readonly stageMoveCount?: number;
@@ -19237,6 +23210,9 @@ export interface components {
             trackBatch?: boolean;
             trackSerial?: boolean;
             regulatedCategory?: components["schemas"]["RegulatedCategoryEnum"];
+            mfgRole?: components["schemas"]["MfgRoleEnum"] | components["schemas"]["BlankEnum"];
+            receiveIntoQuarantine?: boolean;
+            requiresIncomingInspection?: boolean;
             sellingTaxInclusive?: boolean;
             purchaseTaxInclusive?: boolean;
             customFields?: unknown;
@@ -20099,6 +24075,22 @@ export interface components {
             name?: string;
             isActive?: boolean;
         };
+        PatchedStandardCost: {
+            readonly id?: number;
+            product?: number;
+            readonly productName?: string;
+            /** Format: date */
+            effectiveFrom?: string;
+            /** Format: decimal */
+            material?: string;
+            /** Format: decimal */
+            labour?: string;
+            /** Format: decimal */
+            overhead?: string;
+            /** Format: decimal */
+            readonly unitCost?: string;
+            notes?: string;
+        };
         PatchedStockCountSession: {
             readonly id?: number;
             warehouse?: number;
@@ -20242,6 +24234,8 @@ export interface components {
             isDefault?: boolean;
             isActive?: boolean;
             readonly isSystem?: boolean;
+            kind?: components["schemas"]["WarehouseKindEnum"];
+            readonly jobWorker?: number | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -20256,15 +24250,37 @@ export interface components {
             /** Format: decimal */
             reorderLevel?: string;
         };
+        PatchedWorkCentre: {
+            readonly id?: number;
+            code?: string;
+            name?: string;
+            kind?: components["schemas"]["WorkCentreKindEnum"];
+            /** Format: decimal */
+            hoursPerDay?: string;
+            /** Format: decimal */
+            labourRate?: string;
+            /** Format: decimal */
+            machineRate?: string;
+            /** Format: decimal */
+            overheadRate?: string;
+            isActive?: boolean;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
         PatchedWorkOrder: {
             readonly id?: number;
+            readonly number?: string;
+            readonly kind?: components["schemas"]["WorkOrderKindEnum"];
             bom?: number;
+            readonly product?: number | null;
+            readonly productName?: string;
             /** Format: decimal */
             qty?: string;
             readonly status?: components["schemas"]["WorkOrderStatusEnum"];
             warehouse?: number | null;
+            fgWarehouse?: number | null;
             serialNumbers?: unknown;
             componentLines?: components["schemas"]["WorkOrderLine"][];
+            readonly plannedOutputs?: components["schemas"]["WorkOrderOutput"][];
             batchNo?: string;
             /** Format: date */
             expDate?: string | null;
@@ -20272,9 +24288,44 @@ export interface components {
             mfgDate?: string | null;
             batch?: number | null;
             /** Format: date */
+            dueDate?: string | null;
+            /** Format: date */
+            plannedStart?: string | null;
+            /** Format: int64 */
+            priority?: number;
+            delayReason?: components["schemas"]["DelayReasonEnum"] | components["schemas"]["BlankEnum"];
+            salesOrder?: number | null;
+            salesOrderItem?: number | null;
+            readonly parentWorkOrder?: number | null;
+            principal?: number | null;
+            readonly issueMode?: components["schemas"]["IssueModeEnum"];
+            /** Format: decimal */
+            readonly qtyCompleted?: string;
+            /** Format: decimal */
+            readonly qtyRejected?: string;
+            /** Format: decimal */
+            readonly qtyRework?: string;
+            /** Format: decimal */
+            readonly estimatedUnitCost?: string | null;
+            /** Format: decimal */
+            readonly costIssued?: string;
+            /** Format: decimal */
+            readonly costReturned?: string;
+            /** Format: decimal */
+            readonly costAbsorbed?: string;
+            /** Format: decimal */
+            readonly costReceived?: string;
+            /** Format: decimal */
+            readonly costVariance?: string;
+            /** Format: decimal */
+            readonly wipValue?: string;
+            notes?: string;
+            /** Format: date */
             readonly releasedAt?: string | null;
             /** Format: date */
             readonly completedAt?: string | null;
+            /** Format: date */
+            readonly closedAt?: string | null;
             /** Format: date-time */
             readonly createdAt?: string;
             /** Format: date-time */
@@ -20512,6 +24563,31 @@ export interface components {
          * @enum {string}
          */
         PriceModeEnum: "EXCLUSIVE" | "INCLUSIVE";
+        PrincipalMovement: {
+            readonly id: number;
+            readonly principal: number;
+            readonly principalName: string;
+            readonly product: number;
+            readonly productName: string;
+            readonly kind: components["schemas"]["PrincipalMovementKindEnum"];
+            /** Format: decimal */
+            readonly qty: string;
+            /** Format: date */
+            readonly moveDate: string;
+            readonly reference: string;
+            readonly reversed: boolean;
+            readonly challan: number | null;
+            readonly order: number | null;
+        };
+        /**
+         * @description * `RECEIVED` - Received from the principal
+         *     * `CONSUMED` - Used in processing
+         *     * `PRODUCED` - Processed goods ready to go back
+         *     * `RETURNED` - Sent back
+         *     * `LOSS` - Lost or scrapped in processing
+         * @enum {string}
+         */
+        PrincipalMovementKindEnum: "RECEIVED" | "CONSUMED" | "PRODUCED" | "RETURNED" | "LOSS";
         /**
          * @description * `LOW` - Low
          *     * `MEDIUM` - Medium
@@ -20558,6 +24634,9 @@ export interface components {
             trackBatch?: boolean;
             trackSerial?: boolean;
             regulatedCategory?: components["schemas"]["RegulatedCategoryEnum"];
+            mfgRole?: components["schemas"]["MfgRoleEnum"] | components["schemas"]["BlankEnum"];
+            receiveIntoQuarantine?: boolean;
+            requiresIncomingInspection?: boolean;
             sellingTaxInclusive?: boolean;
             purchaseTaxInclusive?: boolean;
             customFields?: unknown;
@@ -20586,6 +24665,68 @@ export interface components {
          * @enum {string}
          */
         ProductTypeEnum: "GOODS" | "SERVICE";
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        ProductionReceipt: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["Status3f8Enum"];
+            readonly workOrder: number;
+            readonly workOrderNumber: string;
+            /** Format: date */
+            readonly docDate: string | null;
+            readonly isFinal: boolean;
+            readonly batchNo: string;
+            /** Format: date */
+            readonly expDate: string | null;
+            /** Format: date */
+            readonly mfgDate: string | null;
+            readonly notes: string;
+            /** Format: decimal */
+            readonly totalCost: string;
+            /** Format: decimal */
+            readonly absorbedCost: string;
+            readonly backflushIssue: number | null;
+            readonly lines: components["schemas"]["ProductionReceiptLine"][];
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        ProductionReceiptLine: {
+            readonly id: number;
+            readonly kind: components["schemas"]["ProductionReceiptLineKindEnum"];
+            readonly product: number;
+            readonly productName: string;
+            readonly warehouse: number;
+            readonly batch: number | null;
+            /** Format: decimal */
+            readonly qtyGood: string;
+            /** Format: decimal */
+            readonly qtyRejected: string;
+            /** Format: decimal */
+            readonly qtyRework: string;
+            readonly rejectWarehouse: number | null;
+            readonly reworkWarehouse: number | null;
+            readonly serialNumbers: unknown;
+            /** Format: decimal */
+            readonly recoveryRate: string | null;
+            /** Format: decimal */
+            readonly unitCost: string | null;
+            /** Format: decimal */
+            readonly costAmount: string;
+        };
+        /**
+         * @description * `MAIN` - Main product
+         *     * `CO_PRODUCT` - Co-product
+         *     * `BY_PRODUCT` - By-product
+         *     * `SCRAP` - Scrap
+         * @enum {string}
+         */
+        ProductionReceiptLineKindEnum: "MAIN" | "CO_PRODUCT" | "BY_PRODUCT" | "SCRAP";
         Project: {
             readonly id: number;
             readonly number: string;
@@ -21391,6 +25532,39 @@ export interface components {
             tdsApplied: string;
             allocationId: number;
         };
+        ReceiptLine: {
+            readonly id: number;
+            readonly kind: components["schemas"]["ReceiptLineKindEnum"];
+            readonly product: number;
+            readonly productName: string;
+            /** Format: decimal */
+            readonly qty: string;
+            readonly batch: number | null;
+            readonly inputProduct: number | null;
+            /** Format: decimal */
+            readonly inputQty: string;
+            readonly inputBatch: number | null;
+            /** Format: decimal */
+            readonly chargeAmount: string;
+            /** Format: decimal */
+            readonly unitCost: string | null;
+            /** Format: decimal */
+            readonly costAmount: string;
+            readonly otherOrder: number | null;
+            readonly invoiceRef: string;
+            /** Format: decimal */
+            readonly lossQty: string;
+        };
+        /**
+         * @description * `PROCESSED` - Processed goods back
+         *     * `UNPROCESSED_RETURN` - Unprocessed material back
+         *     * `SCRAP_RETURNED` - Scrap sent back
+         *     * `SCRAP_RETAINED` - Scrap kept by the job worker
+         *     * `SENT_TO_OTHER` - Sent on to another job worker
+         *     * `SUPPLIED_FROM_JW` - Supplied from the job worker's premises
+         * @enum {string}
+         */
+        ReceiptLineKindEnum: "PROCESSED" | "UNPROCESSED_RETURN" | "SCRAP_RETURNED" | "SCRAP_RETAINED" | "SENT_TO_OTHER" | "SUPPLIED_FROM_JW";
         /** @description Totals for the receipt list filters, across every page. */
         ReceiptSummary: {
             /** @description Receipts counted as money in hand. */
@@ -21526,7 +25700,7 @@ export interface components {
             readonly referrerName: string;
             /** Format: decimal */
             readonly rewardAmount: string;
-            readonly basis: components["schemas"]["BasisEnum"];
+            readonly basis: components["schemas"]["Basis867Enum"];
             readonly reviewNote: string;
             readonly rewardStatus: components["schemas"]["RewardStatusEnum"];
             readonly rejectionReason: string;
@@ -21572,6 +25746,52 @@ export interface components {
             /** Format: decimal */
             returnable: string;
             returnedSerials: string[];
+        };
+        Revaluation: {
+            readonly id: number;
+            readonly number: string;
+            readonly status: components["schemas"]["Status3f8Enum"];
+            /** Format: date */
+            readonly asOf: string;
+            /** @description Empty = every item that has a standard cost in force on the date. */
+            readonly product: number | null;
+            readonly productName: string;
+            readonly notes: string;
+            /** Format: decimal */
+            readonly totalBefore: string;
+            /** Format: decimal */
+            readonly totalAfter: string;
+            /** Format: decimal */
+            readonly totalChange: string;
+            readonly lines: components["schemas"]["RevaluationLine"][];
+            /** Format: date-time */
+            readonly postedAt: string | null;
+            /** Format: date-time */
+            readonly reversedAt: string | null;
+            readonly reverseReason: string;
+            /** Format: date-time */
+            readonly createdAt: string;
+        };
+        RevaluationLine: {
+            readonly id: number;
+            readonly product: number;
+            readonly productName: string;
+            readonly warehouse: number;
+            readonly warehouseName: string;
+            readonly batch: number | null;
+            readonly batchNo: string;
+            /** Format: decimal */
+            readonly qty: string;
+            /** Format: decimal */
+            readonly oldUnitCost: string;
+            /** Format: decimal */
+            readonly newUnitCost: string;
+            /** Format: decimal */
+            readonly oldValue: string;
+            /** Format: decimal */
+            readonly newValue: string;
+            /** Format: decimal */
+            readonly change: string;
         };
         /**
          * @description * `PENDING` - Pending
@@ -22217,21 +26437,15 @@ export interface components {
          *     * `SOLD` - Sold
          *     * `RETURNED` - Returned
          *     * `SCRAPPED` - Scrapped
+         *     * `CONSUMED` - Consumed
          * @enum {string}
          */
-        SerialNumberStatusEnum: "AVAILABLE" | "SOLD" | "RETURNED" | "SCRAPPED";
+        SerialNumberStatusEnum: "AVAILABLE" | "SOLD" | "RETURNED" | "SCRAPPED" | "CONSUMED";
         ServiceBay: {
             readonly id: number;
             name: string;
             isActive?: boolean;
         };
-        /**
-         * @description * `critical` - Critical
-         *     * `warning` - Warning
-         *     * `info` - Info
-         * @enum {string}
-         */
-        SeverityEnum: "critical" | "warning" | "info";
         /**
          * @description * `MANUAL` - Manual
          *     * `GATEWAY` - Gateway
@@ -22251,20 +26465,41 @@ export interface components {
             primary: boolean;
         };
         /**
-         * @description * `OPEN` - Open
-         *     * `QUALIFIED` - Qualified
-         *     * `NEGOTIATION` - Negotiation
-         *     * `WON` - Won
-         *     * `LOST` - Lost
+         * @description * `INCOMING` - Incoming material
+         *     * `IN_PROCESS` - In process
+         *     * `FINAL` - Finished goods
          * @enum {string}
          */
-        StageEnum: "OPEN" | "QUALIFIED" | "NEGOTIATION" | "WON" | "LOST";
+        StageCcbEnum: "INCOMING" | "IN_PROCESS" | "FINAL";
+        StandardCost: {
+            readonly id: number;
+            product: number;
+            readonly productName: string;
+            /** Format: date */
+            effectiveFrom: string;
+            /** Format: decimal */
+            material?: string;
+            /** Format: decimal */
+            labour?: string;
+            /** Format: decimal */
+            overhead?: string;
+            /** Format: decimal */
+            readonly unitCost: string;
+            notes?: string;
+        };
         /**
          * @description * `ACTIVE` - Active
          *     * `INACTIVE` - Inactive
          * @enum {string}
          */
         Status372Enum: "ACTIVE" | "INACTIVE";
+        /**
+         * @description * `DRAFT` - Draft
+         *     * `POSTED` - Posted
+         *     * `REVERSED` - Reversed
+         * @enum {string}
+         */
+        Status3f8Enum: "DRAFT" | "POSTED" | "REVERSED";
         /**
          * @description * `DRAFT` - Draft
          *     * `IN_PROGRESS` - In Progress
@@ -22739,11 +26974,21 @@ export interface components {
             isDefault?: boolean;
             isActive?: boolean;
             readonly isSystem: boolean;
+            kind?: components["schemas"]["WarehouseKindEnum"];
+            readonly jobWorker: number | null;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        /**
+         * @description * `NORMAL` - Normal
+         *     * `QUARANTINE` - Quarantine
+         *     * `JOB_WORKER` - At job worker
+         *     * `SCRAP` - Scrap
+         * @enum {string}
+         */
+        WarehouseKindEnum: "NORMAL" | "QUARANTINE" | "JOB_WORKER" | "SCRAP";
         WarehouseReorderLevel: {
             readonly id: number;
             warehouse: number;
@@ -22762,15 +27007,44 @@ export interface components {
          * @enum {string}
          */
         WhatsappSendStatusEnum: "NONE" | "QUEUED" | "SENT" | "FALLBACK_LINK" | "FAILED";
+        WorkCentre: {
+            readonly id: number;
+            code: string;
+            name: string;
+            kind?: components["schemas"]["WorkCentreKindEnum"];
+            /** Format: decimal */
+            hoursPerDay?: string;
+            /** Format: decimal */
+            labourRate?: string;
+            /** Format: decimal */
+            machineRate?: string;
+            /** Format: decimal */
+            overheadRate?: string;
+            isActive?: boolean;
+        };
+        /**
+         * @description * `MACHINE` - Machine
+         *     * `MANUAL` - Manual
+         *     * `OUTSIDE` - Outside processing
+         * @enum {string}
+         */
+        WorkCentreKindEnum: "MACHINE" | "MANUAL" | "OUTSIDE";
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
         WorkOrder: {
             readonly id: number;
+            readonly number: string;
+            readonly kind: components["schemas"]["WorkOrderKindEnum"];
             bom: number;
+            readonly product: number | null;
+            readonly productName: string;
             /** Format: decimal */
             qty: string;
             readonly status: components["schemas"]["WorkOrderStatusEnum"];
             warehouse?: number | null;
+            fgWarehouse?: number | null;
             serialNumbers?: unknown;
             componentLines?: components["schemas"]["WorkOrderLine"][];
+            readonly plannedOutputs: components["schemas"]["WorkOrderOutput"][];
             batchNo?: string;
             /** Format: date */
             expDate?: string | null;
@@ -22778,14 +27052,55 @@ export interface components {
             mfgDate?: string | null;
             batch?: number | null;
             /** Format: date */
+            dueDate?: string | null;
+            /** Format: date */
+            plannedStart?: string | null;
+            /** Format: int64 */
+            priority?: number;
+            delayReason?: components["schemas"]["DelayReasonEnum"] | components["schemas"]["BlankEnum"];
+            salesOrder?: number | null;
+            salesOrderItem?: number | null;
+            readonly parentWorkOrder: number | null;
+            principal?: number | null;
+            readonly issueMode: components["schemas"]["IssueModeEnum"];
+            /** Format: decimal */
+            readonly qtyCompleted: string;
+            /** Format: decimal */
+            readonly qtyRejected: string;
+            /** Format: decimal */
+            readonly qtyRework: string;
+            /** Format: decimal */
+            readonly estimatedUnitCost: string | null;
+            /** Format: decimal */
+            readonly costIssued: string;
+            /** Format: decimal */
+            readonly costReturned: string;
+            /** Format: decimal */
+            readonly costAbsorbed: string;
+            /** Format: decimal */
+            readonly costReceived: string;
+            /** Format: decimal */
+            readonly costVariance: string;
+            /** Format: decimal */
+            readonly wipValue: string;
+            notes?: string;
+            /** Format: date */
             readonly releasedAt: string | null;
             /** Format: date */
             readonly completedAt: string | null;
+            /** Format: date */
+            readonly closedAt: string | null;
             /** Format: date-time */
             readonly createdAt: string;
             /** Format: date-time */
             readonly updatedAt: string;
         };
+        /**
+         * @description * `STANDARD` - Standard
+         *     * `REWORK` - Rework
+         * @enum {string}
+         */
+        WorkOrderKindEnum: "STANDARD" | "REWORK";
         WorkOrderLine: {
             readonly id: number;
             component?: number;
@@ -22796,15 +27111,45 @@ export interface components {
             batch?: number | null;
             lotAllocations?: unknown;
             serialNumbers?: unknown;
+            unit?: number | null;
+            /** Format: decimal */
+            readonly scrapPct: string;
+            readonly issueMethod: components["schemas"]["IssueMethodEnum"];
+            readonly isOptional: boolean;
+            readonly alternateGroup: number | null;
+            readonly alternatePriority: number;
+            readonly sourceWarehouse: number | null;
+            /** Format: decimal */
+            readonly qtyIssued: string;
+            /** Format: decimal */
+            readonly qtyReturned: string;
+            principalSupplied?: boolean;
+        };
+        /** @description Leave cost fields out (not zero them) for roles that may not see costs. */
+        WorkOrderOutput: {
+            readonly id: number;
+            readonly product: number;
+            readonly kind: components["schemas"]["KindD4cEnum"];
+            /** Format: decimal */
+            readonly qty: string;
+            /** Format: decimal */
+            readonly costSharePct: string;
+            /** Format: decimal */
+            readonly recoveryRate: string | null;
+            readonly targetWarehouse: number | null;
+            /** Format: decimal */
+            readonly estimatedUnitCost: string | null;
         };
         /**
          * @description * `DRAFT` - Draft
          *     * `RELEASED` - Released
+         *     * `IN_PROGRESS` - In Progress
          *     * `COMPLETED` - Completed
+         *     * `CLOSED` - Closed
          *     * `CANCELLED` - Cancelled
          * @enum {string}
          */
-        WorkOrderStatusEnum: "DRAFT" | "RELEASED" | "COMPLETED" | "CANCELLED";
+        WorkOrderStatusEnum: "DRAFT" | "RELEASED" | "IN_PROGRESS" | "COMPLETED" | "CLOSED" | "CANCELLED";
         _StatsBucket: {
             count: number;
             /** Format: decimal */
@@ -25393,6 +29738,218 @@ export interface operations {
             };
         };
     };
+    agents_catalog_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_reject_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_retry_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_proposals_bulk_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_runs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    agents_runs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     audit_list: {
         parameters: {
             query?: {
@@ -25472,6 +30029,42 @@ export interface operations {
         };
     };
     auth_invite_accept_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_legal_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    auth_legal_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -30829,6 +35422,42 @@ export interface operations {
             };
         };
     };
+    insights_ai_consent_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    insights_ai_consent_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     insights_alerts_list: {
         parameters: {
             query?: {
@@ -33726,6 +38355,605 @@ export interface operations {
             };
         };
     };
+    jobwork_ageing_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    jobwork_balance_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    jobwork_challans_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedJobWorkChallanList"];
+                };
+            };
+        };
+    };
+    jobwork_challans_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkChallan"];
+                "multipart/form-data": components["schemas"]["JobWorkChallan"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkChallan"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkChallan"];
+                };
+            };
+        };
+    };
+    jobwork_challans_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkChallan"];
+                };
+            };
+        };
+    };
+    jobwork_challans_issue_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkChallan"];
+                "multipart/form-data": components["schemas"]["JobWorkChallan"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkChallan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkChallan"];
+                };
+            };
+        };
+    };
+    jobwork_challans_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkChallan"];
+                "multipart/form-data": components["schemas"]["JobWorkChallan"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkChallan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkChallan"];
+                };
+            };
+        };
+    };
+    jobwork_itc04_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    jobwork_itc04_filings_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedItc04FilingList"];
+                };
+            };
+        };
+    };
+    jobwork_itc04_filings_mark_filed_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Itc04Filing"];
+                "multipart/form-data": components["schemas"]["Itc04Filing"];
+                "application/x-www-form-urlencoded": components["schemas"]["Itc04Filing"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Itc04Filing"];
+                };
+            };
+        };
+    };
+    jobwork_itc04_filings_due_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Itc04Filing"];
+                };
+            };
+        };
+    };
+    jobwork_itc04_filings_prepare_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Itc04Filing"];
+                "multipart/form-data": components["schemas"]["Itc04Filing"];
+                "application/x-www-form-urlencoded": components["schemas"]["Itc04Filing"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Itc04Filing"];
+                };
+            };
+        };
+    };
+    jobwork_orders_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedJobWorkOrderList"];
+                };
+            };
+        };
+    };
+    jobwork_orders_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkOrder"];
+                "multipart/form-data": components["schemas"]["JobWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkOrder"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_orders_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_orders_close_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkOrder"];
+                "multipart/form-data": components["schemas"]["JobWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_orders_receive_material_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkOrder"];
+                "multipart/form-data": components["schemas"]["JobWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_orders_record_loss_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkOrder"];
+                "multipart/form-data": components["schemas"]["JobWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_orders_return_material_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkOrder"];
+                "multipart/form-data": components["schemas"]["JobWorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkOrder"];
+                };
+            };
+        };
+    };
+    jobwork_principal_movements_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedPrincipalMovementList"];
+                };
+            };
+        };
+    };
+    jobwork_receipts_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedJobWorkReceiptList"];
+                };
+            };
+        };
+    };
+    jobwork_receipts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkReceipt"];
+                "multipart/form-data": components["schemas"]["JobWorkReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkReceipt"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkReceipt"];
+                };
+            };
+        };
+    };
+    jobwork_receipts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkReceipt"];
+                };
+            };
+        };
+    };
+    jobwork_receipts_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkReceipt"];
+                "multipart/form-data": components["schemas"]["JobWorkReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkReceipt"];
+                };
+            };
+        };
+    };
+    jobwork_receipts_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobWorkReceipt"];
+                "multipart/form-data": components["schemas"]["JobWorkReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobWorkReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobWorkReceipt"];
+                };
+            };
+        };
+    };
     ledgers_customers_retrieve: {
         parameters: {
             query?: never;
@@ -33823,6 +39051,60 @@ export interface operations {
         };
     };
     links_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_atp_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_batches_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_board_retrieve: {
         parameters: {
             query?: never;
             header?: never;
@@ -33988,6 +39270,2648 @@ export interface operations {
             };
         };
     };
+    manufacturing_boms_activate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Bom"];
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_archive_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Bom"];
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_revise_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this BOM. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Bom"];
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_routing_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_boms_routing_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_boms_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_import_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Bom"];
+                "application/x-www-form-urlencoded": components["schemas"]["Bom"];
+                "application/json": components["schemas"]["Bom"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_boms_import_template_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bom"];
+                };
+            };
+        };
+    };
+    manufacturing_can_make_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_cost_rollup_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_downtime_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDowntimeEventList"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_reasons_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDowntimeReasonList"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_reasons_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DowntimeReason"];
+                "multipart/form-data": components["schemas"]["DowntimeReason"];
+                "application/x-www-form-urlencoded": components["schemas"]["DowntimeReason"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeReason"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_reasons_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this downtime reason. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeReason"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_reasons_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this downtime reason. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DowntimeReason"];
+                "multipart/form-data": components["schemas"]["DowntimeReason"];
+                "application/x-www-form-urlencoded": components["schemas"]["DowntimeReason"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeReason"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_reasons_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this downtime reason. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_downtime_reasons_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this downtime reason. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedDowntimeReason"];
+                "multipart/form-data": components["schemas"]["PatchedDowntimeReason"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedDowntimeReason"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeReason"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_end_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DowntimeEvent"];
+                "multipart/form-data": components["schemas"]["DowntimeEvent"];
+                "application/x-www-form-urlencoded": components["schemas"]["DowntimeEvent"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeEvent"];
+                };
+            };
+        };
+    };
+    manufacturing_downtime_start_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DowntimeEvent"];
+                "multipart/form-data": components["schemas"]["DowntimeEvent"];
+                "application/x-www-form-urlencoded": components["schemas"]["DowntimeEvent"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DowntimeEvent"];
+                };
+            };
+        };
+    };
+    manufacturing_explode_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_job_cards_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedJobCardList"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_finish_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_pause_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_report_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_start_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_subcontract_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_subcontract_defaults_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_job_cards_create_for_order_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["JobCard"];
+                "multipart/form-data": components["schemas"]["JobCard"];
+                "application/x-www-form-urlencoded": components["schemas"]["JobCard"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCard"];
+                };
+            };
+        };
+    };
+    manufacturing_load_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_machines_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMachineList"];
+                };
+            };
+        };
+    };
+    manufacturing_machines_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Machine"];
+                "multipart/form-data": components["schemas"]["Machine"];
+                "application/x-www-form-urlencoded": components["schemas"]["Machine"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+        };
+    };
+    manufacturing_machines_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this machine. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+        };
+    };
+    manufacturing_machines_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this machine. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Machine"];
+                "multipart/form-data": components["schemas"]["Machine"];
+                "application/x-www-form-urlencoded": components["schemas"]["Machine"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+        };
+    };
+    manufacturing_machines_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this machine. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_machines_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this machine. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedMachine"];
+                "multipart/form-data": components["schemas"]["PatchedMachine"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedMachine"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+        };
+    };
+    manufacturing_machines_breakdown_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this machine. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Machine"];
+                "multipart/form-data": components["schemas"]["Machine"];
+                "application/x-www-form-urlencoded": components["schemas"]["Machine"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Machine"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_log_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMaintenanceLogList"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_log_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceLog"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_log_resolve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaintenanceLog"];
+                "multipart/form-data": components["schemas"]["MaintenanceLog"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaintenanceLog"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenanceLog"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMaintenancePlanList"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenancePlan"];
+                "multipart/form-data": components["schemas"]["MaintenancePlan"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaintenancePlan"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this maintenance plan. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this maintenance plan. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenancePlan"];
+                "multipart/form-data": components["schemas"]["MaintenancePlan"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaintenancePlan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this maintenance plan. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_maintenance_plans_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this maintenance plan. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedMaintenancePlan"];
+                "multipart/form-data": components["schemas"]["PatchedMaintenancePlan"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedMaintenancePlan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this maintenance plan. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaintenancePlan"];
+                "multipart/form-data": components["schemas"]["MaintenancePlan"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaintenancePlan"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_maintenance_plans_due_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaintenancePlan"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMaterialIssueList"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_approve_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_discard_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_material_issues_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_print_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_reject_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_request_approval_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_issues_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialIssue"];
+                "multipart/form-data": components["schemas"]["MaterialIssue"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialIssue"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialIssue"];
+                };
+            };
+        };
+    };
+    manufacturing_material_returns_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedMaterialReturnList"];
+                };
+            };
+        };
+    };
+    manufacturing_material_returns_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialReturn"];
+                "multipart/form-data": components["schemas"]["MaterialReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialReturn"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialReturn"];
+                };
+            };
+        };
+    };
+    manufacturing_material_returns_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialReturn"];
+                };
+            };
+        };
+    };
+    manufacturing_material_returns_discard_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_material_returns_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialReturn"];
+                "multipart/form-data": components["schemas"]["MaterialReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialReturn"];
+                };
+            };
+        };
+    };
+    manufacturing_material_returns_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["MaterialReturn"];
+                "multipart/form-data": components["schemas"]["MaterialReturn"];
+                "application/x-www-form-urlencoded": components["schemas"]["MaterialReturn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialReturn"];
+                };
+            };
+        };
+    };
+    manufacturing_mrp_runs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_mrp_runs_retrieve_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_mrp_runs_convert_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_mrp_runs_run_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_operators_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedOperatorList"];
+                };
+            };
+        };
+    };
+    manufacturing_operators_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Operator"];
+                "multipart/form-data": components["schemas"]["Operator"];
+                "application/x-www-form-urlencoded": components["schemas"]["Operator"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operator"];
+                };
+            };
+        };
+    };
+    manufacturing_operators_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operator"];
+                };
+            };
+        };
+    };
+    manufacturing_operators_activate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Operator"];
+                "multipart/form-data": components["schemas"]["Operator"];
+                "application/x-www-form-urlencoded": components["schemas"]["Operator"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operator"];
+                };
+            };
+        };
+    };
+    manufacturing_operators_deactivate_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Operator"];
+                "multipart/form-data": components["schemas"]["Operator"];
+                "application/x-www-form-urlencoded": components["schemas"]["Operator"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operator"];
+                };
+            };
+        };
+    };
+    manufacturing_operators_set_pin_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Operator"];
+                "multipart/form-data": components["schemas"]["Operator"];
+                "application/x-www-form-urlencoded": components["schemas"]["Operator"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Operator"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedProductionReceiptList"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductionReceipt"];
+                "multipart/form-data": components["schemas"]["ProductionReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProductionReceipt"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionReceipt"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionReceipt"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_discard_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_production_receipts_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductionReceipt"];
+                "multipart/form-data": components["schemas"]["ProductionReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProductionReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionReceipt"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_print_label_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionReceipt"];
+                };
+            };
+        };
+    };
+    manufacturing_production_receipts_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProductionReceipt"];
+                "multipart/form-data": components["schemas"]["ProductionReceipt"];
+                "application/x-www-form-urlencoded": components["schemas"]["ProductionReceipt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionReceipt"];
+                };
+            };
+        };
+    };
+    manufacturing_quick_production_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_reports_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_sales_order_status_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_settings_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_settings_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_shortages_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_standard_costs_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedStandardCostList"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_costs_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCost"];
+                "multipart/form-data": components["schemas"]["StandardCost"];
+                "application/x-www-form-urlencoded": components["schemas"]["StandardCost"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardCost"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_costs_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this standard cost. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardCost"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_costs_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this standard cost. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StandardCost"];
+                "multipart/form-data": components["schemas"]["StandardCost"];
+                "application/x-www-form-urlencoded": components["schemas"]["StandardCost"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardCost"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_costs_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this standard cost. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_standard_costs_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this standard cost. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedStandardCost"];
+                "multipart/form-data": components["schemas"]["PatchedStandardCost"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedStandardCost"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StandardCost"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_revaluations_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedRevaluationList"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_revaluations_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Revaluation"];
+                "multipart/form-data": components["schemas"]["Revaluation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Revaluation"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revaluation"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_revaluations_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revaluation"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_revaluations_discard_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_standard_revaluations_post_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Revaluation"];
+                "multipart/form-data": components["schemas"]["Revaluation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Revaluation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revaluation"];
+                };
+            };
+        };
+    };
+    manufacturing_standard_revaluations_reverse_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Revaluation"];
+                "multipart/form-data": components["schemas"]["Revaluation"];
+                "application/x-www-form-urlencoded": components["schemas"]["Revaluation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Revaluation"];
+                };
+            };
+        };
+    };
+    manufacturing_tablet_cards_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_tablet_cards_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+                verb: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_tablet_downtime_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                verb: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_tablet_login_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_trace_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_utilisation_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_where_used_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_work_centres_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedWorkCentreList"];
+                };
+            };
+        };
+    };
+    manufacturing_work_centres_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkCentre"];
+                "multipart/form-data": components["schemas"]["WorkCentre"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkCentre"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCentre"];
+                };
+            };
+        };
+    };
+    manufacturing_work_centres_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work centre. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCentre"];
+                };
+            };
+        };
+    };
+    manufacturing_work_centres_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work centre. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkCentre"];
+                "multipart/form-data": components["schemas"]["WorkCentre"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkCentre"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCentre"];
+                };
+            };
+        };
+    };
+    manufacturing_work_centres_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work centre. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_work_centres_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work centre. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedWorkCentre"];
+                "multipart/form-data": components["schemas"]["PatchedWorkCentre"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedWorkCentre"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCentre"];
+                };
+            };
+        };
+    };
     manufacturing_work_orders_list: {
         parameters: {
             query?: {
@@ -34136,7 +42060,55 @@ export interface operations {
             };
         };
     };
+    manufacturing_work_orders_availability_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     manufacturing_work_orders_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_close_create: {
         parameters: {
             query?: never;
             header?: never;
@@ -34192,6 +42164,28 @@ export interface operations {
             };
         };
     };
+    manufacturing_work_orders_print_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
     manufacturing_work_orders_release_create: {
         parameters: {
             query?: never;
@@ -34217,6 +42211,91 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkOrder"];
                 };
+            };
+        };
+    };
+    manufacturing_work_orders_reopen_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this work order. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkOrder"];
+                "multipart/form-data": components["schemas"]["WorkOrder"];
+                "application/x-www-form-urlencoded": components["schemas"]["WorkOrder"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_set_priority_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    manufacturing_work_orders_export_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrder"];
+                };
+            };
+        };
+    };
+    manufacturing_work_orders_from_sales_order_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -41086,6 +49165,688 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    quality_batches_status_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quality_defect_codes_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedDefectCodeList"];
+                };
+            };
+        };
+    };
+    quality_defect_codes_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefectCode"];
+                "multipart/form-data": components["schemas"]["DefectCode"];
+                "application/x-www-form-urlencoded": components["schemas"]["DefectCode"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefectCode"];
+                };
+            };
+        };
+    };
+    quality_defect_codes_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this defect code. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefectCode"];
+                };
+            };
+        };
+    };
+    quality_defect_codes_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this defect code. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DefectCode"];
+                "multipart/form-data": components["schemas"]["DefectCode"];
+                "application/x-www-form-urlencoded": components["schemas"]["DefectCode"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefectCode"];
+                };
+            };
+        };
+    };
+    quality_defect_codes_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this defect code. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quality_defect_codes_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this defect code. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedDefectCode"];
+                "multipart/form-data": components["schemas"]["PatchedDefectCode"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedDefectCode"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefectCode"];
+                };
+            };
+        };
+    };
+    quality_inspections_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedInspectionList"];
+                };
+            };
+        };
+    };
+    quality_inspections_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Inspection"];
+                "multipart/form-data": components["schemas"]["Inspection"];
+                "application/x-www-form-urlencoded": components["schemas"]["Inspection"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_inspections_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_inspections_cancel_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Inspection"];
+                "multipart/form-data": components["schemas"]["Inspection"];
+                "application/x-www-form-urlencoded": components["schemas"]["Inspection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_inspections_certificate_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_inspections_complete_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Inspection"];
+                "multipart/form-data": components["schemas"]["Inspection"];
+                "application/x-www-form-urlencoded": components["schemas"]["Inspection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_inspections_record_results_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["Inspection"];
+                "multipart/form-data": components["schemas"]["Inspection"];
+                "application/x-www-form-urlencoded": components["schemas"]["Inspection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Inspection"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedNonConformanceList"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NonConformance"];
+                "multipart/form-data": components["schemas"]["NonConformance"];
+                "application/x-www-form-urlencoded": components["schemas"]["NonConformance"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NonConformance"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this non conformance. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NonConformance"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this non conformance. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NonConformance"];
+                "multipart/form-data": components["schemas"]["NonConformance"];
+                "application/x-www-form-urlencoded": components["schemas"]["NonConformance"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NonConformance"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this non conformance. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quality_non_conformances_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this non conformance. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedNonConformance"];
+                "multipart/form-data": components["schemas"]["PatchedNonConformance"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedNonConformance"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NonConformance"];
+                };
+            };
+        };
+    };
+    quality_non_conformances_advance_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this non conformance. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NonConformance"];
+                "multipart/form-data": components["schemas"]["NonConformance"];
+                "application/x-www-form-urlencoded": components["schemas"]["NonConformance"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NonConformance"];
+                };
+            };
+        };
+    };
+    quality_supplier_scorecard_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quality_templates_list: {
+        parameters: {
+            query?: {
+                /** @description A page number within the paginated result set. */
+                page?: number;
+                /** @description Number of results to return per page. */
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginatedInspectionTemplateList"];
+                };
+            };
+        };
+    };
+    quality_templates_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InspectionTemplate"];
+                "multipart/form-data": components["schemas"]["InspectionTemplate"];
+                "application/x-www-form-urlencoded": components["schemas"]["InspectionTemplate"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionTemplate"];
+                };
+            };
+        };
+    };
+    quality_templates_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this inspection template. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionTemplate"];
+                };
+            };
+        };
+    };
+    quality_templates_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this inspection template. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InspectionTemplate"];
+                "multipart/form-data": components["schemas"]["InspectionTemplate"];
+                "application/x-www-form-urlencoded": components["schemas"]["InspectionTemplate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionTemplate"];
+                };
+            };
+        };
+    };
+    quality_templates_destroy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this inspection template. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    quality_templates_partial_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A unique integer value identifying this inspection template. */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PatchedInspectionTemplate"];
+                "multipart/form-data": components["schemas"]["PatchedInspectionTemplate"];
+                "application/x-www-form-urlencoded": components["schemas"]["PatchedInspectionTemplate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionTemplate"];
+                };
             };
         };
     };
@@ -47975,7 +56736,7 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48096,7 +56857,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48124,7 +56885,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48201,7 +56962,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48229,7 +56990,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48257,7 +57018,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];
@@ -48285,7 +57046,7 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
                 "application/json": components["schemas"]["JobCard"];
                 "multipart/form-data": components["schemas"]["JobCard"];

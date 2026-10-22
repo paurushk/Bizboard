@@ -1,0 +1,26 @@
+id: "QOS-0143"
+category: "USABILITY"
+title: "Manufacturing screens: a Hindi language review by a native speaker"
+persona: ["P1", "P2"]
+journey: "Use recipes, work orders, quality, job work and the shop floor in Hindi"
+problem: "About 520 new lines of Hindi were written by the engineers for the manufacturing screens, the shop-floor tablet, the help pages and the Needs attention rows. Wording a factory floor and an accountant use every day has not been read by a native speaker."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "web/src/i18n/mfg.hi.ts, the help pages in web/src/contextHelp/catalog/screens.ts and the attention rows in hi.ts are complete and pass the catalogue parity tests, so nothing shows in English by mistake. They have not been reviewed for tone or for the words a shop floor really uses."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "S"
+recommendation: "A native Hindi speaker who works in a factory or accounts office reads the three places and marks anything unnatural; the engineers apply the changes."
+test_required: "web/src/i18n/fullParity.test.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

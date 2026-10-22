@@ -93,6 +93,7 @@ def test_tc_wp7_02_no_invoice_no_warning(tenant_a):
     assert resp.data["stops"][0]["active_invoice"] is None
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_wp7_03_a_cancelled_invoice_no_longer_warns(tenant_a):
     order, invoice = _invoiced_order(tenant_a)
     SalesInvoice.objects.filter(pk=invoice.pk).update(status=SalesInvoice.Status.CANCELLED)

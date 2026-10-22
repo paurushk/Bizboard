@@ -176,6 +176,7 @@ def test_soft_deleted_customer_hides_and_hard_delete_is_refused(tenant_a):
         billed.delete()
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_chronic_credit_blocks_and_unlock_is_single_use(tenant_a):
     from tests.conftest import make_customer
 
@@ -456,6 +457,7 @@ def test_no_string_built_raw_sql():
     assert hits == []
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_chronic_order_and_challan_are_blocked(tenant_a):
     from sales.models import SalesOrder
     from sales.notes_services import SalesNotesService

@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Any
 
 from core.csv_utils import csv_safe
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, MultiFernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from django.conf import settings
@@ -132,17 +132,34 @@ JSON_SECTIONS = (
     "inventory_valuation_snapshots",
     "import_jobs",
     "ims_action_history",
+    # Agents (accounts/agents_backup.py). Step records are an operational log and are not exported.
+    "agent_runs",
+    "agent_proposals",
+    "agent_aliases",
 )
 
 
+def _instance_fernet_materials() -> list[bytes]:
+    """WP-B3: every instance key, newest first. TENANT_EXPORT_FERNET_KEY (or GSP_FERNET_KEY) may
+    list several comma-separated keys; the first encrypts new backups, all of them still open
+    older ones, so a rotated key does not lock out a stored backup."""
+    for name in ("TENANT_EXPORT_FERNET_KEY", "GSP_FERNET_KEY"):
+        raw = getattr(settings, name, None) or ""
+        raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        keys = [k.strip().encode("utf-8") for k in raw.split(",") if k.strip()]
+        if keys:
+            return keys
+    return [_instance_fernet_material()]
+
+
 def _instance_fernet_material() -> bytes:
-    """Return instance Fernet key bytes (TENANT_EXPORT / GSP / DEBUG SECRET_KEY digest)."""
-    raw = getattr(settings, "TENANT_EXPORT_FERNET_KEY", None) or ""
-    if raw:
-        return raw.encode("utf-8") if isinstance(raw, str) else raw
-    gsp = getattr(settings, "GSP_FERNET_KEY", None) or ""
-    if gsp:
-        return gsp.encode("utf-8") if isinstance(gsp, str) else gsp
+    """Return the current instance Fernet key bytes (TENANT_EXPORT / GSP / DEBUG SECRET_KEY digest)."""
+    for name in ("TENANT_EXPORT_FERNET_KEY", "GSP_FERNET_KEY"):
+        raw = getattr(settings, name, None) or ""
+        raw = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        first = next((k.strip() for k in raw.split(",") if k.strip()), "")
+        if first:
+            return first.encode("utf-8")
     env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
     if env in ("production", "staging") or not getattr(settings, "DEBUG", True):
         raise ImproperlyConfigured(
@@ -152,15 +169,18 @@ def _instance_fernet_material() -> bytes:
     return base64.urlsafe_b64encode(digest)
 
 
-def tenant_export_fernet(company_id: int | None = None) -> Fernet:
+def tenant_export_fernet(company_id: int | None = None) -> MultiFernet:
     """Fernet for tenant export.
 
     company_id=None → instance key (legacy decrypt).
     company_id set → HKDF-SHA256 per-company key derived from instance material.
     """
-    material = _instance_fernet_material()
     if company_id is None:
-        return Fernet(material)
+        return MultiFernet([Fernet(m) for m in _instance_fernet_materials()])
+    return MultiFernet([_derived_fernet(m, company_id) for m in _instance_fernet_materials()])
+
+
+def _derived_fernet(material: bytes, company_id: int) -> Fernet:
     try:
         ikm = base64.urlsafe_b64decode(material)
     except (ValueError, TypeError):
@@ -312,6 +332,28 @@ def _wipe_target_sections(company) -> dict[str, list[dict]]:
         extra["bom_lines"] = _optional_rows(BomLine, company)
         extra["work_orders"] = _optional_rows(WorkOrder, company)
         extra["work_order_lines"] = _optional_rows(WorkOrderLine, company)
+        from manufacturing import models as _mm
+
+        extra["mfg_settings"] = _optional_rows(_mm.MfgSettings, company)
+        extra["bom_outputs"] = _optional_rows(_mm.BomOutput, company)
+        extra["bom_additional_costs"] = _optional_rows(_mm.BomAdditionalCost, company)
+        extra["work_order_outputs"] = _optional_rows(_mm.WorkOrderOutput, company)
+        extra["work_order_variances"] = _optional_rows(_mm.WorkOrderVariance, company)
+        extra["mfg_material_issues"] = _optional_rows(_mm.MaterialIssue, company)
+        extra["mfg_material_issue_lines"] = _optional_rows(_mm.MaterialIssueLine, company)
+        extra["mfg_material_returns"] = _optional_rows(_mm.MaterialReturn, company)
+        extra["mfg_material_return_lines"] = _optional_rows(_mm.MaterialReturnLine, company)
+        extra["mfg_production_receipts"] = _optional_rows(_mm.ProductionReceipt, company)
+        extra["mfg_production_receipt_lines"] = _optional_rows(_mm.ProductionReceiptLine, company)
+        from inventory.models import TraceLink as _TL
+
+        extra["trace_links"] = _optional_rows(_TL, company)
+        from accounts import mfg_backup
+
+        mfg_backup.export_rows(company, extra, _optional_rows)
+        from accounts import agents_backup
+
+        agents_backup.export_rows(company, extra, _optional_rows)
     except Exception:
         pass
     try:
@@ -822,12 +864,38 @@ def wipe_logical_tenant_rows(company) -> None:
     except Exception:
         pass
     try:
+        from inventory.models import TraceLink as _TL
+        from manufacturing import models as _mm
         from manufacturing.models import Bom, BomLine, WorkOrder, WorkOrderLine
 
+        from accounts import mfg_backup
+
+        _TL.objects.filter(company=company).delete()
+        # Agent drafts and aliases point at customers and products: they go before those masters.
+        from accounts import agents_backup
+
+        agents_backup.wipe(company)
+        # Quality, job work, planning and shop-floor rows point at orders, recipes, items and lots: they go first.
+        mfg_backup.wipe(company)
+        # Documents first (they point at work orders and their lines), then the orders, then recipes.
+        _mm.ProductionReceiptLine.objects.filter(company=company).delete()
+        _mm.ProductionReceipt.objects.filter(company=company).delete()
+        _mm.MaterialReturnLine.objects.filter(company=company).delete()
+        _mm.MaterialReturn.objects.filter(company=company).delete()
+        _mm.MaterialIssueLine.objects.filter(company=company).delete()
+        _mm.MaterialIssue.objects.filter(company=company).delete()
+        _mm.WorkOrderVariance.objects.filter(company=company).delete()
+        _mm.WorkOrderOutput.objects.filter(company=company).delete()
+        WorkOrderLine.objects.filter(company=company).update(alternate_of=None)
         WorkOrderLine.objects.filter(company=company).delete()
+        WorkOrder.objects.filter(company=company).update(parent_work_order=None)
         WorkOrder.objects.filter(company=company).delete()
+        _mm.BomOutput.objects.filter(company=company).delete()
+        _mm.BomAdditionalCost.objects.filter(company=company).delete()
         BomLine.objects.filter(company=company).delete()
+        Bom.objects.filter(company=company).update(parent_revision=None)
         Bom.objects.filter(company=company).delete()
+        _mm.MfgSettings.objects.filter(company=company).delete()
     except Exception:
         pass
     try:
@@ -847,6 +915,10 @@ def wipe_logical_tenant_rows(company) -> None:
     WarehouseReorderLevel.objects.filter(company=company).delete()
     InventoryRunningCost.objects.filter(company=company).delete()
     InventoryValuationSnapshot.objects.filter(company=company).delete()
+    # Holds are derived from open orders and are not part of a backup; they must go before the lots and warehouses they pin.
+    from inventory.models import StockReservation
+
+    StockReservation.objects.filter(company=company).delete()
     BatchLot.objects.filter(company=company).delete()
     Warehouse.objects.filter(company=company).delete()
     DocumentSeries.objects.filter(company=company).delete()
@@ -1150,40 +1222,189 @@ def _import_wipe_target_rows(
         pass
 
     try:
+        from inventory.models import TraceLink
+        from manufacturing import models as mm
         from manufacturing.models import Bom, BomLine, WorkOrder, WorkOrderLine
 
+        for row in payload.get("mfg_settings") or []:
+            _create_mapped(
+                mm.MfgSettings, row, company=target_company, owner=owner, skip=set(),
+                remap={
+                    "rm_warehouse_id": warehouse_map, "fg_warehouse_id": warehouse_map,
+                    "scrap_warehouse_id": warehouse_map, "quarantine_warehouse_id": warehouse_map,
+                },
+            )
         bom_map: dict[Any, int] = {}
-        for row in payload.get("boms") or []:
+        bom_rows = payload.get("boms") or []
+        for row in bom_rows:
             obj = _create_mapped(
                 Bom, row, company=target_company, owner=owner,
-                skip=set(), remap={"product_id": product_map}, require=("product_id",),
+                skip=set(),
+                remap={
+                    "product_id": product_map, "customer_id": customer_map, "fg_warehouse_id": warehouse_map,
+                },
+                require=("product_id",),
             )
             if obj:
                 bom_map[row.get("id")] = obj.pk
+        # A revision's parent is another recipe in the same file: link them once all exist.
+        for row in bom_rows:
+            if row.get("parent_revision_id") in bom_map and row.get("id") in bom_map:
+                Bom.objects.filter(pk=bom_map[row["id"]]).update(
+                    parent_revision_id=bom_map[row["parent_revision_id"]],
+                )
         for row in payload.get("bom_lines") or []:
             _create_mapped(
                 BomLine, row, company=target_company, owner=owner,
                 skip=set(),
-                remap={"bom_id": bom_map, "component_id": product_map},
+                remap={"bom_id": bom_map, "component_id": product_map, "source_warehouse_id": warehouse_map},
                 require=("bom_id", "component_id"),
             )
+        for row in payload.get("bom_outputs") or []:
+            _create_mapped(
+                mm.BomOutput, row, company=target_company, owner=owner, skip=set(),
+                remap={"bom_id": bom_map, "product_id": product_map, "target_warehouse_id": warehouse_map},
+                require=("bom_id", "product_id"),
+            )
+        for row in payload.get("bom_additional_costs") or []:
+            _create_mapped(
+                mm.BomAdditionalCost, row, company=target_company, owner=owner, skip=set(),
+                remap={"bom_id": bom_map}, require=("bom_id",),
+            )
         wo_map: dict[Any, int] = {}
-        for row in payload.get("work_orders") or []:
+        wo_rows = payload.get("work_orders") or []
+        for row in wo_rows:
             obj = _create_mapped(
                 WorkOrder, row, company=target_company, owner=owner,
-                skip=set(),
-                remap={"bom_id": bom_map, "warehouse_id": warehouse_map},
-                require=("bom_id",),
+                skip={"batch_id", "sales_order_id", "sales_order_item_id"},
+                remap={
+                    "bom_id": bom_map, "warehouse_id": warehouse_map, "fg_warehouse_id": warehouse_map,
+                    "product_id": product_map,
+                },
+                require=("bom_id",) if row.get("kind", "STANDARD") != "REWORK" else ("product_id",),
             )
             if obj:
                 wo_map[row.get("id")] = obj.pk
+        for row in wo_rows:
+            if row.get("parent_work_order_id") in wo_map and row.get("id") in wo_map:
+                WorkOrder.objects.filter(pk=wo_map[row["id"]]).update(
+                    parent_work_order_id=wo_map[row["parent_work_order_id"]],
+                )
+        wo_line_map: dict[Any, int] = {}
         for row in payload.get("work_order_lines") or []:
-            _create_mapped(
+            obj = _create_mapped(
                 WorkOrderLine, row, company=target_company, owner=owner,
-                skip={"batch_id"},
-                remap={"work_order_id": wo_map, "component_id": product_map},
+                skip={"batch_id", "source_batch_id", "alternate_of_id"},
+                remap={
+                    "work_order_id": wo_map, "component_id": product_map, "source_warehouse_id": warehouse_map,
+                },
                 require=("work_order_id", "component_id"),
             )
+            if obj:
+                wo_line_map[row.get("id")] = obj.pk
+        for row in payload.get("work_order_outputs") or []:
+            _create_mapped(
+                mm.WorkOrderOutput, row, company=target_company, owner=owner, skip=set(),
+                remap={"work_order_id": wo_map, "product_id": product_map, "target_warehouse_id": warehouse_map},
+                require=("work_order_id", "product_id"),
+            )
+        issue_map: dict[Any, int] = {}
+        for row in payload.get("mfg_material_issues") or []:
+            obj = _create_mapped(
+                mm.MaterialIssue, row, company=target_company, owner=owner, skip={"reversed_by_id", "approval_requested_by_id", "approval_decided_by_id"},
+                remap={"work_order_id": wo_map}, require=("work_order_id",),
+            )
+            if obj:
+                issue_map[row.get("id")] = obj.pk
+        issue_line_map: dict[Any, int] = {}
+        for row in payload.get("mfg_material_issue_lines") or []:
+            obj = _create_mapped(
+                mm.MaterialIssueLine, row, company=target_company, owner=owner,
+                skip={"batch_id", "movement_ids"},
+                remap={
+                    "issue_id": issue_map, "wo_line_id": wo_line_map, "component_id": product_map,
+                    "warehouse_id": warehouse_map,
+                },
+                require=("issue_id", "component_id", "warehouse_id"),
+            )
+            if obj:
+                issue_line_map[row.get("id")] = obj.pk
+        return_map: dict[Any, int] = {}
+        for row in payload.get("mfg_material_returns") or []:
+            obj = _create_mapped(
+                mm.MaterialReturn, row, company=target_company, owner=owner, skip={"reversed_by_id"},
+                remap={"work_order_id": wo_map}, require=("work_order_id",),
+            )
+            if obj:
+                return_map[row.get("id")] = obj.pk
+        for row in payload.get("mfg_material_return_lines") or []:
+            _create_mapped(
+                mm.MaterialReturnLine, row, company=target_company, owner=owner,
+                skip={"batch_id", "movement_ids", "sources"},
+                remap={
+                    "material_return_id": return_map, "wo_line_id": wo_line_map, "component_id": product_map,
+                    "warehouse_id": warehouse_map, "source_issue_line_id": issue_line_map,
+                },
+                require=("material_return_id", "component_id", "warehouse_id"),
+            )
+        receipt_map: dict[Any, int] = {}
+        for row in payload.get("mfg_production_receipts") or []:
+            obj = _create_mapped(
+                mm.ProductionReceipt, row, company=target_company, owner=owner,
+                skip={"reversed_by_id", "backflush_issue_id"},
+                remap={"work_order_id": wo_map}, require=("work_order_id",),
+            )
+            if obj:
+                receipt_map[row.get("id")] = obj.pk
+                if row.get("backflush_issue_id") in issue_map:
+                    mm.ProductionReceipt.objects.filter(pk=obj.pk).update(
+                        backflush_issue_id=issue_map[row["backflush_issue_id"]],
+                    )
+        for row in payload.get("mfg_production_receipt_lines") or []:
+            _create_mapped(
+                mm.ProductionReceiptLine, row, company=target_company, owner=owner,
+                skip={"batch_id", "movement_ids"},
+                remap={
+                    "receipt_id": receipt_map, "product_id": product_map, "warehouse_id": warehouse_map,
+                    "reject_warehouse_id": warehouse_map, "rework_warehouse_id": warehouse_map,
+                },
+                require=("receipt_id", "product_id", "warehouse_id"),
+            )
+        for row in payload.get("work_order_variances") or []:
+            _create_mapped(
+                mm.WorkOrderVariance, row, company=target_company, owner=owner, skip=set(),
+                remap={"work_order_id": wo_map, "component_id": product_map}, require=("work_order_id",),
+            )
+        for row in payload.get("trace_links") or []:
+            old_wo = row.get("work_order_id")
+            if old_wo not in wo_map:
+                continue
+            _create_mapped(
+                TraceLink, {**row, "work_order_id": wo_map[old_wo]}, company=target_company, owner=owner,
+                skip={"input_batch_id", "output_batch_id"},
+                remap={"input_product_id": product_map, "output_product_id": product_map},
+                require=("input_product_id",),
+            )
+        from accounts import mfg_backup
+
+        mfg_backup.restore(
+            payload=payload, target_company=target_company, owner=owner, create_mapped=_create_mapped,
+            maps={
+                "product": product_map, "customer": customer_map, "supplier": supplier_map,
+                "warehouse": warehouse_map, "batch": batch_map, "bom": bom_map, "wo": wo_map,
+            },
+        )
+    except Exception:
+        pass
+
+    # Agent drafts and aliases: their own block, so a problem in the manufacturing restore above cannot skip them.
+    try:
+        from accounts import agents_backup
+
+        agents_backup.restore(
+            payload=payload, target_company=target_company, owner=owner, create_mapped=_create_mapped,
+            maps={"customer": customer_map, "product": product_map},
+        )
     except Exception:
         pass
 

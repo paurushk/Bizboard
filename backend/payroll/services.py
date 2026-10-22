@@ -1,5 +1,6 @@
 """Payroll service — complete pay run with simplified PF/ESI/PT and optional GL."""
 
+from accounting.books import posts_to_ledger
 import calendar
 import re
 from datetime import date
@@ -605,7 +606,7 @@ def _post_pay_run_gl(locked: PayRun, user, *, pay_from_cash: bool | None = None,
     existing entry on a re-run.
     """
     company = locked.company
-    if not company.accounting_enabled:
+    if not posts_to_ledger(company):
         return False
     slips = list(locked.slips.select_related("employee"))
     total_gross = sum((s.gross for s in slips), Decimal("0"))
@@ -684,7 +685,7 @@ def post_pay_run_gl(pay_run: PayRun, user) -> PayRun:
     locked = PayRun.objects.select_for_update().get(pk=pay_run.pk)
     if locked.status != PayRun.Status.COMPLETED:
         raise BusinessRuleError("Only completed pay runs can be posted to the GL.")
-    if not locked.company.accounting_enabled:
+    if not posts_to_ledger(locked.company):
         raise BusinessRuleError("Enable accounting for this company first.")
     from accounting.models import JournalEntry
 
@@ -728,7 +729,7 @@ def cancel_pay_run(pay_run: PayRun, user) -> PayRun:
         .select_for_update()
         .first()
     )
-    if entry and not locked.company.accounting_enabled:
+    if entry and not posts_to_ledger(locked.company):
         raise BusinessRuleError(
             "This pay run has a posted payroll journal. Turn accounting on, then cancel, "
             "so the journal can be reversed."

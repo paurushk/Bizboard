@@ -35,6 +35,7 @@ export const FAQ_CATEGORIES: string[] = [
   'POS & offline',
   'Subscription & billing',
   'Bill scan & lateness',
+  'Business agents',
   'Preview modules',
 ];
 
@@ -2572,4 +2573,286 @@ const MORE_FAQ: FaqItem[] = [
   ),
 ];
 
-export const FAQ_ITEMS: FaqItem[] = [...V0_FAQ_ITEMS, ...MORE_FAQ];
+const AGENT_FAQ: FaqItem[] = [
+  faq(
+    "agents-what-are",
+    "Business agents",
+    "What are the business agents, and what can they do?",
+    ["agent", "ai", "assistant", "draft", "automation", "agentic"],
+    [
+      "Business agents are helpers that **prepare a draft** for you to check. They never act on their own. Today there are four: **Collections** (payment reminders), **Order Intake** (turns a pasted customer message into a draft sales order), **Inventory Risk** (stock transfers and re-orders) and **Bill Check** (compares a draft purchase bill with its order and goods receipt).",
+      "Every draft shows **why** it was made, lets you change it, and does nothing until you press approve. Approving creates a **draft** document or records that you shared a message. It never completes, sends, pays or posts anything for you.",
+      "Agents are off until your company is switched on for them. If you do not see the buttons described here, ask your owner or support to enable agents.",
+    ],
+  ),
+  faq(
+    "agents-safety",
+    "Business agents",
+    "Can an agent change my books, send messages or take money on its own?",
+    ["safe", "automatic", "auto", "send", "whatsapp", "post", "ledger", "permission"],
+    [
+      "No. In this version an agent can only create **drafts** that wait for a person.",
+      "- It never posts to the ledger, completes an invoice, confirms an order, pays a supplier or moves stock.\n- It never sends a WhatsApp, SMS or email. For reminders and supplier messages you copy or share the text yourself.\n- It cannot see or do more than the person using it: a user who cannot create sales cannot approve an order draft.\n- Each draft belongs to one company. Another company can never see it.",
+      "Everything an agent does is written to the audit trail with who approved it.",
+    ],
+  ),
+  faq(
+    "agents-switch-on",
+    "Business agents",
+    "How do I switch the agents on or off for my company?",
+    ["enable", "flag", "turn on", "turn off", "kill switch", "disable"],
+    [
+      "Agents are controlled by company settings that your owner or support sets: a master switch (`ENABLE_AGENTS`) and one switch per agent (`AGENT_COLLECTIONS`, `AGENT_ORDER_INTAKE`, `AGENT_INVENTORY_RISK`, `AGENT_BILL_CHECK`). Everything stays off until both the master switch and the agent's own switch are on.",
+      "To stop one agent, turn off its switch. To stop all of them, turn off the master switch. Existing drafts stay visible but can no longer be approved while agents are off. Support also has a platform-wide emergency stop.",
+      "Inventory Risk additionally needs **purchase planning** and **replenishment** turned on, because it uses the same figures as the Purchase planning page.",
+    ],
+  ),
+  faq(
+    "agents-ai-or-rules",
+    "Business agents",
+    "Do the agents use AI, and what data leaves my company?",
+    ["ai", "llm", "model", "privacy", "data", "consent", "gpt", "claude", "rules only"],
+    [
+      "The agents are **rules first**. Every number (amounts owed, quantities, rates, stock) comes from your own books by fixed rules. A language model may only be used to **read messy text** (a pasted order) or to **reword** a message, and only when your company has allowed AI features.",
+      "Whatever the model returns is checked: a reworded message is kept only if every number in it is in your books, it contains no tax advice and it is a sensible length. If anything fails, the plain template is used instead. A model can never choose a price, a discount, a customer or a product id.",
+      "Before text goes to a model, phone numbers, e-mail addresses, GSTINs and bank details are masked, and pasted text is marked as untrusted so instructions hidden in it are ignored. Inventory Risk uses no model at all. If AI is off, over budget or unavailable, drafts are still prepared from the rules.",
+    ],
+  ),
+  faq(
+    "agents-where-drafts",
+    "Business agents",
+    "Where do I find the drafts the agents prepared?",
+    ["drafts tray", "review", "pending", "waiting", "header icon"],
+    [
+      "There are three places:\n- The **drafts tray** (note icon in the top bar) lists every draft waiting for you, with a count. Drafts that belong together, such as a stock transfer and the purchase that covers the rest, sit next to each other marked **Linked drafts**.\n- A **Review draft** button on the **t:nav.attention** row the draft was made for.\n- The page where you started it: the paste panel in **t:nav.quickEntry**, or the **Check against order** button on a draft purchase bill.",
+      "Click a draft to open the review panel. Use **J** and **K** to move between drafts and **A** to approve or **R** to reject when you are not typing in a box.",
+    ],
+  ),
+  faq(
+    "agents-review-approve",
+    "Business agents",
+    "How do I review, change and approve a draft?",
+    ["approve", "edit", "save changes", "reject", "cancel draft", "revision", "keyboard"],
+    [
+      "Open the draft. You see the content, the **evidence** (the invoices, products or facts it is based on) and the buttons.",
+      "- **Edit:** change the text, quantities or product choices, then press **Save changes**. You must save before you can approve, so you always approve exactly what you see.\n- **Approve:** does what the draft is for (see each agent below) once, even if you click twice.\n- **Reject:** discard it; you can add a reason.\n- **Cancel draft:** withdraw a draft you no longer want.",
+      "If someone else changed the draft while you had it open, you will be told to reload and review the latest version. Drafts expire after a couple of days (72 hours for reminders and supplier messages, 48 hours for orders and stock drafts).",
+    ],
+  ),
+  faq(
+    "agents-failed-stale",
+    "Business agents",
+    "Why does a draft say the books changed, or fail when I approve it?",
+    ["stale", "failed", "try again", "retry", "expired", "changed since"],
+    [
+      "Before doing anything, the agent re-reads your books. If the facts moved since the draft was written, it refuses instead of acting on old information, and the draft is marked **stale**. Examples: the customer paid, so the reminder is no longer needed; the other godown no longer has the stock; the supplier's bill was corrected.",
+      "A stale draft cannot be approved. Prepare it again from the same place. A draft that failed for another reason (for example a missing customer) can be corrected and retried up to three times.",
+      "A draft that nobody touches expires on its own.",
+    ],
+  ),
+  faq(
+    "agents-collections",
+    "Business agents",
+    "How does the Collections agent work, and what does a reminder say?",
+    ["collections", "reminder", "overdue", "dues", "payment reminder", "customer", "hindi", "polite", "firm"],
+    [
+      "On an overdue customer row in **t:nav.attention**, press **Prepare draft**. The agent reads the customer's overdue amount, the oldest invoice and any broken promise to pay, and writes a reminder. Every number comes from your ledger and is shown as evidence with a link to the invoices.",
+      "Each draft has four versions you can switch between: **English or Hindi**, **polite or firm**. The tone starts firm when the account is badly overdue or a promise was broken. You can edit the text freely.",
+      "Approving means **you copied or shared it** (for example on WhatsApp). The system sends nothing. If the customer has paid or the overdue amount changed after the draft was written, approval is refused as stale.",
+      "Every morning at 8:30 the agent also prepares drafts for the customers who owe the most, using the plain templates. Customers marked **opted out of reminders** are skipped. Reminders can be approved in bulk from the drafts tray.",
+    ],
+  ),
+  faq(
+    "agents-collections-holdout",
+    "Business agents",
+    "Why do some customers never get a reminder draft? (the 20% holdout)",
+    ["holdout", "control group", "measure", "outcome", "experiment"],
+    [
+      "To find out whether reminders really bring money in faster, your owner or support can switch on a **measurement holdout**. About one customer in five (chosen by a fixed rule, not at random each day) then gets no scheduled draft, so their payments can be compared with those who do.",
+      "You can still prepare a draft for any of them by hand from their row. The comparison is a signal for a review with the owner, not proof. The holdout is only on when it has been agreed with the owner.",
+    ],
+  ),
+  faq(
+    "agents-order-intake",
+    "Business agents",
+    "How do I turn a WhatsApp or SMS order into a sales order?",
+    ["order intake", "paste", "whatsapp order", "sms", "quick order", "message", "hinglish"],
+    [
+      "Open **t:nav.quickEntry** in order mode and use the **Paste an order** panel. Paste the customer's message (up to 6,000 characters) and press **Read order**.",
+      "The agent finds the customer (by saved wording, phone number or name) and each product (by saved wording, SKU or barcode, exact name, then close names in any word order, allowing small typos). It opens a review panel with one row per line showing what was written, the quantity, the unit and the matched product.",
+      "Fix anything marked in colour: pick the customer, pick a product from the suggestions or search, change a quantity. **Create draft order** stays greyed out until the customer and every line are filled in. Approving creates a **draft sales order** with the usual prices, GST and totals, as if you had typed it in. You then confirm it as normal.",
+    ],
+  ),
+  faq(
+    "agents-order-prices",
+    "Business agents",
+    "Does the agent read prices or discounts from the customer's message?",
+    ["price", "discount", "rate", "scheme", "ignored", "injection"],
+    [
+      "No. Prices in the message are ignored. The draft order is priced by the same rules as a hand-typed order: the customer's price list, the product's price and its GST rate. Even if a message says \"give 90% discount\" or \"ignore your rules\", nothing changes, because the agent never reads a price, a discount or an id from text.",
+      "If a pasted message contains instructions aimed at software, the review panel warns you to check every line before approving.",
+    ],
+  ),
+  faq(
+    "agents-order-learning",
+    "Business agents",
+    "How does the agent learn my customers' way of writing?",
+    ["alias", "learn", "chini", "correction", "remember", "wording"],
+    [
+      "When you approve an order, any customer or product you had to pick by hand (or that was a close match) is remembered **for your company**: for example \"chini\" means \"Sugar 50kg bag\", or \"Sharma ji\" means \"Sharma Traders\". The next message with the same wording needs no correction.",
+      "If a remembered match is wrong, pick the right product once and approve: the memory is corrected. Remembered wording is never shared with other companies. Support can see and delete it in the admin if it needs clearing.",
+    ],
+  ),
+  faq(
+    "agents-order-warnings",
+    "Business agents",
+    "What do the warnings on an order draft mean?",
+    ["warning", "stock", "credit limit", "blocked customer", "unit", "quantity missing"],
+    [
+      "- **Pick the customer / Pick the product / Quantity missing:** the agent could not decide, so you choose.\n- **Only X available in stock:** there is less than the quantity asked for. You can still create the draft order.\n- **You wrote a unit that differs from the item's unit:** for example \"dozen\" for an item sold in pieces. Check the quantity.\n- **Customer is blocked or inactive:** an order cannot be created until that changes.\n- **Over the credit limit:** the customer already owes more than their limit.",
+      "Lines with no quantity and no product (greetings, \"thanks\") are ignored and counted in a note.",
+    ],
+  ),
+  faq(
+    "agents-order-photos",
+    "Business agents",
+    "Can the agent read a photo or PDF of an order?",
+    ["image", "photo", "pdf", "handwritten", "upload", "scan"],
+    [
+      "Not yet. In this version Order Intake reads **pasted text** only. Reading photos and PDFs needs an AI service that can read images, which has not been switched on. For a photo, type or paste the lines. For a supplier's bill, use **Bill upload**.",
+    ],
+  ),
+  faq(
+    "agents-inventory",
+    "Business agents",
+    "What does the Inventory Risk agent do?",
+    ["inventory", "stock", "transfer", "reorder", "low stock", "replenishment", "godown", "purchase planning"],
+    [
+      "It looks at the same low-stock figures as the **Purchase planning** page and turns them into drafts: a **stock transfer** when another godown has spare stock, a **purchase order** for the rest. It adds no forecast of its own: quantities are exactly the planning page's quantities.",
+      "A shortage that is part moved and part bought becomes two drafts, one for the transfer and one for the purchase. They are shown together as linked drafts and approved separately. A very long list is split into several drafts of at most 100 lines each.",
+      "Press **Prepare draft** on a low-stock row in **t:nav.attention** to prepare drafts for that item, or let it run each morning at 7:30 for all low items.",
+    ],
+  ),
+  faq(
+    "agents-inventory-approve",
+    "Business agents",
+    "What happens when I approve a transfer or purchase draft?",
+    ["approve transfer", "draft transfer", "draft purchase order", "stock moves", "no stock"],
+    [
+      "- **Transfer draft:** creates a **draft stock transfer** between the two godowns. **No stock moves** until you open that transfer and complete it.\n- **Purchase draft:** creates a **draft purchase order** for the supplier you last bought the item from (the same function the Purchase planning page uses). It is not sent to the supplier until you send it.",
+      "If the godown giving the stock no longer has the quantity, the transfer draft is refused as stale. If a draft order for the same supplier and item was made in the last hour you are warned instead of creating a duplicate.",
+    ],
+  ),
+  faq(
+    "agents-inventory-lots",
+    "Business agents",
+    "Does the agent respect expiry dates and quality holds when it suggests stock to move?",
+    ["batch", "lot", "expiry", "expired", "quality", "hold", "quarantine", "fefo"],
+    [
+      "Yes. For items tracked by batch, the transfer takes lots **earliest expiry first** from the godown giving the stock, and never suggests a lot that has expired (when your company blocks expired stock) or that quality has put on hold or not yet released.",
+      "Only normal godowns are used. A scrap or quarantine godown is never suggested as a source or a destination. If only part of the quantity is in usable lots, only that part is suggested.",
+    ],
+  ),
+  faq(
+    "agents-inventory-nosupplier",
+    "Business agents",
+    "Why is an item missing from the purchase drafts?",
+    ["no supplier", "skipped", "missing item", "supplier history"],
+    [
+      "A purchase draft needs a supplier, which is taken from the last completed bill for that item. An item you have never bought has no supplier on record, so no purchase draft is made for it. Instead you get one draft called **items with no supplier on record**, which lists them. Approving it only means you have seen the list; pick the suppliers on the Purchase planning page.",
+      "Quantities already on open orders are taken off, so asking twice does not order twice.",
+    ],
+  ),
+  faq(
+    "agents-bill-check",
+    "Business agents",
+    "What does Bill Check compare, and where do I use it?",
+    ["bill check", "purchase bill", "three way", "3-way", "grn", "goods receipt", "mismatch", "supplier query"],
+    [
+      "Open a **draft** purchase bill and press **Check against order**. The agent compares the bill with its purchase order and goods receipt and finds: a different **rate**, a **quantity** over the order or different from what you received, an item **not on the order**, a different **GST rate**, and received goods **missing from the bill**.",
+      "It uses the same tolerances as the check that runs when you complete a bill: a rate may differ by half a percent (never less than one paisa). It also runs every morning at 9:00 over draft bills.",
+      "If there is something to tell the supplier, it drafts a short message listing each difference as a plain fact, and shows a side-by-side table with the differences marked. If everything matches you are told there is nothing to send.",
+    ],
+  ),
+  faq(
+    "agents-bill-check-rules",
+    "Business agents",
+    "What other checks does Bill Check make?",
+    ["duplicate bill", "high amount", "gstin cancelled", "protection", "fraud", "no receipt"],
+    [
+      "- **Duplicate bill number:** the same supplier bill number was already booked for this supplier.\n- **Unusually high amount:** the bill is above the 95th percentile of the supplier's earlier bills (needs at least six earlier bills).\n- **Cancelled GSTIN:** the supplier's GSTIN is marked cancelled in your records.\n- **No goods receipt yet:** the order has no receipt recorded.",
+      "The last three are **for you, not the supplier**. When a bill also has something to tell the supplier they appear as notes beside the message. When a bill has only these, you get a separate **Bill notes for you** draft; approving it means you have read the notes, and nothing is sent. A missing goods receipt on its own does not create a draft. Bill Check does **not** check for changed bank details or a changed GSTIN, because those histories are not stored yet.",
+    ],
+  ),
+  faq(
+    "agents-bill-check-block",
+    "Business agents",
+    "Does Bill Check stop me from completing or paying a bill?",
+    ["block", "stop", "complete bill", "override", "three way match"],
+    [
+      "No. Bill Check only reads. It never edits, blocks or completes a bill. The existing **3-way match** still runs when you press Complete, with its owner or manager approval for differences. Bill Check lets you raise the difference with the supplier **before** you get there.",
+      "Approving the supplier message only records that you copied or shared it. If you correct the bill afterwards, the draft goes stale and the old message is not used.",
+    ],
+  ),
+  faq(
+    "agents-tax-wording",
+    "Business agents",
+    "Will an agent tell me how to treat GST or claim ITC?",
+    ["tax advice", "gst", "itc", "claim", "wording", "ca"],
+    [
+      "No. Agent messages may **state a fact** (\"the bill shows GST 18% but the order shows 12%\") but never give **advice or a decision**, such as whether you can claim credit, which rate is right or what to file. A message containing that kind of phrase is rejected and replaced with the plain template.",
+      "For any tax decision, ask your chartered accountant.",
+    ],
+  ),
+  faq(
+    "agents-languages",
+    "Business agents",
+    "Do the agents work in Hindi?",
+    ["hindi", "language", "hinglish", "translate"],
+    [
+      "Yes for the screens (they follow your language setting) and for **reminders**, which come in English and Hindi. Order Intake understands **Hindi, Hinglish and English** order messages when AI is on; without AI it reads English and common shorthand. Supplier messages are in English in this version.",
+      "The Hindi wording has not yet been reviewed by a native speaker; tell support if something reads badly.",
+    ],
+  ),
+  faq(
+    "agents-limits",
+    "Business agents",
+    "Are there limits on how often I can use an agent?",
+    ["limit", "daily cap", "budget", "quota", "too many", "cost"],
+    [
+      "Yes, to keep cost and noise under control: each agent has a daily limit on runs per company, a time limit per run and a limit on steps. If you hit the daily limit you will be told to try tomorrow. If your AI budget is used up, agents carry on from the rules without the model. Pasted orders are limited to 6,000 characters.",
+    ],
+  ),
+  faq(
+    "agents-not-showing",
+    "Business agents",
+    "Why can't I see the agent buttons?",
+    ["missing", "not visible", "no button", "prepare draft missing", "role"],
+    [
+      "Check these in order:\n1. Agents are switched on for your company (master switch and that agent's switch).\n2. Your role may use it: Collections needs reminder access; Order Intake needs permission to create sales; Inventory Risk needs inventory management or purchase rights; Bill Check needs permission to create purchases. Viewers never see them.\n3. The row must be one the agent handles: Collections acts on overdue-customer rows and promise-to-pay rows, Inventory Risk on low-stock rows.\n4. Bill Check is on **draft** bills only.\n5. Inventory Risk also needs purchase planning and replenishment enabled.",
+      "If all of that is right and the button is still missing, report it to support.",
+    ],
+  ),
+  faq(
+    "agents-wrong-draft",
+    "Business agents",
+    "A draft looks wrong. What should I do?",
+    ["wrong", "incorrect", "report", "bad draft", "feedback", "trust"],
+    [
+      "Do not approve it. Check the **evidence** list to see what it was based on: if the source figure is wrong, fix it in the books and prepare the draft again. If the figures are right but the draft is wrong, **reject** it with a reason, and tell support the draft title and time. Every run and its steps are logged, so support can see exactly why it produced what it did.",
+      "Nothing an agent prepares can change your books until you approve, so a wrong draft costs you only a click.",
+    ],
+  ),
+  faq(
+    "agents-reports",
+    "Business agents",
+    "How do I know whether the agents are helping?",
+    ["report", "outcome", "metrics", "approval rate", "edited", "measure"],
+    [
+      "Support can print an outcome report for a company: how many drafts were created, approved, rejected, expired or failed, what share of approved drafts you edited first, and for reminders the money received from customers within 7 days of approval, compared with the held-out group when the holdout is on.",
+      "A healthy sign is many drafts approved with small edits and few rejected or expired. Many rejections tell us the drafts need improving.",
+    ],
+  ),
+];
+
+export const FAQ_ITEMS: FaqItem[] = [...V0_FAQ_ITEMS, ...MORE_FAQ, ...AGENT_FAQ];

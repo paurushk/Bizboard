@@ -7,6 +7,8 @@ import hmac
 
 from django.conf import settings
 
+PHONE_INVALID_MESSAGE = "Enter a valid mobile number with country code, e.g. +91 98765 43210."
+
 
 def _pepper() -> bytes:
     pepper = getattr(settings, "OTP_PEPPER", None) or settings.SECRET_KEY
@@ -47,18 +49,29 @@ def phone_lookup_values(phone: str) -> list[str]:
 
 
 def normalize_e164(phone: str) -> str:
-    """BB-000633: accept E.164 or 10-digit Indian mobiles → +91XXXXXXXXXX."""
+    """BB-000633: accept E.164 or 10-digit Indian mobiles → +91XXXXXXXXXX.
+
+    Also forgives the ways people actually type numbers: spaces, hyphens,
+    brackets and dots; a trunk ``0`` (``09876543210``, ``+91 098765 43210``);
+    and the ``00`` international prefix (``0044 20 7946 0958``).
+    """
     import re
 
-    raw = (phone or "").strip().replace(" ", "").replace("-", "")
+    raw = re.sub(r"[\s\-().]", "", (phone or "").strip())
+    if raw.startswith("00"):
+        raw = f"+{raw[2:]}"
+    if re.fullmatch(r"\+910[6-9]\d{9}", raw):
+        return f"+91{raw[4:]}"
     if re.fullmatch(r"\+[1-9]\d{7,14}", raw):
         return raw
     digits = re.sub(r"\D", "", raw)
+    if len(digits) == 11 and digits.startswith("0"):
+        digits = digits[1:]
     if len(digits) == 10 and digits[0] in "6789":
         return f"+91{digits}"
     if digits.startswith("91") and len(digits) == 12:
         return f"+{digits}"
-    raise ValueError("Phone must be E.164 (e.g. +919876543210).")
+    raise ValueError(PHONE_INVALID_MESSAGE)
 
 
 def canonicalize_user_phone(phone: str) -> str:
@@ -67,6 +80,21 @@ def canonicalize_user_phone(phone: str) -> str:
     if not raw:
         return ""
     return normalize_e164(raw)
+
+
+def canonicalize_new_phone(phone: str) -> str:
+    """Like ``canonicalize_user_phone``, but stricter for a number being entered now.
+
+    ``normalize_e164`` takes any ``+`` and 8–15 digits so that numbers already
+    stored keep saving. A new Indian number must be a full mobile:
+    +91 then 10 digits starting 6–9.
+    """
+    import re
+
+    canon = canonicalize_user_phone(phone)
+    if canon.startswith("+91") and not re.fullmatch(r"\+91[6-9]\d{9}", canon):
+        raise ValueError(PHONE_INVALID_MESSAGE)
+    return canon
 
 
 def phone_taken(*, phone: str, exclude_pk=None) -> bool:

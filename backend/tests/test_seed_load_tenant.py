@@ -73,6 +73,7 @@ def test_service_path_completes_a_block_without_queueing_pdfs():
     assert SalesInvoice.objects.filter(company=company, notes__startswith="SEED_LOAD:").count() == 20
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 @override_settings(DJANGO_ENV="test")
 def test_resumes_a_leftover_draft_and_refills_drained_stock():
     call_command(
@@ -120,3 +121,19 @@ def test_bulk_fallback_is_refused():
             bulk_fallback=True,
             stdout=StringIO(),
         )
+
+
+@override_settings(DJANGO_ENV="test")
+def test_span_days_spreads_a_small_run_over_the_whole_year():
+    """QOS-0016's browser budget seeds a few hundred invoices; they must still cover twelve months."""
+    call_command(
+        "seed_load_tenant", invoices=20, products=4, customers=3, span_days=360,
+        password="LoadPass123!", stdout=StringIO(),
+    )
+    company = Company.objects.get(name="Load Tenant")
+    dates = sorted(
+        SalesInvoice.objects.filter(company=company, notes__startswith="SEED_LOAD:").values_list("invoice_date", flat=True)
+    )
+    today = timezone.localdate()
+    assert (today - dates[0]).days >= 300  # reaches back about a year, not just 20 days
+    assert dates[-1] == today

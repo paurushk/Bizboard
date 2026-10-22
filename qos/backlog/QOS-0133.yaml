@@ -1,26 +1,37 @@
-id: "QOS-0133"
-category: "RELIABILITY_TRUST"
-title: "Accounting screens: run the PostgreSQL concurrency lane and a browser pass in CI"
-persona: ["P1"]
-journey: "Two people post, reconcile or close at the same time"
-problem: "The concurrency tests for double post, double dispose, double void, two matches of one bank line and a close racing a post only run on PostgreSQL, and the screens have not been walked in a real browser by the pipeline."
+id: QOS-0133
+category: RELIABILITY_TRUST
+title: 'Accounting screens: run the PostgreSQL concurrency lane and a browser pass in CI'
+persona:
+- P1
+journey: Two people post, reconcile or close at the same time
+problem: The concurrency tests for double post, double dispose, double void, two matches of one bank line
+  and a close racing a post only run on PostgreSQL, and the screens have not been walked in a real browser
+  by the pipeline.
 evidence:
-  strength: "heuristic"
-  source: ["ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md"]
-  detail: "backend/tests/test_acs_concurrency_postgres.py is Postgres-only. It passed once against a local throwaway container; CI must run it on every change to the accounting module."
+  strength: heuristic
+  source:
+  - ACCOUNTING_SCREENS_IMPLEMENTATION_PLAN.md
+  detail: 'backend/tests/test_acs_concurrency_postgres.py is Postgres-only. It passed once against a local
+    throwaway container; CI must run it on every change to the accounting module. 2026-10-22: the CI test
+    job runs on PostgreSQL and fails if any postgres-marked test skips (scripts/ci_gates/check_postgres_skips.py,
+    WP-A2), so this file runs on every change. The accounting golden journeys (accounting-golden-path,
+    lifecycle-arch03, money-hub, recon-labels, reports-rpt-walk, v95-backfill) passed against a live Django
+    backend and Postgres 17 on 2026-10-22.'
 scoring:
   reach: 2
   severity: 2
   frequency: 2
-  impact_band: "Low"
-business_metric: "none"
-priority: "P3"
-priority_rationale: "Impact Low. The guards are tested once; this keeps them tested."
-effort: "S"
-recommendation: "Add the accounting concurrency file to the Postgres lane in CI and run the eight-route Playwright smoke against the demo company."
-test_required: "backend/tests/test_acs_concurrency_postgres.py"
-guard_ref: null
-lifecycle: "open"
-owner: "founder"
-opened: "2026-10-17"
-closed: null
+  impact_band: Low
+business_metric: none
+priority: P3
+priority_rationale: Impact Low. The guards are tested once; this keeps them tested.
+effort: S
+recommendation: Add the accounting concurrency file to the Postgres lane in CI and run the eight-route
+  Playwright smoke against the demo company.
+test_required: backend/tests/test_acs_concurrency_postgres.py
+guard_ref:
+  test: backend/tests/test_acs_concurrency_postgres.py
+lifecycle: fixed
+owner: founder
+opened: '2026-10-17'
+closed: '2026-10-22'

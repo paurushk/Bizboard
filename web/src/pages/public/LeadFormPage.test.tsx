@@ -61,3 +61,18 @@ describe('LeadFormPage', () => {
     expect(submitPublicLead).toHaveBeenCalledWith('preview', expect.objectContaining({ campaign: '' }));
   });
 });
+
+describe('LeadFormPage with a dead link (QOS-0098)', () => {
+  it('says the link is not valid and hides the form', async () => {
+    const { getPublicLeadFormMeta } = await import('@/api/osPlan');
+    const { AxiosError } = await import('axios');
+    vi.mocked(getPublicLeadFormMeta).mockRejectedValueOnce(
+      new AxiosError('Not found', 'ERR_BAD_REQUEST', undefined, undefined, {
+        status: 404, statusText: 'Not Found', data: {}, headers: {}, config: {} as never,
+      }),
+    );
+    renderForm('/lead-form/expired');
+    expect(await screen.findByText('This form link is not valid any more. Ask the business for a new one.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Send' })).not.toBeInTheDocument();
+  });
+});

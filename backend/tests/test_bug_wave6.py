@@ -177,6 +177,7 @@ def test_bug_perf_003_gstr_walks_in_chunks():
     assert callable(compile_gst_return_task)
 
 
+@pytest.mark.no_invariant_check  # one-sided ORM journal is a report fixture, not a posted chain
 def test_bug_perf_004_balances_use_company_column_and_rollup(tenant_a):
     from accounting.models import Account, JournalEntry, JournalLine
     from accounting.reports import _balances, refresh_account_monthly_balances, trial_balance
@@ -211,6 +212,7 @@ def test_bug_perf_005_composite_indexes_exist():
     assert "jl_company_acct_entry_idx" in journal
 
 
+@pytest.mark.no_invariant_check  # StockBalance rows without movements are a report fixture
 def test_bug_perf_006_low_stock_groups_without_loading_every_override_subquery(tenant_a):
     from inventory.models import StockBalance, Warehouse
     from inventory.views import low_stock_alert_payload
@@ -363,6 +365,7 @@ def test_bug_sec_018_viewer_cannot_hold_financial_reports():
         )
 
 
+@pytest.mark.no_invariant_check  # one-sided ORM journals are a report fixture, not a posted chain
 def test_bug_acc_007_comparative_store_pnl_splits_overhead(tenant_a):
     from accounting.models import Account, CostCenter, JournalEntry, JournalLine
     from accounting.reports import comparative_store_pnl

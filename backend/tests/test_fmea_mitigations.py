@@ -233,8 +233,11 @@ def test_tc_fmea_006_old_regime_without_a_rate_cannot_complete(tenant_a):
 def test_tc_fmea_007_books_health_flags_a_pay_run_finished_while_books_were_off(tenant_a):
     from accounting.services import BooksHealthService
 
+    # Shadow books (WP-F2): "books off" now still posts. These checks are about a legacy company
+    # whose documents were never posted, i.e. post_ledger off as well.
     tenant_a.company.accounting_enabled = False
-    tenant_a.company.save(update_fields=["accounting_enabled"])
+    tenant_a.company.post_ledger = False
+    tenant_a.company.save(update_fields=["accounting_enabled", "post_ledger"])
     _employee(tenant_a, code="FMEA-NEW", tax_regime=Employee.TaxRegime.NEW, name="New Regime")
     run = PayRun.objects.create(
         company=tenant_a.company, period="2026-09", status=PayRun.Status.DRAFT,
@@ -266,11 +269,12 @@ def test_tc_fmea_009_production_without_rls_is_logged_and_does_not_fail_the_swee
         with patch.object(connections["default"], "vendor", "postgresql"):
             with caplog.at_level(logging.ERROR, logger="core.tasks"):
                 result = nightly_invariants_task()
-    assert result["failed"] == 0
+    assert result["queued"] >= 1
     assert result["rls_enabled"] is False
     assert "Postgres RLS is off in production" in caplog.text
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_tc_fmea_010_a_failed_invariant_notifies_the_owner_in_app(tenant_a):
     from inventory.models import StockBalance
 
@@ -282,7 +286,11 @@ def test_tc_fmea_010_a_failed_invariant_notifies_the_owner_in_app(tenant_a):
     balance.on_hand = Decimal("999999")
     balance.save(update_fields=["on_hand"])
     result = nightly_invariants_task()
-    assert result["failed"] >= 1
+    from core.models import TenantSweepResult
+
+    assert TenantSweepResult.objects.filter(
+        run_id=result["run_id"], company=tenant_a.company, status=TenantSweepResult.Status.FAILED,
+    ).exists()
     note = Notification.objects.filter(
         company=tenant_a.company,
         channel=Notification.Channel.IN_APP,
@@ -390,8 +398,11 @@ def test_fmea2_001_pay_run_cancel_refuses_while_books_off(tenant_a, tenant_b):
         company=tenant_a.company, source_type="PAY_RUN", source_id=run.pk,
         purpose="PAYROLL", status=JournalEntry.Status.POSTED,
     )
+    # Shadow books (WP-F2): "books off" now still posts. This checks a legacy company whose
+    # documents were never posted, i.e. post_ledger off as well.
     tenant_a.company.accounting_enabled = False
-    tenant_a.company.save(update_fields=["accounting_enabled"])
+    tenant_a.company.post_ledger = False
+    tenant_a.company.save(update_fields=["accounting_enabled", "post_ledger"])
     with pytest.raises(BusinessRuleError, match="Turn accounting on"):
         cancel_pay_run(run, tenant_a.owner)
     run.refresh_from_db()

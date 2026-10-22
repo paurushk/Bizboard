@@ -1,11 +1,12 @@
 from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from core.exceptions import BusinessRuleError
 
+from .books import posts_to_ledger
 from .models import Account, AccountingPeriod, JournalEntry, JournalLine
 
 # Statutory TDS sections used on purchase bills. Pair is (individual/HUF, company).
@@ -128,6 +129,14 @@ CHART = (
     # legitimately carries a credit (gain) balance too — again, never classify
     # this account by its code range.
     ("5900", "Foreign Exchange Gain / Loss", "EXPENSE", True),
+    # MFG-37: cost added to work in progress without stock moving. Credit-normal, like 5900 and
+    # 5700, so never classify by code range; always branch on type.
+    ("5410", "Manufacturing Expenses Absorbed", "EXPENSE", True),
+    # MFG-09: what is left in a work order's WIP when it closes short, or beyond tolerance.
+    ("5420", "Manufacturing Variance", "EXPENSE", True),
+    # MFG-28: conversion cost added to work in progress, by element. Credit-normal like 5410.
+    ("5430", "Labour Absorbed", "EXPENSE", True),
+    ("5440", "Overhead Absorbed", "EXPENSE", True),
     # BB-000382: advances (unallocated cash) — not AR/AP control.
     ("2300", "Customer Advances", "LIABILITY", True),
     ("1250", "Supplier Advances", "ASSET", True),
@@ -192,6 +201,47 @@ def reclass_rejected_itc(invoice, *, user=None):
     return PostingService.reclass_rejected_itc(invoice, user=user)
 
 
+def taxable_charge_line(document, igst_beyond_items):
+    """The synthetic GST line for taxable freight/packing on ``document``, or None.
+
+    Inter-state when the header carries IGST that the item lines do not explain.
+    """
+    from core.services.charges import charge_line, charges_are_taxable
+
+    if not charges_are_taxable(document):
+        return None
+    return charge_line(document, intra_state=not (Decimal(str(igst_beyond_items or 0)) > 0))
+
+
+def _check_registered_source(source_type) -> None:
+    """WP-F1: every posting source must be in accounting.coverage.POSTING_SOURCES.
+
+    Strict (test settings): raise, so the test suite proves the registry is complete.
+    Otherwise: log once per type, so production never fails a posting over the registry.
+    """
+    from django.conf import settings
+
+    from accounting.coverage import POSTING_SOURCES
+
+    test_types = getattr(settings, "LEDGER_TEST_SOURCE_TYPES", ())
+    if source_type in POSTING_SOURCES or source_type in test_types or str(source_type).split("_")[0] in test_types:
+        return
+    if getattr(settings, "LEDGER_REGISTRY_STRICT", False):
+        raise AssertionError(
+            f"Posting source {source_type!r} is not in accounting/coverage.py POSTING_SOURCES. "
+            "Register it (posted_by, accounts, invariants, flag) and regenerate "
+            "docs/accounting/LEDGER_COVERAGE_MAP.md."
+        )
+    if source_type not in _UNREGISTERED_LOGGED:
+        _UNREGISTERED_LOGGED.add(source_type)
+        import logging
+
+        logging.getLogger(__name__).warning("posting source %s is not in the ledger coverage registry", source_type)
+
+
+_UNREGISTERED_LOGGED: set = set()
+
+
 class PostingService:
     """Creates immutable, idempotent projections of operational documents.
 
@@ -209,6 +259,7 @@ class PostingService:
             "1310", "1320", "1330", "1370", "2210", "2220", "2230", "2240", "2250", "2260",
             "2270", "2280",
             "1450",  # manufacturing WIP
+            "5410", "5420", "5430", "5440",  # absorbed costs + manufacturing variance
             "2150", "5800",  # payroll wages payable + salary expense
             "5600", "5700",  # BB-000459 disposal P&L
             "5250", "5450",  # ineligible ITC and inventory scrap — not asset disposal
@@ -409,7 +460,7 @@ class PostingService:
     @classmethod
     def reclass_unreviewed_itc(cls, invoice, *, user=None):
         """B-03: 1390 suspense → 1310/1320/1330/1370. Idempotent. No new CoA codes."""
-        if not invoice.company.accounting_enabled:
+        if not posts_to_ledger(invoice.company):
             return None
         parked = cls._unreviewed_itc_parked(invoice)
         if parked <= 0:
@@ -503,7 +554,7 @@ class PostingService:
         After IMS ACCEPT, tax sits on 1310/1320/1330 (not 1390). REJECT must then
         credit those Input GST accounts and debit non-deductible tax expense 5250.
         """
-        if not invoice.company.accounting_enabled:
+        if not posts_to_ledger(invoice.company):
             return None
         parked = cls._unreviewed_itc_parked(invoice)
         cgst = Decimal(str(invoice.cgst_total or 0))
@@ -570,8 +621,14 @@ class PostingService:
     @classmethod
     @transaction.atomic
     def post(cls, *, company, source_type, source_id, purpose, entry_date, lines, narration="", user=None, allow_soft_closed=False, allow_pre_books_start=False):
-        if not company.accounting_enabled:
+        _check_registered_source(source_type)
+        if not posts_to_ledger(company):
             return None
+        if not company.accounting_enabled:
+            # WP-F2 shadow books: the company cannot see or unlock accounting periods, so a
+            # soft close (a warning-level lock) must not stop its documents. A CLOSED period
+            # still refuses below, and switching books off is refused while one exists.
+            allow_soft_closed = True
         # B1-032: nothing may post before the company's books-start / cut-over
         # date, except the opening-balance entries that legitimately sit on it.
         cutover = getattr(company, "books_start_date", None)
@@ -606,7 +663,13 @@ class PostingService:
             debit_amt = Decimal(str(line.get("debit", 0) or 0)).quantize(q2)
             credit_amt = Decimal(str(line.get("credit", 0) or 0)).quantize(q2)
             normalized.append({**line, "debit": debit_amt, "credit": credit_amt})
-        lines = normalized
+        # A ₹0 leg (a free sample, a fully discounted bill) is not an accounting line: the
+        # one-sided-positive constraint on journal lines refuses it. Drop zero legs; a document
+        # that is zero throughout has nothing to post.
+        had_lines = bool(normalized)
+        lines = [line for line in normalized if line["debit"] or line["credit"]]
+        if had_lines and not lines:
+            return None
         debit = sum((line["debit"] for line in lines), Decimal("0"))
         credit = sum((line["credit"] for line in lines), Decimal("0"))
         if not lines or debit != credit:
@@ -705,6 +768,14 @@ class PostingService:
         hdr_sgst = Decimal(str(invoice.sgst_total or 0))
         hdr_igst = Decimal(str(invoice.igst_total or 0))
         hdr_cess = Decimal(str(getattr(invoice, "cess_total", 0) or 0))
+        # Taxable freight/packing is a synthetic tax line (core.services.charges.charge_line) that the
+        # header totals include and the item lines do not; count it on the line side too, or every
+        # invoice with taxed charges would be refused here.
+        charge = taxable_charge_line(invoice, hdr_igst - line_igst)
+        if charge is not None:
+            line_cgst += charge.cgst
+            line_sgst += charge.sgst
+            line_igst += charge.igst
         drift = (
             abs(line_cgst - hdr_cgst)
             + abs(line_sgst - hdr_sgst)
@@ -833,7 +904,7 @@ class PostingService:
         entry's 5400 debit so callers that don't separately re-run COGS
         (notes_services, recurring, import) don't leave COGS understated.
         """
-        if not invoice.company.accounting_enabled:
+        if not posts_to_ledger(invoice.company):
             return None
         # The invoice was loaded by the viewset with `prefetch_related("items")`,
         # so `set_items` mutated + bulk_updated fresh rows while `invoice.items`
@@ -914,7 +985,7 @@ class PostingService:
         here does not need a blind re-post — the fresh `post_purchase` is
         self-consistent with the invoice's current IMS state.
         """
-        if not invoice.company.accounting_enabled:
+        if not posts_to_ledger(invoice.company):
             return None
         # Evict the viewset's prefetched `items` cache so `post_purchase` re-reads
         # the amended line taxable/tax (else the GL entry is unbalanced — the
@@ -1034,7 +1105,7 @@ class PostingService:
         re-posts to reflect an edited opening balance.
         """
         company = bank_account.company
-        if not getattr(company, "accounting_enabled", False):
+        if not posts_to_ledger(company):
             return None
         amount = Decimal(str(getattr(bank_account, "opening_balance", 0) or 0))
         cls._ensure_chart(company)
@@ -1166,7 +1237,7 @@ class PostingService:
         idempotent per movement."""
         company = movement.company
         entry = cls.STOCK_WRITE_PURPOSES.get(movement.reference_type or "")
-        if entry is None or not getattr(company, "accounting_enabled", False):
+        if entry is None or not posts_to_ledger(company):
             return None
         from core.services.feature_flags import flag_enabled
 
@@ -1651,7 +1722,7 @@ class PostingService:
         Idempotent on (BILL_OF_ENTRY, id, COMPLETE).
         """
         company = boe.company
-        if not getattr(company, "accounting_enabled", False):
+        if not posts_to_ledger(company):
             return None
         cls._ensure_chart(company)
         igst = Decimal(str(boe.igst_amount or 0))
@@ -1939,6 +2010,13 @@ class PostingService:
                         "debit": advance_debit,
                         "supplier": note.supplier,
                     })
+                # A share of an invoice-level discount sits between taxable_total and grand_total; the
+                # stock leg is what the note is worth after tax, charges and rounding (the bill booked
+                # stock net of its discount), so the entry balances.
+                if not cap:
+                    residual = Decimal(str(note.grand_total or 0)) - tax - round_off - charges
+                    if residual >= 0 and abs(residual - inv_amt) > Decimal("0.005"):
+                        inv_amt = residual
                 lines.append({"account": cls._account(note.company, "1400"), "credit": inv_amt})
                 lines.extend(itc_lines)
                 if charges > 0:
@@ -2020,7 +2098,7 @@ class PostingService:
     @classmethod
     def post_work_order_release(cls, wo, amount, user=None):
         amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if amt <= 0 or not getattr(wo.company, "accounting_enabled", False):
+        if amt <= 0 or not posts_to_ledger(wo.company):
             return None
         cls._ensure_chart(wo.company)
         entry_date = getattr(wo, "released_at", None) or timezone.localdate()
@@ -2041,7 +2119,7 @@ class PostingService:
     @classmethod
     def post_work_order_complete(cls, wo, amount, user=None):
         amt = Decimal(str(amount or 0))
-        if amt <= 0 or not getattr(wo.company, "accounting_enabled", False):
+        if amt <= 0 or not posts_to_ledger(wo.company):
             return None
         cls._ensure_chart(wo.company)
         entry_date = (
@@ -2065,7 +2143,7 @@ class PostingService:
 
     @classmethod
     def reverse_work_order(cls, wo, user=None):
-        if not getattr(wo.company, "accounting_enabled", False):
+        if not posts_to_ledger(wo.company):
             return
         qs = JournalEntry.objects.filter(
             company=wo.company,
@@ -2073,9 +2151,114 @@ class PostingService:
             source_id=wo.id,
             status=JournalEntry.Status.POSTED,
         )
-        for purpose in ("COMPLETE", "RELEASE"):
+        for purpose in ("COMPLETE_ROUND", "COMPLETE", "RELEASE"):
             for entry in qs.filter(purpose=purpose):
                 cls.reverse(entry, user=user)
+
+    # --- Manufacturing documents (MFG-06..09, MFG-37) ------------------------------------------
+    # One journal per posted document, keyed (MFG_*, document id, purpose), so a retry cannot
+    # double-post and a reversal finds exactly the entries the document wrote.
+
+    @classmethod
+    def post_mfg_wip(cls, *, company, source_type, source_id, purpose, entry_date, amount,
+                     into_wip, narration, user=None):
+        """Move ``amount`` between Inventory (1400) and Work in Progress (1450).
+
+        ``into_wip=True`` is an issue of materials (Dr WIP / Cr Inventory);
+        ``False`` is stock coming out of WIP (a return, or finished goods received).
+        """
+        amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amt <= 0 or not posts_to_ledger(company):
+            return None
+        cls._ensure_chart(company)
+        wip, inv = cls._account(company, "1450"), cls._account(company, "1400")
+        debit, credit = (wip, inv) if into_wip else (inv, wip)
+        return cls.post(
+            company=company, source_type=source_type, source_id=source_id, purpose=purpose,
+            entry_date=entry_date or timezone.localdate(), user=user, narration=narration,
+            lines=[{"account": debit, "debit": amt}, {"account": credit, "credit": amt}],
+        )
+
+    @classmethod
+    def post_mfg_absorption(cls, *, company, source_type, source_id, purpose, entry_date, amount=None,
+                            narration, user=None, credits=None, debit_code="1450"):
+        """Cost added to WIP without stock moving (additional cost, labour, overhead).
+
+        Dr Work in Progress / Cr the absorbed-cost accounts. ``credits`` is a list of
+        ``(account_code, amount)``; without it the whole ``amount`` goes to Manufacturing Expenses
+        Absorbed (5410). ``debit_code`` is 1450 (work in progress) unless the cost goes straight into
+        finished stock, as a job charge does (1400).
+        """
+        credits = credits or [("5410", amount)]
+        parts = [
+            (code, Decimal(str(amt or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for code, amt in credits
+        ]
+        parts = [(code, amt) for code, amt in parts if amt > 0]
+        if not parts or not posts_to_ledger(company):
+            return None
+        total = sum((amt for _c, amt in parts), Decimal("0"))
+        cls._ensure_chart(company)
+        return cls.post(
+            company=company, source_type=source_type, source_id=source_id, purpose=purpose,
+            entry_date=entry_date or timezone.localdate(), user=user, narration=narration,
+            lines=[{"account": cls._account(company, debit_code), "debit": total}] + [
+                {"account": cls._account(company, code), "credit": amt} for code, amt in parts
+            ],
+        )
+
+    @classmethod
+    def post_mfg_variance(cls, *, company, source_type, source_id, purpose, entry_date, amount,
+                          narration, user=None, account_code="5420"):
+        """Clear what is left in a work order's WIP to Manufacturing Variance (5420).
+
+        Positive ``amount`` = the order cost more than it produced (Dr 5420 / Cr 1450);
+        negative = it produced more than it cost.
+        """
+        amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amt == 0 or not posts_to_ledger(company):
+            return None
+        cls._ensure_chart(company)
+        wip, var = cls._account(company, "1450"), cls._account(company, account_code)
+        debit, credit = (var, wip) if amt > 0 else (wip, var)
+        return cls.post(
+            company=company, source_type=source_type, source_id=source_id, purpose=purpose,
+            entry_date=entry_date or timezone.localdate(), user=user, narration=narration,
+            lines=[{"account": debit, "debit": abs(amt)}, {"account": credit, "credit": abs(amt)}],
+        )
+
+    @classmethod
+    def post_mfg_revaluation(cls, *, company, source_type, source_id, purpose, entry_date, amount,
+                             narration, user=None):
+        """Stock on hand re-priced to a new standard cost (QOS-0146).
+
+        Positive ``amount`` = the stock is now worth more (Dr Inventory 1400 / Cr Manufacturing
+        Variance 5420); negative = worth less (the reverse).
+        """
+        amt = Decimal(str(amount or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if amt == 0 or not posts_to_ledger(company):
+            return None
+        cls._ensure_chart(company)
+        inv, var = cls._account(company, "1400"), cls._account(company, "5420")
+        debit, credit = (inv, var) if amt > 0 else (var, inv)
+        return cls.post(
+            company=company, source_type=source_type, source_id=source_id, purpose=purpose,
+            entry_date=entry_date or timezone.localdate(), user=user, narration=narration,
+            lines=[{"account": debit, "debit": abs(amt)}, {"account": credit, "credit": abs(amt)}],
+        )
+
+    @classmethod
+    def reverse_mfg_document(cls, *, company, source_type, source_id, user=None, entry_date=None):
+        """Reverse every posted journal a manufacturing document wrote."""
+        if not posts_to_ledger(company):
+            return 0
+        n = 0
+        for entry in JournalEntry.objects.filter(
+            company=company, source_type=source_type, source_id=source_id,
+            status=JournalEntry.Status.POSTED,
+        ).exclude(purpose="REVERSE"):
+            cls.reverse(entry, user=user, entry_date=entry_date)
+            n += 1
+        return n
 
     @classmethod
     @transaction.atomic
@@ -2306,7 +2489,10 @@ class BooksHealthService:
         # stale RELEASED work order must still be able to close periods.
         mfg_on = BooksHealthService.manufacturing_books_required(company)
         wo_qs = (
-            WorkOrder.objects.filter(company=company, status=WorkOrder.Status.RELEASED)
+            WorkOrder.objects.filter(company=company).filter(
+                Q(status__in=[WorkOrder.Status.RELEASED, WorkOrder.Status.IN_PROGRESS])
+                | Q(status=WorkOrder.Status.COMPLETED, issue_mode=WorkOrder.IssueMode.SEPARATE)
+            )
             if mfg_on
             else WorkOrder.objects.none()
         )
@@ -2477,6 +2663,24 @@ class BooksHealthService:
         # whenever unallocated receipts exist and blocks period close.
         expected_ar = tagged_net("1200", "customer")
         expected_ap = -tagged_net("2100", "supplier")
+        # A Bill of Entry with no supplier credits its customs duty to 2100 untagged: duty is owed to
+        # customs, not a supplier (known limitation D10). It is not a missing party tag, so it must not
+        # raise AP_CONTROL_MISMATCH and block period close.
+        boe_untagged = JournalLine.objects.filter(
+            entry__company=company,
+            entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+            account__code="2100",
+            supplier__isnull=True,
+        ).filter(
+            Q(entry__source_type="BILL_OF_ENTRY")
+            | Q(
+                entry__source_type="JOURNAL_REVERSAL",
+                entry__source_id__in=JournalEntry.objects.filter(
+                    company=company, source_type="BILL_OF_ENTRY",
+                ).values("id"),
+            )
+        ).aggregate(d=Sum("debit"), c=Sum("credit"))
+        boe_duty_untagged = (boe_untagged["c"] or Decimal("0")) - (boe_untagged["d"] or Decimal("0"))
         # 2300/1250 are advances, not invoice AR/AP. Document outstanding
         # (B1-009) does not net unallocated receipts; folding 2300 into this
         # identity false-blocks period close after a return auto-unallocates
@@ -2486,7 +2690,7 @@ class BooksHealthService:
         # must not hard-block period close. Tolerance mirrors _advance_recon_alerts.
         _CONTROL_TOLERANCE = Decimal("1.00")
         ar_healthy = abs(ar - expected_ar) <= _CONTROL_TOLERANCE
-        ap_healthy = abs(ap - expected_ap) <= _CONTROL_TOLERANCE
+        ap_healthy = abs(ap - boe_duty_untagged - expected_ap) <= _CONTROL_TOLERANCE
         if not ar_healthy:
             alerts.append({"code": "AR_CONTROL_MISMATCH", "severity": "error", "message": "Accounts receivable control balance differs from customer ledger."})
         if not ap_healthy:
@@ -2512,7 +2716,7 @@ class BooksHealthService:
         # older than the cutoff warn as legacy_unposted instead of blocking.
         missing = False
         legacy_unposted = 0
-        if company.accounting_enabled:
+        if posts_to_ledger(company):  # WP-F2: shadow books are checked too
             def _has_missing(qs, source_type, purpose=None):
                 return BooksHealthService._unposted_qs(
                     company, qs, source_type, purpose,
@@ -2644,13 +2848,13 @@ class BooksHealthService:
                     "missing-posting cutoff have no journal entry."
                 ),
             })
-        if company.accounting_enabled:
+        if posts_to_ledger(company):  # WP-F2: shadow books are checked too
             alerts.extend(BooksHealthService._unposted_pay_run_alerts(company))
         alerts.extend(BooksHealthService._depreciation_alerts(company))
         alerts.extend(BooksHealthService._expense_posting_alerts(company))
         alerts.extend(BooksHealthService._advance_recon_alerts(company))
         # CR-082: document invoice outstanding vs tagged AR/AP control (1200/2100).
-        if company.accounting_enabled:
+        if posts_to_ledger(company):  # WP-F2: shadow books are checked too
             alerts.extend(BooksHealthService._docs_gl_party_alerts(company, expected_ar, expected_ap))
         return {"ar": {"gl": ar, "ledger": expected_ar, "healthy": ar_healthy},
                 "ap": {"gl": ap, "ledger": expected_ap, "healthy": ap_healthy}, "alerts": alerts}
@@ -2737,6 +2941,31 @@ class BooksHealthService:
                         company.outstanding_basis = "GL_WHEN_BOOKS"
             else:
                 company.outstanding_basis = prev
+        # WP-F4: an opening balance or correction booked as a manual journal tagged to a party is
+        # outstanding too, but no document carries it. Same for a Bill of Entry (known limitation D10:
+        # its duty payable lives only in the ledger; document outstanding covers bills, not BoEs).
+        # Add those tagged lines (and their reversals, which net them out) to the document side, so a
+        # legitimate migration or import is not reported as a mismatch. A cheque dishonour fee charged
+        # to the customer and a fixed asset bought on credit are the same: owed to or by a party, with no
+        # invoice or bill behind them (fixed assets are known limitation D6).
+        manual_sources = ("MANUAL_JOURNAL", "", "EQUITY", "BILL_OF_ENTRY", "CHEQUE_DISHONOUR", "FIXED_ASSET")
+        manual_ids = JournalEntry.objects.filter(company=company, source_type__in=manual_sources).values("id")
+        manual_q = Q(entry__source_type__in=manual_sources) | Q(
+            entry__source_type="JOURNAL_REVERSAL", entry__source_id__in=manual_ids,
+        )
+
+        def _manual_tagged_net(code, party_field):
+            agg = JournalLine.objects.filter(
+                manual_q,
+                entry__company=company,
+                entry__status__in=[JournalEntry.Status.POSTED, JournalEntry.Status.REVERSED],
+                account__code=code,
+                **{f"{party_field}__isnull": False},
+            ).aggregate(d=Sum("debit"), c=Sum("credit"))
+            return (agg["d"] or Decimal("0")) - (agg["c"] or Decimal("0"))
+
+        doc_ar += _manual_tagged_net("1200", "customer")
+        doc_ap += -_manual_tagged_net("2100", "supplier")
         alerts = []
         if abs(doc_ar - gl_ar) > _TOL:
             alerts.append({

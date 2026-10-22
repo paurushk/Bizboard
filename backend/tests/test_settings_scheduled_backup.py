@@ -62,12 +62,12 @@ def test_a_failure_is_recorded_not_raised_and_other_companies_still_run(tenant_a
 
     with mock.patch("accounts.scheduled_backup.build_export_payload", side_effect=flaky):
         result = run_scheduled_backups_task()
-    assert result == {"taken": 1, "failed": 1}
+    assert result == {"queued": 2}  # WP-E1: one task per company; outcomes are on each company
     last = tenant_a.client.get(URL).data["last_run"]
     assert last["ok"] is False and "disk full" in last["error"]
     assert tenant_b.client.get(URL).data["last_run"]["ok"] is True
 
 
 def test_companies_that_did_not_opt_in_are_skipped(tenant_a):
-    assert run_scheduled_backups_task() == {"taken": 0, "failed": 0}
+    assert run_scheduled_backups_task() == {"queued": 0}
     assert stored_backups(tenant_a.company).count() == 0

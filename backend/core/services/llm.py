@@ -626,6 +626,13 @@ def extract_purchase_bill(images: list[bytes]) -> dict[str, Any]:
         *,
         max_tokens: int = EXTRACT_MAX_TOKENS,
     ) -> tuple[dict[str, Any], str | None]:
+        from core.services import ai_spend
+
+        # WP-I1: every page window is one model call; reserve its worst case (no usage is returned).
+        with ai_spend.guarded(max_tokens + 1500 * len(call_images)):
+            return _call_provider(prompt, call_images, max_tokens=max_tokens)
+
+    def _call_provider(prompt, call_images, *, max_tokens):
         if provider == "openai":
             return _extract_openai_compatible(
                 api_key=getattr(settings, "OPENAI_API_KEY", "") or "",
@@ -726,6 +733,18 @@ def chat_with_tools(
     Returns {content, tool_calls:[{id,name,arguments}], usage:{tokens_in,tokens_out}, model}.
     Raises BusinessRuleError if provider/key missing.
     """
+    from core.services import ai_spend
+
+    # WP-I1: reserve before the call; settle to the reported usage afterwards.
+    estimate = 2048 + sum(len(str(m.get("content") or "")) for m in messages) // 4
+    with ai_spend.guarded(estimate) as res:
+        out = _chat_with_tools(messages=messages, tools=tools)
+        usage = out.get("usage") or {}
+        res.actual = int(usage.get("tokens_in", 0) or 0) + int(usage.get("tokens_out", 0) or 0) or None
+    return out
+
+
+def _chat_with_tools(*, messages, tools) -> dict[str, Any]:
     provider = _provider()
     model = _model_for(provider)
     tools = tools or []

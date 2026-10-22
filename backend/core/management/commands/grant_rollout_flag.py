@@ -12,7 +12,7 @@ import os
 from django.core.management.base import BaseCommand, CommandError
 
 from accounts.models import CompanyUser, User
-from core.services.feature_flags import ROLLOUT_GRANTABLE_KEYS
+from core.services.feature_flags import COMPANY_ROLLOUT_KEYS, ROLLOUT_GRANTABLE_KEYS
 
 
 class Command(BaseCommand):
@@ -26,7 +26,8 @@ class Command(BaseCommand):
         if os.environ.get("E2E_GOLDEN_GRANT") != "1":
             raise CommandError("Refusing to grant a flag unless E2E_GOLDEN_GRANT=1.")
         flag = options["flag"]
-        if flag not in ROLLOUT_GRANTABLE_KEYS:
+        # The agent switches are per-company flags read from feature_flags, not rollout keys.
+        if flag not in ROLLOUT_GRANTABLE_KEYS and flag not in COMPANY_ROLLOUT_KEYS and flag != "ENABLE_AGENTS" and not flag.startswith("AGENT_"):
             raise CommandError(f"{flag} is not a rollout flag.")
         user = User.objects.filter(email__iexact=options["email"]).first()
         if user is None:

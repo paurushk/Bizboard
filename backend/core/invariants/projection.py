@@ -56,8 +56,12 @@ def open_invoice_outstanding_equals_aging(company) -> list[str]:
     from sales.models import SalesInvoice
     from sales.status_semantics import OPEN_RECEIVABLE_STATUSES
 
+    # CR-145: opening-balance invoices stay out of aging and the dashboard by decision, so the sum
+    # compared against them leaves them out too.
     ids = list(
-        SalesInvoice.objects.filter(company=company, status__in=OPEN_RECEIVABLE_STATUSES).values_list("pk", flat=True)[:2000]
+        SalesInvoice.objects.filter(
+            company=company, status__in=OPEN_RECEIVABLE_STATUSES, is_opening_balance=False,
+        ).values_list("pk", flat=True)[:2000]
     )
     if not ids:
         return []

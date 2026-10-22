@@ -159,6 +159,7 @@ def test_the_sweep_actually_catches_a_broken_journal(tenant_a):
         assert_all_invariants(company)  # red
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_sequences_intact_flags_a_gap(tenant_a):
     """Deleting the middle completed invoice leaves a numbering gap the callable
     detects (proves it can actually fail)."""

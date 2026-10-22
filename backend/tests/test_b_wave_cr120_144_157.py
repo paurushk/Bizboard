@@ -101,6 +101,9 @@ def test_cr144_restamp_calls_stamp_cost(monkeypatch, tenant_a):
     assert calls == [move.pk]
 
 
+# Builds ledger rows straight through the ORM with no documents behind them, so the
+# docs-vs-ledger and empty-entry invariants (WP-F4 / WP-F6) are expected to flag it.
+@pytest.mark.no_invariant_check
 def test_cr157_advance_receipt_control_healthy(tenant_a):
     company = tenant_a.company
     if not company.accounting_enabled:

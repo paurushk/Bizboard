@@ -56,6 +56,16 @@ describe('AccountingSettingsPage', () => {
     expect(screen.queryByRole('button', { name: t('sweep2.enableAccounting') })).toBeNull();
   });
 
+  it('shows neither button while the state is loading, so a quick click cannot hit the wrong one', async () => {
+    let resolve: (v: { accountingEnabled: boolean }) => void = () => undefined;
+    api.getAccountingSettings.mockReturnValue(new Promise((r) => { resolve = r; }));
+    renderPage();
+    expect(screen.queryByRole('button', { name: t('sweep2.enableAccounting') })).toBeNull();
+    expect(screen.queryByRole('button', { name: t('acctSettings.switchOffButton') })).toBeNull();
+    resolve({ accountingEnabled: true });
+    expect(await screen.findByRole('button', { name: t('acctSettings.switchOffButton') })).toBeTruthy();
+  });
+
   it('offers Enable, and no switch-off, while the books are off', async () => {
     api.getAccountingSettings.mockResolvedValue({ accountingEnabled: false });
     renderPage();
@@ -85,6 +95,16 @@ describe('AccountingSettingsPage', () => {
       reason: 'Moving away',
       acknowledge: true,
     });
+  });
+
+  it('says the ledger keeps posting when the company has shadow books (WP-F2)', async () => {
+    api.getAccountingDisablePreflight.mockResolvedValue({ ...PREFLIGHT, postLedger: true });
+    renderPage();
+    await userEvent.click(await screen.findByRole('button', { name: t('acctSettings.switchOffButton') }));
+    const dialog = await screen.findByRole('dialog');
+    expect(await within(dialog).findByText(t('acctSettings.whatItDoesShadow'))).toBeTruthy();
+    expect(within(dialog).queryByText(t('acctSettings.whatItDoes'))).toBeNull();
+    expect(within(dialog).getByText(t('acctSettings.understandShadow'))).toBeTruthy();
   });
 
   it('needs no acknowledgement when nothing has been posted', async () => {

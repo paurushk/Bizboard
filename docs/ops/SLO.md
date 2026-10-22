@@ -23,3 +23,22 @@ O-Gate 1 is Sentry + on-call + basic `/metrics`. O-Gate 2 adds request
 correlation, the Complete journey funnel, and required `failure_reason`.
 O-Gate 3 is Journey Health, Experience proxies, production SLIs, and
 privacy-safe cohorts.
+
+## Performance targets (WP-G1, draft for signature)
+
+Measured at p95 over the run, server time (`bizboard_http_latency_ms`), on hosted staging with the
+`load/` scripts and the large-tenant seed. These feed `BizBoardSlowRequests` in
+`deploy/prometheus/alerts.yml`.
+
+| Action | p95 target | p99 ceiling | Script / scenario |
+|---|---|---|---|
+| Sign in | 500 ms | 1.5 s | `load/k6_slo.js` login |
+| Dashboard | 500 ms | 2 s | `load/k6_slo.js` dashboard |
+| Invoice Complete | 800 ms | 2 s | `load/k6_mixed.js` complete |
+| List screens (invoices, customers, stock) | 2 s | 4 s | `load/k6_mixed.js` lists |
+| Reports (TB, P&L, BS, GST worksheets) on the large tenant | 5 s | 8 s | `load/k6_mixed.js` reports |
+| Bill import of 200 lines | 10 s | 20 s | import scenario |
+| Nightly books check, 1,000 tenants | inside 02:20–04:00 IST | — | `sweep_all_tenants` timing |
+
+Error rate under the target load: < 0.5% non-4xx failures. Results go in a dated copy of
+`docs/ops/LOAD_RESULTS_TEMPLATE.md`.

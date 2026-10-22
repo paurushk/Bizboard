@@ -789,12 +789,13 @@ def close_financial_year(company, fy_end, user=None):
     from manufacturing.models import WorkOrder
 
     if BooksHealthService.manufacturing_books_required(company) and WorkOrder.objects.filter(
-        company=company,
-        status=WorkOrder.Status.RELEASED,
-        released_at__lte=fy_end,
+        company=company, released_at__lte=fy_end,
+    ).filter(
+        Q(status__in=[WorkOrder.Status.RELEASED, WorkOrder.Status.IN_PROGRESS])
+        | Q(status=WorkOrder.Status.COMPLETED, issue_mode=WorkOrder.IssueMode.SEPARATE)
     ).exists():
         raise BusinessRuleError(
-            "Financial-year close blocked: OPEN_WIP — released work orders exist. Complete or cancel them first."
+            "Financial-year close blocked: OPEN_WIP — work orders are still open or not yet closed. Complete or cancel them, and close the finished ones."
         )
     wip = JournalLine.objects.filter(
         entry__company=company,

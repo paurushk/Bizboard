@@ -11,6 +11,12 @@ ROTATION_ORDER = (
     "OTP_PEPPER",
     "GSP_FERNET_KEY",
     "TENANT_EXPORT_FERNET_KEY",
+    # WP-B3: encryption keys that hold data at rest. Each takes a list (new first) and
+    # rotate_encrypted_fields re-encrypts the stored values; see docs/ops/SECRET_ROTATION.md.
+    "MFA_ENCRYPTION_KEY",
+    "PLANWAVE_DATA_KEY",
+    "METRICS_TOKEN",
+    "APP_DB_PASSWORD",
     "RAZORPAY_KEY_SECRET",
     "RAZORPAY_WEBHOOK_SECRET",
     "SANDBOX_WEBHOOK_SECRET",

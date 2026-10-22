@@ -20,13 +20,46 @@ class BusinessRuleError(APIException):
         self.extra = extra or {}
 
 
+# Words shown in capitals when a field name is turned into a label (gstin → GSTIN).
+_LABEL_ACRONYMS = frozenset(
+    {
+        "bom", "cgst", "cin", "grn", "gst", "gstin", "hsn", "id", "ifsc", "igst", "irn",
+        "mrp", "otp", "pan", "pdf", "po", "sac", "sgst", "sku", "tan", "tcs", "tds",
+        "uom", "upi", "url",
+    }
+)
+_NO_LABEL_FIELDS = frozenset({"non_field_errors", "__all__", "detail", "message", "string"})
+
+
+def field_label(key) -> str:
+    """Readable label for an error key: ``company_name`` → ``Company name``.
+
+    Keys that carry no field (``non_field_errors``) give ``""`` so the message
+    is shown on its own, never as ``non_field_errors: …``.
+    """
+    import re
+
+    text = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", str(key)).lower()
+    if text in _NO_LABEL_FIELDS:
+        return ""
+    words = [w for w in re.split(r"[_.\s]+", text) if w]
+    if not words:
+        return ""
+    out = [w.upper() if w in _LABEL_ACRONYMS else w for w in words]
+    if out[0] == words[0]:
+        out[0] = out[0].capitalize()
+    return " ".join(out)
+
+
+def _labelled(key, text: str) -> str:
+    label = field_label(key)
+    return f"{label}: {text}" if label else text
+
+
 def _plain_detail(value):
     """Turn nested ErrorDetail / dict payloads into a readable sentence."""
     if isinstance(value, dict):
-        bits = []
-        for key, item in value.items():
-            text = _plain_detail(item)
-            bits.append(f"{key}: {text}" if key not in {"message", "string"} else text)
+        bits = [_labelled(key, _plain_detail(item)) for key, item in value.items()]
         return "; ".join(bit for bit in bits if bit)
     if isinstance(value, (list, tuple)):
         return "; ".join(_plain_detail(item) for item in value)
@@ -240,7 +273,7 @@ def api_exception_handler(exc, context):
         if hasattr(exc, "message_dict"):
             details = exc.message_dict
             message = "; ".join(
-                f"{k}: {', '.join(str(m) for m in v)}" for k, v in exc.message_dict.items()
+                _labelled(k, ", ".join(str(m) for m in v)) for k, v in exc.message_dict.items()
             )
         else:
             details = {"non_field_errors": list(exc.messages)}
@@ -301,10 +334,9 @@ def api_exception_handler(exc, context):
         for k, v in detail.items():
             msgs = v if isinstance(v, list) else [v]
             for m in msgs:
-                if isinstance(m, dict):
-                    parts.append(f"{k}: {_plain_detail(m)}")
-                else:
-                    parts.append(f"{k}: {_plain_detail(m)}" if k != "non_field_errors" else _plain_detail(m))
+                text = _plain_detail(m)
+                if text:  # a list-of-rows error has {} for the rows that are fine
+                    parts.append(_labelled(k, text))
         message = "; ".join(parts) if parts else (
             "Validation failed." if response.status_code == 400 else "Request failed."
         )

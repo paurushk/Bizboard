@@ -48,6 +48,7 @@ def _open_period(company, *, name="Sep 2026", start=date(2026, 9, 1), end=date(2
     )
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_completed_pcn_without_je_blocks_after_cutoff(books):
     """R-019: completed PCN with no JE after the cutoff blocks period close."""
     _open_period(books.company)
@@ -69,6 +70,7 @@ def test_completed_pcn_without_je_blocks_after_cutoff(books):
         BooksHealthService.assert_period_close_allowed(books.company, period="2026-09")
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_legacy_pcn_without_je_warns_not_blocks(books):
     """R-019: completed_at < cutoff is legacy_unposted (warning), not a blocker."""
     _open_period(books.company)
@@ -140,7 +142,7 @@ def test_work_order_release_stamps_released_at_if_null(books):
     assert wo.released_at is None
     release_work_order(wo, books.owner)
     wo.refresh_from_db()
-    assert wo.released_at == timezone.now().date()
+    assert wo.released_at == timezone.localdate()  # the business date (IST), not the UTC date
 
 
 def test_accounting_close_warns_when_gst_period_open(books):
@@ -173,6 +175,7 @@ def test_gst_soft_close_warns_when_accounting_period_open(books):
     assert gst.status == GstReturnPeriod.Status.SOFT_CLOSED
 
 
+@pytest.mark.invariant_skip("gl.ap_ties_to_documents", reason="purchase documents or journals are built through the ORM, so payables in the ledger and on documents cannot tie")
 def test_backfill_missing_postings_dry_run(books):
     from django.core.management import call_command
     from io import StringIO

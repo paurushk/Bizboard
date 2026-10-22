@@ -1,0 +1,26 @@
+id: "QOS-0144"
+category: "USABILITY"
+title: "Shop-floor tablet: try it on a real device on the floor"
+persona: ["P2"]
+journey: "An operator starts, pauses and finishes a job card on a tablet with gloves and poor light"
+problem: "The tablet page (/floor) was checked in a desktop browser and by unit tests. Button size, readability in bright light, the PIN pad on a real keyboard and the polling every 20 seconds have not been tried on an actual tablet by an actual operator."
+evidence:
+  strength: "heuristic"
+  source: ["docs/MANUFACTURING_IMPLEMENTATION_PLAN.md"]
+  detail: "web/src/pages/manufacturing/FloorTabletPage.tsx; backend/tests/test_mfg_shopfloor.py covers the PIN lock-out and the token. No device check has been done."
+scoring:
+  reach: 2
+  severity: 2
+  frequency: 2
+  impact_band: "Low"
+business_metric: "none"
+priority: "P3"
+priority_rationale: "Impact Low. The behaviour is built and tested; this closes the human check. The sub-module stays off for every company until it is granted."
+effort: "S"
+recommendation: "Put /floor?company=<id> on one Android tablet on a floor, have an operator sign in and run three job cards, and note anything hard to tap or read. Also switch the tablet's network off for a few taps and confirm the taps are kept and sent, in order, when it is back."
+test_required: "web/e2e/mobile-layout.spec.ts"
+guard_ref: null
+lifecycle: "open"
+owner: "founder"
+opened: "2026-10-21"
+closed: null

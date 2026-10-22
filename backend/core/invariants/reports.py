@@ -7,6 +7,7 @@ aggregation is caught even if that report has no direct test.
 
 from __future__ import annotations
 
+from accounting.books import posts_to_ledger
 from datetime import date
 from decimal import Decimal
 
@@ -28,7 +29,7 @@ def pnl_reconciles_to_trial_balance(company) -> list[str]:
     from accounting.models import Account
     from accounting.reports import profit_and_loss
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return []
     from accounting.reports import _balances
 
@@ -62,7 +63,7 @@ def pnl_reconciles_to_trial_balance(company) -> list[str]:
 def balance_sheet_equation_holds(company) -> list[str]:
     from accounting.reports import balance_sheet
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return []
     bs = balance_sheet(company)
     if not bs.get("equation_holds", False):
@@ -88,7 +89,7 @@ def opening_ties_out(company) -> list[str]:
     from accounting.models import JournalEntry, JournalLine
     from inventory.models import InventoryRunningCost
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return []
 
     def _net(code):
@@ -137,7 +138,7 @@ def inventory_gl_matches_running_cost(company) -> list[str]:
     from accounting.models import Account, JournalEntry, JournalLine
     from inventory.models import InventoryRunningCost
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return []
     acc = (
         Account.objects.filter(company=company, type=Account.Type.ASSET)
@@ -195,7 +196,7 @@ def cross_reconcile(company) -> list[str]:
     from accounting.models import Account
     from accounting.reports import _balances, profit_and_loss, trial_balance
 
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return []
 
     out: list[str] = []

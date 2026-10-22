@@ -93,6 +93,38 @@ class User(AbstractBaseUser, PermissionsMixin):
         ]
 
 
+class LegalAcceptance(models.Model):
+    """WP-H5 (DPDP): who accepted which version of which legal document, when. Append-only.
+
+    No ``company`` foreign key on purpose: Terms and Privacy are accepted by a person before any
+    tenant exists. ``company_id`` (plain id) records the company for a DPA accepted by its owner.
+    Reads and writes go through ``accounts.legal``.
+    """
+
+    class Document(models.TextChoices):
+        TOS = "TOS", "Terms of Service"
+        PRIVACY = "PRIVACY", "Privacy Policy"
+        DPA = "DPA", "Data Processing Agreement"
+        BETA = "BETA", "Beta agreement"
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="legal_acceptances")
+    document = models.CharField(max_length=16, choices=Document.choices)
+    version = models.CharField(max_length=64)
+    company_id = models.PositiveBigIntegerField(null=True, blank=True)
+    accepted_at = models.DateTimeField(auto_now_add=True)
+    ip_hash = models.CharField(max_length=64, blank=True, default="")
+    user_agent = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-accepted_at", "-id"]
+        indexes = [models.Index(fields=["user", "document", "version"], name="legal_user_doc_version_idx")]
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("Legal acceptances are append-only.")
+        super().save(*args, **kwargs)
+
+
 class UserMfa(models.Model):
     """TOTP second factor for a user (F-SEC-02). Exists once enrolment starts;
     only ``confirmed_at`` set means the factor is enforced at login."""
@@ -258,6 +290,9 @@ class Company(TimeStampedModel):
     stock_on_delivery_challan = models.BooleanField(default=False)
     # Phase 5 — light accounting
     accounting_enabled = models.BooleanField(default=False)
+    # WP-F2 shadow books: documents post to the ledger even while the Books switch is off, so
+    # turning books on later changes no number and needs no back-fill. Platform-controlled.
+    post_ledger = models.BooleanField(default=True)
     # ACC-04: when on, PostingService.post / assert_period_allows_money_amend
     # reject a date that is not inside an OPEN AccountingPeriod (not just one
     # that is explicitly CLOSED). Off by default for back-compat.

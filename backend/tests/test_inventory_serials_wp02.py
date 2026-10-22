@@ -21,6 +21,7 @@ def _serial_product(tenant, sku):
     return make_product(tenant.company, sku=sku, track_serial=True)
 
 
+@pytest.mark.invariant_skip("inventory.serial_traceability", reason="serial rows are created directly through the ORM, without a godown or movement")
 def test_available_serial_cannot_be_marked_sold_by_hand(tenant_a):
     product = _serial_product(tenant_a, "SER-SOLD")
     serial = SerialNumber.objects.create(company=tenant_a.company, product=product, serial_number="A1")
@@ -52,6 +53,7 @@ def test_scrapped_serial_has_no_way_out(tenant_a):
         assert _transition(tenant_a.client, serial, target).status_code == 400
 
 
+@pytest.mark.invariant_skip("inventory.serial_traceability", reason="serial rows are created directly through the ORM, without a godown or movement")
 def test_search_matches_part_of_a_serial_number(tenant_a):
     product = _serial_product(tenant_a, "SER-FIND")
     for number in ("ABC-100", "ABC-200", "XYZ-300"):
@@ -62,6 +64,7 @@ def test_search_matches_part_of_a_serial_number(tenant_a):
     assert sorted(r["serial_number"] for r in rows) == ["ABC-100", "ABC-200"]
 
 
+@pytest.mark.invariant_skip("inventory.serial_traceability", reason="serial rows are created directly through the ORM, without a godown or movement")
 def test_document_link_is_empty_for_a_unit_that_is_not_sold_or_cannot_be_traced(tenant_a):
     product = _serial_product(tenant_a, "SER-DOC")
     available = SerialNumber.objects.create(company=tenant_a.company, product=product, serial_number="D1")

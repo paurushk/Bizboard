@@ -386,6 +386,7 @@ def test_a_viewer_reads_jobs_but_cannot_change_them_and_other_companies_see_noth
     assert tenant_b.client.get(URL, {"q": "noise"}).data["count"] == 0
 
 
+@pytest.mark.invariant_skip("inventory.serial_traceability", reason="serial rows are created directly through the ORM, without a godown or movement")
 def test_stock_options_list_available_serials_and_batches_for_service_staff(tenant_a):
     from inventory.models import BatchLot, SerialNumber
 

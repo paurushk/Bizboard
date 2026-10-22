@@ -94,6 +94,11 @@ class GoodsReceiptService:
                     f"received ({received}) for '{item.product.name}'."
                 )
 
+        # MFG-21: an item that needs inspection is not received until its inspection is decided.
+        from quality.hooks import assert_grn_inspected
+
+        assert_grn_inspected(grn, items)
+
         # G-21: period gate before number/status/stock — a GRN posts
         # valuation-carrying stock (unit_cost), same as PurchaseInvoice.complete,
         # so it must not be completable with a receipt_date inside a locked period.
@@ -141,6 +146,13 @@ class GoodsReceiptService:
                     )
                     item.batch = batch
                     item.save(update_fields=["batch", "updated_at"])
+            # MFG-20: an item flagged "receive into quarantine" goes to the quarantine godown, in a lot
+            # that cannot be used until quality releases it.
+            from quality import hooks as quality_hooks
+
+            post_warehouse = quality_hooks.quarantine_target(grn.company, item.product) or warehouse
+            if post_warehouse is not warehouse and batch is not None:
+                quality_hooks.mark_quarantined(batch, user)
             if item.product.track_serial:
                 numbers = list(item.serial_numbers or [])
                 if len(numbers) != int(accepted):
@@ -150,7 +162,7 @@ class GoodsReceiptService:
                 SerialNumberService.receive(
                     company=grn.company,
                     product=item.product,
-                    warehouse=warehouse,
+                    warehouse=post_warehouse,
                     numbers=numbers,
                     quantity=accepted,
                     user=user,
@@ -158,7 +170,7 @@ class GoodsReceiptService:
 
             InventoryService.post_movement(
                 company=grn.company,
-                warehouse=warehouse,
+                warehouse=post_warehouse,
                 product=item.product,
                 batch=batch,
                 movement_type=MovementType.PURCHASE,
@@ -171,6 +183,15 @@ class GoodsReceiptService:
                 user=user,
                 movement_date=grn.receipt_date,
             )
+            if post_warehouse is not warehouse:
+                quality_hooks.after_grn_item_received(grn, item, batch, accepted, user)
+
+        if getattr(warehouse, "kind", "NORMAL") == "JOB_WORKER":
+            # MFG-24: the supplier shipped straight to the job worker. Write the challan that lets the
+            # sending be settled, aged and reported (ITC-04 table 4, "sent directly from supplier").
+            from jobwork.services.out import register_direct_receipt
+
+            register_direct_receipt(grn, user)
 
         _draft_rejection_debit_note(grn, items, user)
         from core.services.audit import record_document_event

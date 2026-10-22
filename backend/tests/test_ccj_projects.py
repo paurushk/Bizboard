@@ -225,6 +225,7 @@ def test_a_project_can_name_a_contract_of_the_same_customer(tenant_a):
     assert [row["kind"] for row in links] == ["project"]
 
 
+@pytest.mark.invariant_skip("roadmap.milestone_invoice_same_company", reason="the milestone is marked invoiced directly through the ORM")
 def test_overdue_milestones_are_reminded_once(tenant_a):
     _on(tenant_a)
     project = _project(tenant_a)

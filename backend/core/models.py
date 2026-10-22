@@ -517,3 +517,37 @@ def log_statutory_event(
         payload=payload or {},
         user=user,
     )
+
+
+class TenantSweepResult(models.Model):
+    """WP-E1 / DIM6-09: one row per company per nightly books check (``core.sweep``).
+
+    Written by the per-company sweep task under that company's RLS context. Read by
+    ops in Django admin (``TenantSweepResultAdmin``) and by the ``/metrics`` gauge.
+    """
+
+    class Status(models.TextChoices):
+        CLEAN = "CLEAN"
+        FAILED = "FAILED"
+        ERROR = "ERROR"
+        SKIPPED = "SKIPPED"
+
+    company = models.ForeignKey("accounts.Company", on_delete=models.CASCADE, related_name="sweep_results")
+    run_id = models.CharField(max_length=36, db_index=True)
+    status = models.CharField(max_length=8, choices=Status.choices)
+    full_sweep = models.BooleanField(default=False)
+    failing_keys = models.JSONField(default=list, blank=True)
+    error = models.CharField(max_length=500, blank=True, default="")
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField()
+    duration_ms = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+        indexes = [
+            models.Index(fields=["company", "status", "started_at"], name="core_sweep_company_status_idx"),
+            models.Index(fields=["status", "started_at"], name="core_sweep_status_started_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.company_id} {self.status} {self.started_at:%Y-%m-%d}"

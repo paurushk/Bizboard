@@ -219,7 +219,10 @@ def test_i2_pdf_is_queued_not_rendered_inline_in_production_mode(tenant_a, setti
 # quotation work); the budget had not been updated for the sales-history commits.
 # 109 -> 111: set_items asks once whether a job card or a project milestone owns the draft (two fixed queries, not per row).
 # 111 -> 112: completing a bill also records which statutory licences it printed (SET-03), one lookup.
-I2_QUERY_BUDGET = 112
+# 112 -> 166 (2026-10-22, WP-F2 shadow books): every company now posts the invoice to the ledger, which
+# books-on companies always paid for (measured 163 with a seeded chart, vs 111 without posting). The
+# chart is seeded first, as sign-up does. Lowering the posting cost is QOS-0003 work; do not raise again.
+I2_QUERY_BUDGET = 166
 
 
 def _queries_for_create_and_complete(tenant_a, lines: int):
@@ -228,6 +231,9 @@ def _queries_for_create_and_complete(tenant_a, lines: int):
 
     from core.seed_guard import seed_load_scope
 
+    from accounting.services import seed_chart_of_accounts
+
+    seed_chart_of_accounts(tenant_a.company)  # sign-up seeds the chart; measure posting, not one-off seeding
     customer = make_customer(tenant_a.company, state="Karnataka")
     products = []
     for i in range(lines):

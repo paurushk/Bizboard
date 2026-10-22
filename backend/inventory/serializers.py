@@ -168,9 +168,15 @@ class WarehouseSerializer(serializers.ModelSerializer):
         model = Warehouse
         fields = [
             "id", "name", "code", "address", "contact_name", "contact_phone",
-            "is_default", "is_active", "is_system", "created_at", "updated_at",
+            "is_default", "is_active", "is_system", "kind", "job_worker", "created_at", "updated_at",
         ]
-        read_only_fields = ["is_system"]
+        # A job-worker godown is made by the job-work flow (MFG-24), never by hand.
+        read_only_fields = ["is_system", "job_worker"]
+
+    def validate_kind(self, value):
+        if value == Warehouse.Kind.JOB_WORKER:
+            raise serializers.ValidationError("A godown at a job worker is created from the job work screen.")
+        return value
 
     def _company(self):
         if self.instance is not None:
@@ -550,6 +556,8 @@ class StockCountSessionSerializer(serializers.ModelSerializer):
     def validate_warehouse(self, value):
         if getattr(value, "is_system", False):
             raise serializers.ValidationError("The in-transit godown cannot be counted.")
+        if getattr(value, "kind", "NORMAL") == Warehouse.Kind.JOB_WORKER:
+            raise serializers.ValidationError("Stock at a job worker is counted from the job work screen.")
         return value
 
     def to_representation(self, instance):

@@ -27,6 +27,7 @@ def books(tenant_a):
     return tenant_a
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_assert_period_close_allowed_blocks_ar_mismatch(books):
     ar = PostingService._account(books.company, "1200")
     equity = PostingService._account(books.company, "3100")
@@ -49,6 +50,7 @@ def test_assert_period_close_allowed_blocks_ar_mismatch(books):
         BooksHealthService.assert_period_close_allowed(books.company)
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_period_close_endpoint_blocks_on_health(books):
     period = AccountingPeriod.objects.create(
         company=books.company,

@@ -214,6 +214,7 @@ def test_tc_pl03_06_the_orders_own_reservation_does_not_count_against_it(tenant_
     assert "stock_short" not in _codes(_summary(tenant_a, order))
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_tc_pl03_06b_goods_already_shipped_need_no_stock(tenant_a):
     product = make_product(tenant_a.company, sku="STK-3")
     add_stock(tenant_a, product, "10")
@@ -265,6 +266,7 @@ def test_tc_pl03_08b_no_limit_never_flags(tenant_a):
     assert "over_credit_limit" not in _codes(_summary(tenant_a, _order(tenant_a, customer=customer, qty="1000", price="1000")))
 
 
+@pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_tc_pl03_09_overdue_invoices(tenant_a):
     customer = make_customer(tenant_a.company, name="Late Payer", phone="9000000005", pincode="560001")
     SalesInvoice.objects.create(
@@ -278,6 +280,7 @@ def test_tc_pl03_09_overdue_invoices(tenant_a):
     assert "money" not in _summary(tenant_a, _order(tenant_a, customer=customer), viewer=STAFF)
 
 
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
 def test_tc_pl03_10_batch_expiry_boundaries(tenant_a):
     product = make_product(tenant_a.company, sku="BATCH-1", track_batch=True)
     warehouse = InventoryService.default_warehouse(tenant_a.company)

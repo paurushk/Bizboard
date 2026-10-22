@@ -569,6 +569,177 @@ export const SCREEN_VARIANTS: ContextHelpPage[] = [
     ],
   }),
 
+  helpVariant(mfg, 'manufacturing-quick', {
+    title: ['Quick production', 'त्वरित उत्पादन'],
+    summary: [
+      'Records what you made in one step. It takes the material out of stock using the recipe and puts the finished goods in.',
+      'एक ही चरण में बना माल दर्ज करता है। रेसिपी से माल स्टॉक से निकलता और तैयार माल जुड़ता है।',
+    ],
+    howItWorks: [
+      ['Pick the item and the quantity. The page shows how many you can make today. The same entry sent twice makes one order.', 'आइटम और मात्रा चुनें। पेज बताता है आज कितना बन सकता है। वही एंट्री दो बार भेजने पर एक ही ऑर्डर बनता है।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/boms', labelKey: 'nav.boms' },
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/inventory/stock', labelKey: 'nav.currentStock' },
+    ],
+    nextActions: [
+      ['If the item has no active recipe, make one first. Use a full work order when you need to issue material in parts.', 'आइटम की चालू रेसिपी न हो तो पहले बनाएं। माल हिस्सों में देना हो तो पूरा कार्य आदेश इस्तेमाल करें।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-recipe', {
+    title: ['Recipe', 'रेसिपी'],
+    summary: [
+      'A recipe lists the material, other outputs, extra costs and steps for one item. A version that a work order used cannot be changed.',
+      'रेसिपी में एक आइटम का माल, अन्य आउटपुट, अतिरिक्त लागत और चरण होते हैं। जिस संस्करण का कार्य आदेश में उपयोग हुआ उसे बदल नहीं सकते।',
+    ],
+    howItWorks: [
+      ['Change a draft, then make it the active recipe. To change one in use, make a new version.', 'ड्राफ्ट बदलें, फिर उसे चालू रेसिपी बनाएं। उपयोग वाली रेसिपी बदलनी हो तो नया संस्करण बनाएं।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/boms', labelKey: 'nav.boms' },
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/inventory/products', labelKey: 'nav.products' },
+    ],
+    nextActions: [
+      ['Check the Full list and cost tab before you activate, so you know what one batch costs.', 'चालू करने से पहले पूरी सूची और लागत देखें, ताकि एक बैच की लागत पता रहे।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-work-order-detail', {
+    title: ['Work order', 'कार्य आदेश'],
+    summary: [
+      'Shows one work order: the material it needs, what has been issued and returned, the output and the cost so far.',
+      'एक कार्य आदेश दिखाता है: कितना माल चाहिए, कितना दिया और लौटाया गया, आउटपुट और अब तक की लागत।',
+    ],
+    howItWorks: [
+      ['Issue material, return what is unused, record output in parts, then mark it done and close it to settle the cost.', 'माल दें, बचा हुआ लौटाएं, आउटपुट हिस्सों में दर्ज करें, फिर पूरा करके बंद करें ताकि लागत निपट जाए।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/inventory/stock', labelKey: 'nav.currentStock' },
+      { path: '/manufacturing/reports', labelKey: 'nav.mfgReports' },
+    ],
+    nextActions: [
+      ['A posted entry is not edited. Reverse it with a reason; later entries that depend on it must be reversed first.', 'दर्ज एंट्री बदली नहीं जाती। कारण के साथ पलटें; उस पर निर्भर बाद की एंट्री पहले पलटनी होती हैं।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-planning', {
+    title: ['Production planning', 'उत्पादन योजना'],
+    summary: [
+      'Shows what is due or late, what material is short, and what to buy or make next. Working it out creates nothing until you press Create.',
+      'दिखाता है क्या देय या देर से है, कौन सा माल कम है और आगे क्या खरीदें या बनाएं। बनाएं दबाने तक कुछ नहीं बनता।',
+    ],
+    howItWorks: [
+      ['Run the plan, read the list, tick the lines you want, and create purchase orders and work orders together.', 'योजना चलाएं, सूची पढ़ें, जो पंक्तियां चाहिए उन्हें चुनें और खरीद ऑर्डर व कार्य आदेश साथ बनाएं।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/purchases/orders', labelKey: 'nav.purchaseOrders' },
+      { path: '/inventory/low-stock', labelKey: 'nav.lowStock' },
+    ],
+    nextActions: [
+      ['Fix shortages from the Shortages tab before you promise a date to a customer.', 'ग्राहक को तारीख देने से पहले कमी वाले टैब से कमी दूर करें।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-quality', {
+    title: ['Quality', 'गुणवत्ता'],
+    summary: [
+      'Inspect goods coming in, during production and before dispatch. A failed or held lot cannot be sold or used until it is released.',
+      'आने वाले, उत्पादन के दौरान और भेजने से पहले के माल की जांच करें। फेल या रोका लॉट छूटने तक बिक या उपयोग नहीं हो सकता।',
+    ],
+    howItWorks: [
+      ['Make a checklist, inspect, record the results and finish. Pass releases the lot, fail rejects it and raises a quality problem.', 'चेकलिस्ट बनाएं, जांचें, परिणाम दर्ज करें और पूरा करें। पास होने पर लॉट छूटता है, फेल पर अस्वीकृत होता और समस्या बनती है।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/purchases/grns', labelKey: 'nav.goodsReceipts' },
+      { path: '/inventory/stock', labelKey: 'nav.currentStock' },
+    ],
+    nextActions: [
+      ['Follow up open quality problems and watch the supplier scorecard for repeat rejections.', 'खुली गुणवत्ता समस्याओं पर कार्रवाई करें और बार-बार अस्वीकार होने के लिए आपूर्तिकर्ता स्कोरकार्ड देखें।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-job-work', {
+    title: ['Job work', 'जॉब वर्क'],
+    summary: [
+      'Goods sent to a job worker stay your stock and keep their cost. A customer\'s goods we work on are kept in a separate book and never count as our stock.',
+      'जॉब वर्कर को भेजा माल आपका स्टॉक रहता है और लागत बनी रहती है। जिस ग्राहक के माल पर हम काम करते हैं वह अलग बही में रहता है और हमारे स्टॉक में नहीं गिना जाता।',
+    ],
+    howItWorks: [
+      ['Raise an order, send goods with a challan, then record what comes back. Watch the late list and file ITC-04 on time.', 'ऑर्डर बनाएं, चालान से माल भेजें, फिर लौटा माल दर्ज करें। देर की सूची देखें और ITC-04 समय पर दाखिल करें।'],
+    ],
+    relatedPages: [
+      { path: '/purchases/suppliers', labelKey: 'nav.suppliers' },
+      { path: '/inventory/stock', labelKey: 'nav.currentStock' },
+      { path: '/manufacturing/reports', labelKey: 'nav.mfgReports' },
+    ],
+    nextActions: [
+      ['Check the ITC-04 tables with your CA before you file. This screen prepares them; it does not file for you.', 'दाखिल करने से पहले ITC-04 तालिकाएं अपने CA से जांचें। यह स्क्रीन उन्हें तैयार करती है, दाखिल नहीं करती।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-shop-floor', {
+    title: ['Shop floor', 'शॉप फ्लोर'],
+    summary: [
+      'Job cards, stoppages, machines and the people on the floor. Operators work on a tablet with a code and a PIN.',
+      'जॉब कार्ड, रुकावटें, मशीनें और फ्लोर के लोग। ऑपरेटर टैबलेट पर कोड और PIN से काम करते हैं।',
+    ],
+    howItWorks: [
+      ['Set up work centres and routing on the recipe, make job cards from a work order, and let operators start, pause and finish them.', 'वर्क सेंटर और रेसिपी पर चरण तय करें, कार्य आदेश से जॉब कार्ड बनाएं और ऑपरेटरों को शुरू, रोकना और पूरा करने दें।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/manufacturing/planning', labelKey: 'nav.mfgPlanning' },
+      { path: '/manufacturing/settings', labelKey: 'nav.mfgSettings' },
+    ],
+    nextActions: [
+      ['Give each operator their own PIN and change it when someone leaves.', 'हर ऑपरेटर को अपना PIN दें और कोई जाए तो उसे बदलें।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-reports', {
+    title: ['Manufacturing reports', 'मैन्युफैक्चरिंग रिपोर्ट'],
+    summary: [
+      'Work in progress, planned against actual cost, waste, on-time delivery and a batch trace. Cost reports are for owners, managers, accountants and auditors.',
+      'चल रहा काम, योजना बनाम असली लागत, बर्बादी, समय पर डिलीवरी और बैच ट्रेस। लागत रिपोर्ट मालिक, मैनेजर, अकाउंटेंट और ऑडिटर के लिए हैं।',
+    ],
+    howItWorks: [
+      ['Pick a report and a period. Use the batch trace to see what went into a lot, or who received it.', 'रिपोर्ट और अवधि चुनें। बैच ट्रेस से देखें लॉट में क्या लगा या किसे मिला।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/work-orders', labelKey: 'nav.workOrders' },
+      { path: '/reports/inventory-valuation', labelKey: 'nav.reports' },
+      { path: '/accounting/journals', labelKey: 'nav.journals' },
+    ],
+    nextActions: [
+      ['If the books and stock do not agree, open Books against stock first.', 'बही और स्टॉक न मिलें तो पहले बही और स्टॉक का मिलान खोलें।'],
+    ],
+  }),
+
+  helpVariant(mfg, 'manufacturing-settings', {
+    title: ['Manufacturing settings', 'मैन्युफैक्चरिंग सेटिंग'],
+    summary: [
+      'How new work orders run, which godowns they use, and the limits. Changing the flow does not change orders already created.',
+      'नए कार्य आदेश कैसे चलें, कौन से गोदाम लगें और सीमाएं क्या हैं। प्रवाह बदलने से बन चुके ऑर्डर नहीं बदलते।',
+    ],
+    howItWorks: [
+      ['Choose the flow, set the godowns and limits, then save. Import recipes in bulk from a file after checking it here.', 'प्रवाह चुनें, गोदाम और सीमाएं तय करें, फिर सहेजें। फ़ाइल यहां जांचकर थोक में रेसिपी आयात करें।'],
+    ],
+    relatedPages: [
+      { path: '/manufacturing/boms', labelKey: 'nav.boms' },
+      { path: '/inventory/warehouses', labelKey: 'nav.warehouses' },
+      { path: '/settings', labelKey: 'nav.settings' },
+    ],
+    nextActions: [
+      ['Decide the flow once, with your accountant, before you start posting.', 'पोस्ट करना शुरू करने से पहले अपने अकाउंटेंट के साथ प्रवाह एक बार तय करें।'],
+    ],
+  }),
+
   helpVariant(payroll, 'payroll-employees', {
     title: ['Employees', 'कर्मचारी'],
     summary: [

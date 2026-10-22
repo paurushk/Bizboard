@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from accounting.books import posts_to_ledger
 import hashlib
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -215,7 +216,7 @@ def stage_refunds(sales_return, parts, *, user, shift=None, idempotency_key: str
 
 def _post_refund_journal(row, user, PostingService) -> None:
     company = row.company
-    if not getattr(company, "accounting_enabled", False):
+    if not posts_to_ledger(company):
         return
     PostingService._ensure_chart(company)
     if row.mode == row.Mode.BANK:

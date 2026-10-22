@@ -24,16 +24,43 @@ class SealError(Exception):
     pass
 
 
+def _decode_key(raw: str, name: str = "PLANWAVE_DATA_KEY") -> bytes:
+    try:
+        key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
+    except Exception as exc:
+        raise ImproperlyConfigured(f"{name} is not url-safe base64.") from exc
+    if len(key) != 32:
+        raise ImproperlyConfigured(f"{name} must decode to 32 bytes.")
+    return key
+
+
+def current_key_id() -> str:
+    return (getattr(settings, "PLANWAVE_DATA_KEY_ID", "") or KEY_ID).strip() or KEY_ID
+
+
+def _retired_keys() -> dict[str, bytes]:
+    """WP-B3: PLANWAVE_RETIRED_KEYS = "k1:<key>,k0:<key>" — still readable, never used to seal."""
+    out: dict[str, bytes] = {}
+    for item in (getattr(settings, "PLANWAVE_RETIRED_KEYS", "") or "").split(","):
+        if ":" in item:
+            key_id, raw = item.split(":", 1)
+            out[key_id.strip()] = _decode_key(raw.strip(), "PLANWAVE_RETIRED_KEYS")
+    return out
+
+
+def _key_for_id(key_id: str) -> bytes:
+    if key_id == current_key_id():
+        return _raw_key()
+    retired = _retired_keys()
+    if key_id in retired:
+        return retired[key_id]
+    return _raw_key()  # unknown id: try the current key; a mismatch fails authentication
+
+
 def _raw_key() -> bytes:
     raw = (getattr(settings, "PLANWAVE_DATA_KEY", None) or "").strip()
     if raw:
-        try:
-            key = base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
-        except Exception as exc:
-            raise ImproperlyConfigured("PLANWAVE_DATA_KEY is not url-safe base64.") from exc
-        if len(key) != 32:
-            raise ImproperlyConfigured("PLANWAVE_DATA_KEY must decode to 32 bytes.")
-        return key
+        return _decode_key(raw)
     env = (getattr(settings, "DJANGO_ENV", "") or "").lower()
     if env in ("production", "staging"):
         raise ImproperlyConfigured("PLANWAVE_DATA_KEY is required in production and staging.")
@@ -50,7 +77,8 @@ def _looks_sealed(text: str) -> bool:
     return len(raw) >= 12 + 16
 
 
-def seal(plaintext: str, *, key: bytes | None = None, key_id: str = KEY_ID) -> str:
+def seal(plaintext: str, *, key: bytes | None = None, key_id: str | None = None) -> str:
+    key_id = key_id or current_key_id()
     if plaintext is None:
         return ""
     text = str(plaintext)
@@ -89,7 +117,7 @@ def open_secret(token: str, *, key: bytes | None = None) -> str:
         raise SealError("truncated ciphertext") from exc
     nonce, ct = raw[:12], raw[12:]
     try:
-        plain = AESGCM(key or _raw_key()).decrypt(nonce, ct, key_id.encode("utf-8"))
+        plain = AESGCM(key or _key_for_id(key_id)).decrypt(nonce, ct, key_id.encode("utf-8"))
     except (InvalidTag, ValueError) as exc:  # ValueError: nonce length out of range
         raise SealError("authentication failed") from exc
     return plain.decode("utf-8")
