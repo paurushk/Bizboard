@@ -38,10 +38,17 @@ def _authorised(request) -> bool:
     if not header.startswith("Basic "):
         return False
     try:
-        got = base64.b64decode(header[6:]).decode()
-    except (ValueError, UnicodeDecodeError):
+        got = base64.b64decode(header[6:])
+    except ValueError:
         return False
-    return hmac.compare_digest(got, f"{user}:{password}")
+    # Bytes, not str: compare_digest raises TypeError on non-ASCII str (a 500 for any caller).
+    return hmac.compare_digest(got, f"{user}:{password}".encode())
+
+
+# Postmark bounce types (https://postmarkapp.com/developer/api/bounce-api#bounce-types). Only a
+# dead address is permanent; the sender-side and auto-reply types say nothing about the mailbox.
+_POSTMARK_HARD = {"HardBounce", "BadEmailAddress", "ManuallyDeactivated", "SpamNotification"}
+_POSTMARK_SOFT = {"SoftBounce", "Transient", "DnsError", "Blocked", "DMARCPolicy"}
 
 
 def parse_events(payload: dict) -> list[tuple[str, str]]:
@@ -50,8 +57,9 @@ def parse_events(payload: dict) -> list[tuple[str, str]]:
     # Postmark
     record = payload.get("RecordType")
     if record == "Bounce":
-        kind = "hard_bounce" if payload.get("Type") in ("HardBounce", "BadEmailAddress", "Blocked") else "soft_bounce"
-        if payload.get("Email"):
+        btype = payload.get("Type")
+        kind = "hard_bounce" if btype in _POSTMARK_HARD else "soft_bounce" if btype in _POSTMARK_SOFT else ""
+        if kind and payload.get("Email"):  # AutoResponder, Subscribe, SMTPApiError, ...: ignored
             out.append((payload["Email"], kind))
         return out
     if record == "SpamComplaint" and payload.get("Email"):
@@ -78,7 +86,9 @@ def parse_events(payload: dict) -> list[tuple[str, str]]:
 class EmailEventWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
-    throttle_classes = [AnonRateThrottle]
+    # Authenticated by the Basic credentials below; a bounce burst from a bulk send must not be
+    # 429'd and dropped by the provider. The rate-limit middleware gives this path a webhook bucket.
+    throttle_classes: list = []
 
     def post(self, request):
         if not _authorised(request):
@@ -89,9 +99,11 @@ class EmailEventWebhookView(APIView):
             payload = None
         if not isinstance(payload, dict):
             from billing.services import park_dead_letter
+            from core.rls import rls_bypass
 
-            park_dead_letter(provider="email_events", event_id=f"bad:{len(request.body or b'')}",
-                             payload={}, error="Unreadable email webhook body.")
+            with rls_bypass():  # a platform event: no tenant, and the DLQ table is row-level secured
+                park_dead_letter(provider="email_events", event_id=f"bad:{len(request.body or b'')}",
+                                 payload={}, error="Unreadable email webhook body.")
             return Response({"ok": True, "parked": True})
         if payload.get("Type") == "SubscriptionConfirmation":
             url = str(payload.get("SubscribeURL") or "")
@@ -116,13 +128,13 @@ class UnsubscribeView(APIView):
     throttle_classes = [AnonRateThrottle]
 
     def _handle(self, request):
-        from core.mail import OPTIONAL
+        from core.mail import OPTIONAL, unsubscribe_token_for_hash
         from core.models import EmailOptOut
 
         q = request.query_params
         address_hash, category, token = q.get("a", ""), q.get("c", ""), q.get("t", "")
-        expected = hmac.new(settings.SECRET_KEY.encode(), f"{address_hash}:{category}".encode(), "sha256").hexdigest()[:32]
-        if category not in OPTIONAL or not hmac.compare_digest(token, expected):
+        expected = unsubscribe_token_for_hash(address_hash, category)
+        if category not in OPTIONAL or not hmac.compare_digest(token.encode(), expected.encode()):
             return HttpResponse("This unsubscribe link is not valid.", status=400, content_type="text/plain")
         EmailOptOut.objects.get_or_create(address_hash=address_hash, category=category)
         return HttpResponse(

@@ -42,20 +42,28 @@ def mark(company_or_id, step: str) -> None:
 
     company_id = getattr(company_or_id, "pk", company_or_id)
     done_key = f"gr2:done:{company_id}:{step}"
-    if cache.get(done_key):
-        return  # already stamped: keeps a bulk import of thousands of rows from querying each time
+
+    def _remember():
+        try:
+            cache.set(done_key, 1, 24 * 3600)
+        except Exception:  # noqa: BLE001 - the cache is only a shortcut
+            pass
+
     try:
+        if cache.get(done_key):
+            return  # already stamped: keeps a bulk import of thousands of rows from querying each time
         with transaction.atomic():
             row, _ = TenantActivation.objects.get_or_create(company_id=company_id)
             if getattr(row, field) is not None:
-                cache.set(done_key, 1, 24 * 3600)
+                _remember()
                 return
             setattr(row, field, timezone.now())
             row.save(update_fields=[field, "updated_at"])
+        # Only once the caller's transaction commits: a rolled-back save must not mark the step
+        # done in the cache while the stamp itself was undone.
+        transaction.on_commit(_remember)
     except Exception:  # noqa: BLE001
         logger.debug("onboarding mark %s failed for company %s", step, company_id, exc_info=True)
-        return
-    cache.set(done_key, 1, 24 * 3600)
 
 
 def checklist(company) -> dict:
@@ -116,7 +124,8 @@ def _on_import(sender, instance, **kwargs):
 
 
 def _on_company(sender, instance, **kwargs):
-    if not kwargs.get("raw") and getattr(instance, "gstin_verification_status", "") == "VERIFIED":
+    # core.services.gstin_verify stores VALID / INVALID / UNVERIFIED.
+    if not kwargs.get("raw") and getattr(instance, "gstin_verification_status", "") == "VALID":
         mark(instance.pk, "gstin_verified")
 
 

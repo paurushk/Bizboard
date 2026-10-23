@@ -45,8 +45,26 @@ def client_ids() -> list[str]:
 def _signing_key(token: str):
     global _jwk_client
     if _jwk_client is None:
-        _jwk_client = jwt.PyJWKClient(GOOGLE_CERTS_URL, cache_keys=True, lifespan=3600)
+        # cache_jwk_set + lifespan: the key set is re-read hourly, so a key Google retires stops
+        # being trusted (cache_keys=True would keep each key forever). Short timeout: an unknown
+        # ``kid`` forces a fetch, and a slow Google must not tie up workers.
+        _jwk_client = jwt.PyJWKClient(GOOGLE_CERTS_URL, cache_keys=False, cache_jwk_set=True, lifespan=3600, timeout=5)
     return _jwk_client.get_signing_key_from_jwt(token).key
+
+
+GOOGLE_MAIL_DOMAINS = ("gmail.com", "googlemail.com")
+
+
+def google_owns_address(claims: dict) -> bool:
+    """True when Google is the authority for this address: a Gmail address, or a Google Workspace
+    account whose hosted domain (``hd``) is the address's domain. A consumer Google account made on
+    some other company's address only proves the address was reachable once."""
+    email = str(claims.get("email") or "")
+    domain = email.rsplit("@", 1)[-1].lower() if "@" in email else ""
+    if domain in GOOGLE_MAIL_DOMAINS:
+        return True
+    hd = str(claims.get("hd") or "").strip().lower()
+    return bool(hd) and hd == domain
 
 
 def verify_id_token(token: str) -> dict:
@@ -63,7 +81,8 @@ def verify_id_token(token: str) -> dict:
             options={"require": ["exp", "iat", "iss", "aud", "sub", "email"]},
             leeway=30,
         )
-    except jwt.PyJWTError as exc:
+    except Exception as exc:  # noqa: BLE001 - PyJWTError, but also a JWKS fetch that broke mid-way
+        logger.info("Google ID token refused: %s", exc.__class__.__name__)
         raise AuthenticationFailed("Google sign-in could not be checked. Try again.") from exc
     if claims.get("iss") not in GOOGLE_ISSUERS:
         raise AuthenticationFailed("Google sign-in could not be checked. Try again.")
@@ -73,19 +92,24 @@ def verify_id_token(token: str) -> dict:
     return claims
 
 
-class GoogleSignupSerializer(serializers.Serializer):
-    company_name = serializers.CharField(max_length=255)
-    full_name = serializers.CharField(max_length=255, required=False, allow_blank=True)
-    phone = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    state = serializers.CharField(max_length=64, required=False, allow_blank=True)
-    registration_type = serializers.CharField(max_length=20, required=False, allow_blank=True)
-    gstin = serializers.CharField(max_length=15, required=False, allow_blank=True)
-    accept_terms = serializers.BooleanField()
+def _signup_serializer_class():
+    """The password sign-up's own fields and rules (required state, registration type choices,
+    GSTIN check, phone canonicalisation, 150-character name) minus email, password and email code,
+    which Google stands in for."""
+    from .serializers import RegisterSerializer
 
-    def validate_accept_terms(self, value):
-        if not value:
-            raise serializers.ValidationError("Accept the terms to create an account.")
-        return value
+    class GoogleSignupSerializer(RegisterSerializer):
+        email = None
+        password = None
+        otp_code = None
+        accept_terms = serializers.BooleanField()
+
+        def validate_accept_terms(self, value):
+            if not value:
+                raise serializers.ValidationError("Accept the terms to create an account.")
+            return value
+
+    return GoogleSignupSerializer
 
 
 class GoogleSignInView(APIView):
@@ -113,17 +137,31 @@ class GoogleSignInView(APIView):
         claims = verify_id_token(str(request.data.get("credential") or ""))
         email = claims["email"]
         user = User.objects.filter(email__iexact=email).first()
+        if user is not None and not google_owns_address(claims):
+            # Linking by email alone is only safe where Google is the mail provider; otherwise an
+            # old Google account on a former employee's address would open the business's account.
+            raise AuthenticationFailed(
+                "This email already has a Bizboard account. Sign in with your password; Google sign-in "
+                "can open it only for Gmail and Google Workspace addresses.",
+            )
         if user is None:
             if not request.data.get("company_name"):
                 # The caller proved they own this address, so saying it has no account leaks nothing.
                 return Response({"needs_signup": True, "email": email, "full_name": claims.get("name", "")})
             require_human(request, action="register")  # WP-AB2: creating an account needs the bot check
-            data = GoogleSignupSerializer(data=request.data)
+            from billing.trial_guard import disposable_email
+
+            from .otp_utils import phone_taken
+
+            if getattr(settings, "BLOCK_DISPOSABLE_EMAIL", True) and disposable_email(email):
+                raise serializers.ValidationError({"email": "Use your business email address, not a temporary inbox."})
+            data = _signup_serializer_class()(data=request.data)
             data.is_valid(raise_exception=True)
             fields = {**data.validated_data, "email": email}
-            fields.setdefault("full_name", claims.get("name", "") or "")
-            if fields.get("registration_type") in ("", None):
-                fields.pop("registration_type", None)
+            if not fields.get("full_name"):
+                fields["full_name"] = (claims.get("name", "") or "")[:150]
+            if fields.get("phone") and phone_taken(phone=fields["phone"]):
+                raise serializers.ValidationError({"phone": "This mobile number is already on another account."})
             try:
                 user, _company = create_owner_account(request, fields, password=None)
             except IntegrityError:
@@ -139,9 +177,13 @@ class GoogleSignInView(APIView):
             if user.company_memberships.filter(is_active=False).exists():
                 raise AuthenticationFailed("Accept your invite to activate this account before signing in.")
             raise PermissionDenied("No active company membership. Ask an owner to invite you.")
+        from .views import _audit_mfa_waiver, _mfa_waiver_skips_enrolment
+
         if mfa_is_enabled(user):
             return mfa_challenge_response(user)  # Google is one factor; the authenticator is still asked
         if enrolment_required(user):
             return mfa_enrollment_response(user)
+        if _mfa_waiver_skips_enrolment(user):
+            _audit_mfa_waiver(request, user)  # same record as a password sign-in under the waiver
         response = Response(tokens_for_user(user))
         return complete_login(request, response, user)

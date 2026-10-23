@@ -163,7 +163,7 @@ def rules_for(request) -> list[tuple[str, int, int]]:
         rules.append((f"portal:{token}", 60, 60))
         # A caller who sends a different junk token each time still hits this address bucket.
         rules.append((f"portal:ip:{ip}", 600, 60))
-    if "/webhooks/" in path or path.endswith("/webhook/"):
+    if "/webhooks/" in path or path.endswith("/webhook/") or path.endswith("/email/events/"):
         rules.append((f"webhook:ip:{ip}", 2000, 60))
     elif path.startswith("/api/"):
         rules.append((f"api:{_api_identity(request)}", 100, 10))

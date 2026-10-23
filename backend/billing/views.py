@@ -55,7 +55,7 @@ class SubscriptionDetailView(APIView):
             return Response({"subscription": None, "billing_override_active": cu.company.billing_override_active})
         data = SubscriptionSerializer(sub).data
         data["billing_override_active"] = cu.company.billing_override_active
-        data["seat_limit"] = sub.plan.seat_limit
+        data["seat_limit"] = _effective_seat_limit(sub)
         from billing.quotas import usage_snapshot
 
         data["quotas"] = usage_snapshot(cu.company, sub=sub)
@@ -152,7 +152,18 @@ class CheckoutView(APIView):
             plan = Plan.objects.filter(slug=slug, is_active=True).first()
         if plan is None:
             raise BusinessRuleError("Unknown or inactive plan.")
-        sub, checkout_order_id = start_or_update_subscription(company=cu.company, plan=plan)
+        from django.core.cache import cache
+
+        # A double-submitted checkout would create two Razorpay subscriptions (and two upgrade
+        # payment links) that nothing tracks; one checkout per company at a time.
+        lock = f"billing:checkout:{cu.company.pk}"
+        if not cache.add(lock, 1, 60):
+            raise BusinessRuleError("A checkout is already being started. Wait a moment and try again.",
+                                    code="CHECKOUT_IN_PROGRESS")
+        try:
+            sub, checkout_order_id = start_or_update_subscription(company=cu.company, plan=plan)
+        finally:
+            cache.delete(lock)
         checkout_url = getattr(sub, "_checkout_url", "") or ""
         AuditService.log(
             action="billing.checkout",
@@ -313,6 +324,18 @@ class RazorpayWebhookView(APIView):
             return Response({"ok": True, "duplicate": True})
         cache.set(dedup_key, "1", timeout=24 * 60 * 60)
         stale = _reject_stale_webhook(payload)
+        from billing.autopay import HANDLED_EVENTS, record_mandate_event
+
+        if event_name.startswith("subscription.") and event_name not in HANDLED_EVENTS:
+            # Classified before anything is applied: an event we don't understand must not change
+            # the subscription (a later replay of it would re-apply a stale status).
+            parked = park_dead_letter(
+                provider="razorpay_subscription", event_id=str(event_id),
+                payload=payload if isinstance(payload, dict) else {},
+                error=f"Unhandled event {event_name}", company=company,
+            )
+            logger.warning("Razorpay event %s not handled; parked %s", event_name, parked.pk)
+            return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
         if stale is not None:
             # BB-000671 gap fix: a delayed-but-legitimate retry (worker outage,
             # queue backlog) must not be silently dropped with no recovery
@@ -366,16 +389,10 @@ class RazorpayWebhookView(APIView):
             logger.exception("Razorpay subscription webhook parked in DLQ")
             return Response({"ok": True, "parked": True, "dead_letter_id": parked.pk})
         if sub is not None:
-            from billing.autopay import MANDATE_EVENTS, record_mandate_event
-
-            record_mandate_event(sub, payload)  # WP-BL4 mandate state and payment method
-            if event_name.startswith("subscription.") and event_name not in MANDATE_EVENTS:
-                parked = park_dead_letter(
-                    provider="razorpay_subscription", event_id=str(event_id),
-                    payload=payload if isinstance(payload, dict) else {},
-                    error=f"Unhandled event {event_name}", company=company,
-                )
-                logger.warning("Razorpay event %s not handled; parked %s", event_name, parked.pk)
+            if (sub.razorpay_subscription_id or "") == rzp_id:
+                # WP-BL4: only the live subscription's events describe the mandate that renews now;
+                # the pending (new plan's) mandate has its own state until it takes over.
+                record_mandate_event(sub, payload)
             AuditService.log(
                 action="billing.webhook",
                 company=sub.company,
@@ -570,7 +587,7 @@ class SaasTdsClaimView(APIView):
             user=request.user,
             invoice_ids=request.data.get("invoice_ids") or [],
             section_code=str(request.data.get("section") or ""),
-            certificate_id=int(request.data.get("certificate_id") or 0),
+            certificate_id=request.data.get("certificate_id") or 0,
             settle_by=str(request.data.get("settle_by") or ""),
         )
         AuditService.log(

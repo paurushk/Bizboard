@@ -73,7 +73,10 @@ def test_a_refused_send_does_not_use_up_budget_but_a_failed_provider_send_does()
     assert _sends(PHONE, 2) == 2
     with pytest.raises(SmsBlocked):
         sms_guard.check_and_count(PHONE, "otp")
-    # The refusal was rolled back: the counter still reads 2, not 3.
+    # The refusal was rolled back: every counter still reads 2, not 3 (the per-phone one refused,
+    # so check it directly; the platform one is last and was never reached).
+    phone_hour_key = sms_guard._counters(sms_guard._digits(PHONE), "otp")[0][0]
+    assert int(cache.get(phone_hour_key) or 0) == 2
     assert sms_guard.status()["platform_today"] == 2
 
     cache.clear()
@@ -147,8 +150,9 @@ def test_otp_view_answers_the_same_when_the_guard_refuses(client, django_user_mo
         blocked = client.post("/api/v1/auth/otp/request/", {"phone": PHONE}, content_type="application/json")
     unknown = client.post("/api/v1/auth/otp/request/", {"phone": "+919811111111"}, content_type="application/json")
     assert blocked.status_code == unknown.status_code == 200
-    assert blocked.json().get("detail") == unknown.json().get("detail")
-    assert "debug_code" not in blocked.json()
+    # Compare the envelopes' data (camelCased): same answer, and no code echoed for the refused one.
+    assert blocked.json()["data"].get("detail") == unknown.json()["data"].get("detail")
+    assert "debugCode" not in blocked.json()["data"]
 
 
 def test_keys_never_hold_the_raw_number():

@@ -56,12 +56,24 @@ def start_transfer(*, company, from_user, to_user_id: int, old_owner_becomes: st
 
     if old_owner_becomes not in ("MANAGER", "LEAVE"):
         raise BusinessRuleError("Choose what your own access becomes: Manager, or leave the company.")
+    try:
+        to_user_id = int(to_user_id or 0)
+    except (TypeError, ValueError):
+        to_user_id = 0
     target = CompanyUser.objects.filter(company=company, user_id=to_user_id, is_active=True).select_related("user").first()
     if target is None or target.user_id == from_user.pk:
         raise BusinessRuleError("Pick another active member of this company.", code="OWNERSHIP_TARGET_INVALID")
-    OwnershipTransfer.objects.filter(
+    superseded = list(OwnershipTransfer.objects.filter(
         company=company, status=OwnershipTransfer.Status.PENDING, kind=OwnershipTransfer.Kind.SELF_SERVE,
-    ).update(status=OwnershipTransfer.Status.CANCELLED)
+    ).values_list("pk", flat=True))
+    if superseded:
+        OwnershipTransfer.objects.filter(pk__in=superseded, status=OwnershipTransfer.Status.PENDING).update(
+            status=OwnershipTransfer.Status.CANCELLED,
+        )
+        AuditService.log(
+            company=company, user=from_user, action="ownership.cancelled", entity_type="OwnershipTransfer",
+            entity_id=superseded[0], description=f"Superseded by a new ownership offer ({len(superseded)})",
+        )
     token = secrets.token_urlsafe(32)
     transfer = OwnershipTransfer.objects.create(
         company=company,
@@ -90,42 +102,68 @@ def start_transfer(*, company, from_user, to_user_id: int, old_owner_becomes: st
 
 
 def accept_transfer(*, token: str, user):
+    """The named member accepts. The link is found by its hash under the RLS bypass (the member may
+    be working in another of their companies, so the request's tenant is not this one); everything
+    after that runs scoped to the transfer's company."""
+    from core.rls import company_scope, rls_bypass
+
     from .models import CompanyUser, OwnershipTransfer
 
-    with transaction.atomic():
+    with rls_bypass():
+        found = (
+            OwnershipTransfer.objects.filter(token_hash=_hash(token or ""), kind=OwnershipTransfer.Kind.SELF_SERVE)
+            .values_list("pk", "company_id").first()
+        )
+    if found is None:
+        raise BusinessRuleError("This ownership link is not for you.", code="OWNERSHIP_LINK_INVALID")
+    transfer_pk, company_id = found
+    with company_scope(company_id), transaction.atomic():
         transfer = (
             OwnershipTransfer.objects.select_for_update(of=("self",))
-            .filter(token_hash=_hash(token or ""), kind=OwnershipTransfer.Kind.SELF_SERVE)
-            .select_related("company", "from_user", "to_user")
-            .first()
+            .filter(pk=transfer_pk).select_related("company", "from_user", "to_user").first()
         )
         if transfer is None or transfer.to_user_id != user.pk:
             raise BusinessRuleError("This ownership link is not for you.", code="OWNERSHIP_LINK_INVALID")
         if transfer.status != OwnershipTransfer.Status.PENDING or transfer.expires_at <= timezone.now():
             raise BusinessRuleError("This ownership link has expired or was cancelled.", code="OWNERSHIP_LINK_EXPIRED")
         company = transfer.company
-        new_owner = CompanyUser.objects.select_for_update().get(company=company, user=user, is_active=True)
+        # The offer is only as good as the authority behind it: the person who made it must still
+        # be an active owner now (a co-owner may have demoted or removed them since).
+        old = (
+            CompanyUser.objects.select_for_update()
+            .filter(company=company, user_id=transfer.from_user_id, is_active=True).first()
+            if transfer.from_user_id else None
+        )
+        if old is None or old.role != CompanyUser.Role.OWNER:
+            transfer.status = OwnershipTransfer.Status.CANCELLED
+            transfer.save(update_fields=["status", "updated_at"])
+            raise BusinessRuleError(
+                "The owner who sent this link is no longer an owner, so it no longer works.",
+                code="OWNERSHIP_LINK_EXPIRED",
+            )
+        new_owner = CompanyUser.objects.select_for_update().filter(company=company, user=user, is_active=True).first()
+        if new_owner is None:
+            raise BusinessRuleError("You are no longer a member of this company.", code="OWNERSHIP_LINK_INVALID")
         new_owner.role = CompanyUser.Role.OWNER
         for flag, value in (CompanyUser.capability_defaults_for_role(CompanyUser.Role.MANAGER) or {}).items():
             setattr(new_owner, flag, True if flag != "can_manage_policies" else value)
         new_owner.save()
-        old = CompanyUser.objects.select_for_update().filter(company=company, user=transfer.from_user, is_active=True).first()
-        if old is not None:
-            if transfer.old_owner_becomes == "LEAVE":
-                old.is_active = False
-                old.save(update_fields=["is_active"])
-            else:
-                old.role = CompanyUser.Role.MANAGER
-                old.save(update_fields=["role"])
+        if transfer.old_owner_becomes == "LEAVE":
+            old.is_active = False
+            old.save(update_fields=["is_active"])
+        else:
+            old.role = CompanyUser.Role.MANAGER
+            old.save(update_fields=["role"])
         transfer.status = OwnershipTransfer.Status.ACCEPTED
         transfer.completed_at = timezone.now()
         transfer.save(update_fields=["status", "completed_at", "updated_at"])
-    for who in (transfer.from_user.email, user.email):
-        _email(who, f"{user.email} is now the owner of {company.name}", "Ownership transfer completed.", company)
-    AuditService.log(
-        company=company, user=user, action="ownership.transferred", entity_type="OwnershipTransfer",
-        entity_id=transfer.pk, description=f"{transfer.from_user.email} -> {user.email}",
-    )
+        from_email = getattr(transfer.from_user, "email", "") or ""
+        for who in (from_email, user.email):
+            _email(who, f"{user.email} is now the owner of {company.name}", "Ownership transfer completed.", company)
+        AuditService.log(
+            company=company, user=user, action="ownership.transferred", entity_type="OwnershipTransfer",
+            entity_id=transfer.pk, description=f"{from_email or 'a former owner'} -> {user.email}",
+        )
     return transfer
 
 
@@ -165,11 +203,15 @@ def approve_recovery(transfer, *, staff_user):
         raise BusinessRuleError("Only a pending recovery can be approved.")
     if transfer.approved_by_id:
         raise BusinessRuleError("Already approved.")
+    if transfer.expires_at and transfer.expires_at <= timezone.now():
+        raise BusinessRuleError("This recovery request is too old; start a new one with fresh proof.")
     if not getattr(staff_user, "is_staff", False) or staff_user.pk == transfer.requested_by_id:
         raise BusinessRuleError("A second, different staff member must approve.")
     transfer.approved_by = staff_user
     transfer.effective_at = timezone.now() + RECOVERY_DELAY
-    transfer.save(update_fields=["approved_by", "effective_at", "updated_at"])
+    # The invite goes out after the wait; the request must still be valid then.
+    transfer.expires_at = max(transfer.expires_at or transfer.effective_at, transfer.effective_at + timedelta(days=7))
+    transfer.save(update_fields=["approved_by", "effective_at", "expires_at", "updated_at"])
     for cu in _owners(transfer.company).select_related("user"):
         _email(
             cu.user.email, f"Owner access to {transfer.company.name} is being recovered",
@@ -205,15 +247,27 @@ def complete_due_recoveries(now=None) -> int:
 
     now = now or timezone.now()
     done = 0
-    due = OwnershipTransfer.objects.filter(
+    due = list(OwnershipTransfer.objects.filter(
         kind=OwnershipTransfer.Kind.STAFF_RECOVERY, status=OwnershipTransfer.Status.PENDING,
         approved_by__isnull=False, effective_at__lte=now,
-    ).select_related("company", "approved_by")
-    for transfer in due:
-        _invite_owner(transfer)
-        transfer.status = OwnershipTransfer.Status.ACCEPTED
-        transfer.completed_at = now
-        transfer.save(update_fields=["status", "completed_at", "updated_at"])
+    ).values_list("pk", flat=True))
+    for pk in due:
+        with transaction.atomic():
+            # Locked and re-read: an owner may have cancelled it a moment ago.
+            transfer = (
+                OwnershipTransfer.objects.select_for_update(of=("self",)).filter(pk=pk)
+                .select_related("company", "approved_by").first()
+            )
+            if transfer is None or transfer.status != OwnershipTransfer.Status.PENDING:
+                continue
+            if transfer.expires_at and transfer.expires_at <= now:
+                transfer.status = OwnershipTransfer.Status.CANCELLED
+                transfer.save(update_fields=["status", "updated_at"])
+                continue
+            _invite_owner(transfer)
+            transfer.status = OwnershipTransfer.Status.ACCEPTED
+            transfer.completed_at = now
+            transfer.save(update_fields=["status", "completed_at", "updated_at"])
         AuditService.log(
             company=transfer.company, user=transfer.approved_by, action="ownership.recovered",
             entity_type="OwnershipTransfer", entity_id=transfer.pk,
@@ -243,6 +297,21 @@ def _invite_owner(transfer) -> None:
             user = User.objects.create_user(email=transfer.recovery_email, password=None)
             user.set_unusable_password()
             user.save(update_fields=["password"])
+        existing = CompanyUser.objects.filter(company=company, user=user).first()
+        if existing is not None and existing.is_active:
+            # Already a member who can sign in: promote in place. Turning their access off until an
+            # invite is accepted would cut a working member off (and could leave no active owner).
+            existing.role = CompanyUser.Role.OWNER
+            for flag, value in _OWNER_CAPS.items():
+                setattr(existing, flag, value)
+            existing.save()
+            _email(
+                transfer.recovery_email, f"Owner access to {company.name}",
+                f"Bizboard support has made you an owner of {company.name}. Sign in as usual. If you lost "
+                "your two-step device, reply to support to have it reset.",
+                company,
+            )
+            return
         membership, _ = CompanyUser.objects.update_or_create(
             company=company, user=user,
             defaults={"role": CompanyUser.Role.OWNER, "is_active": False, **_OWNER_CAPS},

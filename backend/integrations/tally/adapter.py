@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -48,7 +49,14 @@ def _read_csv_rows(file_bytes: bytes) -> list[dict[str, str]]:
     if not reader.fieldnames:
         raise BusinessRuleError("CSV has no header row.")
     rows = []
-    for raw in reader:
+    for line, raw in enumerate(reader, start=2):
+        if None in raw:
+            # More cells than headers (an unquoted comma in a name): the columns no longer line up,
+            # so reading it would put values under the wrong headers.
+            raise BusinessRuleError(
+                f"Row {line} has more cells than the header row. A name probably contains a comma: "
+                "save the file as Excel (.xlsx), or put that name in quotes, and upload it again."
+            )
         rows.append({(k or "").strip().lower(): (v or "").strip() for k, v in raw.items()})
     return rows
 
@@ -87,6 +95,8 @@ def _read_xlsx_rows(file_bytes: bytes) -> list[dict[str, str]]:
 
 def _rows_from_upload(file_bytes: bytes, filename: str = "") -> list[dict[str, str]]:
     name = (filename or "").lower()
+    if file_bytes[:4] == b"\xd0\xcf\x11\xe0" or name.endswith(".xls"):
+        raise BusinessRuleError("This is an old Excel (.xls) file. Open it and save it as .xlsx or CSV, then upload that.")
     if name.endswith(".xlsx") or file_bytes[:2] == b"PK":
         try:
             return _read_xlsx_rows(file_bytes)
@@ -98,14 +108,54 @@ def _rows_from_upload(file_bytes: bytes, filename: str = "") -> list[dict[str, s
     return _read_csv_rows(file_bytes)
 
 
-def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
-    if len(rows) > MAX_IMPORT_ROWS:
+def _clean_phone(raw: str) -> str:
+    """The first number in the cell, digits (and a leading +) only, at most 20 characters."""
+    first = re.split(r"[/,;]| or ", raw or "")[0]
+    cleaned = re.sub(r"[^0-9+]", "", first)
+    return cleaned[:20]
+
+
+def _gst_rate_or_error(raw) -> tuple[str, str]:
+    """(rate, error). Blank means the default 18%; anything else must be one GST rate."""
+    from core.validators import ALLOWED_GST_RATES
+
+    text = str(raw or "").strip()
+    if not text:
+        return "18", ""
+    numbers = re.findall(r"\d+(?:\.\d+)?", text)
+    if len(numbers) != 1:
+        return "", f"GST rate '{text}' is not one rate"
+    value = Decimal(numbers[0])
+    if Decimal("0") < value < Decimal("1") and format(value.normalize(), "f") not in ALLOWED_GST_RATES:
+        value = value * 100  # a percent-formatted Excel cell: 0.18 is 18% (0.25 is a real rate)
+    value = value.normalize()
+    rate = format(value, "f")
+    if rate not in ALLOWED_GST_RATES:
+        return "", f"GST rate '{text}' is not a GST rate ({', '.join(ALLOWED_GST_RATES)})"
+    return rate, ""
+
+
+def _stable_sku(name: str) -> str:
+    """An item with no code gets a code from its name, so the same item in a later file matches it
+    (a row-number code would match a different item from another file)."""
+    import hashlib
+
+    key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    return f"TALLY-{hashlib.sha1(key.encode()).hexdigest()[:10].upper()}"  # noqa: S324 - not security
+
+
+def parse_tally_masters_rows(rows: list[dict[str, str]], *, extra_rows: int = 0) -> dict[str, Any]:
+    """``extra_rows`` counts other records the commit creates (Tally XML bills), so the cap that
+    bounds the one commit transaction covers them too."""
+    if len(rows) + extra_rows > MAX_IMPORT_ROWS:
         raise BusinessRuleError(
-            f"This file has {len(rows)} rows, which is over the {MAX_IMPORT_ROWS}-row import "
-            "limit. Split it into smaller files and import them one at a time."
+            f"This file has {len(rows) + extra_rows} records, which is over the {MAX_IMPORT_ROWS}-record "
+            "import limit. Split it into smaller files and import them one at a time."
         )
     customers, suppliers, products, errors = [], [], [], []
+    notes: list[dict] = []
     for i, row in enumerate(rows, start=2):
+        i = int(row.get("_row") or i)  # the row in the uploaded file, when the rows were mapped
         et = (row.get("entity_type") or row.get("type") or "").lower()
         name = row.get("name") or ""
         if not et or not name:
@@ -122,28 +172,35 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
                              "the last character is a check digit)",
                 })
                 continue
-        if et == "customer":
-            customers.append({
+        if et in ("customer", "supplier"):
+            party = {
                 "name": name,
-                "phone": row.get("phone") or "",
+                "phone": _clean_phone(row.get("phone") or ""),
                 "gstin": row.get("gstin") or "",
                 "state": row.get("state") or "",
                 "opening_outstanding": str(_dec(row.get("opening_outstanding"))),
-            })
-        elif et == "supplier":
-            suppliers.append({
-                "name": name,
-                "phone": row.get("phone") or "",
-                "gstin": row.get("gstin") or "",
-                "state": row.get("state") or "",
-                "opening_outstanding": str(_dec(row.get("opening_outstanding"))),
-            })
+            }
+            (customers if et == "customer" else suppliers).append(party)
+            if _dec(party["opening_outstanding"]) < 0:
+                notes.append({
+                    "row": i,
+                    "warning": f"'{name}' has an advance of {abs(_dec(party['opening_outstanding']))}. Advances are "
+                               "not imported: record it as an advance receipt or payment after the import.",
+                })
         elif et == "product":
+            hsn = re.sub(r"\D", "", row.get("hsn_code") or row.get("hsn") or "")
+            if len(hsn) > 8:
+                errors.append({"row": i, "error": f"HSN code for '{name}' has more than 8 digits"})
+                continue
+            rate, rate_error = _gst_rate_or_error(row.get("gst_rate"))
+            if rate_error:
+                errors.append({"row": i, "error": f"{rate_error} for '{name}'"})
+                continue
             products.append({
                 "name": name,
-                "sku": row.get("sku") or f"TALLY-{i}",
-                "hsn_code": row.get("hsn_code") or row.get("hsn") or "",
-                "gst_rate": str(_dec(row.get("gst_rate"), "18")),
+                "sku": (row.get("sku") or "").strip()[:64] or _stable_sku(name),
+                "hsn_code": hsn,
+                "gst_rate": rate,
                 "purchase_price": str(_dec(row.get("purchase_price"))),
                 "selling_price": str(_dec(row.get("selling_price"))),
                 "reorder_level": str(_dec(row.get("reorder_level"))),
@@ -167,6 +224,7 @@ def parse_tally_masters_rows(rows: list[dict[str, str]]) -> dict[str, Any]:
         "suppliers": suppliers,
         "products": products,
         "errors": errors,
+        "notes": notes,
         "counts": {
             "customers": len(customers),
             "suppliers": len(suppliers),
@@ -184,7 +242,15 @@ def parse_tally_masters_csv(file_bytes: bytes, filename: str = "") -> dict[str, 
 
     if looks_like_xml(file_bytes, filename):
         rows, bills = parse_tally_xml(file_bytes)
-        preview = parse_tally_masters_rows(rows)
+        skipped = [r for r in rows if r.get("entity_type") == "skipped"]
+        rows = [r for r in rows if r.get("entity_type") != "skipped"]
+        preview = parse_tally_masters_rows(rows, extra_rows=len(bills))
+        preview["notes"] = [*preview.get("notes", []), *(
+            {"row": None, "warning": f"Ledger '{r['name']}' (group {r['group']}) is not under Sundry Debtors or "
+                                     "Sundry Creditors, so it was not imported."}
+            for r in skipped[:200]
+        )]
+        preview["counts"]["skipped"] = len(skipped)
         preview["bills"] = bills
         preview["counts"]["bills"] = len(bills)
         preview["source_format"] = "tally_xml"
@@ -224,12 +290,14 @@ def _post_commit_recon(company, preview: dict, created: dict) -> dict:
     from purchases.models import PurchaseInvoice
     from sales.models import SalesInvoice
 
+    # The same rule as the commit: only balances owed (> 0) are booked; advances are listed in the
+    # preview notes to record by hand, so they are not expected in the books either.
     expected_ar = sum(
-        (_dec(r.get("opening_outstanding")) for r in (preview.get("customers") or [])),
+        (max(_dec(r.get("opening_outstanding")), Decimal("0")) for r in (preview.get("customers") or [])),
         Decimal("0"),
     )
     expected_ap = sum(
-        (_dec(r.get("opening_outstanding")) for r in (preview.get("suppliers") or [])),
+        (max(_dec(r.get("opening_outstanding")), Decimal("0")) for r in (preview.get("suppliers") or [])),
         Decimal("0"),
     )
     preview_products = [

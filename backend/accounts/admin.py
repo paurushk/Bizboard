@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from core.admin import SuperuserOnlyAdminMixin
+from core.admin import RlsBypassAdminMixin, SuperuserOnlyAdminMixin
 
 from .models import Company, CompanyUser, OwnershipTransfer, User
 
@@ -107,7 +107,7 @@ admin.site.register(User, UserAdmin)
 
 
 @admin.register(OwnershipTransfer)
-class OwnershipTransferAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+class OwnershipTransferAdmin(RlsBypassAdminMixin, SuperuserOnlyAdminMixin, admin.ModelAdmin):
     """WP-ID1: owner transfers and staff-assisted recoveries (docs/ops/OWNER_RECOVERY.md).
 
     Start a recovery with ``manage.py owner_recovery request``; a second staff member approves with
@@ -120,11 +120,7 @@ class OwnershipTransferAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     readonly_fields = [f.name for f in OwnershipTransfer._meta.fields if f.name != "id"]
     actions = ["approve_recovery_selected", "cancel_selected"]
 
-    def get_queryset(self, request):
-        from core.rls import rls_bypass
-
-        with rls_bypass():
-            return super().get_queryset(request).select_related("company")
+    list_select_related = ("company", "requested_by", "approved_by")
 
     def has_add_permission(self, request):
         return False

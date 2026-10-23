@@ -53,9 +53,10 @@ def record_event(address: str, kind: str, *, source: str = "") -> None:
     """``kind``: hard_bounce | soft_bounce | complaint. Called by the provider webhook."""
     from core.models import EmailSuppression
 
+    from django.db import transaction
+
     now = timezone.now()
     h = address_hash(address)
-    row = EmailSuppression.objects.filter(address_hash=h).first()
     if kind in ("hard_bounce", "complaint"):
         reason = EmailSuppression.Reason.COMPLAINT if kind == "complaint" else EmailSuppression.Reason.HARD_BOUNCE
         EmailSuppression.objects.update_or_create(
@@ -63,20 +64,24 @@ def record_event(address: str, kind: str, *, source: str = "") -> None:
         )
         _event(f"email_suppressed_{kind}")
         return
-    if row is not None and row.reason != EmailSuppression.Reason.SOFT_BOUNCE:
-        return  # already permanently suppressed
-    if row is None or row.window_start is None or now - row.window_start > SOFT_WINDOW:
-        EmailSuppression.objects.update_or_create(
-            address_hash=h,
-            defaults={"reason": EmailSuppression.Reason.SOFT_BOUNCE, "source": source[:32], "soft_count": 1,
-                      "window_start": now, "expires_at": None},
-        )
-        return
-    row.soft_count += 1
-    if row.soft_count >= SOFT_LIMIT:
-        row.expires_at = now + SOFT_SUPPRESS
-        _event("email_suppressed_soft_bounce")
-    row.save(update_fields=["soft_count", "expires_at", "updated_at"])
+    with transaction.atomic():  # locked: two bounces delivered at once both count
+        row = EmailSuppression.objects.select_for_update().filter(address_hash=h).first()
+        if row is not None and row.reason != EmailSuppression.Reason.SOFT_BOUNCE:
+            return  # already permanently suppressed
+        if row is not None and row.expires_at and row.expires_at > now:
+            return  # a soft suppression is running; a late bounce must not lift it early
+        if row is None or row.window_start is None or now - row.window_start > SOFT_WINDOW:
+            EmailSuppression.objects.update_or_create(
+                address_hash=h,
+                defaults={"reason": EmailSuppression.Reason.SOFT_BOUNCE, "source": source[:32], "soft_count": 1,
+                          "window_start": now, "expires_at": None},
+            )
+            return
+        row.soft_count += 1
+        if row.soft_count >= SOFT_LIMIT:
+            row.expires_at = now + SOFT_SUPPRESS
+            _event("email_suppressed_soft_bounce")
+        row.save(update_fields=["soft_count", "expires_at", "updated_at"])
 
 
 def _event(name: str) -> None:
@@ -88,9 +93,14 @@ def _event(name: str) -> None:
         pass
 
 
-def unsubscribe_token(address: str, category: str) -> str:
-    msg = f"{address_hash(address)}:{category}".encode()
+def unsubscribe_token_for_hash(hashed: str, category: str) -> str:
+    """The token in an unsubscribe link (one function, so the link and its check never drift)."""
+    msg = f"{hashed}:{category}".encode()
     return hmac.new(settings.SECRET_KEY.encode(), msg, hashlib.sha256).hexdigest()[:32]
+
+
+def unsubscribe_token(address: str, category: str) -> str:
+    return unsubscribe_token_for_hash(address_hash(address), category)
 
 
 def unsubscribe_url(address: str, category: str) -> str:

@@ -12,6 +12,7 @@ import pytest
 from django.core.cache import cache
 from django.db import connection
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from billing.models import Plan, PlatformGstInvoice, Subscription
@@ -108,9 +109,12 @@ def test_recon_issues_invoices_for_charges_a_lost_webhook_missed(subscribed):
     from billing.recon import reconcile_saas_subscriptions
 
     issue_platform_gst_invoice(subscribed.company, provider="razorpay", capture_id="pay_seen", amount="1180")
+    now_ts = int(timezone.now().timestamp())
     charges = [
-        {"payment_id": "pay_seen", "amount": Decimal("1180")},
-        {"payment_id": "pay_missed", "amount": Decimal("1180")},
+        {"payment_id": "pay_seen", "amount": Decimal("1180"), "paid_at": now_ts},
+        {"payment_id": "pay_missed", "amount": Decimal("1180"), "paid_at": now_ts},
+        # Paid long before Bizboard issued its own invoices: never invoiced now, dated today.
+        {"payment_id": "pay_ancient", "amount": Decimal("1180"), "paid_at": now_ts - 400 * 86400},
     ]
     with mock.patch("billing.recon.fetch_razorpay_subscription", return_value={"status": "active"}), \
          mock.patch("billing.recon.fetch_razorpay_paid_charges", return_value=charges):

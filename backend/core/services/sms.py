@@ -209,10 +209,17 @@ class SmsProvider:
     @staticmethod
     def send_template(phone: str, key: str, **values) -> None:
         """WP-CM2: the only way to send an SMS. ``key`` is in ``core.message_templates.SMS_TEMPLATES``."""
+        from accounts.otp_utils import normalize_e164
         from core.message_templates import sms_template
 
         tpl = sms_template(key)
         text = tpl.render(**values)
+        # One canonical number for the guard, the DLT check and the provider (a stored "09876…" or
+        # "+91 098…" would otherwise be counted one way and sent another).
+        try:
+            phone = normalize_e164(phone)
+        except ValueError:
+            raise BusinessRuleError("That is not a valid mobile number.", code="SMS_BAD_NUMBER") from None
         prod_like = _env() in ("production", "staging") or not bool(getattr(settings, "DEBUG", True))
         provider = (getattr(settings, "SMS_PROVIDER", "") or "").strip().lower()
         # MSG91 sends by DLT template ID; Twilio carries its own DLT registration on the sender.

@@ -30,6 +30,26 @@ def _seed(tenant):
     Supplier.objects.create(company=tenant.company, name="Supplier One")
 
 
+def _seed_documents(tenant):
+    """Rows in the document sections too, so their columns are pinned (an empty section has no
+    header row to compare, and the snapshot used to record ``[]`` for all of them)."""
+    from tests.conftest import add_stock, create_draft_invoice, create_draft_purchase, make_product
+
+    product = make_product(tenant.company, name="Pinned Item", sku="PIN-1")
+    add_stock(tenant, product, "10")
+    buyer = Customer.objects.filter(company=tenant.company, name="Second Buyer").first()
+    supplier = Supplier.objects.filter(company=tenant.company, name="Supplier One").first()
+    line = [{"product": product.id, "quantity": "1", "unit_price": "100", "gst_rate": "18"}]
+    invoice = create_draft_invoice(tenant, buyer, line)
+    tenant.client.post(f"/api/v1/sales/invoices/{invoice['id']}/complete/", {}, format="json")
+    create_draft_purchase(tenant, supplier, [{"product": product.id, "quantity": "1", "unit_price": "80",
+                                              "gst_rate": "18"}])
+    tenant.client.post("/api/v1/payments/receipts/", {"customer": buyer.id, "amount": "50", "mode": "CASH"},
+                       format="json")
+    tenant.client.post("/api/v1/payments/supplier-payments/", {"supplier": supplier.id, "amount": "40",
+                                                               "mode": "CASH"}, format="json")
+
+
 def _open(blob):
     zf = zipfile.ZipFile(io.BytesIO(blob))
     return zf, json.loads(zf.read("manifest.json"))
@@ -62,6 +82,7 @@ def test_other_companies_rows_never_appear(tenant_a, tenant_b):
 
 def test_pinned_columns_match_the_snapshot(tenant_a):
     _seed(tenant_a)
+    _seed_documents(tenant_a)
     blob, _ = build_readable_zip(tenant_a.company)
     zf, _ = _open(blob)
     got = {}
@@ -74,9 +95,9 @@ def test_pinned_columns_match_the_snapshot(tenant_a):
                             encoding="utf-8")
     pinned = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     assert pinned["format_version"] == FORMAT_VERSION, "bump the snapshot with the format version"
+    for section in PINNED:
+        assert pinned["columns"].get(section), f"{section} has no pinned columns: seed a row for it"
     for section, cols in pinned["columns"].items():
-        if not cols:
-            continue  # the section had no rows in this seed, so no header to compare
         assert got[section] == cols, (
             f"{section} columns changed: bump FORMAT_VERSION (minor for added, major for renamed or "
             "removed) and re-record with UPDATE_EXPORT_SNAPSHOT=1"

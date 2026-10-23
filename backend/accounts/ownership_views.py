@@ -31,11 +31,18 @@ class OwnershipView(APIView):
         from .models import OwnershipTransfer
 
         cu = get_company_user(request)
-        pending = (
-            OwnershipTransfer.objects.filter(company=cu.company, status=OwnershipTransfer.Status.PENDING)
-            .select_related("to_user").order_by("-created_at").first()
-        )
+        pending = _live_pending(OwnershipTransfer, cu.company).select_related("to_user").first()
         return Response({"pending": _row(pending)})
+
+
+def _live_pending(model, company):
+    """The newest pending transfer or recovery that has not expired."""
+    from django.db.models import Q
+    from django.utils import timezone
+
+    return model.objects.filter(company=company, status=model.Status.PENDING).filter(
+        Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()),
+    ).order_by("-created_at")
 
 
 class OwnershipTransferView(APIView):
@@ -51,7 +58,7 @@ class OwnershipTransferView(APIView):
         cu = get_company_user(request)
         transfer, _token = start_transfer(
             company=cu.company, from_user=request.user,
-            to_user_id=int(request.data.get("to_user_id") or 0),
+            to_user_id=request.data.get("to_user_id") or 0,
             old_owner_becomes=str(request.data.get("old_owner_becomes") or "MANAGER"),
         )
         body = {"transfer": _row(transfer)}
@@ -80,9 +87,7 @@ class OwnershipCancelView(APIView):
         from .ownership import cancel
 
         cu = get_company_user(request)
-        pending = OwnershipTransfer.objects.filter(
-            company=cu.company, status=OwnershipTransfer.Status.PENDING,
-        ).order_by("-created_at").first()
+        pending = _live_pending(OwnershipTransfer, cu.company).first()
         if pending is None:
             return Response({"detail": "Nothing pending."}, status=status.HTTP_404_NOT_FOUND)
         cancel(pending, user=request.user, reason=str(request.data.get("reason") or "Cancelled by an owner"))

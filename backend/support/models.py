@@ -225,11 +225,13 @@ class SupportAccessGrant(CompanyScopedModel):
     class Scope(models.TextChoices):
         READ_ONLY = "READ_ONLY", "Read only"
 
-    ticket = models.ForeignKey(PlatformTicket, on_delete=models.PROTECT, related_name="access_grants")
+    # CASCADE: a grant only exists for its ticket (PROTECT blocked deleting the company).
+    ticket = models.ForeignKey(PlatformTicket, on_delete=models.CASCADE, related_name="access_grants")
     granted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
-    # Blank = any Bizboard support staff member; otherwise only this staff user.
+    # Blank = any Bizboard support staff member; otherwise only this staff user. PROTECT: with
+    # SET_NULL, deleting the named staff account would widen the owner's consent to every staff member.
     staff_user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name="+",
     )
     scope = models.CharField(max_length=16, choices=Scope.choices, default=Scope.READ_ONLY)
     expires_at = models.DateTimeField(db_index=True)

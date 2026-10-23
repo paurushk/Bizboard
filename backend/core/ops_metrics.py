@@ -69,7 +69,14 @@ def _mp() -> dict | None:
             buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900, float("inf")),
         ),
     }
+    # Events an alert waits for once are created at 0: Prometheus increase() can't see a series go
+    # from absent to 1, so the first crossing after a restart would otherwise never page.
+    for name in PRECREATED_EVENTS:
+        _MP["events"].labels(event=name)
     return _MP
+
+
+PRECREATED_EVENTS = ("sms_platform_cap_80",)
 
 
 def bump_request_count() -> None:

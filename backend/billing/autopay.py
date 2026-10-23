@@ -33,6 +33,8 @@ MANDATE_EVENTS = {
     "subscription.cancelled": "CANCELLED",
     "subscription.completed": "CANCELLED",
 }
+# Events the webhook applies; any other ``subscription.*`` event is parked before it is applied.
+HANDLED_EVENTS = {*MANDATE_EVENTS, "subscription.updated"}
 
 
 def record_mandate_event(sub, payload: dict) -> None:
@@ -62,31 +64,39 @@ def send_renewal_reminders(now=None) -> int:
     from .models import Subscription
 
     now = now or timezone.now()
-    day = (now + timedelta(days=REMINDER_DAYS)).date()
+    # Renewals due within the next REMINDER_DAYS local days, not yet reminded for this period end:
+    # a day the task missed (or a send that failed) is caught up the next day instead of skipped.
+    last_day = timezone.localdate(now + timedelta(days=REMINDER_DAYS))
     sent = 0
     with rls_bypass():
         due = Subscription.objects.filter(
-            status=Subscription.Status.ACTIVE, current_period_end__date=day,
-        ).exclude(razorpay_subscription_id="").select_related("company", "plan")
+            status=Subscription.Status.ACTIVE, current_period_end__gt=now,
+            current_period_end__date__lte=last_day,
+        ).exclude(razorpay_subscription_id="").select_related("company", "plan", "pending_plan")
         for sub in due:
             if sub.renewal_reminder_for == sub.current_period_end:
                 continue
             to = getattr(sub.company, "email", "") or ""
             if not to:
                 continue
+            # A switch waiting for this renewal is what will be charged then.
+            renewing = sub.pending_plan if sub.pending_plan_id and sub.pending_authenticated_at else sub.plan
             how = {"upi": "UPI Autopay", "card": "your saved card"}.get(sub.payment_method, "your saved payment method")
-            amount = f"₹{(sub.plan.price_paise or 0) / 100:,.2f}"
+            amount = f"₹{(renewing.price_paise or 0) / 100:,.2f}"
             try:
                 send(
                     to=to, category="billing",
                     subject=f"Your Bizboard plan renews on {timezone.localtime(sub.current_period_end):%d %b %Y}",
-                    body=(f"Your {sub.plan.name} plan renews on "
+                    body=(f"Your {renewing.name} plan renews on "
                           f"{timezone.localtime(sub.current_period_end):%d %b %Y}. {amount} (GST included) will be "
                           f"collected through {how}; your bank or UPI app may also send its own notice. "
                           "To change or cancel, open Settings → Billing in Bizboard."),
                 )
             except Suppressed:
                 pass
+            except Exception:  # noqa: BLE001 - one failed send must not skip the rest; retried tomorrow
+                logger.exception("Renewal reminder for subscription %s failed", sub.pk)
+                continue
             sub.renewal_reminder_for = sub.current_period_end
             sub.save(update_fields=["renewal_reminder_for", "updated_at"])
             sent += 1

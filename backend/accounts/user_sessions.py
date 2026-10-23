@@ -11,25 +11,17 @@ A sign-in from a device label + network prefix not seen for this user in 90 days
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import re
 from datetime import timedelta
 
 from django.utils import timezone
 
+from core.netutil import ip_prefix  # noqa: F401 - re-exported for callers and tests
+
 logger = logging.getLogger(__name__)
 
 NEW_DEVICE_WINDOW = timedelta(days=90)
-
-
-def ip_prefix(ip: str | None) -> str:
-    try:
-        addr = ipaddress.ip_address((ip or "").strip())
-    except ValueError:
-        return ""
-    bits = 24 if addr.version == 4 else 48
-    return str(ipaddress.ip_network(f"{addr}/{bits}", strict=False))
 
 
 _BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"), ("Firefox/", "Firefox"),
@@ -40,7 +32,7 @@ _SYSTEMS = (("Android", "Android"), ("iPhone", "iPhone"), ("iPad", "iPad"), ("Wi
 
 def device_label(user_agent: str | None) -> str:
     ua = user_agent or ""
-    if "Capacitor" in ua or "BizboardApp" in ua:
+    if "Capacitor" in ua or "bizboardapp" in ua.lower():
         app = "Bizboard app"
     else:
         app = next((name for key, name in _BROWSERS if key in ua), "")
@@ -77,25 +69,53 @@ def track(request, refresh_raw: str, *, previous: str | None = None) -> None:
             prev_jti = _jti(previous)
         except Exception:  # noqa: BLE001
             prev_jti = ""
-    if prev_jti:
-        moved = UserSession.objects.filter(user_id=user_id, current_jti=prev_jti, revoked_at__isnull=True).update(
-            current_jti=jti, last_used_at=now,
-        )
-        if moved:
-            return
-    from core.observability import current_client_ip
+    from core.netutil import client_ip
 
     meta = getattr(request, "META", {}) or {}
     label = device_label(meta.get("HTTP_USER_AGENT"))
-    prefix = ip_prefix(current_client_ip() or meta.get("REMOTE_ADDR"))
+    prefix = ip_prefix(client_ip(request))
+    if prev_jti:
+        moved = UserSession.objects.filter(user_id=user_id, current_jti=prev_jti, revoked_at__isnull=True).update(
+            current_jti=jti, last_used_at=now, ip_prefix=prefix,
+        )
+        if moved:
+            return
+        if UserSession.objects.filter(user_id=user_id, current_jti=prev_jti, revoked_at__isnull=False).exists():
+            # The device was signed out while this refresh was in flight: the token just issued
+            # must not bring it back as a new session.
+            _blacklist_jti(jti)
+            return
     seen_before = UserSession.objects.filter(user_id=user_id)
     had_any = seen_before.exists()
-    known = seen_before.filter(device_label=label, ip_prefix=prefix, last_used_at__gte=now - NEW_DEVICE_WINDOW).exists()
+    # Only live, recently used sessions make a device "known"; one the user signed out does not.
+    known = seen_before.filter(
+        device_label=label, ip_prefix=prefix, revoked_at__isnull=True, last_used_at__gte=now - NEW_DEVICE_WINDOW,
+    ).exists()
     UserSession.objects.create(
         user_id=user_id, current_jti=jti, device_label=label, ip_prefix=prefix, last_used_at=now,
     )
-    if had_any and not known and not prev_jti:
-        _new_device_email(user if getattr(user, "pk", None) == user_id else None, user_id, label, prefix)
+    if had_any and not known:
+        # Sent by a worker after the sign-in commits: SMTP must not add seconds to the sign-in.
+        from django.db import transaction
+
+        transaction.on_commit(lambda: _queue_new_device_email(user_id, label, prefix))
+
+
+def _queue_new_device_email(user_id: int, label: str, prefix: str) -> None:
+    try:
+        from .tasks import new_device_email_task
+
+        new_device_email_task.delay(user_id=user_id, label=label, prefix=prefix)
+    except Exception:  # noqa: BLE001 - broker down: send it here rather than not at all
+        _new_device_email(None, user_id, label, prefix)
+
+
+def _blacklist_jti(jti: str) -> None:
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+
+    token = OutstandingToken.objects.filter(jti=jti).first()
+    if token is not None:
+        BlacklistedToken.objects.get_or_create(token=token)
 
 
 def _new_device_email(user, user_id: int, label: str, prefix: str) -> None:
@@ -115,7 +135,7 @@ def _new_device_email(user, user_id: int, label: str, prefix: str) -> None:
             body=(
                 f"Your Bizboard account was signed in from {label} (network {prefix or 'unknown'}) "
                 f"at {when}.\n\nIf this was you, there is nothing to do. If not, open Settings → "
-                "Security → Signed-in devices, sign that device out and change your password."
+                "Security in Bizboard, sign that device out and change your password."
             ),
         )
     except Suppressed:
@@ -124,26 +144,49 @@ def _new_device_email(user, user_id: int, label: str, prefix: str) -> None:
         logger.exception("new-device email failed for user %s", user_id)
 
 
+def _live(qs):
+    """Sessions still signed in: not revoked, and used within the refresh token's lifetime (a chain
+    left alone longer than that can't refresh any more)."""
+    from django.conf import settings
+
+    lifetime = (getattr(settings, "SIMPLE_JWT", {}) or {}).get("REFRESH_TOKEN_LIFETIME") or timedelta(days=14)
+    return qs.filter(revoked_at__isnull=True, last_used_at__gte=timezone.now() - lifetime)
+
+
 def list_for(user):
     from .models import UserSession
 
-    return UserSession.objects.filter(user=user, revoked_at__isnull=True).order_by("-last_used_at")
+    return _live(UserSession.objects.filter(user=user)).order_by("-last_used_at")
 
 
 def revoke(user, session_id: int) -> bool:
-    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+    from django.db import transaction
 
     from .models import UserSession
 
-    row = UserSession.objects.filter(user=user, pk=session_id, revoked_at__isnull=True).first()
-    if row is None:
-        return False
-    token = OutstandingToken.objects.filter(jti=row.current_jti).first()
-    if token is not None:
-        BlacklistedToken.objects.get_or_create(token=token)
-    row.revoked_at = timezone.now()
-    row.save(update_fields=["revoked_at"])
+    with transaction.atomic():
+        # Locked, so a refresh moving this row to a new token waits and then sees it revoked.
+        row = UserSession.objects.select_for_update().filter(user=user, pk=session_id, revoked_at__isnull=True).first()
+        if row is None:
+            return False
+        _blacklist_jti(row.current_jti)
+        row.revoked_at = timezone.now()
+        row.save(update_fields=["revoked_at"])
     return True
+
+
+def revoke_by_refresh(raw: str | None) -> None:
+    """Sign-out of this device: close the session whose current token is ``raw``."""
+    from .models import UserSession
+
+    if not raw:
+        return
+    try:
+        jti = _jti(raw)
+    except Exception:  # noqa: BLE001
+        return
+    if jti:
+        UserSession.objects.filter(current_jti=jti, revoked_at__isnull=True).update(revoked_at=timezone.now())
 
 
 def revoke_all(user) -> None:

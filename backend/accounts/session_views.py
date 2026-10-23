@@ -72,11 +72,12 @@ class MemberSessionCountsView(APIView):
 
     def get(self, request):
         from .models import CompanyUser, UserSession
+        from .user_sessions import _live
 
         cu = get_company_user(request)
         user_ids = list(CompanyUser.objects.filter(company=cu.company, is_active=True).values_list("user_id", flat=True))
         counts = dict(
-            UserSession.objects.filter(user_id__in=user_ids, revoked_at__isnull=True)
+            _live(UserSession.objects.filter(user_id__in=user_ids))
             .values("user_id").annotate(n=Count("id")).values_list("user_id", "n")
         )
         return Response({str(uid): counts.get(uid, 0) for uid in user_ids})

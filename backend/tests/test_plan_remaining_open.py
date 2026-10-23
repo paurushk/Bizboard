@@ -32,7 +32,10 @@ def test_duplicate_lead_is_matched_and_not_created_silently(tenant_a):
 def test_cashfree_capture_issues_one_gst_invoice_and_payu_is_idempotent(tenant_a):
     tenant_a.company.state = "Maharashtra"
     tenant_a.company.email = "owner@alpha.test"
-    tenant_a.company.save(update_fields=["state", "email"])
+    # Inter-state is decided on GST state codes, GSTIN first: a Maharashtra buyer with no
+    # Karnataka GSTIN of the test tenant (review fix 2026-10-23).
+    tenant_a.company.gstin = ""
+    tenant_a.company.save(update_fields=["state", "email", "gstin"])
     with override_settings(PLATFORM_STATE="Karnataka", PLATFORM_GSTIN="29AAAAA0000A1Z5"):
         first = issue_platform_gst_invoice(
             tenant_a.company, provider="cashfree", capture_id="cf_1", amount=Decimal("118.00"),

@@ -84,3 +84,12 @@ def purge_readable_exports_task():
     from accounts.readable_export import purge_expired
 
     return {"purged": purge_expired()}
+
+
+@shared_task
+def new_device_email_task(user_id=None, label="", prefix=""):
+    """WP-ID3: the "new sign-in" security email, off the sign-in request."""
+    from .user_sessions import _new_device_email
+
+    _new_device_email(None, user_id, label, prefix)
+    return {"user_id": user_id}

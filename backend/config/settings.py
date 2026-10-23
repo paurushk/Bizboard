@@ -386,6 +386,8 @@ REST_FRAMEWORK = {
         # B6-012: tight budget for current-password verification (change-password
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
+        # WP-PO3: raising a platform support ticket (a P0/P1 pages on-call).
+        "support_ticket": "10/hour",
         "accept_invite": "20/min",  # B6-025: onboarding-appropriate, own bucket
         "telemetry": "120/min",  # B9-032: shop-floor event ingest, own bucket
         # Per-company (CompanyRateThrottle) budgets for expensive reports.
@@ -840,9 +842,15 @@ SMS_GUARD_FAIL_CLOSED = _env_bool("SMS_GUARD_FAIL_CLOSED", "1")
 # WP-AB2: bot check on sign-up, OTP and reset (core/services/bot_check.py).
 BOT_CHECK_PROVIDER = (os.environ.get("BOT_CHECK_PROVIDER") or "none").strip().lower()
 TURNSTILE_SECRET_KEY = os.environ.get("TURNSTILE_SECRET_KEY", "").strip()
+# Comma-separated hostnames a Turnstile token must have been solved on (e.g. app.bizboard.in).
+# Blank = not checked.
+TURNSTILE_ALLOWED_HOSTNAMES = os.environ.get("TURNSTILE_ALLOWED_HOSTNAMES", "").strip()
 BOT_CHECK_ENFORCE = _env_bool("BOT_CHECK_ENFORCE", "1")
 BOT_CHECK_ALLOW_NONE = _env_bool("BOT_CHECK_ALLOW_NONE")
-if DJANGO_ENV == "production" and BOT_CHECK_PROVIDER in ("none", "stub") and not BOT_CHECK_ALLOW_NONE:
+if BOT_CHECK_PROVIDER not in ("none", "stub", "turnstile"):
+    # A typo would otherwise boot and then refuse every sign-up, OTP and reset at request time.
+    raise ImproperlyConfigured(f"BOT_CHECK_PROVIDER={BOT_CHECK_PROVIDER!r} is not one of none, stub, turnstile.")
+if DJANGO_ENV == "production" and BOT_CHECK_PROVIDER != "turnstile" and not BOT_CHECK_ALLOW_NONE:
     raise ImproperlyConfigured(
         "BOT_CHECK_PROVIDER must be 'turnstile' in production (sign-up and OTP are open to scripts "
         "otherwise). Set BOT_CHECK_ALLOW_NONE=1 to override deliberately."
@@ -1369,6 +1377,13 @@ GOOGLE_OAUTH_CLIENT_IDS = _env_value("GOOGLE_OAUTH_CLIENT_IDS")
 PLATFORM_ADDRESS = _env_value("PLATFORM_ADDRESS")
 # WP-BL2: SAC on Bizboard's own GST invoices (CA to confirm; 998314 = IT design and development services).
 PLATFORM_SAC_CODE = _env_value("PLATFORM_SAC_CODE") or "998314"
+# WP-BL2: the daily recon only invoices Razorpay charges paid on or after this date (ISO, the day
+# Bizboard started issuing its own GST invoices) and within the last 35 days. Blank = 35 days only.
+PLATFORM_GST_INVOICES_FROM = _env_value("PLATFORM_GST_INVOICES_FROM")
+# WP-CM1: HTTP Basic credentials the email provider uses on the bounce/complaint webhook
+# (/api/v1/email/events/). Both blank = the webhook refuses every call.
+EMAIL_WEBHOOK_USER = _env_value("EMAIL_WEBHOOK_USER")
+EMAIL_WEBHOOK_PASSWORD = _env_value("EMAIL_WEBHOOK_PASSWORD")
 # WP-AB3: one free trial per business (billing/trial_guard.py). Pepper: comma-separated, newest first.
 TRIAL_FINGERPRINT_PEPPER = os.environ.get("TRIAL_FINGERPRINT_PEPPER", "")
 TRIAL_DEDUPE_DAYS = _env_int("TRIAL_DEDUPE_DAYS", 365)

@@ -189,6 +189,9 @@ def end_trial_if_repeat(company, owner=None) -> bool:
 
     sub = Subscription.objects.filter(company=company, status=Subscription.Status.TRIAL).first()
     if sub is None or not sub.trial_ends_at or sub.trial_ends_at <= timezone.now():
+        # No trial running (it is over, or the company already pays): still remember the GSTIN, so
+        # the same business can't start a fresh trial under a new phone and email.
+        record_trial(company, owner)
         return False
     if not trial_used_before(company, owner):
         record_trial(company, owner)
@@ -248,6 +251,11 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
         prior_remote_id = (sub.razorpay_subscription_id or "").strip()
         # Clicking the plan the tenant already pays for must not open a
         # second subscription. That used to bill both until cycle end.
+        from .plan_change import guard_plan_change
+
+        handled = guard_plan_change(sub, plan)  # WP-BL3: one upgrade at a time, never charged twice
+        if handled is not None:
+            return handled
         if (
             sub.status in live
             and prior_remote_id
@@ -267,8 +275,16 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
         start_at = None
         if is_live_switch and sub.current_period_end and sub.current_period_end > now:
             start_at = int(sub.current_period_end.timestamp())
-        is_upgrade = is_live_switch and int(plan.price_paise or 0) > int(sub.plan.price_paise or 0)
-        if is_live_switch and not is_upgrade:
+        # WP-BL3: an upgrade (charged now, prorated) needs a paid period in progress; a TRIAL or a
+        # lapsed period just switches. Any other change to a plan with lower limits is checked
+        # against current use first, whatever the status.
+        is_upgrade = (
+            is_live_switch
+            and sub.status == Subscription.Status.ACTIVE
+            and bool(sub.current_period_end and sub.current_period_end > now)
+            and int(plan.price_paise or 0) > int(sub.plan.price_paise or 0)
+        )
+        if sub.plan_id != plan.pk and not is_upgrade:
             from .plan_change import check_downgrade
 
             check_downgrade(company, plan)  # WP-BL3: refuse a downgrade below current use
@@ -300,8 +316,9 @@ def start_or_update_subscription(*, company, plan: Plan) -> tuple[Subscription, 
                     _cancel_razorpay_subscription(old_pending, at_cycle_end=False)
                 sub.pending_razorpay_subscription_id = remote_id
                 sub.pending_plan = plan
+                sub.pending_authenticated_at = None
                 sub.save(update_fields=[
-                    "pending_plan", "pending_razorpay_subscription_id", "updated_at",
+                    "pending_plan", "pending_razorpay_subscription_id", "pending_authenticated_at", "updated_at",
                 ])
                 if is_upgrade:
                     from .plan_change import start_upgrade
@@ -368,10 +385,12 @@ def _create_razorpay_subscription(plan: Plan, company, *, start_at: int | None =
     return str(payload.get("id") or ""), str(payload.get("short_url") or "")
 
 
-def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = True) -> None:
+def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = True) -> bool:
     """B9-001: cancel the tenant's previous Razorpay subscription so a plan
     switch does not leave two subscriptions billing the same customer. Best
-    effort — a failure here must not block the new subscription."""
+    effort — a failure here must not block the new subscription. Returns False
+    when the call failed, so a caller that must not forget a live subscription
+    (the upgrade revert) can keep its id and retry."""
     import base64
     import json
     from urllib.request import Request, urlopen
@@ -380,7 +399,7 @@ def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = 
     key = (getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip()
     secret = (getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip()
     if not sid or not key or not secret:
-        return
+        return True
     body = json.dumps({"cancel_at_cycle_end": 1 if at_cycle_end else 0}).encode("utf-8")
     req = Request(
         f"https://api.razorpay.com/v1/subscriptions/{sid}/cancel",
@@ -400,6 +419,8 @@ def _cancel_razorpay_subscription(subscription_id: str, *, at_cycle_end: bool = 
         logging.getLogger(__name__).warning(
             "Could not cancel prior Razorpay subscription %s", sid
         )
+        return False
+    return True
 
 
 def fetch_razorpay_subscription(subscription_id: str) -> dict | None:
@@ -436,7 +457,8 @@ def fetch_razorpay_subscription(subscription_id: str) -> dict | None:
 def fetch_razorpay_paid_charges(subscription_id: str) -> list[dict]:
     """WP-BL2: paid charges of one Razorpay subscription (GET /v1/invoices?subscription_id=).
 
-    ``[{"payment_id", "amount"}]`` with ``amount`` in rupees, GST inclusive. Empty when keys or id
+    ``[{"payment_id", "amount", "paid_at"}]`` with ``amount`` in rupees, GST inclusive, and
+    ``paid_at`` a Unix time (0 when Razorpay did not say). Empty when keys or id
     are missing. Network/circuit failures raise so recon can park a DeadLetterEvent.
     """
     import base64
@@ -467,18 +489,25 @@ def fetch_razorpay_paid_charges(subscription_id: str) -> list[dict]:
         if str(item.get("status") or "") != "paid" or not item.get("payment_id"):
             continue
         try:
-            paise = int(item.get("amount_paid") or item.get("amount") or 0)
+            paise = int(item.get("amount_paid") or 0)  # what was collected, never the gross
+            paid_at = int(item.get("paid_at") or 0)
         except (TypeError, ValueError):
             continue
         if paise > 0:
-            out.append({"payment_id": str(item["payment_id"]), "amount": Decimal(paise) / Decimal(100)})
+            out.append({
+                "payment_id": str(item["payment_id"]), "amount": Decimal(paise) / Decimal(100), "paid_at": paid_at,
+            })
     return out
 
 
-def razorpay_refund(payment_id: str, amount_paise: int, *, notes: dict | None = None) -> str:
+def razorpay_refund(
+    payment_id: str, amount_paise: int, *, notes: dict | None = None, idempotency_key: str = "",
+) -> str:
     """WP-BL1: POST /v1/payments/{id}/refund for part of a captured payment. Returns the refund id.
 
     Raises when keys are missing or the gateway refuses, so the caller can stop and retry later.
+    ``idempotency_key`` (PAY-09) makes a retry of the same refund return the first one instead of
+    refunding again.
     """
     import base64
     import json
@@ -492,14 +521,19 @@ def razorpay_refund(payment_id: str, amount_paise: int, *, notes: dict | None = 
         raise BusinessRuleError("Razorpay keys are not configured; refund by hand.")
     if not payment_id or amount_paise <= 0:
         raise BusinessRuleError("Nothing to refund.")
+    body: dict[str, Any] = {"amount": int(amount_paise), "notes": {k: str(v) for k, v in (notes or {}).items()}}
+    headers = {
+        "Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
+        "Content-Type": "application/json",
+    }
+    if idempotency_key:
+        headers["X-Razorpay-Idempotency-Key"] = idempotency_key[:64]
+        body["receipt"] = idempotency_key[:40]
     req = Request(
         f"https://api.razorpay.com/v1/payments/{payment_id}/refund",
-        data=json.dumps({"amount": int(amount_paise), "notes": {k: str(v) for k, v in (notes or {}).items()}}).encode(),
+        data=json.dumps(body).encode(),
         method="POST",
-        headers={
-            "Authorization": "Basic " + base64.b64encode(f"{key}:{secret}".encode()).decode(),
-            "Content-Type": "application/json",
-        },
+        headers=headers,
     )
     from core.circuit_breaker import call as circuit_call
 
@@ -542,6 +576,16 @@ def apply_razorpay_subscription_status(
             (sub.razorpay_subscription_id or "") != razorpay_subscription_id
             and (sub.pending_razorpay_subscription_id or "") == razorpay_subscription_id
         )
+        if via_pending and (rzp_status or "").strip().lower() == "authenticated" and not sub.pending_authenticated_at:
+            # The new plan's mandate is approved and its first charge is at the old period's end.
+            # End the old subscription at that same cycle end now, so the two never both charge
+            # at the renewal (the old one would otherwise renew before the new one goes active).
+            sub.pending_authenticated_at = timezone.now()
+            sub.save(update_fields=["pending_authenticated_at", "updated_at"])
+            old = (sub.razorpay_subscription_id or "").strip()
+            if old:
+                _cancel_razorpay_subscription(old, at_cycle_end=True)
+            return sub
         return _write_razorpay_subscription_status(
             sub, razorpay_subscription_id, rzp_status, current_end, via_pending,
         )
@@ -572,7 +616,8 @@ def _write_razorpay_subscription_status(sub, razorpay_subscription_id, rzp_statu
         previous_remote_id = (sub.razorpay_subscription_id or "").strip()
         sub.razorpay_subscription_id = razorpay_subscription_id
         sub.pending_razorpay_subscription_id = ""
-        update_fields.extend(["razorpay_subscription_id", "pending_razorpay_subscription_id"])
+        sub.pending_authenticated_at = None
+        update_fields.extend(["razorpay_subscription_id", "pending_razorpay_subscription_id", "pending_authenticated_at"])
         if previous_remote_id and previous_remote_id != razorpay_subscription_id:
             _cancel_razorpay_subscription(previous_remote_id, at_cycle_end=True)
     sub.status = mapped
@@ -591,15 +636,21 @@ def _write_razorpay_subscription_status(sub, razorpay_subscription_id, rzp_statu
         update_fields.append("current_period_end")
         # B9-005: the deferred plan switch's new subscription has now actually
         # started billing (Razorpay confirmed ACTIVE) -- promote the pending
-        # plan the tenant only just started paying for.
-        if sub.pending_plan_id:
+        # plan the tenant only just started paying for. A renewal of the OLD
+        # subscription while a switch is still pending is not that event: it
+        # must not hand over the new plan (the first checkout, which has no
+        # separate pending id, still promotes on its own activation).
+        promote = sub.pending_plan_id and (
+            via_pending or not (sub.pending_razorpay_subscription_id or "").strip()
+        )
+        if promote:
             sub.plan = sub.pending_plan
             sub.pending_plan = None
             update_fields.extend(["plan", "pending_plan"])
-            if via_pending and sub.upgrade_plan_id:
-                from .plan_change import clear_upgrade
+        if sub.upgrade_plan_id and (via_pending or sub.plan_id == sub.upgrade_plan_id):
+            from .plan_change import clear_upgrade
 
-                clear_upgrade(sub, update_fields)  # WP-BL3: the new plan now has its own subscription
+            clear_upgrade(sub, update_fields)  # WP-BL3: the new plan now has its own subscription
     sub.save(update_fields=update_fields)
     return sub
 

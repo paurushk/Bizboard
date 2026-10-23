@@ -75,7 +75,7 @@ def grant_access(*, company, owner, ticket_id: int, hours: int = MAX_HOURS, staf
     try:
         hours = int(hours)
     except (TypeError, ValueError):
-        hours = MAX_HOURS
+        hours = 0  # refused below: bad input must never become the longest consent
     if hours < 1 or hours > MAX_HOURS:
         raise BusinessRuleError(f"Access can last 1 to {MAX_HOURS} hours.", code="SUPPORT_ACCESS_HOURS")
     ticket = PlatformTicket.objects.filter(company=company, pk=ticket_id).first()
@@ -104,6 +104,17 @@ def _ping_ops(grant) -> None:
         )
     except Exception:  # noqa: BLE001 - the ping is a courtesy; the grant stands
         logger.exception("support access ops ping failed for grant %s", grant.pk)
+
+
+def revoke_for_ticket(ticket, *, user=None) -> int:
+    """Closing a support request ends its access at once (not at the next hourly sweep)."""
+    from .models import SupportAccessGrant
+
+    n = 0
+    for grant in SupportAccessGrant.objects.filter(ticket=ticket, revoked_at__isnull=True):
+        revoke(grant, user=user, reason="ticket_closed")
+        n += 1
+    return n
 
 
 def revoke(grant, *, user=None, reason: str = "owner") -> None:
@@ -142,9 +153,12 @@ def usable_grant(grant_id: int, staff_user):
 
     if not (getattr(staff_user, "is_staff", False) and getattr(staff_user, "is_active", False)):
         return None
+    from .models import PlatformTicket
+
     with rls_bypass():  # staff have no tenant; the grant row itself names the one company allowed
         return (
             SupportAccessGrant.objects.filter(pk=grant_id, revoked_at__isnull=True, expires_at__gt=timezone.now())
+            .exclude(ticket__status=PlatformTicket.Status.RESOLVED)  # a closed request ends the access
             .filter(Q(staff_user__isnull=True) | Q(staff_user=staff_user))
             .select_related("company", "ticket")
             .first()
@@ -171,16 +185,16 @@ def read_only_tenant(company_id):
             finally:
                 transaction.set_rollback(True)
         return
-    # SQLite (local and tests): query_only is per connection, so switch it on and off on the raw
-    # connection, outside Django's transaction state — a refused write must not leave it stuck on.
-    connection.ensure_connection()
-    raw = connection.connection
-    raw.execute("PRAGMA query_only = ON")
-    try:
-        with transaction.atomic():
+    # SQLite (local and tests): query_only is per connection. It is switched on inside the
+    # transaction (BEGIN IMMEDIATE, which dev settings use, is itself refused under query_only) and
+    # off again on the raw connection in ``finally``, so a refused write never leaves it stuck on.
+    with transaction.atomic():
+        raw = connection.connection
+        raw.execute("PRAGMA query_only = ON")
+        try:
             yield
-    finally:
-        raw.execute("PRAGMA query_only = OFF")
+        finally:
+            raw.execute("PRAGMA query_only = OFF")
 
 
 def view_section(grant, *, staff_user, section: str, query: str = "", limit: int = 100) -> dict:

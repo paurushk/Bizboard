@@ -18,10 +18,15 @@ CLIENT_ID = "test-client.apps.googleusercontent.com"
 _KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
 
-def _token(email, *, aud=CLIENT_ID, iss="https://accounts.google.com", verified=True, exp_in=600, name="Asha"):
+def _token(email, *, aud=CLIENT_ID, iss="https://accounts.google.com", verified=True, exp_in=600, name="Asha",
+           hd="same"):
     now = int(time.time())
     claims = {"iss": iss, "aud": aud, "sub": "1234567890", "email": email, "email_verified": verified,
               "iat": now, "exp": now + exp_in, "name": name}
+    if hd == "same":  # a Google Workspace account for the address's own domain
+        hd = email.rsplit("@", 1)[-1].lower()
+    if hd:
+        claims["hd"] = hd
     return jwt.encode(claims, _KEY, algorithm="RS256")
 
 
@@ -60,6 +65,14 @@ def test_existing_user_signs_in_like_a_password_sign_in(tenant_a):
     assert settings.JWT_REFRESH_COOKIE_NAME in resp.cookies
 
 
+def test_existing_account_is_not_opened_by_a_google_account_google_does_not_own(tenant_a):
+    """Review fix: a consumer Google account made on a company address (no ``hd``) only proves the
+    address was reachable once; it must not open the existing Bizboard account."""
+    resp = _post({"credential": _token(tenant_a.owner.email, hd=None)})
+    assert resp.status_code == 401, resp.content
+    assert settings.JWT_REFRESH_COOKIE_NAME not in resp.cookies
+
+
 def test_two_step_is_still_asked(tenant_a):
     with mock.patch("accounts.mfa_service.mfa_is_enabled", return_value=True):
         resp = _post({"credential": _token(tenant_a.owner.email)})
@@ -94,9 +107,20 @@ def test_trial_dedupe_still_applies_to_google_sign_up(tenant_a):
     record_trial(tenant_a.company, tenant_a.owner)
     with override_settings(REQUIRE_SUBSCRIPTION=True):
         resp = _post({"credential": _token("second@alphatraders.in"), "company_name": "Alpha Again",
-                      "gstin": "27AAAPL1234C1ZE", "registration_type": "REGULAR", "accept_terms": True})
+                      "state": "Maharashtra", "gstin": "27AAAPL1234C1ZE", "registration_type": "REGULAR",
+                      "accept_terms": True})
     assert resp.status_code == 200, resp.content
     from django.utils import timezone
 
     sub = Subscription.objects.get(company__name="Alpha Again")
     assert sub.trial_ends_at <= timezone.now() and sub.churn_reason == "TRIAL_ALREADY_USED"
+
+
+def test_google_sign_up_keeps_the_password_sign_up_rules(db):
+    """Review fix: state is required and registration type is one of the choices, as on the
+    password sign-up (a free-text type used to reach a Postgres length error)."""
+    base = {"credential": _token("rules@alphatraders.in"), "company_name": "Rules Co", "accept_terms": True}
+    assert _post(base).status_code == 400  # no state
+    assert _post({**base, "state": "Maharashtra", "registration_type": "COMPOSITION_SCHEME"}).status_code == 400
+    ok = _post({**base, "state": "Maharashtra"})
+    assert ok.status_code == 200, ok.content

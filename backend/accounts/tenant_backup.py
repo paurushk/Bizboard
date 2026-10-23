@@ -2249,6 +2249,9 @@ def delete_sandbox_company(company) -> None:
     from core.models import AuditEvent, MoneyFieldAudit, StatutoryDocumentEvent
     from core.rls import rls_bypass
 
+    from accounts.readable_export import delete_company_files
+
+    delete_company_files(company.pk)
     with rls_bypass():
         wipe_logical_tenant_rows(company)
         from core.audit_guard import audit_maintenance

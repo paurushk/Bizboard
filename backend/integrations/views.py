@@ -65,7 +65,10 @@ class TallyPreviewView(APIView):
         assert_tally_enabled(cu.company)
         run_id = request.data.get("sync_run_id") or request.data.get("syncRunId")
         try:
-            run = IntegrationSyncRun.objects.get(pk=run_id, company=cu.company)
+            # A Busy/Vyapar/Marg run goes through its own flagged endpoints, not ENABLE_TALLY's.
+            run = IntegrationSyncRun.objects.exclude(kind=IntegrationSyncRun.Kind.LEGACY_IMPORT).get(
+                pk=run_id, company=cu.company,
+            )
         except IntegrationSyncRun.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         preview = request.data.get("preview")
@@ -102,7 +105,10 @@ class TallyCommitView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            run = IntegrationSyncRun.objects.get(pk=run_id, company=cu.company)
+            # A Busy/Vyapar/Marg run goes through its own flagged endpoints, not ENABLE_TALLY's.
+            run = IntegrationSyncRun.objects.exclude(kind=IntegrationSyncRun.Kind.LEGACY_IMPORT).get(
+                pk=run_id, company=cu.company,
+            )
         except IntegrationSyncRun.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         try:
@@ -181,7 +187,9 @@ class TallyErrorsView(APIView):
         cu = get_company_user(request)
         assert_tally_enabled(cu.company)
         try:
-            run = IntegrationSyncRun.objects.get(pk=pk, company=cu.company)
+            run = IntegrationSyncRun.objects.exclude(kind=IntegrationSyncRun.Kind.LEGACY_IMPORT).get(
+                pk=pk, company=cu.company,
+            )
         except IntegrationSyncRun.DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         fmt = (request.query_params.get("as") or request.query_params.get("download") or "json").lower()

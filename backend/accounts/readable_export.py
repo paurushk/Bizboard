@@ -29,7 +29,6 @@ import logging
 import zipfile
 from datetime import timedelta
 
-from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.utils import timezone
 
@@ -39,7 +38,12 @@ FORMAT_NAME = "bizboard-readable-export"
 FORMAT_VERSION = "1.0"
 LINK_HOURS = 24
 MAX_INVOICE_PDFS = 500
+# A PENDING export older than this is a build that died (worker restart, OOM, broker down); it no
+# longer blocks a new request and the daily purge marks it failed. Above the task's hard limit.
+STALE_PENDING_MINUTES = 30
 _SKIP_SECTIONS = {"company", "file_asset_warnings"}
+# Columns that are file contents, not data: a base64 blob in a CSV cell breaks Excel (32,767 chars).
+_DROP_COLUMNS = {"file_assets": {"bytes_b64"}}
 
 README_EN = """Bizboard data export
 ====================
@@ -101,48 +105,69 @@ def _invoice_pdfs(company) -> tuple[list[tuple[str, bytes]], int]:
     done = SalesInvoice.objects.filter(company=company, status=SalesInvoice.Status.COMPLETED).order_by("invoice_date", "pk")
     total = done.count()
     out = []
+    try:
+        from celery.exceptions import SoftTimeLimitExceeded
+    except ImportError:  # pragma: no cover - celery is a hard dependency
+        SoftTimeLimitExceeded = ()  # noqa: N806
     for inv in done.select_related("customer", "company")[:MAX_INVOICE_PDFS]:
         try:
             out.append((f"pdf/{inv.number or inv.pk}.pdf", render_gst_tax_invoice(inv)))
+        except SoftTimeLimitExceeded:
+            raise  # the time limit is not "one bad invoice": stop and mark the export failed
         except Exception:  # noqa: BLE001 - one bad invoice must not lose the whole export
             logger.exception("readable export: invoice %s PDF failed", inv.pk)
     return out, total
 
 
 def build_readable_zip(company) -> tuple[bytes, dict]:
-    """Return the ZIP bytes and its manifest."""
+    """Return the ZIP bytes and its manifest (tests and small companies; the task streams)."""
+    buf = io.BytesIO()
+    manifest = write_readable_zip(company, buf)
+    return buf.getvalue(), manifest
+
+
+def write_readable_zip(company, fileobj) -> dict:
+    """Write the ZIP into ``fileobj`` one file at a time and return its manifest."""
     from .tenant_backup import build_export_payload
 
     payload = build_export_payload(company)
-    files: list[tuple[str, bytes, int]] = []
-    for section, rows in payload.items():
+    files_meta: list[dict] = []
+    zf = zipfile.ZipFile(fileobj, "w", compression=zipfile.ZIP_DEFLATED)
+
+    def _add(name: str, data: bytes, rows: int) -> None:
+        zf.writestr(name, data)
+        files_meta.append({"name": name, "rows": rows, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+
+    for section in list(payload):
+        rows = payload.pop(section)  # free each section once written
         if section in _SKIP_SECTIONS or not isinstance(rows, list):
             continue
-        files.append((f"{section}.csv", _csv_bom_bytes(rows), len(rows)))
+        drop = _DROP_COLUMNS.get(section)
+        if drop:
+            rows = [{k: v for k, v in row.items() if k not in drop} for row in rows]
+        _add(f"{section}.csv", _csv_bom_bytes(rows), len(rows))
     pdfs, total_pdfs = _invoice_pdfs(company)
     more = total_pdfs - len(pdfs)
     pdf_note = f" (the first {len(pdfs)} of {total_pdfs}; ask support for the rest)" if more > 0 else ""
     pdf_note_hi = f" (कुल {total_pdfs} में से पहले {len(pdfs)}; बाकी के लिए सपोर्ट से कहें)" if more > 0 else ""
     readme = (README_EN.format(pdf_note=pdf_note, version=FORMAT_VERSION) + "\n\n"
               + README_HI.format(pdf_note_hi=pdf_note_hi, version=FORMAT_VERSION)).encode("utf-8")
-    entries = [*files, *[(name, data, 1) for name, data in pdfs], ("README.txt", readme, 0)]
+    included = len(pdfs)
+    for name, data in pdfs:
+        _add(name, data, 1)
+    del pdfs
+    _add("README.txt", readme, 0)
     manifest = {
         "format": FORMAT_NAME,
         "format_version": FORMAT_VERSION,
         "company": {"id": company.pk, "name": company.name, "gstin": getattr(company, "gstin", "") or ""},
         "generated_at": timezone.now().isoformat(),
-        "files": [
-            {"name": name, "rows": rows, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
-            for name, data, rows in entries
-        ],
-        "invoice_pdfs": {"included": len(pdfs), "total": total_pdfs},
+        "files": files_meta,
+        "invoice_pdfs": {"included": included, "total": total_pdfs},
     }
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
-        for name, data, _rows in entries:
-            zf.writestr(name, data)
-    return buf.getvalue(), manifest
+    zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+    zf.close()
+    return manifest
 
 
 def run_export(export_id: int) -> None:
@@ -151,24 +176,70 @@ def run_export(export_id: int) -> None:
 
     from .models import ReadableExport
 
-    row = ReadableExport.objects.select_related("company").get(pk=export_id)
+    import tempfile
+
+    from django.core.files import File
+
+    row = ReadableExport.objects.select_related("company").filter(pk=export_id).first()
+    if row is None:
+        return  # the company was erased meanwhile
     with company_scope(row.company_id):
+        fields = ["status", "error", "updated_at"]
         try:
-            data, manifest = build_readable_zip(row.company)
-            path = default_storage.save(
-                f"readable-exports/{row.company_id}/{row.public_id}.zip", ContentFile(data),
-            )
+            with tempfile.TemporaryFile() as tmp:  # streamed to disk, not built in memory
+                manifest = write_readable_zip(row.company, tmp)
+                size = tmp.tell()
+                tmp.seek(0)
+                path = default_storage.save(f"readable-exports/{row.company_id}/{row.public_id}.zip", File(tmp))
             row.storage_path = path
-            row.size = len(data)
+            row.size = size
             row.manifest = {k: manifest[k] for k in ("format", "format_version", "generated_at", "invoice_pdfs")}
             row.status = ReadableExport.Status.READY
             row.ready_at = timezone.now()
             row.expires_at = row.ready_at + timedelta(hours=LINK_HOURS)
-        except Exception as exc:  # noqa: BLE001 - recorded on the row for the owner and support
+            fields += ["storage_path", "size", "manifest", "ready_at", "expires_at"]
+        except BaseException as exc:  # noqa: BLE001 - incl. the soft time limit; recorded on the row
             logger.exception("readable export %s failed", export_id)
             row.status = ReadableExport.Status.FAILED
-            row.error = str(exc)[:300]
-        row.save()
+            row.error = str(exc)[:300] or exc.__class__.__name__
+            _save_if_present(row, fields)
+            if not isinstance(exc, Exception):
+                raise
+            return
+        # update_fields: an export erased while it was building must not be inserted again.
+        _save_if_present(row, fields)
+
+
+def _save_if_present(row, fields: list[str]) -> None:
+    from django.db import DatabaseError
+
+    try:
+        row.save(update_fields=fields)
+    except DatabaseError:
+        logger.warning("readable export %s is gone (company erased?); not saved", row.pk)
+        if row.storage_path and default_storage.exists(row.storage_path):
+            default_storage.delete(row.storage_path)
+
+
+def delete_company_files(company_id: int) -> int:
+    """Delete every readable-export ZIP of a company (erasure, sandbox teardown). The rows go with
+    the company; without this the plaintext ZIPs would outlive the erasure in storage."""
+    from core.rls import rls_bypass
+
+    from .models import ReadableExport
+
+    n = 0
+    with rls_bypass():
+        for path in ReadableExport.objects.filter(company_id=company_id).exclude(storage_path="").values_list(
+            "storage_path", flat=True,
+        ):
+            try:
+                if default_storage.exists(path):
+                    default_storage.delete(path)
+                    n += 1
+            except Exception:  # noqa: BLE001 - keep deleting the rest
+                logger.exception("could not delete readable export %s", path)
+    return n
 
 
 def purge_expired() -> int:
@@ -185,4 +256,9 @@ def purge_expired() -> int:
             row.status = ReadableExport.Status.EXPIRED
             row.save(update_fields=["status", "updated_at"])
             n += 1
+        # Builds that died never leave PENDING on their own.
+        ReadableExport.objects.filter(
+            status=ReadableExport.Status.PENDING,
+            created_at__lte=timezone.now() - timedelta(minutes=STALE_PENDING_MINUTES),
+        ).update(status=ReadableExport.Status.FAILED, error="The export did not finish. Ask for a new one.")
     return n

@@ -30,10 +30,9 @@ def set_flag(company, *, key: str, on: bool, staff_user, reason: str, ticket: st
         raise BusinessRuleError("Say why (at least a few words).")
     flags = dict(company.feature_flags or {})
     before = flags.get(key)
-    if on:
-        flags[key] = True
-    else:
-        flags.pop(key, None)
+    # Off is stored as False, not by dropping the key: the company value overrides the plan in both
+    # directions, so dropping it would fall back to a plan (e.g. the trial) that turns the flag on.
+    flags[key] = bool(on)
     company.feature_flags = flags
     company.save(update_fields=["feature_flags", "updated_at"])
     AuditService.log(

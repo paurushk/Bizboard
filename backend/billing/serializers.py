@@ -27,6 +27,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     write_blocked = serializers.SerializerMethodField()
     pending_plan_name = serializers.CharField(source="pending_plan.name", read_only=True, default="")
     upgrade_plan_name = serializers.CharField(source="upgrade_plan.name", read_only=True, default="")
+    # WP-BL3: the unpaid prorated charge's link, so the Billing page can offer it again after a reload.
+    proration_link_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Subscription
@@ -47,9 +49,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "upgrade_grace_until",
             "proration_amount_paise",
             "proration_paid_at",
+            "proration_link_url",
             "payment_method",
             "mandate_status",
         )
+
+    def get_proration_link_url(self, obj) -> str:
+        if obj.upgrade_plan_id and obj.proration_paid_at is None:
+            return obj.proration_link_url or ""
+        return ""
 
     def get_write_blocked(self, obj) -> bool:
         company = obj.company

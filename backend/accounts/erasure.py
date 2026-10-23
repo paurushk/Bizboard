@@ -124,6 +124,9 @@ TOMBSTONE_RETAINED = {
     "accounts.CompanyGstin", "core.DocumentSeries",
     # PROTECT-referenced by the retained tax documents; no third-party PII.
     "inventory.Warehouse", "inventory.BatchLot", "accounting.CostCenter",
+    # Bizboard's own statutory records about this tenant: its outward GST invoices to the tenant
+    # (gap-free BB/BC series on Bizboard's GSTR-1) and the TDS claimed back (X-01).
+    "billing.PlatformGstInvoice", "billing.SaasTdsClaim",
 }
 
 # Non-retained models whose self-referential PROTECT FK must be nulled first.
@@ -359,6 +362,9 @@ def erase_company(
         export_sha = hashlib.sha256(encrypt_export_zip(build_export_payload(company))).hexdigest()
 
     retained: dict[str, int] = {}
+    from accounts.readable_export import delete_company_files
+
+    delete_company_files(company_id)  # plaintext export ZIPs must not outlive the erasure
     with _rls_bypass():
         if mode == "hard":
             _delete_protect_rows(company)

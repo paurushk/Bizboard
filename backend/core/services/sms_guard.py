@@ -89,16 +89,28 @@ def set_kill_switch(on: bool) -> None:
         cache.delete(KILL_KEY)
 
 
-def _counters(digits: str) -> list[tuple[str, int, int, str]]:
+# Share of the platform's daily cap that bulk texts (payment reminders) may use; the rest is kept
+# for sign-in codes, so a heavy reminder day never locks owners out of OTP sign-in.
+BULK_PLATFORM_SHARE = 0.9
+
+
+def _counters(digits: str, purpose: str = "otp") -> list[tuple[str, int, int, str]]:
     now = timezone.localtime()
     hour = now.strftime("%Y%m%d%H")
     day = now.date().isoformat()
     pid = _phone_id(digits)
+    # Sign-in codes and other texts have separate number-series budgets: the hourly reminder run
+    # (thousands of customers, many in one series) must not use up the series for OTP.
+    cls = "otp" if purpose == "otp" else "msg"
+    platform_cap = int(getattr(settings, "SMS_PLATFORM_DAILY_CAP", 0) or 0)
+    if platform_cap and cls == "msg":
+        platform_cap = max(1, math.floor(platform_cap * BULK_PLATFORM_SHARE))
     return [
         (f"sms:ph:h:{hour}:{pid}", int(getattr(settings, "SMS_PER_PHONE_HOUR", 0) or 0), _HOUR_TTL, "phone_hour"),
         (f"sms:ph:d:{day}:{pid}", int(getattr(settings, "SMS_PER_PHONE_DAY", 0) or 0), _DAY_TTL, "phone_day"),
-        (f"sms:rg:h:{hour}:{_range_id(digits)}", int(getattr(settings, "SMS_PER_RANGE_HOUR", 0) or 0), _HOUR_TTL, "range_hour"),
-        (f"sms:pl:d:{day}", int(getattr(settings, "SMS_PLATFORM_DAILY_CAP", 0) or 0), _DAY_TTL, "platform_day"),
+        (f"sms:rg:h:{hour}:{cls}:{_range_id(digits)}", int(getattr(settings, "SMS_PER_RANGE_HOUR", 0) or 0),
+         _HOUR_TTL, "range_hour"),
+        (f"sms:pl:d:{day}", platform_cap, _DAY_TTL, "platform_day"),
     ]
 
 
@@ -125,24 +137,24 @@ def check_and_count(phone: str, purpose: str) -> None:
     if not _is_indian(digits) and not getattr(settings, "SMS_ALLOW_INTERNATIONAL", False):
         raise _block("international", "SMS can only be sent to Indian mobile numbers.")
 
-    done: list[str] = []
+    done: list[tuple[str, int]] = []
     platform_total = 0
     try:
-        for key, cap, ttl, reason in _counters(digits):
+        for key, cap, ttl, reason in _counters(digits, purpose):
             total = incr(key, 1, ttl)
-            done.append(key)
+            done.append((key, ttl))
             if reason == "platform_day":
                 platform_total = total
             if cap and total > cap:
-                for k in done:
-                    incr(k, -1, ttl)
+                for k, k_ttl in done:  # a refused attempt uses up none of the budgets
+                    incr(k, -1, k_ttl)
                 raise _block(reason, "Too many SMS to this number. Try again later.")
     except SmsBlocked:
         raise
     except Exception as exc:  # noqa: BLE001 - counter store down
-        for k in done:
+        for k, k_ttl in done:
             try:
-                incr(k, -1, _DAY_TTL)
+                incr(k, -1, k_ttl)
             except Exception:  # noqa: BLE001
                 pass
         if getattr(settings, "SMS_GUARD_FAIL_CLOSED", True):

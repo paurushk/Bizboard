@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from core.admin import SuperuserOnlyAdminMixin
+from core.admin import RlsBypassAdminMixin, SuperuserOnlyAdminMixin
 
 from .models import DeadLetterEvent, Plan, SaasTdsClaim, Subscription, TrialFingerprint
 
@@ -63,7 +63,7 @@ class DeadLetterEventAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
 
 
 @admin.register(SaasTdsClaim)
-class SaasTdsClaimAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
+class SaasTdsClaimAdmin(RlsBypassAdminMixin, SuperuserOnlyAdminMixin, admin.ModelAdmin):
     """WP-BL1: check each Form 16A against TRACES, then verify or reject. A verified credit claim
     comes off the company's next renewal; a refund claim is refunded at once (Q5)."""
 
@@ -73,14 +73,44 @@ class SaasTdsClaimAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     )
     list_filter = ("status", "settle_by", "quarter", "section")
     search_fields = ("company__name",)
-    readonly_fields = [f.name for f in SaasTdsClaim._meta.fields]
+    readonly_fields = [*[f.name for f in SaasTdsClaim._meta.fields], "invoices", "certificate_file"]
     actions = ["verify_and_refund_selected", "reject_selected"]
+    list_select_related = ("company", "reviewed_by")
 
-    def get_queryset(self, request):
+    @admin.display(description="Form 16A")
+    def certificate_file(self, obj):
+        from django.urls import reverse
+        from django.utils.html import format_html
+
+        if not obj or not obj.certificate_id:
+            return "-"
+        url = reverse("admin:billing_saastdsclaim_certificate", args=[obj.pk])
+        return format_html('<a href="{}" target="_blank" rel="noopener">Open the certificate</a>', url)
+
+    def get_urls(self):
+        from django.urls import path
+
+        return [
+            path("<int:pk>/certificate/", self.admin_site.admin_view(self.certificate_view),
+                 name="billing_saastdsclaim_certificate"),
+            *super().get_urls(),
+        ]
+
+    def certificate_view(self, request, pk: int):
+        """Stream the uploaded Form 16A to staff so it can be checked against TRACES."""
+        from django.http import FileResponse, Http404
+
         from core.rls import rls_bypass
 
+        if not self.has_view_permission(request):
+            raise Http404
         with rls_bypass():
-            return super().get_queryset(request).select_related("company", "reviewed_by")
+            claim = SaasTdsClaim.objects.select_related("certificate").filter(pk=pk).first()
+            if claim is None or claim.certificate is None or not claim.certificate.file:
+                raise Http404
+            asset = claim.certificate
+            handle = asset.file.open("rb")
+        return FileResponse(handle, as_attachment=False, filename=asset.original_name or f"form16a-{pk}")
 
     def has_add_permission(self, request):
         return False

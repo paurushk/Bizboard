@@ -25,6 +25,14 @@ from core.exceptions import BusinessRuleError
 
 CUSTOMER_GROUPS = {"sundry debtors"}
 SUPPLIER_GROUPS = {"sundry creditors"}
+# Tally's own primary groups that never hold parties: not worth a "skipped" line in the preview.
+_NON_PARTY_GROUPS = {
+    "bank accounts", "cash-in-hand", "duties & taxes", "direct expenses", "indirect expenses", "direct incomes",
+    "indirect incomes", "sales accounts", "purchase accounts", "capital account", "fixed assets",
+    "current assets", "current liabilities", "loans (liability)", "loans & advances (asset)", "provisions",
+    "reserves & surplus", "stock-in-hand", "suspense a/c", "bank od a/c", "secured loans", "unsecured loans",
+    "deposits (asset)", "investments", "misc. expenses (asset)", "branch / divisions",
+}
 _BAD_CHARREF = re.compile(r"&#(?:x0*[0-8bcef]|x0*1[0-9a-f]|0*(?:[0-8]|1[1-2]|1[4-9]|2[0-9]|3[01]));", re.I)
 
 
@@ -100,20 +108,49 @@ def _state(ledger) -> str:
 
 
 def _gst_rate(item) -> str:
-    for rate in item.iter("GSTRATE"):
-        if (rate.text or "").strip():
-            return str(abs(_amount(rate.text)))
-    for detail in item.iter("RATEDETAILS.LIST"):
-        if _txt(detail, "GSTRATEDUTYHEAD").lower() == "integrated tax":
-            return str(abs(_amount(_txt(detail, "GSTRATE"))))
-    return "18"
+    """The item's GST rate from its latest ``GSTDETAILS.LIST``: the Integrated Tax head, else Central
+    + State (Tally lists CGST 9 / SGST 9 / IGST 18 — the first GSTRATE found is half the rate).
+    Blank when the item carries none (the importer then uses its default)."""
+    details = list(item.iter("GSTDETAILS.LIST")) or [item]
+    latest = max(details, key=lambda d: _tally_date(_txt(d, "APPLICABLEFROM")) or date.min)
+    heads: dict[str, Decimal] = {}
+    for detail in latest.iter("RATEDETAILS.LIST"):
+        head = _txt(detail, "GSTRATEDUTYHEAD").lower()
+        rate = _txt(detail, "GSTRATE")
+        if head and rate:
+            heads[head] = abs(_amount(rate))
+    if "integrated tax" in heads:
+        return format(heads["integrated tax"].normalize(), "f")
+    if "central tax" in heads and ("state tax" in heads or "ut tax" in heads):
+        total = heads["central tax"] + heads.get("state tax", heads.get("ut tax", Decimal("0")))
+        return format(total.normalize(), "f")
+    direct = _txt(latest, "GSTRATE")
+    return format(abs(_amount(direct)).normalize(), "f") if direct else ""
 
 
 def _hsn(item) -> str:
     for hsn in item.iter("HSNCODE"):
         if (hsn.text or "").strip():
-            return hsn.text.strip()
+            return re.sub(r"\D", "", hsn.text)  # "8471 30 10" -> "84713010"
     return ""
+
+
+def _primary_groups(root) -> dict[str, str]:
+    """Each group's top-level (primary) group, lower-cased, walking ``PARENT`` up: a party under
+    "Debtors - Pune" (a sub-group of Sundry Debtors) is still a debtor."""
+    parent: dict[str, str] = {}
+    for group in root.iter("GROUP"):
+        name = _name(group).lower()
+        if name:
+            parent[name] = _txt(group, "PARENT").lower()
+    out: dict[str, str] = {}
+    for name in parent:
+        seen, cur = set(), name
+        while parent.get(cur) and cur not in seen and cur not in CUSTOMER_GROUPS | SUPPLIER_GROUPS:
+            seen.add(cur)
+            cur = parent[cur]
+        out[name] = cur
+    return out
 
 
 def parse_tally_xml(file_bytes: bytes) -> tuple[list[dict], list[dict]]:
@@ -125,10 +162,18 @@ def parse_tally_xml(file_bytes: bytes) -> tuple[list[dict], list[dict]]:
         raise BusinessRuleError(f"This is not a Tally XML export we can read ({exc}).") from exc
     rows: list[dict] = []
     bills: list[dict] = []
+    primary = _primary_groups(root)
     for ledger in root.iter("LEDGER"):
         name = _name(ledger)
-        group = _txt(ledger, "PARENT").lower()
-        if not name or group not in CUSTOMER_GROUPS | SUPPLIER_GROUPS:
+        parent = _txt(ledger, "PARENT").lower()
+        group = primary.get(parent, parent)
+        if not name:
+            continue
+        if group not in CUSTOMER_GROUPS | SUPPLIER_GROUPS:
+            # Bank, cash, tax and expense ledgers are not parties. Listed (not counted as an error)
+            # so a party under a group we could not place is visible in the preview.
+            if _amount(_txt(ledger, "OPENINGBALANCE")) and parent not in _NON_PARTY_GROUPS:
+                rows.append({"entity_type": "skipped", "name": name, "group": _txt(ledger, "PARENT")})
             continue
         is_customer = group in CUSTOMER_GROUPS
         opening = _amount(_txt(ledger, "OPENINGBALANCE"))
@@ -176,7 +221,7 @@ def parse_tally_xml(file_bytes: bytes) -> tuple[list[dict], list[dict]]:
             "reorder_level": str(_qty(_txt(item, "REORDERBASE"))),
             "opening_qty": str(qty),
         })
-    if not rows:
+    if not any(r.get("entity_type") != "skipped" for r in rows):
         raise BusinessRuleError(
             "No Sundry Debtors, Sundry Creditors or stock items found. Export 'List of Accounts' and "
             "'Stock Items' from Tally as XML."

@@ -26,13 +26,10 @@ WEIGHTS = {
 
 
 def _real_companies():
+    """Real tenants: not sandbox copies, not erased tombstones."""
     from accounts.models import Company
 
-    qs = Company.objects.all()
-    for flag in ("is_demo", "is_practice"):
-        if any(f.name == flag for f in Company._meta.fields):
-            qs = qs.filter(**{flag: False})
-    return qs
+    return Company.objects.filter(is_sandbox=False, erased_at__isnull=True)
 
 
 def score_company(company, *, now=None) -> tuple[int, dict]:
@@ -57,13 +54,18 @@ def score_company(company, *, now=None) -> tuple[int, dict]:
         .values_list("user__last_login", flat=True)
         .first()
     )
-    sub = Subscription.objects.filter(company=company).select_related("plan").first()
+    from billing.plan_change import effective_plan
+
+    sub = Subscription.objects.filter(company=company).select_related("plan", "upgrade_plan").first()
     seats_used = seat_count(company)
-    seat_limit = int(getattr(getattr(sub, "plan", None), "seat_limit", 0) or 0)
+    seat_limit = int(getattr(effective_plan(sub), "seat_limit", 0) or 0)
     open_urgent = PlatformTicket.objects.filter(
         company=company, severity__in=("P0", "P1"),
     ).exclude(status=PlatformTicket.Status.RESOLVED).count()
-    last_sweep = TenantSweepResult.objects.filter(company=company).order_by("-started_at").first()
+    # A SKIPPED night says nothing about the books; the last real check does.
+    last_sweep = (
+        TenantSweepResult.objects.filter(company=company).exclude(status="SKIPPED").order_by("-started_at").first()
+    )
 
     inputs = {
         "setup": bool(act and act.setup_completed_at),
@@ -140,16 +142,23 @@ def monthly_metrics(month: str) -> dict:
         (acts[cid].first_invoice_at - created).total_seconds() / 86400
         for cid, created in signups if acts.get(cid) and acts[cid].first_invoice_at
     ]
+    from django.db.models import Sum
+
     invoices = PlatformGstInvoice.objects.filter(kind=PlatformGstInvoice.Kind.INVOICE)
-    paid_now = set(invoices.filter(created_at__gte=start, created_at__lt=end).values_list("company_id", flat=True))
-    paid_before = set(invoices.filter(created_at__gte=prev_start, created_at__lt=start).values_list("company_id", flat=True))
-    first_paid = {
-        cid for cid in paid_now
-        if not invoices.filter(company_id=cid, created_at__lt=start).exists()
-    }
+    paid_now = set(invoices.filter(created_at__gte=start, created_at__lt=end).values_list("company_id", flat=True).distinct())
+    paid_before = set(
+        invoices.filter(created_at__gte=prev_start, created_at__lt=start).values_list("company_id", flat=True).distinct()
+    )
+    paid_earlier = set(
+        invoices.filter(company_id__in=paid_now, created_at__lt=start).values_list("company_id", flat=True).distinct()
+    )
+    first_paid = paid_now - paid_earlier
+    # A month still running has not had every renewal yet: churn and retention are only shown for
+    # a closed month (otherwise everyone renewing later this month looks churned).
+    partial = end > timezone.now()
 
     def _rev(qs) -> Decimal:
-        return sum((r.total for r in qs), Decimal("0"))
+        return qs.aggregate(t=Sum("total"))["t"] or Decimal("0")
 
     base = _rev(invoices.filter(created_at__gte=prev_start, created_at__lt=start))
     kept = _rev(invoices.filter(created_at__gte=start, created_at__lt=end, company_id__in=paid_before))
@@ -161,8 +170,9 @@ def monthly_metrics(month: str) -> dict:
         "activated_14d": activated,
         "trial_to_paid": len(first_paid),
         "paying_tenants": len(paid_now),
-        "paid_churn": len(paid_before - paid_now),
-        "net_revenue_retention_pct": round(float(kept / base * 100), 1) if base else None,
+        "partial_month": partial,
+        "paid_churn": None if partial else len(paid_before - paid_now),
+        "net_revenue_retention_pct": None if partial or not base else round(float(kept / base * 100), 1),
         "tickets_per_100_tenants": round(tickets * 100 / live_tenants, 1),
         "median_days_to_first_invoice": round(statistics.median(days_to_first), 1) if days_to_first else None,
         "suspended_now": Subscription.objects.filter(status=Subscription.Status.SUSPENDED).count(),

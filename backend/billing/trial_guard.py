@@ -13,6 +13,7 @@ SECRET_KEY when unset (local only). No clear value is ever stored.
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import hmac
 from datetime import timedelta
@@ -91,15 +92,17 @@ def record_trial(company, owner=None) -> None:
             TrialFingerprint.objects.create(kind=kind, digest=digest, company_id_hint=company.pk)
 
 
-def disposable_email(email: str) -> bool:
+@functools.lru_cache(maxsize=1)
+def _disposable_domains() -> frozenset:
     from pathlib import Path
 
-    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
-    if not domain:
-        return False
     path = Path(__file__).resolve().parents[1] / "core" / "data" / "disposable_email_domains.txt"
     try:
-        domains = {line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines()}
+        return frozenset(line.strip().lower() for line in path.read_text(encoding="utf-8").splitlines())
     except OSError:
-        return False
-    return domain in domains
+        return frozenset()
+
+
+def disposable_email(email: str) -> bool:
+    domain = (email or "").rsplit("@", 1)[-1].strip().lower()
+    return bool(domain) and domain in _disposable_domains()

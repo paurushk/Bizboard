@@ -8,6 +8,18 @@ from django.conf import settings
 from django.utils import timezone
 
 
+def _identity_check(user) -> str:
+    """What was actually checked about the requester (the register is evidence, so no claim beyond it)."""
+    if user is None:
+        return ""
+    try:
+        from accounts.mfa_service import mfa_is_enabled
+
+        return "Signed in; two-step on" if mfa_is_enabled(user) else "Signed in; no two-step"
+    except Exception:  # noqa: BLE001
+        return "Signed in"
+
+
 def default_due():
     return timezone.now() + timedelta(days=int(getattr(settings, "DPDP_REQUEST_DUE_DAYS", 30) or 30))
 
@@ -28,7 +40,7 @@ def log_request(*, kind: str, requester: str, company=None, source: str = "SELF_
             due_at=default_due(),
             closed_at=now if closed else None,
             outcome=outcome,
-            identity_check="Signed in with MFA" if user is not None else "",
+            identity_check=_identity_check(user),
             handled_by=None,
         )
     except Exception:  # noqa: BLE001 - the register must not break the export or erasure itself

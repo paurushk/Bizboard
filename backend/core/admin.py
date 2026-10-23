@@ -26,18 +26,11 @@ class SuperuserOnlyModelAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
     pass
 
 
-class RlsBypassReadOnlyAdmin(SuperuserOnlyModelAdmin):
-    """Read-only, cross-tenant ops list. Rows are row-level secured, so the list and detail pages
-    are rendered inside the RLS bypass (the response is rendered before the bypass ends)."""
-
-    def has_add_permission(self, request):
-        return False
-
-    def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
+class RlsBypassAdminMixin:
+    """Cross-tenant staff pages over row-level secured tables. Wrapping only ``get_queryset`` is not
+    enough: that queryset is lazy and runs after the bypass ends, so the list and change pages are
+    rendered inside the bypass instead (the response is rendered before it ends). Admin actions run
+    inside ``changelist_view``, so they are covered too."""
 
     def changelist_view(self, request, extra_context=None):
         from core.rls import rls_bypass
@@ -56,6 +49,20 @@ class RlsBypassReadOnlyAdmin(SuperuserOnlyModelAdmin):
             if hasattr(response, "render"):
                 response.render()
             return response
+
+
+class RlsBypassReadOnlyAdmin(RlsBypassAdminMixin, SuperuserOnlyModelAdmin):
+    """Read-only, cross-tenant ops list. Rows are row-level secured, so the list and detail pages
+    are rendered inside the RLS bypass (the response is rendered before the bypass ends)."""
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 def _register_sweep_admin():

@@ -847,7 +847,7 @@ class ReadableExport(CompanyScopedModel):
         EXPIRED = "EXPIRED", "Link expired"
 
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
-    requested_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    requested_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.PENDING, db_index=True)
     storage_path = models.CharField(max_length=300, blank=True)
     size = models.PositiveBigIntegerField(default=0)

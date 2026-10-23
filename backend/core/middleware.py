@@ -403,8 +403,11 @@ class PublicLinkMiddleware:
         limit = int(getattr(settings, "PUBLIC_LINK_SPREAD_LIMIT", 50) or 0)
         if not limit:
             return
-        ip = (request.META.get("REMOTE_ADDR") or "").strip()
-        net = ".".join(ip.split(".")[:3]) if ip.count(".") == 3 else ip[:19]
+        from core.netutil import client_ip, ip_prefix
+
+        # The client's network, not REMOTE_ADDR (the proxy: every open would look like one network).
+        ip = client_ip(request)
+        net = ip_prefix(ip) or ip
         day = timezone.localdate().isoformat()
         tid = hashlib.sha256(token.encode()).hexdigest()[:20]
         try:

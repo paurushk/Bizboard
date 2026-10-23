@@ -145,26 +145,71 @@ def _park(sub: Subscription, *, error: str, remote_status: str, payload: dict) -
     logger.warning("SaaS billing recon parked company=%s sub=%s %s", sub.company_id, sub.pk, error)
 
 
+# A lost webhook is caught within days; anything older is history from before Bizboard issued its
+# own GST invoices and must not be invoiced now, dated today (wrong period on GSTR-1).
+MISSED_CHARGE_WINDOW_DAYS = 35
+
+
+def _missed_charge_cutoff():
+    """The earliest charge time the sweep may invoice: the window, and never before
+    ``PLATFORM_GST_INVOICES_FROM`` (the go-live date, ISO) when that is set."""
+    from datetime import datetime, time, timedelta
+
+    from django.utils import timezone
+
+    cutoff = timezone.now() - timedelta(days=MISSED_CHARGE_WINDOW_DAYS)
+    raw = (getattr(settings, "PLATFORM_GST_INVOICES_FROM", "") or "").strip()
+    if raw:
+        try:
+            go_live = timezone.make_aware(datetime.combine(datetime.fromisoformat(raw).date(), time.min))
+        except ValueError:
+            logger.warning("PLATFORM_GST_INVOICES_FROM=%r is not an ISO date; ignored", raw)
+        else:
+            cutoff = max(cutoff, go_live)
+    return cutoff
+
+
 def _invoice_missed_charges(sub: Subscription, sid: str) -> int:
-    """WP-BL2: issue the GST invoice for any paid Razorpay charge that has none (a lost
+    """WP-BL2: issue the GST invoice for any recent paid Razorpay charge that has none (a lost
     ``subscription.charged`` webhook). Returns how many were issued."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
     from billing.models import PlatformGstInvoice
     from billing.platform_gst import issue_platform_gst_invoice
 
+    recently_live = sub.status in (Subscription.Status.ACTIVE, Subscription.Status.PAST_DUE) or (
+        sub.updated_at and sub.updated_at >= timezone.now() - timedelta(days=MISSED_CHARGE_WINDOW_DAYS)
+    )
+    if not recently_live:
+        return 0  # a long-cancelled subscription has no charge the webhook can still have missed
     try:
         charges = fetch_razorpay_paid_charges(sid)
     except Exception as exc:  # noqa: BLE001 - park, keep sweeping
         _park(sub, error=f"charges fetch: {exc}", remote_status="charges", payload={"id": sid})
         return 0
+    cutoff_ts = int(_missed_charge_cutoff().timestamp())
+    charges = [c for c in charges if int(c.get("paid_at") or 0) >= cutoff_ts]
+    if not charges:
+        return 0
+    have = set(
+        PlatformGstInvoice.objects.filter(
+            company=sub.company, provider="razorpay", capture_id__in=[c["payment_id"] for c in charges],
+        ).values_list("capture_id", flat=True)
+    )
     issued = 0
     for charge in charges:
-        if PlatformGstInvoice.objects.filter(
-            company=sub.company, provider="razorpay", capture_id=charge["payment_id"],
-        ).exists():
+        if charge["payment_id"] in have:
             continue
-        issue_platform_gst_invoice(
-            sub.company, provider="razorpay", capture_id=charge["payment_id"], amount=charge["amount"],
-        )
+        try:
+            issue_platform_gst_invoice(
+                sub.company, provider="razorpay", capture_id=charge["payment_id"], amount=charge["amount"],
+            )
+        except Exception as exc:  # noqa: BLE001 - park this charge, keep sweeping the rest
+            _park(sub, error=f"invoice {charge['payment_id']}: {exc}", remote_status="invoice",
+                  payload={"id": sid, "payment_id": charge["payment_id"]})
+            continue
         issued += 1
     if issued:
         AuditService.log(

@@ -817,6 +817,9 @@ class LogoutView(APIView):
                 RefreshToken(refresh).blacklist()
             except TokenError:
                 pass
+            from .user_sessions import revoke_by_refresh
+
+            revoke_by_refresh(refresh)  # WP-ID3: this device leaves the signed-in list
         membership = _active_membership(request.user)
         AuditService.log(
             company=membership.company if membership else None,
@@ -1074,12 +1077,23 @@ class SwitchCompanyView(APIView):
             if _target is not None:
                 _target.__dict__.pop("_company_user", None)
                 _target.__dict__.pop("_company_user_uid", None)
+        # WP-ID3: a new refresh token is only issued in exchange for a live one. Minting one from
+        # the access token alone would let a device the user just signed out (its refresh token
+        # blacklisted) get a fresh 14-day session from its last access token.
         old_refresh = request.COOKIES.get(settings.JWT_REFRESH_COOKIE_NAME)
+        rotate = False
         if old_refresh:
             try:
-                RefreshToken(old_refresh).blacklist()
-            except Exception:
+                old = RefreshToken(old_refresh)  # checks the signature, expiry and the blacklist
+            except TokenError:
+                raise AuthenticationFailed("Your session has ended. Sign in again.") from None
+            if str(old.get("user_id")) != str(request.user.pk):
+                raise AuthenticationFailed("Your session has ended. Sign in again.")
+            try:
+                old.blacklist()
+            except Exception:  # noqa: BLE001
                 pass
+            rotate = True
         AuditService.log(
             company=membership.company,
             user=request.user,
@@ -1094,7 +1108,8 @@ class SwitchCompanyView(APIView):
             "access": tokens["access"] if _access_in_json_body_allowed() else None,
         }
         response = Response(body)
-        _set_refresh_cookie(response, tokens["refresh"], request=request, previous=old_refresh)
+        if rotate:
+            _set_refresh_cookie(response, tokens["refresh"], request=request, previous=old_refresh)
         _set_access_cookie(response, tokens["access"])
         _ensure_csrf_cookie(request)
         return response
@@ -1216,6 +1231,12 @@ class ChangePasswordView(APIView):
     def post(self, request):
         current = request.data.get("current_password") or ""
         new = request.data.get("new_password") or ""
+        if not request.user.has_usable_password():
+            # A Google sign-up has no password to confirm; setting the first one goes through the
+            # emailed reset link, which proves the mailbox again.
+            raise ValidationError({"current_password": (
+                "Your account has no password yet. Use \"Forgot password\" on the sign-in page to set one."
+            )})
         if not request.user.check_password(current):
             raise ValidationError({"current_password": "Current password is incorrect."})
         try:
@@ -1430,6 +1451,9 @@ def _revoke_sessions_if_last_active_membership(user) -> None:
     user.save(update_fields=["session_version"])
     for token in OutstandingToken.objects.filter(user=user):
         BlacklistedToken.objects.get_or_create(token=token)
+    from .user_sessions import revoke_all
+
+    revoke_all(user)
     from planwave.sockets import drop_user_sockets
 
     drop_user_sockets(user)
@@ -1509,7 +1533,10 @@ def _enforce_plan_seat_limit(company, *, exclude_membership_pk=None) -> None:
         .first()
     )
     if sub is not None and sub.plan_id is not None:
-        limit = int(getattr(sub.plan, "seat_limit", 0) or 0)
+        from billing.plan_change import effective_plan
+
+        # WP-BL3: an upgrade's seats apply at once, like its other limits.
+        limit = int(getattr(effective_plan(sub), "seat_limit", 0) or 0)
         if limit <= 0:
             return
     else:
@@ -2079,9 +2106,14 @@ class ConfirmPasswordResetView(APIView):
             reset_row.consumed_at = timezone.now()
             reset_row.save(update_fields=["consumed_at", "updated_at"])
             user.set_password(new_password)
-            user.save(update_fields=["password"])
+            # The old access tokens die with the old password too, not only the refresh tokens.
+            user.session_version = int(getattr(user, "session_version", 0) or 0) + 1
+            user.save(update_fields=["password", "session_version"])
             for tok in OutstandingToken.objects.filter(user=user):
                 BlacklistedToken.objects.get_or_create(token=tok)
+            from .user_sessions import revoke_all
+
+            revoke_all(user)
         return Response({"detail": "Password has been reset. You can sign in with the new password."})
 
 

@@ -101,7 +101,18 @@ def rls_bypass():
 
     No-op unless POSTGRES_RLS_ENABLED + Postgres. Fail-closed: the GUC is cleared
     in ``finally`` even if the body raises.
+
+    Nesting-safe: inside an enclosing bypass this is a no-op, so leaving the inner block does not
+    switch the bypass off for the rest of the outer one (e.g. an admin action's bypass inside the
+    changelist's, which would otherwise render the list with no rows on Postgres).
     """
+    if getattr(settings, "POSTGRES_RLS_ENABLED", False) and connection.vendor == "postgresql":
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_setting('app.rls_bypass', true)")
+            (already,) = cursor.fetchone()
+        if already == "1":
+            yield
+            return
     set_rls_bypass(True)
     try:
         yield

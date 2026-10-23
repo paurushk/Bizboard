@@ -283,6 +283,11 @@ class PlatformTicketViewSet(viewsets.ViewSet):
 
     permission_classes = [IsAuthenticated, HasCompany]
 
+    def get_throttles(self):
+        # Raising a ticket can page on-call (P0/P1); a script must not flood it.
+        self.throttle_scope = "support_ticket" if getattr(self, "action", "") == "create" else None
+        return super().get_throttles()
+
     def _qs(self, request):
         from .models import PlatformTicket
         from .platform_tickets import visible_to
@@ -337,14 +342,19 @@ class PlatformTicketViewSet(viewsets.ViewSet):
         from .models import PlatformTicket
         from .serializers import PlatformTicketSerializer
 
+        from .access import revoke_for_ticket
+
         ticket = self._get(request, pk)
         ticket.status = PlatformTicket.Status.RESOLVED
         ticket.resolved_at = timezone.now()
         ticket.save(update_fields=["status", "resolved_at", "updated_at"])
+        revoke_for_ticket(ticket, user=request.user)  # closing the request ends support's access now
         return Response(PlatformTicketSerializer(ticket).data)
 
 
 def _grant_row(grant) -> dict:
+    from .models import PlatformTicket
+
     now = timezone.now()
     return {
         "id": grant.pk,
@@ -353,7 +363,8 @@ def _grant_row(grant) -> dict:
         "staff_email": getattr(grant.staff_user, "email", "") or "",
         "expires_at": grant.expires_at,
         "revoked_at": grant.revoked_at,
-        "live": grant.revoked_at is None and grant.expires_at > now,
+        "live": (grant.revoked_at is None and grant.expires_at > now
+                 and grant.ticket.status != PlatformTicket.Status.RESOLVED),
         "views": [
             {"at": v.created_at, "section": v.section, "query": v.query, "rows": v.rows_shown,
              "staff_email": getattr(v.staff_user, "email", "") or ""}
@@ -371,7 +382,11 @@ class SupportAccessGrantViewSet(viewsets.ViewSet):
     """
 
     permission_classes = [IsAuthenticated, HasCompany]
-    throttle_scope = "sensitive_action"
+
+    def get_throttles(self):
+        # Only granting and ending access are sensitive; the banner on every screen reads the list.
+        self.throttle_scope = "sensitive_action" if getattr(self, "action", "") in ("create", "revoke") else None
+        return super().get_throttles()
 
     def list(self, request):
         from .models import SupportAccessGrant
@@ -384,7 +399,8 @@ class SupportAccessGrantViewSet(viewsets.ViewSet):
         is_owner = cu.role == cu.Role.OWNER
         data = [_grant_row(g) for g in rows]
         if not is_owner:
-            data = [{**d, "views": [], "staff_email": ""} for d in data if d["live"]]
+            # Members see that support can look, not the owner's support conversation.
+            data = [{**d, "views": [], "staff_email": "", "ticket_subject": ""} for d in data if d["live"]]
         return Response(data)
 
     def create(self, request):
@@ -396,10 +412,15 @@ class SupportAccessGrantViewSet(viewsets.ViewSet):
         if cu.role != cu.Role.OWNER:
             raise PermissionDenied("Only an owner can let support view the company's data.")
         require_reauth(request)
+        try:
+            ticket_id = int(request.data.get("ticket_id") or 0)
+        except (TypeError, ValueError):
+            ticket_id = 0
         grant = grant_access(
             company=cu.company, owner=request.user,
-            ticket_id=int(request.data.get("ticket_id") or 0),
-            hours=request.data.get("hours") or 72,
+            ticket_id=ticket_id,
+            # 72 only when not sent; a bad or zero value is refused, never widened to the maximum.
+            hours=request.data["hours"] if "hours" in request.data else 72,
             staff_email=str(request.data.get("staff_email") or ""),
         )
         AuditService.log(

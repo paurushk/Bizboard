@@ -86,9 +86,8 @@ def test_commit_creates_parties_once_and_totals_tie(granted):
     run_id = up.json()["data"]["syncRunId"]
     done = granted.client.post("/api/v1/integrations/legacy/commit/", {"sync_run_id": run_id}, format="json")
     assert done.status_code == 200, done.content
-    result = done.json()["data"]["result"]
-    recon = result.get("recon") or result.get("reconciliation") or {}
-    assert not recon.get("unexplained_difference") and not recon.get("mismatches"), result
+    recon = done.data["result"]["reconciliation"]
+    assert recon["receivables"]["pass"] and recon["payables"]["pass"], recon
     assert Customer.objects.filter(company=granted.company, name="Asha Traders").count() == 1
     assert Supplier.objects.filter(company=granted.company, name="Kiran Supplies").count() == 1
     again = granted.client.post("/api/v1/integrations/legacy/commit/", {"sync_run_id": run_id}, format="json")
@@ -112,6 +111,7 @@ def test_items_commit_with_opening_stock(granted):
         format="multipart",
     )
     run_id = up.json()["data"]["syncRunId"]
-    assert granted.client.post("/api/v1/integrations/legacy/commit/", {"sync_run_id": run_id},
-                               format="json").status_code == 200
+    done = granted.client.post("/api/v1/integrations/legacy/commit/", {"sync_run_id": run_id}, format="json")
+    assert done.status_code == 200
     assert Product.objects.filter(company=granted.company, name="Steel Bolt").exists()
+    assert done.data["result"]["reconciliation"]["stock"]["pass"], done.data["result"]["reconciliation"]

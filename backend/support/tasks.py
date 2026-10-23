@@ -10,9 +10,12 @@ logger = logging.getLogger(__name__)
 @shared_task
 def tenant_health_weekly_task():
     """WP-PO2 orchestrator: one ``tenant_health_company_task`` per company."""
-    from core.sweep import all_company_ids
+    from core.rls import rls_bypass
 
-    ids = all_company_ids()
+    from .health import _real_companies
+
+    with rls_bypass():
+        ids = list(_real_companies().order_by("pk").values_list("pk", flat=True))
     for pk in ids:
         tenant_health_company_task.delay(company_id=pk)
     return {"queued": len(ids)}

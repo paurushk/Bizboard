@@ -92,9 +92,8 @@ def test_import_makes_one_opening_document_per_bill_and_ties_to_the_party_total(
     sup = Supplier.objects.get(company=tenant_a.company, name="Gupta Suppliers")
     bill = PurchaseInvoice.objects.get(company=tenant_a.company, supplier=sup, is_opening_balance=True)
     assert bill.grand_total == Decimal("4200.00") and str(bill.due_date) == "2026-09-16"
-    recon = (commit.data.get("data", commit.data) or {}).get("recon") or {}
-    if recon:
-        assert recon["receivables"]["pass"] and recon["payables"]["pass"]
+    recon = commit.data["result"]["reconciliation"]
+    assert recon["receivables"]["pass"] and recon["payables"]["pass"], recon
 
 
 @override_settings(ENABLE_TALLY=False)

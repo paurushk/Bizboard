@@ -29,7 +29,12 @@ def _row(r) -> dict:
 
 class ReadableExportView(APIView):
     permission_classes = [IsAuthenticated, HasCompany, IsOwner]
-    throttle_scope = "sensitive_action"
+
+    def get_throttles(self):
+        # Only starting an export is a sensitive action; the panel polls the list while it builds,
+        # and those reads must not use up the owner's password-change / transfer budget.
+        self.throttle_scope = "sensitive_action" if self.request.method == "POST" else None
+        return super().get_throttles()
 
     def get(self, request):
         from .models import ReadableExport
@@ -44,9 +49,18 @@ class ReadableExportView(APIView):
         from .models import ReadableExport
         from .tasks import build_readable_export_task
 
+        from datetime import timedelta
+
+        from .readable_export import STALE_PENDING_MINUTES
+
         require_reauth(request)
         cu = get_company_user(request)
-        if ReadableExport.objects.filter(company=cu.company, status=ReadableExport.Status.PENDING).exists():
+        stale_before = timezone.now() - timedelta(minutes=STALE_PENDING_MINUTES)
+        pending = ReadableExport.objects.filter(company=cu.company, status=ReadableExport.Status.PENDING)
+        pending.filter(created_at__lte=stale_before).update(
+            status=ReadableExport.Status.FAILED, error="The export did not finish. Ask for a new one.",
+        )
+        if pending.exists():
             return Response({"detail": "An export is already being prepared."}, status=status.HTTP_409_CONFLICT)
         row = ReadableExport.objects.create(
             company=cu.company, requested_by=request.user, created_by=request.user, updated_by=request.user,
@@ -57,7 +71,12 @@ class ReadableExportView(APIView):
         )
         log_request(kind="ACCESS", requester=request.user.email, company=cu.company, closed=True,
                     outcome="Owner asked for the readable (CSV + PDF) export (self-serve).", user=request.user)
-        build_readable_export_task.delay(row.pk, company_id=cu.company.pk)
+        try:
+            build_readable_export_task.delay(row.pk, company_id=cu.company.pk)
+        except Exception:  # noqa: BLE001 - broker down: fail the row instead of blocking the next request
+            ReadableExport.objects.filter(pk=row.pk).update(
+                status=ReadableExport.Status.FAILED, error="Could not start the export. Try again in a minute.",
+            )
         row.refresh_from_db()
         return Response(_row(row), status=status.HTTP_202_ACCEPTED)
 

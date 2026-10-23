@@ -63,7 +63,15 @@ def verify(token: str, remote_ip: str = "") -> bool:
     req = urllib.request.Request(SITEVERIFY_URL, data=data, method="POST")
     with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310 - fixed Cloudflare HTTPS URL
         payload = json.loads(resp.read().decode("utf-8") or "{}")
-    return bool(payload.get("success"))
+    if not payload.get("success"):
+        return False
+    # A token solved on another site that uses the same widget key must not pass here.
+    allowed = [h.strip().lower() for h in str(getattr(settings, "TURNSTILE_ALLOWED_HOSTNAMES", "") or "").split(",")
+               if h.strip()]
+    if allowed and str(payload.get("hostname") or "").lower() not in allowed:
+        logger.warning("Bot check token for hostname %r refused", payload.get("hostname"))
+        return False
+    return True
 
 
 def require_human(request, *, action: str) -> None:
@@ -72,7 +80,9 @@ def require_human(request, *, action: str) -> None:
         return
     data = getattr(request, "data", None) or {}
     token = str(data.get(TOKEN_FIELD) or request.headers.get("X-Bot-Token") or "")
-    ip = (request.META.get("REMOTE_ADDR") or "").strip()
+    from core.netutil import client_ip
+
+    ip = client_ip(request)  # the visitor, not the proxy in front of the API
     try:
         ok = verify(token, ip)
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:

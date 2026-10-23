@@ -12,6 +12,12 @@ ALLOW_PREFIXES = (
     "/api/v1/help-feedback/",
     # SUB-02: a lapsed tenant must still be able to get their own data out.
     "/api/v1/company/export/",
+    # A lapsed tenant can still ask for help, let support look (and end that access), hand the
+    # company to another owner, and clear the What's new dot.
+    "/api/v1/support/platform-tickets/",
+    "/api/v1/support/access-grants/",
+    "/api/v1/company/ownership/",
+    "/api/v1/whats-new/",
 )
 # SUB-02: and to unwind / cancel documents so they can tidy up before leaving.
 ALLOW_SUFFIXES = ("/cancel/", "/void/", "/reverse/")

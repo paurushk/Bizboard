@@ -3,7 +3,7 @@
 from django.contrib import admin
 from django.utils import timezone
 
-from core.admin import SuperuserOnlyAdminMixin
+from core.admin import RlsBypassAdminMixin, SuperuserOnlyAdminMixin
 
 from .models import (
     DataPrivacyRequest,
@@ -15,32 +15,8 @@ from .models import (
 )
 
 
-class _BypassMixin:
-    """Tenant rows are row-level secured; staff lists read across companies."""
-
-    def get_queryset(self, request):
-        from core.rls import rls_bypass
-
-        with rls_bypass():
-            return super().get_queryset(request)
-
-    def changelist_view(self, request, extra_context=None):
-        from core.rls import rls_bypass
-
-        with rls_bypass():
-            response = super().changelist_view(request, extra_context)
-            if hasattr(response, "render"):
-                response.render()
-            return response
-
-    def change_view(self, request, object_id, form_url="", extra_context=None):
-        from core.rls import rls_bypass
-
-        with rls_bypass():
-            response = super().change_view(request, object_id, form_url, extra_context)
-            if hasattr(response, "render"):
-                response.render()
-            return response
+# Tenant rows are row-level secured; staff lists read across companies.
+_BypassMixin = RlsBypassAdminMixin
 
 
 class PlatformTicketMessageInline(admin.TabularInline):
@@ -78,15 +54,32 @@ class PlatformTicketAdmin(_BypassMixin, SuperuserOnlyAdminMixin, admin.ModelAdmi
     def has_add_permission(self, request):
         return False
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if "status" in form.changed_data and obj.status == PlatformTicket.Status.RESOLVED:
+            from .access import revoke_for_ticket
+
+            if obj.resolved_at is None:
+                obj.resolved_at = timezone.now()
+                obj.save(update_fields=["resolved_at", "updated_at"])
+            revoke_for_ticket(obj, user=request.user)  # closing the request ends support's access now
+
     def save_formset(self, request, form, formset, change):
+        """A reply typed in the inline is sent through ``add_message`` (email + status), never saved
+        as a bare row. ``formset.save(commit=False)`` still runs: Django's change message reads the
+        formset's new/changed/deleted lists it fills."""
         from .platform_tickets import add_message
 
-        for inline_form in formset.forms:
-            if not inline_form.has_changed() or inline_form.instance.pk:
+        instances = formset.save(commit=False)
+        for message in instances:
+            if message.pk or not (message.body or "").strip():
                 continue
-            body = inline_form.cleaned_data.get("body")
-            if body:
-                add_message(form.instance, author=request.user, body=body, from_staff=True)
+            add_message(form.instance, author=request.user, body=message.body, from_staff=True)
+        if "status" in form.changed_data and form.cleaned_data.get("status"):
+            # A status picked in the same submit (e.g. reply and resolve) wins over the reply's
+            # automatic "waiting for customer".
+            form.instance.status = form.cleaned_data["status"]
+            form.instance.save(update_fields=["status", "updated_at"])
         formset.save_m2m = lambda: None
 
 
@@ -175,3 +168,6 @@ class SupportAccessLogAdmin(_BypassMixin, SuperuserOnlyAdminMixin, admin.ModelAd
 
     def has_change_permission(self, request, obj=None):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False  # the owner's record of every look support took

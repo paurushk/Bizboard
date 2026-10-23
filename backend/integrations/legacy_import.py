@@ -18,7 +18,7 @@ admin action.
 from __future__ import annotations
 
 import re
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 from core.exceptions import BusinessRuleError
@@ -104,92 +104,141 @@ def _has(headers: set[str], aliases: tuple[str, ...]) -> bool:
     return any(a in headers for a in aliases)
 
 
+_NUMBER = re.compile(r"^\(?-?\d+(?:\.\d+)?\)?$")
+
+
+def _balance(text: str) -> tuple[Decimal, str] | None:
+    """Parse one money cell: ``1,23,456.00``, ``Rs. 1,500``, ``₹500``, ``(500)``, ``-300``, and a
+    trailing ``Dr``/``Cr``. Returns (amount with its sign, "dr"/"cr"/""), or None when the cell is
+    not one number (refused as a row error instead of read as 0)."""
+    raw = (text or "").strip()
+    if not raw or raw in ("-", "--"):
+        return Decimal("0"), ""
+    side = ""
+    m = re.search(r"\b(dr|cr|debit|credit)\.?\s*$", raw, re.I)
+    if m:
+        side = "dr" if m.group(1).lower().startswith("d") else "cr"
+        raw = raw[: m.start()].strip()
+    raw = re.sub(r"^(rs\.?|inr|₹)\s*", "", raw, flags=re.I).replace(",", "").replace(" ", "")
+    if not _NUMBER.match(raw):
+        return None
+    negative = raw.startswith("(") or raw.startswith("-")
+    value = Decimal(raw.strip("()").lstrip("-"))
+    return (-value if negative else value), side
+
+
 def _dec(text: str) -> Decimal:
-    cleaned = re.sub(r"[^0-9.\-]", "", text or "")
-    try:
-        return Decimal(cleaned or "0")
-    except InvalidOperation:
-        return Decimal("0")
+    parsed = _balance(text)
+    return parsed[0] if parsed else Decimal("0")
 
 
-def _party_type(source: str, group: str, drcr: str, balance: Decimal) -> str:
+def _side(drcr: str, inline: str, signed: Decimal) -> str:
+    """Which side the opening balance is on: the Dr/Cr column, else the cell's own suffix, else
+    its sign (Busy and Marg export a credit balance as a negative number)."""
+    d = (drcr or "").strip().lower()
+    if d.startswith(("dr", "debit", "d")) or "receiv" in d:
+        return "dr"
+    if d.startswith(("cr", "credit", "c")) or "pay" in d:
+        return "cr"
+    if inline:
+        return inline
+    if signed < 0:
+        return "cr"
+    return "dr" if signed > 0 else ""
+
+
+def _party_type(group: str, side: str) -> str:
     g = (group or "").lower()
-    if "creditor" in g or "supplier" in g or "payable" in g:
+    if "creditor" in g or "supplier" in g:
         return "supplier"
-    if "debtor" in g or "customer" in g or "receivable" in g:
+    if "debtor" in g or "customer" in g:
         return "customer"
-    d = (drcr or "").lower()
-    if source == "vyapar" and ("pay" in d):
-        return "supplier"
-    return "customer"
+    # No group: a credit balance is someone we owe (a supplier), a debit one owes us.
+    return "supplier" if side == "cr" else "customer"
 
 
-def _outstanding(entity: str, balance: Decimal, drcr: str) -> Decimal:
+def _outstanding(entity: str, amount: Decimal, side: str) -> Decimal:
     """Positive = they owe us (customer) / we owe them (supplier); negative = an advance."""
-    d = (drcr or "").lower()
-    credit = d.startswith("cr") or "pay" in d
-    debit = d.startswith("dr") or "receiv" in d
-    amount = abs(balance)
+    amount = abs(amount)
     if entity == "customer":
-        return -amount if credit else amount
-    return -amount if debit else amount
+        return -amount if side == "cr" else amount
+    return -amount if side == "dr" else amount
+
+
+_PARTY_GROUP_WORDS = ("debtor", "creditor", "customer", "supplier")
+_TOTAL_ROW = re.compile(r"^(grand\s+)?(sub\s*)?total\b", re.I)
 
 
 def to_master_rows(source: str, rows: list[dict[str, str]]) -> tuple[list[dict[str, str]], list[dict]]:
-    """Map one exported sheet to Tally-importer rows. Returns (rows, errors)."""
+    """Map one exported sheet to Tally-importer rows. Returns (rows, errors). Each mapped row keeps
+    its file row number (``_row``) so the preview's errors point at the right line; rows that are not
+    parties (bank, cash, expense ledgers) or are report totals are listed as ``skipped`` errors-free
+    notes in the preview."""
     if source not in SOURCES:
         raise BusinessRuleError("Pick Busy, Vyapar or Marg.", code="LEGACY_SOURCE_UNKNOWN")
     if not rows:
         return [], [{"row": 1, "error": "The file is empty."}]
     headers = {_key(h) for h in rows[0].keys()}
     party_map, item_map = _PARTY[source], _ITEM[source]
-    is_item = _has(headers, item_map["selling_price"]) or _has(headers, item_map["opening_qty"]) \
-        or _has(headers, item_map["hsn_code"])
-    is_party = _has(headers, party_map["group"]) or _has(headers, party_map["balance"]) \
-        or _has(headers, party_map["gstin"])
-    if not (is_item or is_party) or not (_has(headers, party_map["name"]) or _has(headers, item_map["name"])):
-        expected = sorted({party_map["name"][0], party_map["balance"][0], item_map["name"][0], item_map["selling_price"][0]})
+    # Score each kind on the columns only it has, so an item list with a "Group" column is still
+    # read as items, and an ambiguous sheet is refused rather than guessed.
+    item_score = sum(_has(headers, item_map[f]) for f in ("selling_price", "opening_qty", "hsn_code", "purchase_price"))
+    party_score = sum(_has(headers, party_map[f]) for f in ("balance", "drcr", "gstin", "phone"))
+    has_name = _has(headers, party_map["name"]) or _has(headers, item_map["name"])
+    expected = sorted({party_map["name"][0], party_map["balance"][0], item_map["name"][0], item_map["selling_price"][0]})
+    if not has_name or (item_score == 0 and party_score == 0) or (item_score and item_score == party_score):
         return [], [{
             "row": 1,
             "error": f"This does not look like a {LABELS[source]} party or item export. "
                      f"We look for columns such as: {', '.join(expected)}.",
         }]
+    is_item = item_score > party_score
     out: list[dict[str, str]] = []
     errors: list[dict] = []
-    for row in rows:
-        if is_item and not is_party:
-            name = _pick(row, item_map["name"])
-            if not name:
-                continue
+    for line, row in enumerate(rows, start=2):
+        name = _pick(row, item_map["name"] if is_item else party_map["name"])
+        if not name:
+            continue
+        if _TOTAL_ROW.match(name):
+            out.append({"entity_type": "skipped", "name": name, "_row": str(line), "why": "a total row"})
+            continue
+        if is_item:
             out.append({
+                "_row": str(line),
                 "entity_type": "product",
                 "name": name,
                 "sku": _pick(row, item_map["sku"]),
-                "hsn_code": re.sub(r"\D", "", _pick(row, item_map["hsn_code"]))[:8],
-                "gst_rate": str(_dec(_pick(row, item_map["gst_rate"]) or "18")),
+                "hsn_code": _pick(row, item_map["hsn_code"]),
+                "gst_rate": _pick(row, item_map["gst_rate"]),
                 "purchase_price": str(_dec(_pick(row, item_map["purchase_price"]))),
                 "selling_price": str(_dec(_pick(row, item_map["selling_price"]))),
-                "opening_qty": str(_dec(_pick(row, item_map["opening_qty"]))),
+                "opening_qty": str(abs(_dec(_pick(row, item_map["opening_qty"])))),
             })
             continue
-        name = _pick(row, party_map["name"])
-        if not name:
-            continue
         group = _pick(row, party_map["group"])
-        if group and not any(w in group.lower() for w in ("debtor", "creditor", "customer", "supplier",
-                                                            "receivable", "payable")):
-            continue  # bank, cash, expense and tax ledgers are not parties
-        balance = _dec(_pick(row, party_map["balance"]))
-        drcr = _pick(row, party_map["drcr"])
-        entity = _party_type(source, group, drcr, balance)
+        if group and not any(w in group.lower() for w in _PARTY_GROUP_WORDS):
+            # Bank, cash, expense, tax and "... Payable" ledgers are not parties.
+            out.append({"entity_type": "skipped", "name": name, "_row": str(line), "why": f"group {group}"})
+            continue
+        balance_text = _pick(row, party_map["balance"])
+        parsed = _balance(balance_text)
+        if parsed is None:
+            errors.append({"row": line, "error": f"Opening balance '{balance_text}' for '{name}' is not a number"})
+            continue
+        amount, inline_side = parsed
+        side = _side(_pick(row, party_map["drcr"]), inline_side, amount)
+        entity = _party_type(group, side)
         out.append({
+            "_row": str(line),
             "entity_type": entity,
             "name": name,
-            "phone": re.sub(r"[^0-9+]", "", _pick(row, party_map["phone"]))[-13:],
+            "phone": _pick(row, party_map["phone"]),
             "gstin": _pick(row, party_map["gstin"]).upper().replace(" ", ""),
             "state": _pick(row, party_map["state"]),
-            "opening_outstanding": str(_outstanding(entity, balance, drcr)),
+            "opening_outstanding": str(_outstanding(entity, amount, side)),
         })
+    if not any(r["entity_type"] != "skipped" for r in out) and not errors:
+        errors.append({"row": 1, "error": f"No parties or items were found in this {LABELS[source]} file."})
     return out, errors
 
 
@@ -198,10 +247,17 @@ def parse_legacy_file(source: str, file_bytes: bytes, filename: str = "") -> dic
 
     rows = _rows_from_upload(file_bytes, filename)
     mapped, errors = to_master_rows(source, rows)
-    preview = parse_tally_masters_rows(mapped) if mapped else parse_tally_masters_rows([])
+    skipped = [r for r in mapped if r["entity_type"] == "skipped"]
+    mapped = [r for r in mapped if r["entity_type"] != "skipped"]
+    preview = parse_tally_masters_rows(mapped)
     preview["errors"] = [*errors, *preview["errors"]]
     preview["counts"]["errors"] = len(preview["errors"])
     preview["summary"]["errors"] = len(preview["errors"])
+    preview["notes"] = [
+        *preview.get("notes", []),
+        *({"row": int(r["_row"]), "warning": f"'{r['name']}' was not imported ({r['why']})."} for r in skipped[:200]),
+    ]
+    preview["counts"]["skipped"] = len(skipped)
     preview["source"] = source
     preview["source_format"] = f"{source}_export"
     return preview

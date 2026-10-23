@@ -17,7 +17,6 @@ from billing.tds_claims import (
     request_refund,
     send_form16a_reminders,
     submit_claim,
-    verify_and_refund,
     verify_claim,
 )
 from core.exceptions import BusinessRuleError
@@ -34,9 +33,9 @@ def _cert(tenant):
     )
 
 
-def _invoices(tenant, n=2):
+def _invoices(tenant, n=2, prefix="pay_t"):
     return [
-        issue_platform_gst_invoice(tenant.company, provider="razorpay", capture_id=f"pay_t{i}", amount="1180")
+        issue_platform_gst_invoice(tenant.company, provider="razorpay", capture_id=f"{prefix}{i}", amount="1180")
         for i in range(n)
     ]
 
@@ -84,7 +83,7 @@ def test_verify_refunds_each_invoice_once_and_the_parts_add_up(tenant_a):
     claim = submit_claim(company=tenant_a.company, user=tenant_a.owner, invoice_ids=[i.pk for i in invs],
                          section_code="194J-10", certificate_id=_cert(tenant_a).pk, settle_by="REFUND")
     with mock.patch("billing.services.razorpay_refund", side_effect=["rfnd_a", "rfnd_b", "rfnd_c"]) as refund:
-        verify_and_refund(claim, staff_user=tenant_a.owner)
+        verify_claim(claim, staff_user=tenant_a.owner)
     assert refund.call_count == 3
     assert sum(c.args[1] for c in refund.call_args_list) == int(claim.amount * 100)
     claim.refresh_from_db()
@@ -100,11 +99,11 @@ def test_a_failed_refund_can_be_retried_without_refunding_twice(tenant_a):
                          section_code="194J-2", certificate_id=_cert(tenant_a).pk, settle_by="REFUND")
     with mock.patch("billing.services.razorpay_refund", side_effect=["rfnd_1", BusinessRuleError("gateway down")]):
         with pytest.raises(BusinessRuleError):
-            verify_and_refund(claim, staff_user=tenant_a.owner)
+            verify_claim(claim, staff_user=tenant_a.owner)
     claim.refresh_from_db()
     assert claim.status == SaasTdsClaim.Status.VERIFIED and len(claim.refund_ids) == 1
     with mock.patch("billing.services.razorpay_refund", return_value="rfnd_2") as refund:
-        verify_and_refund(claim, staff_user=tenant_a.owner)
+        verify_claim(claim, staff_user=tenant_a.owner)
     assert refund.call_count == 1
     claim.refresh_from_db()
     assert claim.status == SaasTdsClaim.Status.SETTLED
@@ -124,8 +123,8 @@ def test_owner_endpoint_lists_sections_and_submits(tenant_a):
     assert created.json()["data"]["amount"] in ("10.00", 10.0, "10")
 
 
-def _verified_credit_claim(tenant, n=2, section="194J-10"):
-    invs = _invoices(tenant, n)
+def _verified_credit_claim(tenant, n=2, section="194J-10", prefix="pay_t"):
+    invs = _invoices(tenant, n, prefix)
     claim = submit_claim(company=tenant.company, user=tenant.owner, invoice_ids=[i.pk for i in invs],
                          section_code=section, certificate_id=_cert(tenant).pk)
     assert claim.settle_by == SaasTdsClaim.SettleBy.CREDIT  # Q5 default
@@ -182,6 +181,7 @@ def test_failed_credit_on_the_webhook_is_applied_by_the_daily_task(tenant_a):
     assert claim.status == SaasTdsClaim.Status.SETTLED
 
 
+@override_settings(RAZORPAY_KEY_ID="rzp_k", RAZORPAY_KEY_SECRET="rzp_s")
 def test_owner_can_take_the_remaining_credit_as_a_refund(tenant_a):
     claim = _verified_credit_claim(tenant_a)
     with mock.patch("billing.services.razorpay_refund", side_effect=["ra", "rb"]) as refund:
@@ -194,6 +194,7 @@ def test_owner_can_take_the_remaining_credit_as_a_refund(tenant_a):
         request_refund(claim, user=tenant_a.owner)
 
 
+@override_settings(RAZORPAY_KEY_ID="rzp_k", RAZORPAY_KEY_SECRET="rzp_s")
 def test_refund_requested_before_the_check_is_refunded_when_staff_verify(tenant_a):
     invs = _invoices(tenant_a, 1)
     claim = submit_claim(company=tenant_a.company, user=tenant_a.owner, invoice_ids=[invs[0].pk],
@@ -208,6 +209,61 @@ def test_an_accepted_claim_cannot_be_rejected(tenant_a):
     claim = _verified_credit_claim(tenant_a)
     with pytest.raises(BusinessRuleError, match="accepted"):
         reject(claim, staff_user=tenant_a.owner, reason="late")
+
+
+def test_a_failed_second_credit_keeps_the_first_refund_recorded(tenant_a):
+    """Review fix: each claim's credit commits on its own. A gateway error on the second claim must
+    not roll back the record of the first refund (which already left Razorpay), or the daily task
+    would refund it again."""
+    from billing.views import _invoice_charge
+
+    first = _verified_credit_claim(tenant_a, n=1, prefix="pay_first")  # 1000 taxable at 10% = 100
+    second = _verified_credit_claim(tenant_a, n=1, prefix="pay_second")
+    with mock.patch("billing.services.razorpay_refund", side_effect=["r_first", BusinessRuleError("down")]):
+        _invoice_charge(tenant_a.company, {"payment_id": "pay_two", "amount": Decimal("1180")})
+    renewal = PlatformGstInvoice.objects.get(capture_id="pay_two")
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.status == SaasTdsClaim.Status.SETTLED
+    assert first.credit_applied == [{"invoice": renewal.pk, "refund": "r_first", "amount": "100.00"}]
+    assert second.status == SaasTdsClaim.Status.VERIFIED and second.credit_applied == []
+    with mock.patch("billing.services.razorpay_refund", return_value="r_second") as again:
+        apply_pending_credits()
+    assert [c.args[1] for c in again.call_args_list] == [10000]  # only the second claim, once
+    assert again.call_args.kwargs["idempotency_key"] == f"tds-credit-{second.pk}-{renewal.pk}"
+
+
+@override_settings(RAZORPAY_KEY_ID="rzp_k", RAZORPAY_KEY_SECRET="rzp_s")
+def test_refund_request_after_a_settled_refund_does_not_refund_again(tenant_a):
+    """Review fix: a second refund request (another tab) re-reads the claim under its lock and
+    finds every invoice already refunded."""
+    claim = _verified_credit_claim(tenant_a)
+    with mock.patch("billing.services.razorpay_refund", side_effect=["ra", "rb"]):
+        request_refund(claim, user=tenant_a.owner)
+    stale = SaasTdsClaim.objects.get(pk=claim.pk)
+    stale.status = SaasTdsClaim.Status.VERIFIED  # what a request that read the row earlier saw
+    with mock.patch("billing.services.razorpay_refund") as again:
+        from billing.tds_claims import _refund_to_claimed_invoices
+
+        _refund_to_claimed_invoices(stale.pk)
+    again.assert_not_called()
+
+
+def test_refund_switch_is_refused_when_no_refund_is_possible(tenant_a):
+    """Review fix: without Razorpay keys (or for a non-Razorpay invoice) the owner's switch to a
+    refund is refused before anything changes, so the claim keeps coming off renewals."""
+    claim = _verified_credit_claim(tenant_a)
+    with pytest.raises(BusinessRuleError):
+        request_refund(claim, user=tenant_a.owner)
+    claim.refresh_from_db()
+    assert claim.settle_by == SaasTdsClaim.SettleBy.CREDIT and claim.status == SaasTdsClaim.Status.VERIFIED
+
+
+def test_claim_post_with_bad_ids_is_a_400_not_a_500(tenant_a):
+    resp = tenant_a.client.post("/api/v1/billing/tds-claims/", {
+        "invoice_ids": "12", "section": "194J-2", "certificate_id": "abc",
+    }, format="json")
+    assert resp.status_code == 400, resp.content
 
 
 def test_form16a_reminder_once_per_quarter_only_for_unclaimed_gstin_invoices(tenant_a):

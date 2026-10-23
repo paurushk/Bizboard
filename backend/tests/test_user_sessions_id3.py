@@ -66,16 +66,21 @@ def test_signing_a_device_out_stops_its_refresh(tenant_a):
     assert [r["device"] for r in laptop.get("/api/v1/auth/sessions/").json()["data"]] == ["Chrome on Windows"]
 
 
-def test_new_device_email_once_and_not_on_the_first_ever_sign_in(tenant_a):
+def test_new_device_email_once_and_not_on_the_first_ever_sign_in(tenant_a, django_capture_on_commit_callbacks):
     mail.outbox.clear()
-    _login(tenant_a.owner)
+    # The email is queued once the sign-in commits (never sent inside the sign-in request).
+    with django_capture_on_commit_callbacks(execute=True):
+        _login(tenant_a.owner)
     assert not mail.outbox  # first ever session
-    _login(tenant_a.owner)
+    with django_capture_on_commit_callbacks(execute=True):
+        _login(tenant_a.owner)
     assert not mail.outbox  # same device and network
-    _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    with django_capture_on_commit_callbacks(execute=True):
+        _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
     assert len(mail.outbox) == 1
     assert "Safari on iPhone" in mail.outbox[0].body and "198.51.100.7" not in mail.outbox[0].body
-    _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.9")  # same /24
+    with django_capture_on_commit_callbacks(execute=True):
+        _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.9")  # same /24
     assert len(mail.outbox) == 1
 
 
@@ -102,3 +107,45 @@ def test_every_refresh_cookie_is_tracked():
     calls = re.findall(r"^\s+_set_refresh_cookie\(response, [^)]*\)", views, flags=re.M)
     assert calls and all("request=request" in c for c in calls), calls
     assert settings.JWT_REFRESH_COOKIE_NAME
+
+
+def test_ip_prefix_handles_mapped_ipv4_and_ports():
+    from accounts.user_sessions import ip_prefix
+
+    assert ip_prefix("::ffff:203.0.113.45") == "203.0.113.0/24"
+    assert ip_prefix("203.0.113.45:5555") == "203.0.113.0/24"
+    assert ip_prefix("[2001:db8::1]:443") == "2001:db8::/48"
+    assert ip_prefix("not an ip") == ""
+
+
+def test_switch_company_refuses_a_signed_out_refresh_token(tenant_a):
+    """Review fix: a device the user signed out cannot get a fresh session from its access token
+    through /auth/switch-company/ (its refresh token is blacklisted)."""
+    client = _login(tenant_a.owner)
+    row = UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True).latest("pk")
+    owner = _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    assert owner.post(f"/api/v1/auth/sessions/{row.pk}/revoke/").status_code == 200
+    resp = client.post("/api/v1/auth/switch-company/", {"company_id": tenant_a.company.pk}, format="json")
+    assert resp.status_code == 401, resp.content
+    assert settings.JWT_REFRESH_COOKIE_NAME not in resp.cookies
+    # Only the device that did the revoking is still signed in.
+    assert list(UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True)
+                .values_list("device_label", flat=True)) == ["Safari on iPhone"]
+
+
+def test_logout_closes_this_device_session(tenant_a):
+    client = _login(tenant_a.owner)
+    assert UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True).count() == 1
+    assert client.post("/api/v1/auth/logout/").status_code == 200
+    assert not UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True).exists()
+
+
+def test_a_device_signed_out_is_not_known_for_the_new_device_email(tenant_a, django_capture_on_commit_callbacks):
+    _login(tenant_a.owner)
+    phone = _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    row = UserSession.objects.filter(user=tenant_a.owner, device_label="Safari on iPhone").latest("pk")
+    assert phone.post(f"/api/v1/auth/sessions/{row.pk}/revoke/").status_code == 200
+    mail.outbox.clear()
+    with django_capture_on_commit_callbacks(execute=True):
+        _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
+    assert len(mail.outbox) == 1  # the signed-out device signing in again is reported

@@ -38,7 +38,8 @@ def require_reauth(request) -> None:
     user = request.user
     if not user.has_usable_password():
         raise BusinessRuleError(
-            "Set a password in your profile first: this action asks for it to confirm it is you.",
+            "This action asks for your password, and your account has none yet (you signed up with "
+            "Google). Sign out, choose \"Forgot password\" on the sign-in page to set one, then try again.",
             code="PASSWORD_NOT_SET",
         )
     if cache.get(_fail_key(user.pk), 0) >= REAUTH_FAIL_LIMIT:

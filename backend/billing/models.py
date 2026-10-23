@@ -70,6 +70,10 @@ class Subscription(TimeStampedModel):
     proration_amount_paise = models.PositiveIntegerField(default=0)
     proration_link_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
     proration_paid_at = models.DateTimeField(null=True, blank=True)
+    proration_link_url = models.CharField(max_length=300, blank=True, default="")
+    # The new plan's subscription had its mandate approved (``subscription.authenticated``); from then
+    # on the old one is set to end at its cycle end so both never charge at the same renewal.
+    pending_authenticated_at = models.DateTimeField(null=True, blank=True)
     # WP-BL4: how renewals are collected and the state of the UPI Autopay / card mandate.
     payment_method = models.CharField(max_length=16, blank=True, default="")
     mandate_status = models.CharField(max_length=16, blank=True, default="")
@@ -307,7 +311,9 @@ class SaasTdsClaim(CompanyScopedModel):
     taxable_total = models.DecimalField(max_digits=14, decimal_places=2)
     amount = models.DecimalField(max_digits=14, decimal_places=2)
     quarter = models.CharField(max_length=10)
-    certificate = models.ForeignKey("core.FileAsset", on_delete=models.PROTECT, related_name="+")
+    # SET_NULL, not PROTECT: erasing or restoring a company deletes its files, and the claim (the
+    # statutory record) must not block that.
+    certificate = models.ForeignKey("core.FileAsset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.SUBMITTED, db_index=True)
     reviewed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
