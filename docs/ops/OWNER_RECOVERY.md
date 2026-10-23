@@ -31,7 +31,13 @@ For: the owner left, lost their phone and recovery codes, or died, and the busin
 4. **Approve** (staff member 2, a different person): Django admin → Ownership transfers → select →
    *Approve recovery*. Every current owner is emailed and has **72 hours** to cancel.
 5. After 72 hours `support.tasks.complete_owner_recoveries_task` (hourly) sends a normal owner invite
-   to the proven address. The new owner sets their own password, then two-step verification.
+   to the proven address. The new owner sets their own password, then two-step verification. If the
+   proven address is already an active member, they are made owner in place (no invite; their
+   access is never switched off). An approved recovery must complete within 7 days of the wait
+   ending, and an unapproved request lapses after 14 days: start again with fresh proof.
+   **Lost phone and recovery codes:** if the owner being recovered still has two-step on, reset it
+   as part of the same approved recovery (`python manage.py reset_user_mfa --email <address>`),
+   noting it on the ticket; otherwise the invite or sign-in asks for the lost code again.
 6. Reply on the ticket. Old owners keep their access unless the business asks you to remove them
    (do that only with a second written request).
 

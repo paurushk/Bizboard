@@ -13,6 +13,9 @@ Bizboard. Built by `accounts/readable_export.py` (WP-DL1).
 | `pdf/<invoice number>.pdf` | The GST tax invoice of each completed sales invoice, up to 500; `manifest.json` → `invoice_pdfs` says how many there were in all |
 | `README.txt` | What is in the ZIP, in English and Hindi |
 
+`file_assets.csv` lists your uploaded files (name, type, size), not their contents; download a
+file from its record in the app.
+
 Columns are the record's own field names (`id`, `created_at`, `name`, `gstin`, `grand_total`, …);
 links to other records end in `_id` and hold that record's `id` from its own CSV. Amounts are in
 rupees with two decimals; dates are `YYYY-MM-DD`; times are ISO 8601 with time zone.

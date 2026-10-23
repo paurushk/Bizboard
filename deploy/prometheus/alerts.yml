@@ -116,7 +116,9 @@ groups:
     rules:
       # WP-AB1: core/services/sms_guard.py bumps bizboard_business_events{event="sms_*"}.
       - alert: BizBoardSmsBlockedBurst
-        expr: sum(increase(bizboard_business_events_total{event=~"sms_blocked_.*"}[1h])) > 50
+        # Cap refusals only: the kill switch (sms_blocked_disabled) and a counter-store outage
+        # (sms_blocked_unavailable) are not pumping and would page through the whole mitigation.
+        expr: sum(increase(bizboard_business_events_total{event=~"sms_blocked_(phone_hour|phone_day|range_hour|platform_day|international)"}[1h])) > 50
         for: 5m
         labels: {severity: page}
         annotations:

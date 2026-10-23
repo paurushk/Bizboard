@@ -36,7 +36,7 @@ platformSupport.sev.P2,Something is broken,कुछ काम नहीं क�
 platformSupport.sev.P3,A question,एक सवाल,,
 platformSupport.attachNote,"We attach your Support ID, this screen and recent error codes. Nothing you typed into other forms is sent.","हम आपका सपोर्ट ID, यह स्क्रीन और हाल के एरर कोड जोड़ते हैं। दूसरे फ़ॉर्म में लिखी कोई चीज़ नहीं भेजी जाती।",,
 platformSupport.send,Send to support,सपोर्ट को भेजें,,
-platformSupport.sent,Sent. We reply by email and here.,भेज दिया। हम ईमेल पर और यहाँ जवाब देंगे।,,
+platformSupport.sent,Sent. We reply by email; the status shows under Your requests.,"भेज दिया। हम ईमेल पर जवाब देंगे; स्थिति ""आपके अनुरोध"" में दिखेगी।",,changed in the 2026-10-23 review fixes
 platformSupport.myRequests,Your requests,आपके अनुरोध,,
 platformSupport.none,No requests yet.,अभी कोई अनुरोध नहीं।,,
 platformSupport.line,#{id} · {subject} · {status},अनुरोध #{id} · {subject} · स्थिति: {status},,
@@ -145,3 +145,13 @@ pilotLimits.whatsapp,WhatsApp opens a share link on your phone. Messages are not
 auth.botCheckLabel,Check that you are not a robot,जाँच कि आप रोबोट नहीं हैं,,
 tally.askSupport,Ask support to switch it on,सपोर्ट से चालू करने को कहें,,
 customer360.emailSuppressed,"Emails to this customer bounced or were marked as spam, so we have stopped sending them. Check the email address, or send the bill on WhatsApp or print it.","इस ग्राहक को भेजे गए ईमेल लौट आए या स्पैम में डाले गए, इसलिए हमने उन्हें भेजना बंद कर दिया है। ईमेल पता जाँचें, या बिल WhatsApp पर भेजें या प्रिंट करें।",,
+ownership.pendingOffer,Ownership has been offered to {email}. The link works until {until}.,{email} को मालिकाना हक दिया गया है। लिंक {until} तक चलेगा।,,added in the 2026-10-23 review fixes
+ownership.pendingRecovery,"Bizboard support is giving owner access to {email} after {until}. If nobody here asked for this, cancel it now.","Bizboard सपोर्ट {until} के बाद {email} को मालिक की पहुँच देगा। अगर यहाँ किसी ने यह नहीं माँगा, तो इसे अभी रद्द करें।",,added in the 2026-10-23 review fixes
+ownership.pendingCancel,Cancel,रद्द करें,,added in the 2026-10-23 review fixes
+legacyImport.notesTitle,{count} note(s) about this file:,इस फ़ाइल के बारे में {count} नोट:,,added in the 2026-10-23 review fixes
+legacyImport.rowNote,Row {row}: {note},पंक्ति {row}: {note},,added in the 2026-10-23 review fixes
+legacyImport.untied,"Imported, but these totals do not match the file: {sections}. Check them before you start billing.","इंपोर्ट हो गया, पर ये जोड़ फ़ाइल से मेल नहीं खाते: {sections}। बिलिंग शुरू करने से पहले इन्हें जाँचें।",,added in the 2026-10-23 review fixes
+readableExport.expired,The last download link has expired. Prepare your data again to get a new one.,पिछला डाउनलोड लिंक खत्म हो गया है। नया लिंक पाने के लिए अपना डेटा फिर से तैयार करें।,,added in the 2026-10-23 review fixes
+security.title,Security,सुरक्षा,,added in the 2026-10-23 review fixes
+security.help,Two-step verification and the devices signed in to your account.,दो-चरण सत्यापन और आपके खाते में साइन-इन किए गए डिवाइस।,,added in the 2026-10-23 review fixes
+security.navLabel,Security,सुरक्षा,,added in the 2026-10-23 review fixes

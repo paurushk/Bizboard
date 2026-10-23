@@ -425,7 +425,8 @@ jobs:
             exit 1
           fi
           echo "api/worker/beat/migrate all resolve to digest-pinned images in $overlay"
-      # M1-014: scan the built images for known CVEs, gate on fixable CRITICAL.
+      # M1-014: scan the built images for known CVEs, gate on fixable CRITICAL. The same reviewed
+      # allow-list as the supply-chain job, so an accepted exception unblocks both checks.
       - name: Trivy image scan (api)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -434,6 +435,7 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: CRITICAL
+          trivyignores: security/trivy-allowlist.yaml
 
   # F-PORT-01 / PRE-2: smoke the BUILT image, not the venv the other jobs test. Proves the interpreter
   # matches CI, `check --deploy` passes with production-style settings, there is no migration
@@ -923,6 +925,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: read  # the labels are read at run time, so adding the label then re-running works
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -932,9 +937,13 @@ jobs:
           python-version: "3.13"
       - name: Count changed lines
         env:
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: python scripts/ci_gates/check_merge_size.py "origin/$BASE_REF" --labels "$PR_LABELS"
+        run: |
+          # The event payload keeps the labels from when the run started; read the current ones.
+          PR_LABELS="$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name] | join(",")')"
+          python scripts/ci_gates/check_merge_size.py "origin/$BASE_REF" --labels "$PR_LABELS"
 
   # WP-SC3: scan BOTH built images for known CVEs (fail on a new fixable CRITICAL; reviewed
   # exceptions only via security/trivy-allowlist.yaml, each with a reason and an expiry) and
@@ -947,6 +956,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+      - name: Install guard tools
+        run: pip install -r scripts/requirements-tools.txt  # PyYAML for the allow-list guard
       - name: Allow-list entries are justified and not expired
         run: python scripts/ci_gates/guards/guard_trivy_allowlist.py
       - name: Build images
@@ -971,13 +982,15 @@ jobs:
           ignore-unfixed: true
           severity: CRITICAL
           trivyignores: security/trivy-allowlist.yaml
-      - name: SBOM (backend source, CycloneDX)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: backend
-          format: cyclonedx
-          output: sbom-backend.cdx.json
+      # requirements.txt uses version ranges, which a file scan cannot resolve (it lists no Python
+      # packages at all); the SBOM is taken from an environment the requirements were installed into.
+      - name: SBOM (backend, resolved environment, CycloneDX)
+        run: |
+          python -m venv /tmp/sbom-env
+          /tmp/sbom-env/bin/pip install --quiet -r backend/requirements.txt
+          python -m pip install --quiet "cyclonedx-bom>=4,<5"
+          cyclonedx-py environment --of JSON -o sbom-backend.cdx.json /tmp/sbom-env/bin/python
+          test -s sbom-backend.cdx.json
       - name: SBOM (web source, CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

@@ -4,7 +4,8 @@
  * hours, while normal invoicing carries on. This scenario puts that on staging:
  *
  *   - gst:      70% of the tenant accounts given (TENANTS) each open GSTR-1 and GSTR-3B for the
- *               period and download both as xlsx, then the dashboard — spread over DURATION;
+ *               period and download both as xlsx, then the dashboard — their arrivals spread evenly
+ *               over DURATION, so the invoice latency below is measured during the whole peak;
  *   - invoices: a steady stream of draft Completes on the large tenant (DRAFT_INVOICE_IDS), as in
  *               k6_mixed.js, so invoicing latency is measured under the GST peak.
  *
@@ -15,7 +16,12 @@
  *     load/month_end.js
  *
  * Locally (against the large-tenant seed, load/SEED_50K.md) use DURATION=10m and a few tenants.
- * Staging must set JWT_ACCESS_MINUTES >= the run length. Record the run in
+ * Staging must set JWT_ACCESS_MINUTES >= the run length. Staging is cookie-only (no Bearer token,
+ * no access token in the login body), so the script signs each tenant in once in setup() — paced
+ * under the 10/min per-address login limit — and sends the session cookies (plus X-CSRFToken on
+ * the Completes). Before the run: every tenant account has ENABLE_GSTR granted, and either has no
+ * two-step requirement on staging or is not an owner/accountant (a money role is asked to enrol
+ * and gets no session). setup() stops the run if any sign-in gets no session. Record the run in
  * docs/ops/LOAD_RESULTS_TEMPLATE.md ("Month-end GST peak"); pre-scale workers as in
  * docs/ops/WORKER_SCALE.md#month-end-and-gst-deadlines.
  *
@@ -30,6 +36,15 @@ const BASE = __ENV.BASE_URL || "http://localhost:8000";
 const PERIOD = __ENV.PERIOD || "";
 const DURATION = __ENV.DURATION || "2h";
 const SHARE = Number(__ENV.SHARE || "0.7");
+// The login throttle is 10/min per address; one sign-in every 7 s stays under it.
+const LOGIN_GAP_S = Number(__ENV.LOGIN_GAP_S || "7");
+
+function seconds(text) {
+  const m = /^(\d+(?:\.\d+)?)\s*(h|m|s)?$/.exec(String(text).trim());
+  if (!m) return 7200;
+  const n = Number(m[1]);
+  return m[2] === "h" ? n * 3600 : m[2] === "m" ? n * 60 : n;
+}
 
 const tenants = new SharedArray("tenants", function () {
   const all = (__ENV.TENANTS || "")
@@ -37,7 +52,8 @@ const tenants = new SharedArray("tenants", function () {
     .map((s) => s.trim())
     .filter(Boolean)
     .map((pair) => {
-      const i = pair.lastIndexOf(":");
+      // An email never contains ":", a password may: split on the first one.
+      const i = pair.indexOf(":");
       return { email: pair.slice(0, i), password: pair.slice(i + 1) };
     });
   return all.slice(0, Math.max(1, Math.round(all.length * SHARE)));
@@ -49,11 +65,14 @@ const draftPool = new SharedArray("draftInvoiceIds", function () {
 });
 
 export const options = {
+  // setup() signs every tenant in, one every LOGIN_GAP_S seconds.
+  setupTimeout: `${Math.ceil((tenants.length + 1) * (LOGIN_GAP_S + 2)) + 60}s`,
   scenarios: {
     gst: {
-      executor: "shared-iterations",
-      vus: Math.max(1, Math.min(50, tenants.length)),
-      iterations: Math.max(1, tenants.length),
+      // One VU per tenant, each starting at its own point in the window (see gst()).
+      executor: "per-vu-iterations",
+      vus: Math.max(1, tenants.length),
+      iterations: 1,
       maxDuration: DURATION,
       exec: "gst",
     },
@@ -76,45 +95,60 @@ export const options = {
   },
 };
 
-function login(email, password) {
+function session(email, password) {
   const res = http.post(
     `${BASE}/api/v1/auth/login/`,
     JSON.stringify({ email, password }),
     { headers: { "Content-Type": "application/json" }, tags: { name: "login" } },
   );
-  if (res.status !== 200) return null;
-  let access = null;
-  try {
-    const body = res.json();
-    access = (body && body.data && body.data.access) || (body && body.access) || null;
-  } catch (e) {
-    access = null;
+  const parts = [];
+  let csrf = "";
+  for (const name in res.cookies) {
+    const jar = res.cookies[name];
+    if (jar && jar.length) {
+      parts.push(`${name}=${jar[0].value}`);
+      if (name === "csrftoken") csrf = jar[0].value;
+    }
   }
-  return access ? { "Content-Type": "application/json", Authorization: `Bearer ${access}` } : null;
+  // A 200 without cookies is a two-step challenge or enrolment: no session.
+  if (res.status !== 200 || parts.length === 0) return null;
+  const headers = { "Content-Type": "application/json", Cookie: parts.join("; ") };
+  if (csrf) headers["X-CSRFToken"] = csrf;
+  return headers;
 }
 
 export function setup() {
+  const sessions = [];
+  for (const t of tenants) {
+    const headers = session(t.email, t.password);
+    if (!headers) throw new Error(`sign-in for ${t.email} gave no session (wrong password, two-step, or throttled)`);
+    sessions.push(headers);
+    sleep(LOGIN_GAP_S);
+  }
   const email = __ENV.EMAIL || "";
   const password = __ENV.PASSWORD || "";
-  return { invoiceHeaders: email && password ? login(email, password) : null };
+  let invoiceHeaders = null;
+  if (email && password) {
+    invoiceHeaders = session(email, password);
+    if (!invoiceHeaders) throw new Error(`sign-in for ${email} gave no session`);
+  }
+  return { sessions, invoiceHeaders };
 }
 
 function period() {
   if (PERIOD) return PERIOD;
-  const d = new Date();
-  d.setMonth(d.getMonth() - 1);
+  // The previous month, from the 1st (setMonth on the 29th-31st would roll into this month).
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function gst() {
-  const tenant = tenants[exec.scenario.iterationInTest % tenants.length];
-  const headers = tenant && login(tenant.email, tenant.password);
-  if (!headers) {
-    sleep(1);
-    return;
-  }
-  // Spread arrivals across the window like real owners, not all in the first second.
-  sleep(Math.random() * 30);
+export function gst(data) {
+  const index = (__VU - 1) % Math.max(1, tenants.length);
+  const headers = data && data.sessions && data.sessions[index];
+  if (!headers) return;
+  // Arrivals spread evenly across the window like real owners, not all in the first minutes.
+  sleep((index / Math.max(1, tenants.length)) * seconds(DURATION) * 0.9);
   const p = period();
   for (const [name, path] of [["gstr1", "gstr1"], ["gstr3b", "gstr3b"]]) {
     const view = http.get(`${BASE}/api/v1/reports/${path}/?period=${p}`, { headers, tags: { name } });
@@ -138,7 +172,7 @@ export function invoice(data) {
     sleep(1);
     return;
   }
-  const index = exec.scenario.iterationInTest;
+  const index = exec.scenario.iterationInTest;  // unique across the scenario: each draft once
   if (index >= draftPool.length) return;
   const res = http.post(`${BASE}/api/v1/sales/invoices/${draftPool[index]}/complete/`, "{}", {
     headers,

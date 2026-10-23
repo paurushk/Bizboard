@@ -1,6 +1,6 @@
 # Full SaaS product — implementation plan: before paid beta and before public launch
 
-**Date:** 2026-10-22 · **Revision:** 3.1 (review applied, see §0d; Q9 answered) · **Status:** Phase 1 and Phase 2 built and tested (see §8 and §9); what is left is people items only · **Branch at writing:** `feat/mfg-p0-foundations` (large uncommitted tree)
+**Date:** 2026-10-22 · **Revision:** 3.1 (review applied, see §0d; Q9 answered) · **Status:** Phase 1 and Phase 2 built and tested (see §8 and §9), deep review fixed (§10); what is left is people items only · **Branch at writing:** `feat/mfg-p0-foundations` (large uncommitted tree)
 
 This plan covers the items from the 2026-10-22 checklist review and the "full-fledged SaaS"
 review that must be done **before paid beta** (alongside Waves 1–3 of the scorecard) and
@@ -788,3 +788,45 @@ types regenerated (additions only).
 - Pilot files: 2–3 anonymised Busy / Vyapar / Marg exports to confirm the column maps (GR1b) and
   Tally exports for GR1a.
 - Hindi review of every new string: [`docs/SAAS_HINDI_REVIEW.csv`](../SAAS_HINDI_REVIEW.csv).
+
+---
+
+## 10. Deep review and fixes (2026-10-23)
+
+A twelve-way review of the three Phase 1 + 2 commits (billing ×2, accounts ×2, support/ops, core,
+integrations, web ×2, CI/deploy, tests, cleanup) found about 130 candidate issues. Every one was
+checked against the code; the real ones are fixed in this pass and each fix has a test unless it
+is CI or deploy configuration.
+
+| Area | What was wrong | Fix |
+|---|---|---|
+| RLS (all staff admin) | `rls_bypass()` did not nest: an inner block switched the bypass off for the outer one; the TDS-claim and ownership admins wrapped only a lazy queryset, so on Postgres their lists were empty and staff could never verify a claim or approve a recovery | `rls_bypass` is a no-op inside an enclosing bypass; shared `core.admin.RlsBypassAdminMixin` renders list and change pages inside it (Postgres test) |
+| BL1 TDS money | Concurrent refund requests (or verify + refund) refunded every invoice twice; credit refunds ran inside one transaction that rolled back the record of a refund already made, so the daily task refunded it again; switching to refund stranded a claim that could not be refunded | One short locked transaction per invoice / per claim, Razorpay idempotency key per (claim, invoice), refundability checked before switching (back to credit if nothing went out), verify/reject lock and re-read |
+| BL2 GST | Nightly recon would invoice every historical Razorpay charge, dated today; one failure stopped the sweep; intra-state chosen by raw state strings; CGST and SGST a paisa apart | Charges only within 35 days and after `PLATFORM_GST_INVOICES_FROM`, `amount_paid` only, per-charge parking, one query for existing ids; `is_intra_state` on GST state codes, equal halves |
+| BL3 plan change | The old subscription's renewal promoted a pending plan; repeating the upgrade re-charged and extended the free grace forever; a paid overlay never expired; trial "upgrades" got paid plans free; old and new subscriptions both charged at the renewal; seat limit ignored the upgrade; paid superseded links were dropped | Promote only on the new subscription's activation; one upgrade at a time (same plan returns the stored links, the old plan undoes an unpaid upgrade); a paid upgrade lasts to its period end + grace; upgrades need an ACTIVE paid period; the old subscription is set to end at cycle end once the new mandate is approved; `effective_plan` for invites and seat counts; unmatched paid links invoiced and parked; link status checked before reverting; checkout single-flight |
+| BL4 autopay | Unknown events were applied then parked; the pending mandate overwrote the live one's state; reminder quoted the old plan and one SMTP error lost the day's cohort | Classify before applying (`subscription.updated` handled); mandate state from the live subscription only; reminder catches up, uses the plan that will be charged, per-subscription errors |
+| ID3 sessions | `/auth/switch-company/` minted a fresh 14-day session from an access token, undoing "sign out this device"; revoked devices counted as known; logout/reset left rows; mapped IPv4 collapsed to `::/48`; the new-device email blocked sign-in on SMTP | A live, non-blacklisted refresh token is required; revoke/refresh race closed; logout, password reset and last-membership removal close rows; `core.netutil.ip_prefix`; email sent by a worker after commit; a Security page every user can open |
+| ID1 ownership | An offer stayed valid after its owner was demoted or removed; accept failed on Postgres for multi-company members; 500s on bad input; recovery to an existing member switched their access off | Re-check the offering owner inside the lock; look up by token under the bypass, act under `company_scope`; clear errors; promote in place; recovery expiry enforced; runbook covers the lost-phone MFA reset; owners can see and cancel a pending transfer or recovery |
+| ID5 Google | Any Google account with a matching email opened an existing account, even where Google is not the mail provider; sign-up skipped state, choice and phone checks; JWKS keys cached forever with a 30 s fetch | Link only Gmail or a Workspace `hd` matching the domain; the password sign-up's serializer rules; `cache_keys=False`, 5 s timeout, any verification error is a 401; MFA waiver audited as for passwords |
+| ID4 support | Closing the request did not end access; a deleted named staff member widened the grant to all staff; bad `hours` became 72; SQLite dev viewer always errored; the ticket admin crashed on every save; PROTECT blocked company deletion; logs deletable | Resolve revokes at once and closed tickets never pass `usable_grant`; PROTECT on the named staff user; bad hours refused; PRAGMA set inside the transaction; `save_formset` fixed; CASCADE; no delete |
+| DL1 export | A dead build stayed PENDING forever and blocked new exports; the whole ZIP (and base64 file blobs) built in memory; plaintext ZIPs outlived company erasure; list polling used the shared 10/min sensitive budget | Stale PENDING failed and ignored; streamed to a temp file, no file blobs in CSV; erasure and sandbox teardown delete the ZIPs; throttle only on POST; poll every 15 s; expired links shown as expired |
+| GR1a/GR1b imports | Tally XML took the CGST rate (half), dropped parties under sub-groups, ignored the bill count in the row cap; legacy balances mis-parsed (signs, "Cr" suffix, "Rs."), advances silently dropped while recon expected them, payable ledgers became suppliers, positional item codes collided across files, GST cells concatenated digits | Integrated/Central+State rate from the latest GST details; group ancestry; bills counted; strict balance parser with Dr/Cr from column, suffix or sign; advances listed as notes and excluded from expected totals; party groups only; stable codes from names; one-rate GST validation; row numbers from the file; extra CSV cells and old .xls refused clearly |
+| Core | Bounce webhook credentials were never defined in settings (every call refused); a bad body 500'd on Postgres; out-of-office replies suppressed addresses; a late soft bounce lifted a suppression; non-ASCII credentials 500'd; public-link spread and Turnstile used the proxy's address; dunning shared the OTP SMS budget; phones normalised three ways | Settings added; DLQ write under the bypass; Postmark type map; locked soft-bounce update; byte compares; `core.netutil.client_ip`; Turnstile hostname check; OTP and bulk texts have separate series budgets and bulk keeps 10% of the platform cap free; one `normalize_e164`; unknown `BOT_CHECK_PROVIDER` refused at boot |
+| Web | Bot-check widget reset loop; multi-company first requests without `X-Company-Id`; stale tabs kept writing after a cleared company; legacy import could not import a second file; thumbnails broke on reopen; file opens blocked as pop-ups; Google button in the app shell | Reset only after a token is used; active company stored at sign-in; listener compares with the shown company; mutations reset; data-URL thumbnails; tab opened in the click; native shell hides it; PDF/download errors shown |
+| CI / deploy | Turnstile site key and Google client id never reached the built web bundle (production would refuse every sign-up, OTP and reset); the supply-chain job lacked PyYAML; the backend SBOM listed no packages; the docker scan ignored the allow-list; the merge-size label needed a new push; guards missed aliases and private senders; month-end k6 script could not sign in on staging | Build args in the Dockerfile, CD (repository variables) and compose; tools installed; SBOM from a resolved environment (`cyclonedx-py`); `trivyignores` on both scans; labels read at run time; AST guards; cookie sessions paced under the login limit, arrivals spread over the window, CSP `frame-src 'self' blob:`, `noindex` on share links |
+
+Tests that could not fail were made real: the OTP no-enumeration check, the SMS refusal rollback,
+the import reconciliation checks (they read keys that never existed) and the readable-export column
+snapshot (it pinned 2 of 12 sections; all 12 are now seeded and pinned).
+
+New migrations: `billing/0019_plan_change_links`, `billing/0020_relax_protect_fks`,
+`support/0008_relax_protect_fks`, `accounts/0075_relax_protect_fks`. New settings:
+`EMAIL_WEBHOOK_USER`, `EMAIL_WEBHOOK_PASSWORD`, `PLATFORM_GST_INVOICES_FROM`,
+`TURNSTILE_ALLOWED_HOSTNAMES`; build-time `VITE_TURNSTILE_SITE_KEY`, `VITE_GOOGLE_CLIENT_ID`
+(CD repository variables).
+
+Left on purpose (judgement, not bugs): the three owner-capability definitions are not merged
+(no behaviour difference for an OWNER, whose role bypasses the flags); `NotificationService` still
+has a fixed category (the two callers that need another one call `core.mail.send` directly and now
+catch their errors); TDS credit and refund amounts stay in JSON lists on the claim (fixed for
+races; a settlement table would be a larger change).

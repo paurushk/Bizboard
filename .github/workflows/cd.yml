@@ -89,8 +89,19 @@ jobs:
             docker push "${{ steps.meta.outputs.prefix }}/bizboard-api:latest"
           fi
       - name: Build and push Web
+        env:
+          # Public keys baked into the static bundle (repository variables, not secrets).
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+          VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
+          VITE_APP_VERSION: ${{ steps.meta.outputs.sha }}
         run: |
+          if [ -z "$VITE_TURNSTILE_SITE_KEY" ]; then
+            echo "::warning::VITE_TURNSTILE_SITE_KEY is not set: a production API with BOT_CHECK_PROVIDER=turnstile will refuse sign-up, OTP and password reset from this bundle."
+          fi
           docker build \
+            --build-arg VITE_TURNSTILE_SITE_KEY="$VITE_TURNSTILE_SITE_KEY" \
+            --build-arg VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID" \
+            --build-arg VITE_APP_VERSION="$VITE_APP_VERSION" \
             --build-arg VITE_ENABLE_ACCOUNTING=true \
             --build-arg VITE_ENABLE_AI=false \
             --build-arg VITE_ENABLE_TALLY=false \
@@ -107,13 +118,18 @@ jobs:
               "${{ steps.meta.outputs.prefix }}/bizboard-web:latest"
             docker push "${{ steps.meta.outputs.prefix }}/bizboard-web:latest"
           fi
-      - name: SBOM (backend source, CycloneDX)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          scan-type: fs
-          scan-ref: backend
-          format: cyclonedx
-          output: sbom-backend.cdx.json
+          python-version: "3.13"
+      # requirements.txt uses version ranges, which a file scan cannot resolve (it lists no Python
+      # packages at all); the SBOM is taken from an environment the requirements were installed into.
+      - name: SBOM (backend, resolved environment, CycloneDX)
+        run: |
+          python -m venv /tmp/sbom-env
+          /tmp/sbom-env/bin/pip install --quiet -r backend/requirements.txt
+          python -m pip install --quiet "cyclonedx-bom>=4,<5"
+          cyclonedx-py environment --of JSON -o sbom-backend.cdx.json /tmp/sbom-env/bin/python
+          test -s sbom-backend.cdx.json
       - name: SBOM (web source, CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

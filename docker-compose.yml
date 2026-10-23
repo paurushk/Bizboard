@@ -255,6 +255,8 @@ services:
         VITE_ENABLE_MANUFACTURING: ${VITE_ENABLE_MANUFACTURING:-false}
         VITE_ENABLE_PAYROLL: ${VITE_ENABLE_PAYROLL:-false}
         VITE_ENABLE_CRM: ${VITE_ENABLE_CRM:-false}
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped
     depends_on:
       - api

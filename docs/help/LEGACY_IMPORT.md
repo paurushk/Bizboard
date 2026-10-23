@@ -13,8 +13,9 @@ Export **parties** and **items** as separate Excel or CSV files and upload them 
 ## Busy
 
 - Parties: *Display → Account Books → Account List*, export to Excel with columns
-  **Name, Group, Mobile No., GSTIN, State, Op. Bal., Dr/Cr**. Only *Sundry Debtors* and
-  *Sundry Creditors* become customers and suppliers; bank, cash and expense ledgers are skipped.
+  **Name, Group, Mobile No., GSTIN, State, Op. Bal., Dr/Cr**. Only parties in a debtor or creditor
+  group (*Sundry Debtors*, *Sundry Creditors*, or groups with those words) become customers and
+  suppliers; bank, cash, expense, tax and "… Payable" ledgers are skipped and listed in the preview.
 - Items: *Display → Masters → Item List*, export with **Name, Alias, HSN/SAC Code, GST Rate,
   Purchase Price, Sale Price, Op. Stock (Qty)**. *Alias* becomes the item code.
 
@@ -35,8 +36,15 @@ Export **parties** and **items** as separate Excel or CSV files and upload them 
 ## If the file is refused
 
 "This does not look like a … export" means the column names did not match. Export again with the
-columns above, or send the file to support. An opening balance on the wrong side (for example a
-customer in credit) is imported as an advance and shown as a warning in the preview.
+columns above, or send the file to support. A row with a balance that is not one number, or a GST
+rate that is not one GST rate, is shown as a row error with the row number from your file. An
+opening balance on the wrong side (a customer in credit, a supplier you paid in advance) is **not**
+imported: the preview lists it, and you record it as an advance receipt or payment after the
+import, so the opening totals still tie. Report total rows and items without a code are handled
+for you (totals are skipped; an item without a code gets one made from its name, so the same item
+in a later file is matched, not duplicated). Save CSV files with names in quotes, or use .xlsx: a
+name with a comma in it otherwise shifts the columns, and the file is refused. Old .xls files must
+be saved as .xlsx or CSV first.
 
 The column names here follow each tool's standard export. Support checks them against your own
 file before switching the import on (plan WP-GR1b; confirmed per source with pilot files).
