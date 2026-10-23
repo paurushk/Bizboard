@@ -49,5 +49,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
 ];
 
 export function newestWhatsNewId(): string {
-  return WHATS_NEW.map((e) => e.id).sort().at(-1) ?? '';
+  // Not .at(-1): Safari before 15.4 (and old Android WebViews) lack it, and this runs in the shell.
+  const ids = WHATS_NEW.map((e) => e.id).sort();
+  return ids.length ? ids[ids.length - 1] : '';
 }

@@ -10,6 +10,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { Link as RouterLink } from 'react-router-dom';
 import { requestPasswordReset } from '@/api/auth';
+import { getErrorMessage } from '@/api/client';
 import { t } from '@/i18n';
 import { BotCheck } from '@/components/BotCheck';
 
@@ -30,8 +31,10 @@ export function ForgotPasswordPage() {
     try {
       await requestPasswordReset(identifier.trim());
       setSubmitted(true);
-    } catch {
-      setError(t('auth.resetSendFailed'));
+    } catch (err) {
+      // The server's own reason (e.g. the bot check) helps; a bare network failure gets the generic line.
+      const message = getErrorMessage(err);
+      setError(message && !/network/i.test(message) ? message : t('auth.resetSendFailed'));
     } finally {
       setBusy(false);
     }

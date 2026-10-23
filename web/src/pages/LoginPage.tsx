@@ -76,8 +76,10 @@ export function LoginPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [otpRequesting, setOtpRequesting] = useState(false);
   // F-SEC-02: set when the password/OTP step succeeded but the account needs a second factor.
-  const [mfaToken, setMfaToken] = useState<string | null>(null);
-  const [enrolToken, setEnrolToken] = useState<string | null>(null);
+  // A Google sign-up that just created the account hands its token over in the route state.
+  const handedOver = location.state as { mfaToken?: string; enrolToken?: string } | null;
+  const [mfaToken, setMfaToken] = useState<string | null>(handedOver?.mfaToken ?? null);
+  const [enrolToken, setEnrolToken] = useState<string | null>(handedOver?.enrolToken ?? null);
   const consumedEnrolToken = useRef<string | null | undefined>(undefined);
   const [enrolSecret, setEnrolSecret] = useState<string | null>(null);
   const [enrolQr, setEnrolQr] = useState<string | null>(null);

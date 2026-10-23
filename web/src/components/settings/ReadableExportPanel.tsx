@@ -19,7 +19,7 @@ export function ReadableExportPanel() {
   const rows = useQuery({
     queryKey: ['readable-exports'],
     queryFn: listReadableExports,
-    refetchInterval: (q) => ((q.state.data ?? []).some((r) => r.status === 'PENDING') ? 5000 : false),
+    refetchInterval: (q) => ((q.state.data ?? []).some((r) => r.status === 'PENDING') ? 15_000 : false),
   });
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
@@ -33,6 +33,10 @@ export function ReadableExportPanel() {
   });
   const save = useMutation({ mutationFn: downloadReadableExport });
   const latest = (rows.data ?? [])[0];
+  const [openedAt] = useState(() => Date.now());
+  // The daily purge marks a lapsed link EXPIRED; until then a READY row past its time is expired too.
+  const expired = latest?.status === 'EXPIRED' || (latest?.status === 'READY' && Boolean(latest.expiresAt)
+    && new Date(latest.expiresAt as string).getTime() <= Math.max(openedAt, rows.dataUpdatedAt));
 
   return (
     <Stack spacing={1.5}>
@@ -55,7 +59,8 @@ export function ReadableExportPanel() {
       </Button>
       {latest?.status === 'PENDING' ? <Alert severity="info">{t('readableExport.pending')}</Alert> : null}
       {latest?.status === 'FAILED' ? <Alert severity="error">{t('readableExport.failed')}</Alert> : null}
-      {latest?.status === 'READY' ? (
+      {expired ? <Alert severity="info">{t('readableExport.expired')}</Alert> : null}
+      {latest?.status === 'READY' && !expired ? (
         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
           <Button variant="contained" disabled={save.isPending} onClick={() => save.mutate(latest.id)}>
             {t('readableExport.download')}

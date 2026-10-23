@@ -19,6 +19,7 @@ export const BOT_CHECK_PATHS = [
 
 let token: string | null = null;
 const listeners = new Set<(value: string | null) => void>();
+const consumedListeners = new Set<() => void>();
 
 export function turnstileSiteKey(): string {
   return String(import.meta.env.VITE_TURNSTILE_SITE_KEY ?? '').trim();
@@ -32,13 +33,23 @@ export function setBotToken(value: string | null): void {
 /** The current token, cleared after reading: each one is good for a single request. */
 export function takeBotToken(): string | null {
   const value = token;
-  if (value) setBotToken(null);
+  if (value) {
+    setBotToken(null);
+    consumedListeners.forEach((fn) => fn());
+  }
   return value;
 }
 
 export function onBotTokenChange(fn: (value: string | null) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+/** A request used the token: the widget needs a fresh one. (Not called for an expired or failed
+ * widget, which Turnstile retries itself — resetting on those would loop with no back-off.) */
+export function onBotTokenConsumed(fn: () => void): () => void {
+  consumedListeners.add(fn);
+  return () => consumedListeners.delete(fn);
 }
 
 export function needsBotToken(url: string | undefined): boolean {

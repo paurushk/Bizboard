@@ -23,6 +23,15 @@ describe('WP-ID2 company context', () => {
     uninstall();
   });
 
+  it('reloads when another tab clears the company and then sets a new one', () => {
+    localStorage.setItem(ACTIVE_COMPANY_STORAGE_KEY, '7');
+    const reload = vi.fn();
+    const uninstall = installCompanySwitchListener(reload);
+    fireStorage('7', null); // a 409 conflict in another tab removes the key first
+    expect(reload).toHaveBeenCalledTimes(1);
+    uninstall();
+  });
+
   it('treats nothing stored as no switch, and a different id as a switch', () => {
     expect(companyChangedFrom(7)).toBe(false);
     localStorage.setItem(ACTIVE_COMPANY_STORAGE_KEY, '7');

@@ -23,7 +23,16 @@ export async function cancelOwnershipTransfer(): Promise<void> {
   await apiClient.post('/company/ownership/cancel/', {});
 }
 
-export async function getPendingOwnership(): Promise<{ pending: null | { kind: string; toEmail: string; expiresAt: string } }> {
+export interface PendingOwnership {
+  id: number;
+  kind: 'SELF_SERVE' | 'STAFF_RECOVERY';
+  status: string;
+  toEmail: string;
+  expiresAt: string;
+  effectiveAt: string | null;
+}
+
+export async function getPendingOwnership(): Promise<{ pending: null | PendingOwnership }> {
   const { data } = await apiClient.get('/company/ownership/');
   return unwrapData(data);
 }

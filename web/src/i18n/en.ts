@@ -2220,7 +2220,7 @@ export const en = {
     },
     attachNote: 'We attach your Support ID, this screen and recent error codes. Nothing you typed into other forms is sent.',
     send: 'Send to support',
-    sent: 'Sent. We reply by email and here.',
+    sent: 'Sent. We reply by email; the status shows under Your requests.',
     myRequests: 'Your requests',
     none: 'No requests yet.',
     line: '#{id} · {subject} · {status}',
@@ -2232,6 +2232,9 @@ export const en = {
     },
   },
   ownership: {
+    pendingOffer: 'Ownership has been offered to {email}. The link works until {until}.',
+    pendingRecovery: 'Bizboard support is giving owner access to {email} after {until}. If nobody here asked for this, cancel it now.',
+    pendingCancel: 'Cancel',
     makeOwner: 'Make owner',
     title: 'Make {name} the owner',
     warning: 'The new owner can change billing, users and every setting, and can remove you. They must accept from the email we send.',
@@ -6494,6 +6497,12 @@ export const en = {
     failed: 'We could not prepare your data. Try again, or contact support.',
     download: 'Download ZIP',
     until: 'Link works until {until}',
+    expired: 'The last download link has expired. Prepare your data again to get a new one.',
+  },
+  security: {
+    title: 'Security',
+    help: 'Two-step verification and the devices signed in to your account.',
+    navLabel: 'Security',
   },
   onboardingChecklist: {
     title: 'Getting started',
@@ -6521,6 +6530,9 @@ export const en = {
     rowError: 'Row {row}: {error}',
     confirm: 'Import now',
     done: 'Imported. Open Customers, Suppliers or Items to check them.',
+    notesTitle: '{count} note(s) about this file:',
+    rowNote: 'Row {row}: {note}',
+    untied: 'Imported, but these totals do not match the file: {sections}. Check them before you start billing.',
   },
   planChange: {
     upgradeOwed: '{plan} is on now. Pay the difference of {amount} for the rest of this period by {until}, or the plan goes back.',

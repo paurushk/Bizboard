@@ -273,6 +273,9 @@ export function AppShell() {
         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
           {user?.role?.replace(/_/g, ' ')}
         </Typography>
+        <Button fullWidth size="small" sx={{ mb: 1 }} component={RouterLink} to="/security" onClick={closeMobile}>
+          {t('security.navLabel')}
+        </Button>
         <Button fullWidth variant="outlined" size="small" onClick={() => void logout()}>
           {t('auth.logout')}
         </Button>

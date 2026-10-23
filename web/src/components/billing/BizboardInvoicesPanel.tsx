@@ -44,6 +44,7 @@ export function BizboardInvoicesPanel({ companyKey }: { companyKey: unknown }) {
     mutationFn: refundTdsClaim,
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['tds-claims'] }),
   });
+  const pdf = useMutation({ mutationFn: (id: number) => openAuthenticatedFile(`/billing/invoices/${id}/pdf/`) });
 
   const rows = (invoices.data ?? []).filter((row) => row.kind === 'INVOICE');
   const sections = claims.data?.sections ?? [];
@@ -57,6 +58,7 @@ export function BizboardInvoicesPanel({ companyKey }: { companyKey: unknown }) {
           {t('saasBilling.help')}
         </Typography>
         {invoices.isError ? <HelpErrorAlert error={invoices.error} /> : null}
+        {pdf.isError ? <HelpErrorAlert error={pdf.error} /> : null}
         {rows.length === 0 && invoices.isSuccess ? (
           <Typography color="text.secondary">{t('saasBilling.none')}</Typography>
         ) : null}
@@ -73,7 +75,8 @@ export function BizboardInvoicesPanel({ companyKey }: { companyKey: unknown }) {
             <Button
               size="small"
               aria-label={t('saasBilling.pdfFor', { number: row.number })}
-              onClick={() => void openAuthenticatedFile(`/billing/invoices/${row.id}/pdf/`)}
+              disabled={pdf.isPending}
+              onClick={() => pdf.mutate(row.id)}
             >
               {t('saasBilling.pdf')}
             </Button>

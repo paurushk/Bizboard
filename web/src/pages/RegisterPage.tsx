@@ -14,7 +14,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm } from 'react-hook-form';
 import { Link as RouterLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { googleSignIn, requestRegisterOtp } from '@/api/auth';
+import { googleSignIn, MfaEnrollmentRequiredError, MfaRequiredError, requestRegisterOtp } from '@/api/auth';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { GoogleSignupForm } from '@/components/GoogleSignupForm';
 import { getErrorMessage, getFieldErrors } from '@/api/client';
@@ -89,7 +89,14 @@ export function RegisterPage() {
       await setSession(result.user, result.tokens.access);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(getErrorMessage(err));
+      // An existing account with two-step: finish on the sign-in page, as a Google sign-in there would.
+      if (err instanceof MfaRequiredError) {
+        navigate('/login', { replace: true, state: { mfaToken: err.mfaToken } });
+      } else if (err instanceof MfaEnrollmentRequiredError) {
+        navigate('/login', { replace: true, state: { enrolToken: err.enrolToken } });
+      } else {
+        setError(getErrorMessage(err));
+      }
     }
   };
   const [error, setError] = useState<string | null>(null);

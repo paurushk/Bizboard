@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import Box from '@mui/material/Box';
 import { googleClientId, loadGoogleIdentity } from '@/auth/googleIdentity';
+import { isNative } from '@/lib/native';
 
 /**
  * WP-ID5: Google's own "Sign in with Google" button (Google Identity Services). Renders nothing
@@ -19,7 +20,8 @@ export function GoogleSignInButton({
   useEffect(() => {
     callback.current = onCredential;
   }, [onCredential]);
-  const clientId = googleClientId();
+  // Google refuses OAuth inside an embedded WebView (the Android app shell), so the button is web-only.
+  const clientId = isNative() ? '' : googleClientId();
 
   useEffect(() => {
     if (!clientId) return undefined;

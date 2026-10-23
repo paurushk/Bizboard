@@ -250,6 +250,7 @@ const OfflineOutboxPage = lazy(() =>
 );
 const SetupWizardPage = lazy(() => import('@/pages/setup/SetupWizardPage').then((m) => ({ default: m.SetupWizardPage })));
 const HelpPage = lazy(() => import('@/pages/help/HelpPage').then((m) => ({ default: m.HelpPage })));
+const SecurityPage = lazy(() => import('@/pages/SecurityPage').then((m) => ({ default: m.SecurityPage })));
 const PilotLimitsPage = lazy(() => import('@/pages/help/PilotLimitsPage').then((m) => ({ default: m.PilotLimitsPage })));
 const ContactSupportPage = lazy(() => import('@/pages/help/ContactSupportPage').then((m) => ({ default: m.ContactSupportPage })));
 const OwnershipAcceptPage = lazy(() => import('@/pages/OwnershipAcceptPage').then((m) => ({ default: m.OwnershipAcceptPage })));
@@ -452,6 +453,7 @@ export function App() {
             <Route index element={<HomePage />} />
             <Route path="offline-outbox" element={<OfflineOutboxPage />} />
             <Route path="help" element={<HelpPage />} />
+            <Route path="security" element={<SecurityPage />} />
             <Route path="help/pilot-limits" element={<PilotLimitsPage />} />
             <Route path="help/contact" element={<ContactSupportPage />} />
             <Route path="ownership/accept" element={<OwnershipAcceptPage />} />

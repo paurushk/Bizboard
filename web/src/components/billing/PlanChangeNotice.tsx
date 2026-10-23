@@ -5,6 +5,7 @@ import Typography from '@mui/material/Typography';
 import type { BillingSubscription } from '@/api/billing';
 import { t } from '@/i18n';
 import { formatMoney } from '@/utils/money';
+import { isAllowedPaymentUrl } from '@/utils/safeUrl';
 
 function day(value?: string | null): string {
   return value ? new Date(value).toLocaleDateString() : '';
@@ -25,6 +26,10 @@ export function PlanChangeNotice({
   if (!sub) return null;
   const upgrading = Boolean(sub.upgradePlanName);
   const owed = upgrading && !sub.prorationPaidAt && (sub.prorationAmountPaise ?? 0) > 0;
+  // The link from this session's checkout, else the stored one (still payable after a reload).
+  const storedUrl = owed && sub.prorationLinkUrl && isAllowedPaymentUrl(sub.prorationLinkUrl) ? sub.prorationLinkUrl : null;
+  const prorationUrl = links?.prorationUrl || storedUrl;
+  const checkoutUrl = links?.checkoutUrl || null;
   return (
     <Stack spacing={1}>
       {upgrading ? (
@@ -38,15 +43,15 @@ export function PlanChangeNotice({
             : t('planChange.upgradePaid', { plan: sub.upgradePlanName ?? '' })}
         </Alert>
       ) : null}
-      {links?.prorationUrl || links?.checkoutUrl ? (
+      {prorationUrl || checkoutUrl ? (
         <Stack direction="row" spacing={1} flexWrap="wrap">
-          {links.prorationUrl ? (
-            <Button variant="contained" href={links.prorationUrl} target="_blank" rel="noopener">
+          {prorationUrl ? (
+            <Button variant="contained" href={prorationUrl} target="_blank" rel="noopener">
               {t('planChange.payDifference')}
             </Button>
           ) : null}
-          {links.checkoutUrl ? (
-            <Button variant="outlined" href={links.checkoutUrl} target="_blank" rel="noopener">
+          {checkoutUrl ? (
+            <Button variant="outlined" href={checkoutUrl} target="_blank" rel="noopener">
               {t('planChange.approveMandate')}
             </Button>
           ) : null}

@@ -32,14 +32,26 @@ export function companyChangedFrom(companyId: number | string | null | undefined
 
 let installed = false;
 
-/** Reload this tab when another tab switches company (the `storage` event only fires in other tabs). */
+/**
+ * Reload this tab when another tab switches company (the `storage` event only fires in other tabs).
+ * Compared with the company this tab is showing, not just the previous stored value: a conflict
+ * in another tab clears the key and then sets the new id, and both steps must still reload here.
+ */
 export function installCompanySwitchListener(reload: () => void = () => window.location.reload()): () => void {
   if (typeof window === 'undefined' || installed) return () => {};
   installed = true;
+  let showing = readActiveCompanyId();
   const onStorage = (event: StorageEvent) => {
-    if (event.key !== ACTIVE_COMPANY_STORAGE_KEY) return;
-    // First selection on a fresh device (null -> id) is not a switch.
-    if (event.oldValue && event.newValue && event.oldValue !== event.newValue) reload();
+    if (event.key !== ACTIVE_COMPANY_STORAGE_KEY && event.key !== null) return;
+    // key === null is localStorage.clear() in another tab.
+    const raw = event.key === null ? null : event.newValue;
+    const next = raw && /^\d+$/.test(raw) ? raw : null;
+    if (showing === null) {
+      // First selection on a fresh device (null -> id) is not a switch: adopt it.
+      showing = next;
+      return;
+    }
+    if (next !== showing) reload();
   };
   window.addEventListener('storage', onStorage);
   return () => {

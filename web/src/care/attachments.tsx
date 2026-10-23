@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
@@ -25,25 +25,30 @@ function useFileMeta(id: number) {
 // linked directly: a plain <img src>/<a href> to the API carries no company and breaks after a switch.
 const downloadPath = (id: number) => `/files/${id}/download/`;
 
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
 function useFileThumb(id: number, enabled: boolean) {
+  // Cached as a data: URL, which nothing has to revoke. A cached blob: URL was revoked by the first
+  // row to unmount and came back broken when the record was reopened within the cache window.
   const query = useQuery({
     queryKey: ['care-file-thumb', id],
     enabled,
     staleTime: 5 * 60_000,
-    queryFn: async () => {
-      const res = await apiClient.get(downloadPath(id), { responseType: 'blob' });
-      return URL.createObjectURL(res.data as Blob);
-    },
+    queryFn: async () => blobToDataUrl((await apiClient.get(downloadPath(id), { responseType: 'blob' })).data as Blob),
   });
-  const url = query.data;
-  useEffect(() => () => {
-    if (url) URL.revokeObjectURL(url);
-  }, [url]);
-  return url;
+  return query.data;
 }
 
 function FileRow({ row, canEdit, onRemove }: { row: AttachmentRow; canEdit: boolean; onRemove: () => void }) {
   const meta = useFileMeta(row.file);
+  const [openError, setOpenError] = useState<string | null>(null);
   const file = meta.data;
   const isImage = Boolean(file?.contentType?.startsWith('image/'));
   const thumb = useFileThumb(row.file, isImage);
@@ -56,7 +61,10 @@ function FileRow({ row, canEdit, onRemove }: { row: AttachmentRow; canEdit: bool
         <Link
           component="button"
           type="button"
-          onClick={() => void openAuthenticatedFile(downloadPath(row.file))}
+          onClick={() => {
+            setOpenError(null);
+            openAuthenticatedFile(downloadPath(row.file)).catch((err: unknown) => setOpenError(getErrorMessage(err)));
+          }}
           underline="hover"
           sx={{ wordBreak: 'break-all', textAlign: 'left' }}
         >
@@ -69,6 +77,11 @@ function FileRow({ row, canEdit, onRemove }: { row: AttachmentRow; canEdit: bool
         <Button size="small" color="error" onClick={onRemove} aria-label={t('care.files.removeNamed', { name: file?.originalName ?? `#${row.file}` })}>
           {t('care.files.remove')}
         </Button>
+      ) : null}
+      {openError ? (
+        <Typography variant="caption" color="error" role="alert">
+          {openError}
+        </Typography>
       ) : null}
     </Stack>
   );

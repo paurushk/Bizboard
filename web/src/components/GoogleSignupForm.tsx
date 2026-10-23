@@ -11,6 +11,7 @@ import { googleSignIn, MfaEnrollmentRequiredError, MfaRequiredError } from '@/ap
 import { getErrorMessage } from '@/api/client';
 import { useAuth } from '@/auth/AuthContext';
 import { BotCheck } from '@/components/BotCheck';
+import { StateSelect } from '@/components/StateSelect';
 import { t } from '@/i18n';
 
 /**
@@ -44,8 +45,12 @@ export function GoogleSignupForm({
         navigate('/', { replace: true });
       }
     } catch (err) {
-      if (err instanceof MfaRequiredError || err instanceof MfaEnrollmentRequiredError) {
-        navigate('/login', { replace: true });
+      // The account was created; an owner then sets up two-step (or enters it) on the sign-in
+      // page, which picks the step up from these tokens instead of starting over.
+      if (err instanceof MfaRequiredError) {
+        navigate('/login?registered=1', { replace: true, state: { email, mfaToken: err.mfaToken } });
+      } else if (err instanceof MfaEnrollmentRequiredError) {
+        navigate('/login?registered=1', { replace: true, state: { email, enrolToken: err.enrolToken } });
       } else {
         setError(getErrorMessage(err));
       }
@@ -62,13 +67,13 @@ export function GoogleSignupForm({
       </Typography>
       {error ? <Alert severity="error">{error}</Alert> : null}
       <TextField label={t('auth.companyName')} value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-      <TextField label={t('googleSignup.state')} value={state} onChange={(e) => setState(e.target.value)} />
+      <StateSelect label={t('googleSignup.state')} value={state} onChange={setState} required />
       <FormControlLabel
         control={<Checkbox checked={acceptTerms} onChange={(e) => setAcceptTerms(e.target.checked)} />}
         label={t('googleSignup.acceptTerms')}
       />
       <BotCheck />
-      <Button variant="contained" disabled={!companyName.trim() || !acceptTerms || busy} onClick={() => void submit()}>
+      <Button variant="contained" disabled={!companyName.trim() || !state || !acceptTerms || busy} onClick={() => void submit()}>
         {t('googleSignup.create')}
       </Button>
       <Button onClick={onCancel}>{t('googleSignup.useEmail')}</Button>

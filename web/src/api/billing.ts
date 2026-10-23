@@ -46,6 +46,8 @@ export interface BillingSubscription {
   upgradeGraceUntil?: string | null;
   prorationAmountPaise?: number;
   prorationPaidAt?: string | null;
+  /** The unpaid prorated charge's payment link (kept so it can be paid after a reload). */
+  prorationLinkUrl?: string;
   /** WP-BL4: how renewals are collected and the mandate's state. */
   paymentMethod?: string;
   mandateStatus?: string;

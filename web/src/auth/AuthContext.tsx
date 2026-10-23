@@ -39,6 +39,17 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 // One push registration per login (this provider is a singleton); logout clears it.
 let pushRegistered = false;
 
+function rememberActiveCompany(companyId: number | string | null | undefined) {
+  if (companyId == null || companyId === '') return;
+  try {
+    if (localStorage.getItem(ACTIVE_COMPANY_STORAGE_KEY) !== String(companyId)) {
+      localStorage.setItem(ACTIVE_COMPANY_STORAGE_KEY, String(companyId));
+    }
+  } catch {
+    /* storage blocked: requests go without the header, as before */
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   // BB-000228 / BB-000266: access is memory-only — always boot via cookie refresh.
@@ -48,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const applySession = useCallback((nextUser: User, access: string) => {
     setAccessToken(access);
+    // WP-ID2: the server's active company goes in at once, so the first requests of a new session
+    // carry X-Company-Id (a multi-company user would otherwise get COMPANY_REQUIRED on each one).
+    rememberActiveCompany(nextUser.companyId);
     // BB-000030: localStorage keeps display fields only; live ACL from this User.
     setStoredUser(nextUser);
     setUser(nextUser);

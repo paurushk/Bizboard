@@ -1,5 +1,6 @@
 /** WP-DL1: the readable (CSV + PDF) export an owner can open without Bizboard. */
 import { apiClient, unwrapData } from './client';
+import { getBlob } from './legacy/common';
 
 export interface ReadableExport {
   id: number;
@@ -25,8 +26,9 @@ export async function requestReadableExport(input: { password: string; code?: st
 
 /** Fetched with the auth header (not a bare link) and saved as a file. */
 export async function downloadReadableExport(id: number): Promise<void> {
-  const response = await apiClient.get(`/company/export/readable/${id}/file/`, { responseType: 'blob' });
-  const url = URL.createObjectURL(response.data as Blob);
+  // getBlob turns a refused download (410 expired) back into the JSON error the panel shows.
+  const blob = await getBlob(`/company/export/readable/${id}/file/`);
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `bizboard-data-${id}.zip`;

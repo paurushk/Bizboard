@@ -349,13 +349,31 @@ export async function fetchImportSourceFile(
 
 /** Open an API file (needs the auth header, so it is fetched, not linked) in a new tab. */
 export async function openAuthenticatedFile(apiPath: string): Promise<void> {
-  const response = await apiClient.get(apiPath, {
-    responseType: 'blob',
-    timeout: IMPORT_TIMEOUT_MS,
-  });
-  const url = URL.createObjectURL(response.data as Blob);
-  window.open(url, '_blank', 'noopener');
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  // The tab is opened inside the click (a window.open after the download's await is a pop-up the
+  // browser may block, Safari especially), then pointed at the file once it has arrived.
+  const win = typeof window !== 'undefined' ? window.open('', '_blank') : null;
+  if (win) win.opener = null;
+  try {
+    const response = await apiClient.get(apiPath, {
+      responseType: 'blob',
+      timeout: IMPORT_TIMEOUT_MS,
+    });
+    const url = URL.createObjectURL(response.data as Blob);
+    if (win) win.location.href = url;
+    else window.open(url, '_blank', 'noopener');
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    win?.close();
+    const body = (err as { response?: { data?: unknown } })?.response?.data;
+    if (typeof Blob !== 'undefined' && body instanceof Blob) {
+      try {
+        (err as { response: { data: unknown } }).response.data = JSON.parse(await body.text());
+      } catch {
+        // not JSON; leave the original error
+      }
+    }
+    throw err;
+  }
 }
 
 export async function markProductsReviewed(ids: number[]): Promise<{ updated: number }> {

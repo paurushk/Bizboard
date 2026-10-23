@@ -7,7 +7,7 @@ import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
-import { commitLegacyImport, uploadLegacyImport, type LegacySource } from '@/api/legacyImport';
+import { commitLegacyImport, failedReconciliation, uploadLegacyImport, type LegacySource } from '@/api/legacyImport';
 import { isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { t } from '@/i18n';
@@ -26,6 +26,13 @@ export function LegacyImportPanel() {
   if (!isRuntimeFlagEnabled('ENABLE_LEGACY_IMPORT')) return null;
   const preview = upload.data;
   const errors = preview?.errors ?? [];
+  const notes = preview?.preview.notes ?? [];
+  const untied = failedReconciliation(commit.data);
+  // A new source or file starts over: the last check and import belong to the old file.
+  const restart = () => {
+    upload.reset();
+    commit.reset();
+  };
   return (
     <Paper sx={{ p: 3 }}>
       <Stack spacing={1.5}>
@@ -37,7 +44,10 @@ export function LegacyImportPanel() {
           select
           label={t('legacyImport.source')}
           value={source}
-          onChange={(e) => setSource(e.target.value as LegacySource)}
+          onChange={(e) => {
+            setSource(e.target.value as LegacySource);
+            restart();
+          }}
           sx={{ maxWidth: 280 }}
         >
           {SOURCES.map((s) => (
@@ -52,10 +62,16 @@ export function LegacyImportPanel() {
             hidden
             type="file"
             accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              restart();
+            }}
           />
         </Button>
-        <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!file || upload.isPending} onClick={() => upload.mutate()}>
+        <Button variant="contained" sx={{ alignSelf: 'flex-start' }} disabled={!file || upload.isPending} onClick={() => {
+          commit.reset();
+          upload.mutate();
+        }}>
           {t('legacyImport.check')}
         </Button>
         {upload.isError ? <HelpErrorAlert error={upload.error} /> : null}
@@ -71,6 +87,16 @@ export function LegacyImportPanel() {
             ))}
           </Alert>
         ) : null}
+        {notes.length ? (
+          <Alert severity="info">
+            {t('legacyImport.notesTitle', { count: String(notes.length) })}
+            {notes.slice(0, 50).map((n, i) => (
+              <div key={`${n.row ?? 'x'}-${i}`}>
+                {n.row ? t('legacyImport.rowNote', { row: String(n.row), note: n.warning }) : n.warning}
+              </div>
+            ))}
+          </Alert>
+        ) : null}
         {preview && !errors.length ? (
           <Button
             variant="contained"
@@ -83,7 +109,10 @@ export function LegacyImportPanel() {
           </Button>
         ) : null}
         {commit.isError ? <HelpErrorAlert error={commit.error} /> : null}
-        {commit.isSuccess ? <Alert severity="success">{t('legacyImport.done')}</Alert> : null}
+        {commit.isSuccess && !untied.length ? <Alert severity="success">{t('legacyImport.done')}</Alert> : null}
+        {commit.isSuccess && untied.length ? (
+          <Alert severity="warning">{t('legacyImport.untied', { sections: untied.join(', ') })}</Alert>
+        ) : null}
       </Stack>
     </Paper>
   );

@@ -56,7 +56,8 @@ describe('AttachmentPanel', () => {
     expect(await screen.findByRole('button', { name: 'photo.png' })).not.toHaveAttribute('href');
     expect(screen.getByRole('button', { name: 'bill.pdf' })).toBeInTheDocument();
     await waitFor(() => expect(view.container.querySelectorAll('img')).toHaveLength(1));
-    expect(view.container.querySelector('img')).toHaveAttribute('src', 'blob:thumb');
+    // Cached as a data: URL (nothing to revoke, still valid when the record is reopened).
+    expect(view.container.querySelector('img')?.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
     expect(client.get).toHaveBeenCalledWith('/files/50/download/', { responseType: 'blob' });
     expect(client.get).not.toHaveBeenCalledWith('/files/60/download/', expect.anything());
     expect(await a11yViolations(view.container)).toEqual([]);

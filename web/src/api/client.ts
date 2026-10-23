@@ -221,6 +221,7 @@ export function isAuthCredentialUrl(url?: string): boolean {
   const path = url.replace(/^https?:\/\/[^/]+/i, '');
   return (
     /\/auth\/login\/?(\?|$)/.test(path) ||
+    /\/auth\/google\/?(\?|$)/.test(path) ||
     /\/auth\/register\/?(\?|$)/.test(path) ||
     /\/auth\/refresh\/?(\?|$)/.test(path) ||
     /\/auth\/otp\//.test(path) ||

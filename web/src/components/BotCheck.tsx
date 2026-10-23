@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import Box from '@mui/material/Box';
-import { onBotTokenChange, setBotToken, turnstileSiteKey } from '@/auth/botCheck';
+import { onBotTokenConsumed, setBotToken, turnstileSiteKey } from '@/auth/botCheck';
 import { t } from '@/i18n';
 
 type Turnstile = {
@@ -64,8 +64,8 @@ export function BotCheck() {
         /* The server refuses without a token and says why; nothing more to do here. */
       });
     // A token is single-use: once a request took it, get a fresh one.
-    const off = onBotTokenChange((value) => {
-      if (value === null && widgetId && window.turnstile) window.turnstile.reset(widgetId);
+    const off = onBotTokenConsumed(() => {
+      if (widgetId && window.turnstile) window.turnstile.reset(widgetId);
     });
     return () => {
       cancelled = true;

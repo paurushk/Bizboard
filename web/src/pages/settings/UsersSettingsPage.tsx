@@ -32,6 +32,7 @@ import { SignedInDevicesPanel } from '@/components/SignedInDevicesPanel';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
 import { PageTitle } from '@/contextHelp';
 import { OwnershipTransferDialog } from '@/components/settings/OwnershipTransferDialog';
+import { PendingOwnershipNotice } from '@/components/settings/PendingOwnershipNotice';
 import { t, useLocale } from '@/i18n';
 import { canManageUsers } from '@/utils/permissions';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
@@ -296,6 +297,7 @@ export function UsersSettingsPage() {
           {t('common.invite')}
         </Button>
       </Stack>
+      <PendingOwnershipNotice />
       <TwoStepVerificationPanel />
       <SignedInDevicesPanel />
       {error ? <HelpErrorAlert message={error} /> : null}
