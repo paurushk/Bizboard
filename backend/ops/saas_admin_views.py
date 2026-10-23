@@ -4,10 +4,13 @@
   (superusers only can flip it; every flip is audited).
 - ``/admin/ops/saas-metrics/``: the month's SaaS numbers (``support.health.monthly_metrics``) and
   the median days to first invoice by sign-up week (WP-GR2).
+- ``/admin/ops/errors/``: open errors from the error tracker (self-hosted GlitchTip or Sentry),
+  searchable by Support ID, and whether error reporting is wired up (superusers only).
 """
 
 from __future__ import annotations
 
+from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect, render
@@ -51,6 +54,36 @@ def saas_metrics_view(request):
     rows = [(key.replace("_", " "), "—" if value is None else value) for key, value in data.items()]
     return render(request, "ops/saas_metrics.html", {
         "month": month, "rows": rows, "weeks": weeks, "title": "SaaS numbers",
+    })
+
+
+def errors_view(request):
+    from core import error_tracker
+
+    if not request.user.is_superuser:
+        raise PermissionDenied
+    q = (request.GET.get("q") or "").strip()[:200]
+    rid_query = error_tracker.request_id_query(q) if q else None
+    # A Support ID searches by tag across resolved and open errors; other text searches open ones.
+    query = rid_query or (f"is:unresolved {q}" if q else "is:unresolved")
+    result = error_tracker.fetch_issues(query, limit=50) if error_tracker.is_configured() else None
+    reachable = result.ok if result is not None else False
+    wiring = [
+        ("API errors sent (SENTRY_DSN)", bool((settings.SENTRY_DSN or "").strip())),
+        ("Browser errors relayed (SENTRY_BROWSER_DSN)", bool((settings.SENTRY_BROWSER_DSN or "").strip())),
+        ("Release tagged (SENTRY_RELEASE)", bool(settings.SENTRY_RELEASE)),
+        ("Tracker readable from here (ERROR_TRACKER_*)", error_tracker.is_configured()),
+        ("Links open for staff (ERROR_TRACKER_UI_URL)", bool((settings.ERROR_TRACKER_UI_URL or "").strip())),
+        ("Tracker answered just now", reachable),
+    ]
+    return render(request, "ops/errors.html", {
+        "title": "Errors",
+        "q": q,
+        "searched_request_id": bool(rid_query),
+        "configured": error_tracker.is_configured(),
+        "result": result,
+        "wiring": wiring,
+        "open_in_tracker": error_tracker.search_url(query),
     })
 
 

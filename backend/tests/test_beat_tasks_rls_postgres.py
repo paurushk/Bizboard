@@ -43,6 +43,7 @@ BEAT_TASKS = {
     "contracts.tasks.refresh_contract_statuses": "PER_COMPANY",
     "contracts.tasks.send_contract_renewal_reminders": "PER_COMPANY",
     "core.tasks.celery_beat_heartbeat": "PLATFORM",
+    "core.tasks.check_error_tracker_task": "PLATFORM",
     "core.tasks.nightly_invariants_task": "FAN_OUT",
     "core.tasks.prune_help_events_task": "BYPASS",
     "core.tasks.prune_idempotency_records_task": "BYPASS",

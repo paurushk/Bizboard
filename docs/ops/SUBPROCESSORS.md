@@ -11,7 +11,7 @@ fills DPAs. This list is **not** a legal DPA.
 | payu_collections | PayU | yes | A25 sandbox |
 | smtp_email | Resend (SMTP relay) | no | password reset |
 | sms_otp | MSG91 / Twilio | no | A26; off if unset |
-| sentry | Sentry | no | errors |
+| sentry | Sentry, or self-hosted GlitchTip (`GLITCHTIP.md`; then not a subprocessor) | no | errors |
 | gsp_einvoice | GSP / NIC | yes | live submit dark (`GSP_LIVE_ENABLED=0`) |
 | tally | Tally | no | Table B dark |
 | whatsapp_cloud | Meta Cloud | no | Table B dark; `wa.me` share-link stays |

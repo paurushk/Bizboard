@@ -257,6 +257,8 @@ services:
         VITE_ENABLE_CRM: ${VITE_ENABLE_CRM:-false}
         VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+        # Browser error reports go via the API tunnel; set SENTRY_BROWSER_DSN on the API too.
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
     restart: unless-stopped
     depends_on:
       - api

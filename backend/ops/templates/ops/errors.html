@@ -1,0 +1,63 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>Errors reported by the API, the worker and customers' browsers, read from the error tracker.
+Runbook: <code>docs/ops/GLITCHTIP.md</code>.</p>
+
+<form method="get" style="margin-bottom: 1em;">
+  <label>Support ID or text <input type="search" name="q" value="{{ q }}" size="40" placeholder="Support ID from a ticket or screenshot"></label>
+  <button type="submit" class="button">Search</button>
+  {% if q %}<a href="?">Clear</a>{% endif %}
+  {% if open_in_tracker %}&nbsp;<a href="{{ open_in_tracker }}" target="_blank" rel="noopener noreferrer">Open this search in the tracker &rarr;</a>{% endif %}
+</form>
+
+{% if not configured %}
+<p class="errornote">Bizboard can't read the tracker yet. Set <code>ERROR_TRACKER_API_URL</code> and
+<code>ERROR_TRACKER_TOKEN</code> on the API host (the GlitchTip setup step creates the token).</p>
+{% elif not result.ok %}
+<p class="errornote">The tracker did not answer: {{ result.error }}. Errors are still being collected if it is
+only this page that can't reach it; check the tracker itself.</p>
+{% else %}
+<h2>{% if searched_request_id %}Errors for Support ID {{ q }}{% elif q %}Open errors matching "{{ q }}"{% else %}Open errors{% endif %}
+  ({{ result.issues|length }})</h2>
+<table style="border-collapse: collapse; width: 100%;">
+  <thead>
+    <tr>
+      <th style="text-align:left; padding:4px 12px 4px 0;">Issue</th>
+      <th style="text-align:left; padding:4px;">Where</th>
+      <th style="text-align:left; padding:4px;">Level</th>
+      <th style="text-align:right; padding:4px;">Events</th>
+      <th style="text-align:left; padding:4px;">Last seen</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for issue in result.issues %}
+    <tr>
+      <td style="padding:4px 12px 4px 0; border-bottom:1px solid #ddd;">
+        {% if issue.url %}<a href="{{ issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue.title }}</a>{% else %}{{ issue.title }}{% endif %}
+        <br><small>{{ issue.short_id }}{% if issue.culprit %} &middot; {{ issue.culprit }}{% endif %}</small>
+      </td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ issue.project }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ issue.level }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd; text-align:right;">{{ issue.count }}</td>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{{ issue.last_seen }}</td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="5" style="padding:4px;">{% if q %}No errors match.{% else %}No open errors.{% endif %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+
+<h2>Wiring</h2>
+<table style="border-collapse: collapse;">
+  <tbody>
+    {% for label, ok in wiring %}
+    <tr>
+      <th style="text-align:left; padding:4px 12px 4px 0; border-bottom:1px solid #ddd;">{{ label }}</th>
+      <td style="padding:4px; border-bottom:1px solid #ddd;">{% if ok %}Yes{% else %}<strong>No</strong>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

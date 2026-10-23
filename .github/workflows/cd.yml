@@ -94,6 +94,9 @@ jobs:
           VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
           VITE_GOOGLE_CLIENT_ID: ${{ vars.VITE_GOOGLE_CLIENT_ID }}
           VITE_APP_VERSION: ${{ steps.meta.outputs.sha }}
+          # Public DSN (Sentry or self-hosted GlitchTip); reports go via the API's
+          # /client-errors/ tunnel, which needs the same value as SENTRY_BROWSER_DSN.
+          VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
         run: |
           if [ -z "$VITE_TURNSTILE_SITE_KEY" ]; then
             echo "::warning::VITE_TURNSTILE_SITE_KEY is not set: a production API with BOT_CHECK_PROVIDER=turnstile will refuse sign-up, OTP and password reset from this bundle."
@@ -102,6 +105,7 @@ jobs:
             --build-arg VITE_TURNSTILE_SITE_KEY="$VITE_TURNSTILE_SITE_KEY" \
             --build-arg VITE_GOOGLE_CLIENT_ID="$VITE_GOOGLE_CLIENT_ID" \
             --build-arg VITE_APP_VERSION="$VITE_APP_VERSION" \
+            --build-arg VITE_SENTRY_DSN="$VITE_SENTRY_DSN" \
             --build-arg VITE_ENABLE_ACCOUNTING=true \
             --build-arg VITE_ENABLE_AI=false \
             --build-arg VITE_ENABLE_TALLY=false \

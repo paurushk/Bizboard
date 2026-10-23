@@ -2308,6 +2308,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-errors/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["client_errors_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/company/": {
         parameters: {
             query?: never;
@@ -31386,6 +31402,24 @@ export interface operations {
         };
     };
     care_kpis_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No response body */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    client_errors_create: {
         parameters: {
             query?: never;
             header?: never;

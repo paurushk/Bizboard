@@ -7,6 +7,8 @@ names or commit a real DSN.
 ## OG1-H1 — Sentry project
 
 1. Create one Sentry org/project (browser + Django + Celery can share it).
+   Free alternative: self-hosted GlitchTip, same SDK and DSNs, two projects
+   (`bizboard-api`, `bizboard-web`): `docs/ops/GLITCHTIP.md`.
 2. Tag events with `runtime=django|celery|browser` if you split later.
 3. Paste the project URL here when done: _
 
@@ -18,10 +20,12 @@ On API, worker, and beat:
 SENTRY_DSN=https://...
 SENTRY_RELEASE=<deploy SHA>
 SENTRY_TRACES_SAMPLE_RATE=0.1
+SENTRY_BROWSER_DSN=<same value as VITE_SENTRY_DSN>
 METRICS_TOKEN=<long random>
 ```
 
-SPA image rebuild:
+SPA image rebuild (browser reports go through the API's `/api/v1/client-errors/`
+tunnel, which forwards only to `SENTRY_BROWSER_DSN`):
 
 ```
 VITE_SENTRY_DSN=https://...

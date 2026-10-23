@@ -11,6 +11,8 @@ bottom as each step is done — the scorecard row moves from L1 to L2 only with 
   is enough for staging), and DNS you control.
 - Metrics stack (Q2): a managed Prometheus-compatible service, or Prometheus + Alertmanager +
   Grafana on the same VM using `deploy/prometheus/`.
+- Error tracking: Sentry (paid or free plan) or self-hosted GlitchTip on a small separate VM
+  (`docs/ops/GLITCHTIP.md`), which also gives the external uptime probe.
 - On-call primary and backup (Q3) → `docs/ops/ONCALL_ROSTER.md`.
 
 ## 1. Provision [Human]
@@ -27,7 +29,9 @@ bottom as each step is done — the scorecard row moves from L1 to L2 only with 
 1. `.env` from `.env.production.example` with `DJANGO_ENV=staging`. Required (staging refuses to
    boot without them): `POSTGRES_RLS_ENABLED=1`, `APP_DB_USER`/`APP_DB_PASSWORD`,
    `MFA_ENCRYPTION_KEY`, `PLANWAVE_DATA_KEY`, `GSP_FERNET_KEY`, `OTP_PEPPER`, `SECRET_KEY`,
-   `METRICS_TOKEN`, `SENTRY_DSN`, `SENTRY_RELEASE` (= the git SHA), `VITE_SENTRY_DSN`.
+   `METRICS_TOKEN`, `SENTRY_DSN`, `SENTRY_RELEASE` (= the git SHA), `VITE_SENTRY_DSN`, and
+   `SENTRY_BROWSER_DSN` (= `VITE_SENTRY_DSN`; the API relays browser reports only to it).
+   Sentry or self-hosted GlitchTip (`docs/ops/GLITCHTIP.md`, on its own VM).
    Keep secrets in the provider's secret store and render `.env` at deploy time (WP-B3).
 2. Pool: if PgBouncer is used, `pool_mode = session` (`deploy/pgbouncer.ini`, `docs/ops/POSTGRES.md`).
 3. Backups: `BACKUP_AGE_RECIPIENT` (or GPG), `BACKUP_OFFSITE_CMD` to the backup bucket,

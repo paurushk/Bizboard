@@ -5776,6 +5776,22 @@
                 }
             }
         },
+        "/api/v1/client-errors/": {
+            "post": {
+                "operationId": "client_errors_create",
+                "tags": [
+                    "client-errors"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "description": "No response body"
+                    }
+                }
+            }
+        },
         "/api/v1/company/": {
             "get": {
                 "operationId": "company_retrieve",

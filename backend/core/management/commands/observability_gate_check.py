@@ -39,6 +39,15 @@ class Command(BaseCommand):
         missing = sorted(envelope - cols)
         self.stdout.write("O-Gate engineering check")
         self.stdout.write(f"  sentry_configured={dsn}  (DSN never printed)")
+        from core import error_tracker
+
+        browser = bool((getattr(settings, "SENTRY_BROWSER_DSN", "") or "").strip())
+        self.stdout.write(f"  browser_relay_configured={browser}  (SENTRY_BROWSER_DSN; /api/v1/client-errors/)")
+        if error_tracker.is_configured():
+            reachable, detail = error_tracker.check_reachable()
+            self.stdout.write(f"  error_tracker_readable={reachable}  ({detail})")
+        else:
+            self.stdout.write("  error_tracker_readable=False  (ERROR_TRACKER_API_URL / ERROR_TRACKER_TOKEN unset)")
         self.stdout.write(f"  metrics_token_set={token}")
         self.stdout.write(f"  company_hash_column={'company_hash' in cols}")
         self.stdout.write(f"  envelope_columns_missing={missing or 'none'}")
@@ -57,7 +66,7 @@ class Command(BaseCommand):
 
         self.stdout.write("")
         self.stdout.write("Human remaining (docs/ops/OGATE_HUMAN.md):")
-        self.stdout.write("  OG1-H1 Sentry project")
+        self.stdout.write("  OG1-H1 Sentry project, or self-hosted GlitchTip (docs/ops/GLITCHTIP.md)")
         self.stdout.write("  OG1-H2 SENTRY_DSN / VITE_SENTRY_DSN / SENTRY_RELEASE on host")
         self.stdout.write("  OG1-H3 fill docs/ops/ONCALL_ROSTER.md")
         self.stdout.write("  OG1-H4 python manage.py sentry_test_event + page received")

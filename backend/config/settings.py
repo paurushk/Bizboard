@@ -688,6 +688,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "core.tasks.celery_beat_heartbeat",
         "schedule": crontab(minute="*/2"),
     },
+    # Pages ops when the error tracker itself stops answering (no-op until ERROR_TRACKER_* is set).
+    "core-check-error-tracker": {
+        "task": "core.tasks.check_error_tracker_task",
+        "schedule": crontab(minute="*/5"),
+    },
     "contracts-refresh-status": {
         "task": "contracts.tasks.refresh_contract_statuses",
         "schedule": crontab(hour=1, minute=15),
@@ -1205,6 +1210,15 @@ if _require_dedicated_secrets:
 # Optional Sentry (BB-000047 / BB-000360 / Wave 16A)
 SENTRY_DSN = os.environ.get("SENTRY_DSN", "").strip()
 SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "").strip() or None
+# The DSN the SPA was built with (VITE_SENTRY_DSN). core/error_tunnel.py forwards
+# browser reports only to this project; empty = the tunnel answers 404.
+SENTRY_BROWSER_DSN = os.environ.get("SENTRY_BROWSER_DSN", "").strip()
+# Staff-only read access to the tracker (core/error_tracker.py): the admin errors
+# page, Support ID links on tickets, and the tracker-down watcher. Empty = off.
+ERROR_TRACKER_API_URL = os.environ.get("ERROR_TRACKER_API_URL", "").strip()
+ERROR_TRACKER_UI_URL = os.environ.get("ERROR_TRACKER_UI_URL", "").strip()
+ERROR_TRACKER_ORG = os.environ.get("ERROR_TRACKER_ORG", "bizboard").strip()
+ERROR_TRACKER_TOKEN = os.environ.get("ERROR_TRACKER_TOKEN", "").strip()
 if SENTRY_DSN:
     try:
         import sentry_sdk

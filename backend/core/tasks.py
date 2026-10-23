@@ -95,6 +95,49 @@ def celery_beat_heartbeat():
             logger.exception("Failed to write bare Redis beat heartbeat key")
 
 
+ERROR_TRACKER_DOWN_KEY = "bizboard:error_tracker_down_since"
+ERROR_TRACKER_FAILS_KEY = "bizboard:error_tracker_consecutive_failures"
+# Two misses in a row (10 minutes apart) before paging, so a tracker restart does not page.
+ERROR_TRACKER_FAILS_BEFORE_PAGE = 2
+
+
+@shared_task
+def check_error_tracker_task():
+    """Page once when the error tracker stops answering, and once when it is back.
+
+    The tracker pages people about everything else, so nothing would notice it going
+    down; this is the watcher's watcher. Off when ERROR_TRACKER_* is not set.
+    """
+    from django.core.cache import cache
+
+    from core import error_tracker
+    from core.services.telegram import send_ops_alert
+
+    if not error_tracker.is_configured():
+        return "not configured"
+    ok, detail = error_tracker.check_reachable()
+    down_since = cache.get(ERROR_TRACKER_DOWN_KEY)
+    if ok:
+        cache.delete(ERROR_TRACKER_FAILS_KEY)
+        if down_since:
+            cache.delete(ERROR_TRACKER_DOWN_KEY)
+            send_ops_alert(f"✅ Error tracker is answering again (down since {down_since}).")
+            return "recovered"
+        return "ok"
+    fails = (cache.get(ERROR_TRACKER_FAILS_KEY) or 0) + 1
+    cache.set(ERROR_TRACKER_FAILS_KEY, fails, timeout=24 * 3600)
+    if fails >= ERROR_TRACKER_FAILS_BEFORE_PAGE and not down_since:
+        from django.utils import timezone
+
+        cache.set(ERROR_TRACKER_DOWN_KEY, timezone.now().isoformat(timespec="minutes"), timeout=7 * 24 * 3600)
+        send_ops_alert(
+            f"⚠️ Error tracker is not answering ({detail}). App errors and uptime alerts are not "
+            "reaching anyone until it is back. Runbook: docs/ops/GLITCHTIP.md"
+        )
+        return "paged"
+    return f"down ({detail})"
+
+
 @shared_task
 def prune_help_events_task(days=180, company_id=None):
     """Weekly retention: drop HelpEvent rows older than ``days`` (default 180).

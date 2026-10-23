@@ -73,7 +73,7 @@ jobs:
             "${{ steps.img.outputs.api }}" "${{ steps.img.outputs.web }}" "$STAGING_DIR" <<'REMOTE'
           set -euo pipefail
           API="$1"; WEB="$2"; cd "$3"
-          compose() { docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml "$@"; }
+          compose() { docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.glitchtip.yml "$@"; }
           if [ -f .deploy/current ]; then cp .deploy/current .deploy/previous; fi
           mkdir -p .deploy
           export BIZBOARD_API_IMAGE="$API" BIZBOARD_WEB_IMAGE="$WEB"
@@ -82,6 +82,14 @@ jobs:
           scripts/db-app-role.sh .env docker-compose.yml docker-compose.prod.yml
           compose up -d api worker beat web
           printf 'BIZBOARD_API_IMAGE=%s\nBIZBOARD_WEB_IMAGE=%s\n' "$API" "$WEB" > .deploy/current
+          # Error tracking (docs/ops/GLITCHTIP.md): only when .env sets COMPOSE_PROFILES=errors.
+          # After the deploy is recorded, so a failing setup step never leaves rollback pointing at
+          # the wrong images. Idempotent; prints the DSNs the env file should hold.
+          services="$(compose config --services)"
+          if grep -qx glitchtip <<<"$services"; then
+            compose up -d glitchtip-db glitchtip
+            compose run --rm glitchtip-init
+          fi
           REMOTE
           echo "deploy took $(( $(date +%s) - start )) s"
       - name: Roll back to the previous deploy
@@ -95,7 +103,7 @@ jobs:
           # Migrations are forward-only (docs/ops/FORWARD_FIX.md): roll back the images, not the schema.
           set -a; . .deploy/previous; set +a
           export BIZBOARD_API_PREVIOUS_IMAGE="$BIZBOARD_API_IMAGE" BIZBOARD_WEB_PREVIOUS_IMAGE="$BIZBOARD_WEB_IMAGE"
-          docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.rollback.yml up -d api worker beat web
+          docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.glitchtip.yml -f docker-compose.rollback.yml up -d api worker beat web
           cp .deploy/current .deploy/rolled-back-from
           cp .deploy/previous .deploy/current
           REMOTE

@@ -30,7 +30,12 @@ if (typeof sentryDsn === 'string' && sentryDsn.trim()) {
     .then((Sentry) => {
       Sentry.init({
         dsn: sentryDsn.trim(),
+        // Same-origin relay (backend core/error_tunnel.py): the CSP needs no tracker host, a
+        // self-hosted GlitchTip works on any domain, and ad blockers don't drop reports.
+        tunnel: `${(import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1').replace(/\/$/, '')}/client-errors/`,
         environment: import.meta.env.MODE,
+        // The commit cd.yml built this bundle from; set the API's SENTRY_RELEASE to the same value.
+        release: import.meta.env.VITE_APP_VERSION || undefined,
         tracesSampleRate: 0.1,
         beforeSend(event) {
           const rid = getLastRequestId();

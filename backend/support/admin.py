@@ -1,7 +1,9 @@
 """Bizboard staff surfaces for support (Django admin, superuser only)."""
 
 from django.contrib import admin
+from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
 from core.admin import RlsBypassAdminMixin, SuperuserOnlyAdminMixin
 
@@ -36,11 +38,11 @@ class PlatformTicketAdmin(_BypassMixin, SuperuserOnlyAdminMixin, admin.ModelAdmi
     list_display = ("id", "severity", "status", "subject", "company", "raised_by", "sla_due_at", "overdue")
     list_filter = ("status", "severity", "tag")
     search_fields = ("subject", "support_id", "company__name", "raised_by__email")
-    readonly_fields = ("company", "raised_by", "support_id", "route", "app_version", "error_codes",
-                       "sla_due_at", "first_response_at", "resolved_at", "created_at")
+    readonly_fields = ("company", "raised_by", "support_id", "matching_errors", "route", "app_version",
+                       "error_codes", "sla_due_at", "first_response_at", "resolved_at", "created_at")
     fields = ("company", "raised_by", "subject", "description", "severity", "tag", "status", "assignee",
-              "support_id", "route", "app_version", "error_codes", "sla_due_at", "first_response_at",
-              "resolved_at", "created_at")
+              "support_id", "matching_errors", "route", "app_version", "error_codes", "sla_due_at",
+              "first_response_at", "resolved_at", "created_at")
     inlines = [PlatformTicketMessageInline]
     list_select_related = ("company", "raised_by")
 
@@ -50,6 +52,19 @@ class PlatformTicketAdmin(_BypassMixin, SuperuserOnlyAdminMixin, admin.ModelAdmi
             obj.sla_due_at and obj.status != PlatformTicket.Status.RESOLVED
             and obj.first_response_at is None and obj.sla_due_at < timezone.now()
         )
+
+    @admin.display(description="Errors for this Support ID")
+    def matching_errors(self, obj):
+        """Every API and browser error is tagged with the request id people quote as the Support ID."""
+        from core import error_tracker
+
+        if not error_tracker.request_id_query(obj.support_id or ""):
+            return "No Support ID on this ticket."
+        links = [format_html('<a href="{}?q={}">Show in Bizboard</a>', reverse("admin:ops_errors"), obj.support_id)]
+        tracker = error_tracker.request_id_url(obj.support_id)
+        if tracker:
+            links.append(format_html('<a href="{}" target="_blank" rel="noopener noreferrer">Open in tracker</a>', tracker))
+        return format_html(" &middot; ".join(["{}"] * len(links)), *links)
 
     def has_add_permission(self, request):
         return False

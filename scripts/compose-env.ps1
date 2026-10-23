@@ -23,6 +23,9 @@ if ($Environment -eq "dev") {
     }
     $files = @("--env-file", ".env.staging", "-f", "docker-compose.yml", "-f", "docker-compose.staging.yml")
 }
+# Error tracking (docs/ops/GLITCHTIP.md). Its services are in the "errors" profile, so this adds
+# nothing until the env file sets COMPOSE_PROFILES=errors.
+$files += @("-f", "docker-compose.glitchtip.yml")
 
 # UX programme: opt-in full-demo overlay (every module on). Dev only.
 # Staging is refused: the overlay is stack-wide and would change pilot companies.

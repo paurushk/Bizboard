@@ -2,7 +2,7 @@
 
 Each alert must name the symptom, the check, and the customer-safe workaround.
 Pages go to the names in `docs/ops/ONCALL_ROSTER.md` (still TBD until Human fills them).
-Sentry/on-call close-out: `docs/ops/OGATE_HUMAN.md`. Staging Support-ID grep: `docs/ops/OGATE_GREP_WALK.md`.
+Sentry/on-call close-out: `docs/ops/OGATE_HUMAN.md`. Error tracking (self-hosted GlitchTip): `docs/ops/GLITCHTIP.md`. Staging Support-ID grep: `docs/ops/OGATE_GREP_WALK.md`.
 
 | Alert | Symptom | First check | Action | Customer workaround |
 |---|---|---|---|---|
@@ -14,6 +14,8 @@ Sentry/on-call close-out: `docs/ops/OGATE_HUMAN.md`. Staging Support-ID grep: `d
 | Billing recon DLQ | `DeadLetterEvent` provider=`billing_recon` | Compare Razorpay dashboard vs `Subscription.status` | Replay or apply mapping; do **not** run `payments.dunning` | Owner sees past-due banner |
 | SaaS dunning mail fail | SMTP errors in worker | `EMAIL_HOST` / console backend forbidden in prod | Fix SMTP; sweep is best-effort, AuditEvent still written | Owner still blocked by write-gate when grace ends |
 | Backup failed | Dump job non-zero | Disk, `pg_dump` logs | Re-run dump; page if two consecutive failures | None — RPO slips |
+| New error / API down (GlitchTip) | Email or ntfy push from the tracker | `/admin/ops/errors/`, search the Support ID | Fix forward or roll back per `FORWARD_FIX.md`; resolve the issue in the tracker | Depends on the error |
+| Error tracker down | Telegram “Error tracker is not answering” (watcher, every 5 min) | `docker compose ps glitchtip glitchtip-db`, its logs | Restart glitchtip; app errors are not reaching anyone meanwhile (`GLITCHTIP.md`) | None — not customer-facing |
 | Suspected cross-tenant | Any IDOR report | Freeze writes, snapshot DB | Incident `SEV-1` — `INCIDENT_RESPONSE.md` | Disable account until cleared |
 
 Do not invent GST filing advice in an alert reply. Worksheets are offline aids (freeze C1).

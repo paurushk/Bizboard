@@ -1,0 +1,113 @@
+# Self-hosted GlitchTip: free, open-source error tracker and uptime monitor that speaks the Sentry
+# protocol. Runbook: docs/ops/GLITCHTIP.md
+#
+# Every service is in the "errors" profile, so adding this file changes nothing until the profile
+# is on. Two ways to run it:
+#
+#  A) Inside a Bizboard stack (dev, local staging, pilot host). The API reaches GlitchTip on the
+#     stack network at http://glitchtip:8000, so ingestion is never public. In the env file:
+#       COMPOSE_PROFILES=errors
+#     scripts/compose-env.ps1 and .github/workflows/deploy-staging.yml add this file themselves.
+#
+#  B) On its own VM (recommended for production: it stays up when the app host is down):
+#       docker compose -p glitchtip --env-file .env.glitchtip -f docker-compose.glitchtip.yml --profile errors up -d
+#
+# glitchtip-init (deploy/glitchtip/bootstrap.py) runs after every start and, idempotently,
+# creates the admin, the "bizboard" organisation, the bizboard-api / bizboard-web projects with the
+# keys from the env file, the ops API token, alert rules and uptime monitors, then prints the DSNs.
+#
+# Postgres only (VALKEY_URL empty): fine at pilot volume; add Valkey when ingestion lags.
+
+x-glitchtip-env: &glitchtip-env
+  DATABASE_URL: postgres://glitchtip:${GLITCHTIP_DB_PASSWORD:-}@glitchtip-db:5432/glitchtip
+  VALKEY_URL: ""
+  # GlitchTip refuses to boot with its placeholder secret outside DEBUG.
+  SECRET_KEY: ${GLITCHTIP_SECRET_KEY:-change_me}
+  # Public URL people use for the UI (https://errors.<domain> on a host).
+  GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:8095}
+  DEFAULT_FROM_EMAIL: ${GLITCHTIP_FROM_EMAIL:-errors@localhost}
+  # smtp://user:pass@host:587 for alert email. consolemail:// only logs them.
+  EMAIL_URL: ${GLITCHTIP_EMAIL_URL:-consolemail://}
+  # Invite-only: nobody can sign up or create organisations.
+  ENABLE_USER_REGISTRATION: "false"
+  ENABLE_ORGANIZATION_CREATION: "false"
+  GLITCHTIP_MAX_EVENT_LIFE_DAYS: ${GLITCHTIP_RETENTION_DAYS:-90}
+  GLITCHTIP_ENABLE_UPTIME: "true"
+  # Uptime monitors call the API on the private stack network (http://api:8000).
+  GLITCHTIP_ALLOW_PRIVATE_IPS: ${GLITCHTIP_ALLOW_PRIVATE_IPS:-true}
+  MEDIA_ROOT: /code/uploads
+
+services:
+  glitchtip-db:
+    profiles: ["errors"]
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: glitchtip
+      POSTGRES_USER: glitchtip
+      POSTGRES_PASSWORD: ${GLITCHTIP_DB_PASSWORD:-}
+    volumes:
+      - glitchtip_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchtip -d glitchtip"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  glitchtip:
+    profiles: ["errors"]
+    image: glitchtip/glitchtip:6.2.6
+    restart: unless-stopped
+    depends_on:
+      glitchtip-db:
+        condition: service_healthy
+    environment:
+      <<: *glitchtip-env
+      # Web + embedded worker in one container; migrates on start.
+      SERVER_ROLE: all_in_one
+    volumes:
+      - glitchtip_uploads:/code/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/_health/', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+    ports:
+      # Loopback only. On a host, reach the UI through the edge (TLS + access control) or an SSH tunnel.
+      - "127.0.0.1:${GLITCHTIP_PORT:-8095}:8000"
+
+  glitchtip-init:
+    profiles: ["errors"]
+    image: glitchtip/glitchtip:6.2.6
+    restart: "no"
+    depends_on:
+      glitchtip:
+        condition: service_healthy
+    environment:
+      <<: *glitchtip-env
+      BB_ADMIN_EMAIL: ${GLITCHTIP_ADMIN_EMAIL:-}
+      BB_ADMIN_PASSWORD: ${GLITCHTIP_ADMIN_PASSWORD:-}
+      BB_API_KEY: ${GLITCHTIP_API_KEY:-}
+      BB_WEB_KEY: ${GLITCHTIP_WEB_KEY:-}
+      # Same value the Bizboard API uses to read issues for the ops page.
+      BB_OPS_TOKEN: ${ERROR_TRACKER_TOKEN:-}
+      BB_ALERT_EMAILS: ${GLITCHTIP_ALERT_EMAILS:-}
+      BB_ALERT_NTFY_URL: ${GLITCHTIP_ALERT_NTFY_URL:-}
+      # Health URL the uptime monitors probe. Mode B: the app's public URL.
+      BB_MONITOR_BASE_URL: ${GLITCHTIP_MONITOR_BASE_URL:-http://api:8000}
+      # Django answers only hosts in DJANGO_ALLOWED_HOSTS; the setup step warns when the
+      # monitored host is missing (inside the stack, add "api").
+      BB_APP_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-}
+      # Host the app uses in its DSNs. Mode B: the public GlitchTip URL.
+      BB_DSN_BASE_URL: ${GLITCHTIP_DSN_BASE_URL:-http://glitchtip:8000}
+      # Checked against what the bootstrap creates; a mismatch is printed as a fix.
+      BB_EXPECT_SENTRY_DSN: ${SENTRY_DSN:-}
+      BB_EXPECT_BROWSER_DSN: ${SENTRY_BROWSER_DSN:-}
+    volumes:
+      - ./deploy/glitchtip:/bootstrap:ro
+    entrypoint: ["sh", "-c", "./manage.py shell < /bootstrap/bootstrap.py"]
+
+volumes:
+  glitchtip_postgres:
+  glitchtip_uploads:

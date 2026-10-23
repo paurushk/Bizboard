@@ -5,6 +5,7 @@ from .care_kpis import CareKpiView
 from .care_links import CareLinksView
 from .care_timeline import CareTimelineView
 from .email_webhooks import EmailEventWebhookView, UnsubscribeView
+from .error_tunnel import client_error_tunnel
 from .help_views import HelpEventsView, HelpFeedbackView, HelpHealthView
 from .routers import DefaultRouter
 from .views import (
@@ -48,4 +49,5 @@ urlpatterns = router.urls + [
     path("telegram/unlink/", TelegramUnlinkView.as_view(), name="telegram-unlink"),
     path("telegram/webhook/", telegram_webhook, name="telegram-webhook"),
     path("ops/alert/", ops_alert_webhook, name="ops-alert-webhook"),
+    path("client-errors/", client_error_tunnel, name="client-error-tunnel"),
 ]

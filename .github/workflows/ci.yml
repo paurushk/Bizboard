@@ -381,6 +381,14 @@ jobs:
           cp .env.staging.example .env.staging
           docker compose --env-file .env.dev -f docker-compose.yml -f docker-compose.dev.yml config >/dev/null
           docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml config >/dev/null
+      - name: Error-tracking overlay renders (in a stack, and standalone)
+        run: |
+          docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml \n            -f docker-compose.glitchtip.yml --profile errors config >/dev/null
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.glitchtip.yml --profile errors config >/dev/null
+          cp .env.glitchtip.example .env.glitchtip
+          docker compose -p glitchtip --env-file .env.glitchtip -f docker-compose.glitchtip.yml --profile errors config >/dev/null
+          # Off by default: the overlay adds no service without the profile.
+          test -z "$(docker compose -f docker-compose.yml -f docker-compose.glitchtip.yml config --services | grep glitchtip || true)"
       # M1-010: a committed capacitor.config must never hardcode server.url.
       - name: capacitor.config has no hardcoded server url
         run: |
