@@ -33,11 +33,34 @@ bottom as each step is done — the scorecard row moves from L1 to L2 only with 
    `SENTRY_BROWSER_DSN` (= `VITE_SENTRY_DSN`; the API relays browser reports only to it).
    Sentry or self-hosted GlitchTip (`docs/ops/GLITCHTIP.md`, on its own VM).
    Keep secrets in the provider's secret store and render `.env` at deploy time (WP-B3).
+   Set `NUM_TRUSTED_PROXIES` for the edge chosen in 1.4 — see "Client IP behind proxies" below.
 2. Pool: if PgBouncer is used, `pool_mode = session` (`deploy/pgbouncer.ini`, `docs/ops/POSTGRES.md`).
 3. Backups: `BACKUP_AGE_RECIPIENT` (or GPG), `BACKUP_OFFSITE_CMD` to the backup bucket,
    `BACKUP_REQUIRE_OFFSITE=1`. Run `scripts/check_backup_age.sh` hourly from cron; it exits 1 when
    the newest encrypted dump is older than 26 h. On failure, POST to the ops pager
    (`/api/v1/ops/alert/?token=<OPS_ALERT_TOKEN>`, see `docs/ops/ALERTS.md` → Backup failed).
+
+### Client IP behind proxies
+
+Every proxy in front of Django appends the address it received the request from to
+`X-Forwarded-For`; anything left of those hops is whatever the client sent. Django takes the hop
+`NUM_TRUSTED_PROXIES` places from the right as the client. It feeds DRF's `NUM_PROXIES` (every
+anonymous and scoped throttle: login, OTP, register, webhooks, the ops alert relay, the browser
+error relay), the login lock, `planwave/ratelimit.py`, audit and session IPs.
+
+| Topology | `X-Forwarded-For` reaching Django | `NUM_TRUSTED_PROXIES` |
+|---|---|---|
+| nginx only (`docker-compose.yml`, laptop / local staging) | `<spoofed…>, client` | `1` (default) |
+| Cloudflare tunnel → nginx (`docker-compose.cloudflared.yml`, or a quick tunnel to `APP_PORT`) | `<spoofed…>, client, cloudflared` | `2` |
+| Provider LB → nginx | `<spoofed…>, client, LB` | `2` |
+| Cloudflare proxied DNS → provider LB → nginx | `<spoofed…>, client, CF edge, LB` | `3` |
+| No proxy (`runserver` straight to Django) | none, `REMOTE_ADDR` is used | `0` |
+
+Too low lets one caller collapse into a proxy's bucket (everyone shares a limit); too high lets
+the client pick its own identity with a spoofed hop. Only nginx may be reachable from outside:
+it binds to loopback unless `APP_BIND` says otherwise, and the api container has no published
+port. Check after deploy: send a request with `X-Forwarded-For: 1.2.3.4` and confirm the audit /
+session IP is your real address, not `1.2.3.4` and not the proxy's.
 
 ## 3. First deploy
 

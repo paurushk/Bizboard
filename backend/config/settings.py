@@ -331,6 +331,13 @@ if _E2E_AUTH_THROTTLE:
     # handful of tests. Same DEBUG gate as the DRF rates above.
     PLANWAVE_RATE_LIMIT = False
 
+# Proxies in front of Django that append to X-Forwarded-For. The client is hop
+# len(xff) - NUM_TRUSTED_PROXIES (from the right); everything left of it is
+# client-supplied. Used by the login lock, planwave/ratelimit.py and, as
+# REST_FRAMEWORK["NUM_PROXIES"], by every DRF throttle. nginx only = 1;
+# Cloudflare tunnel or a provider LB in front of nginx = 2 (docs/ops/HOSTED_STAGING.md).
+NUM_TRUSTED_PROXIES = _env_int("NUM_TRUSTED_PROXIES", 1)
+
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
         "core.authentication.CookieJWTAuthentication",
@@ -354,6 +361,9 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "core.pagination.DefaultPagination",
     "PAGE_SIZE": 50,
     "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
+    # Without this DRF keys anonymous throttles on the whole X-Forwarded-For
+    # header, which the client controls: a fresh value per request is a fresh bucket.
+    "NUM_PROXIES": NUM_TRUSTED_PROXIES,
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.ScopedRateThrottle",
         "rest_framework.throttling.AnonRateThrottle",
@@ -1291,8 +1301,6 @@ _assert_postgres_rls_required(
 )
 # Emergency rollback for R-002/R-003: set 0 to restore startswith("refund.") → REFUNDED.
 PAYMENTS_REFUND_EVENT_MAP_V2 = _env_bool("PAYMENTS_REFUND_EVENT_MAP_V2", "1")
-# Login lock / rate-limit client IP: hop index from the right of X-Forwarded-For.
-NUM_TRUSTED_PROXIES = _env_int("NUM_TRUSTED_PROXIES", 1)
 # R-019: COMPLETED docs older than this ISO date warn instead of blocking period close.
 BOOKS_HEALTH_MISSING_POSTING_SINCE = (os.environ.get("BOOKS_HEALTH_MISSING_POSTING_SINCE") or "").strip()
 
