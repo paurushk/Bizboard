@@ -1,0 +1,38 @@
+id: QOS-0155
+category: USABILITY
+title: 'Phone: the header pushed the Hindi language button off-screen'
+persona:
+- P2
+- P3
+journey: Switch the app to Hindi on a phone
+problem: 'At phone width (393 px, Pixel 5/7) the app header held the menu, the name, the company,
+  a "Hide amounts" text button, What''s new and a two-button English / हिंदी group. The group
+  overflowed past the right edge: the हिंदी button ended at x=423 on a 393 px screen, so a phone user
+  could not switch to Hindi, and axe reported a 1.08:1 contrast failure on every signed-in phone page.'
+evidence:
+  strength: measured
+  source:
+  - web/e2e/a11y.spec.ts
+  - docs/STABILIZATION_PLAN.md
+  detail: 'Found 2026-10-23 by the light e2e mobile project (11 axe color-contrast failures, all the same
+    .MuiButtonGroup-lastButton) and confirmed with a bounding-box probe and screenshot at 393 x 727. After
+    the fix all 34 mobile axe checks pass.'
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 4
+  impact_band: High
+business_metric: none
+priority: P1
+priority_rationale: Hindi is a core promise for the lead pilots and most of them use phones; measured.
+effort: S
+recommendation: On phones show one language button that offers the other language and an eye icon for
+  hide/show amounts (done in LocaleSwitcher.tsx and AppShell.tsx); keep the mobile axe project in CI.
+test_required: web/src/components/LocaleSwitcher.test.tsx phone mode shows one button and switches both ways;
+  web/e2e/a11y.spec.ts mobile project green
+guard_ref:
+  test: web/src/components/LocaleSwitcher.test.tsx::on a phone shows one button that offers the other language, and switches back
+lifecycle: verified
+owner: web
+opened: '2026-10-23'
+closed: null

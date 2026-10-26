@@ -1,9 +1,10 @@
 # STRIDE draft (10.1)
 
 This is an **engineering threat-model draft**, not a pentest report and not a
-legal opinion. Human signs Go/No-Go after a real review. Postgres RLS is
-**off** in production (`POSTGRES_RLS_ENABLED=0`); app-layer `company_id` is
-the isolation guarantee until RLS is soaked.
+legal opinion. Human signs Go/No-Go after a real review. **Updated 2026-10-25:**
+Postgres RLS is now required on production and staging (`_assert_postgres_rls_required`
+refuses to boot with it off) and the app connects as a NOSUPERUSER NOBYPASSRLS role; the
+app-layer `company_id` filter stays as the second layer. The RLS row below is historical.
 
 | Surface | S | T | R | I | D | E | Control in tree |
 |---|---|---|---|---|---|---|---|

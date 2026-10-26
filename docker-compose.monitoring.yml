@@ -1,0 +1,53 @@
+# Overlay: Prometheus + Alertmanager for the rules in deploy/prometheus/alerts.yml (WP-6).
+#
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml \
+#     -f docker-compose.monitoring.yml up -d prometheus alertmanager
+#
+# Needs METRICS_TOKEN (scrapes /api/v1/metrics/) and OPS_ALERT_TOKEN (Alertmanager pages through the
+# app's /api/v1/ops/alert/ relay) in the env file. Both are written to files inside the containers
+# at start, never into the repo. No published ports: open the UIs with
+#   docker compose ... exec prometheus wget -qO- localhost:9090/api/v1/alerts
+# On a host, prefer a managed Prometheus-compatible service (HOSTED_STAGING.md §0, Q2).
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0-busybox
+    restart: unless-stopped
+    environment:
+      METRICS_TOKEN: ${METRICS_TOKEN:?Set METRICS_TOKEN}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p /tmp/prom-config
+        cp /etc/prometheus-src/prometheus.yml /etc/prometheus-src/alerts.yml /tmp/prom-config/
+        umask 077
+        printf '%s' "$$METRICS_TOKEN" > /tmp/prom-config/metrics_token
+        sed -i 's#/etc/prometheus/metrics_token#/tmp/prom-config/metrics_token#' /tmp/prom-config/prometheus.yml
+        exec /bin/prometheus --config.file=/tmp/prom-config/prometheus.yml --storage.tsdb.path=/prometheus \
+          --storage.tsdb.retention.time=15d
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus-src:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - api
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.0
+    restart: unless-stopped
+    environment:
+      OPS_ALERT_TOKEN: ${OPS_ALERT_TOKEN:?Set OPS_ALERT_TOKEN}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        umask 077
+        printf '%s' "$$OPS_ALERT_TOKEN" > /alertmanager/ops_alert_token
+        exec /bin/alertmanager --config.file=/etc/alertmanager-src/alertmanager.yml --storage.path=/alertmanager
+    volumes:
+      - ./deploy/prometheus/alertmanager.yml:/etc/alertmanager-src/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+
+volumes:
+  prometheus_data:
+  alertmanager_data:

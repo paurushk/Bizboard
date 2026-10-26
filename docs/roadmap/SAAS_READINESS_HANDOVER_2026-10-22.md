@@ -57,6 +57,19 @@ budget in `tests/test_phase0_api_slas.py`, reduction tracked under QOS-0003).
 Each item names what is ready for it. Engineering cannot close them; they need an account, a
 signature, an outside party, or real customers.
 
+**Status, 2026-10-24** (decisions in `docs/roadmap/DECISIONS_2026-10-24.md`):
+- 1: still uncommitted by choice (D-06).
+- 4: error tracking is self-hosted GlitchTip in the stack, with email and phone-push alerts and a
+  public status page at `/status/`; the metrics service on the host is still open.
+- 5: on-call primary named (the founder); no backup yet.
+- 9: first drafts of the terms, privacy policy and data processing agreement for counsel are in
+  `docs/legal/drafts/`.
+- 11: load scripts give each virtual user its own login and pace Completes under the new
+  60/min per-company limit (D-10, D-11).
+- 17: the Help FAQ now has a machine-drafted Hindi version (`web/src/pages/help/faqContent.hi.ts`) for the
+  reviewer as well.
+- 19: Complete cap decided: 60/min per company (D-11).
+
 | # | Item | Ready for it | Who |
 |---|---|---|---|
 | 1 | Commit the working tree (WP-A1) and tag `v1.0.0-beta` | Chunk order in the plan, §WP-A1 | Founder (chose to do it later) |

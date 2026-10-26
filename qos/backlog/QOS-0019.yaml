@@ -27,7 +27,7 @@ recommendation: Run scripts/mutation_audit.sh in a Linux CI lane (advisory); tri
 test_required: an advisory mutation-audit lane with survivors triaged on the money/tax/stock modules
 guard_ref:
   test: .github/workflows/ci.yml
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

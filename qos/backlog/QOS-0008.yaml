@@ -29,7 +29,7 @@ recommendation: 'Add PJ-WHOLE-GODOWN: inward, inter-godown transfer, a count ses
 test_required: PJ-WHOLE-GODOWN journey added to backend/tests/personas/
 guard_ref:
   test: backend/tests/personas/test_pj_stubs.py::test_pj_wholesale_godown_custodian
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

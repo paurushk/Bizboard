@@ -15,7 +15,11 @@
 #   * Retention is by AGE (BACKUP_RETENTION_DAYS, default 30), never below the
 #     newest BACKUP_MIN_KEEP (default 7) files, so a stalled job cannot silently
 #     turn "14 dumps" into months of history or delete the only good copy.
-#   * On success, ${BACKUP_DIR}/LAST_SUCCESS records the timestamp and file name.
+#   * BACKUP_KIND picks the database: "bizboard" (default, the app) or "glitchtip" (the
+#     self-hosted error tracker, docs/ops/GLITCHTIP.md). Files are named <kind>-<stamp>...;
+#     the company-rows check below applies to the app only. Same encryption/offsite/retention.
+#   * On success, ${BACKUP_DIR}/LAST_SUCCESS (glitchtip: LAST_SUCCESS_glitchtip) records the
+#     timestamp and file name.
 #     scripts/check_backup_age.sh does not read that marker. It stats the newest
 #     bizboard-*.gpg or *.age file (and *.sql.gz only when BACKUP_ALLOW_UNENCRYPTED=1)
 #     and exits 1 when that mtime is older than 93600 seconds (26 hours).
@@ -23,16 +27,22 @@ set -eu
 umask 077
 
 BACKUP_DIR="${BACKUP_DIR:-/backups}"
+KIND="${BACKUP_KIND:-bizboard}"
+case "$KIND" in
+    bizboard) MARKER="LAST_SUCCESS" ;;
+    glitchtip) MARKER="LAST_SUCCESS_glitchtip" ;;
+    *) echo "BACKUP FAILED: BACKUP_KIND must be bizboard or glitchtip." >&2; exit 1 ;;
+esac
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 MIN_KEEP="${BACKUP_MIN_KEEP:-7}"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 mkdir -p "$BACKUP_DIR"
 chmod 700 "$BACKUP_DIR" || true
 
-BASE="${BACKUP_DIR}/bizboard-${STAMP}.sql.gz"
-WORK_SQL="${BACKUP_DIR}/.bizboard-${STAMP}.sql.partial"
-WORK_GZ="${BACKUP_DIR}/.bizboard-${STAMP}.sql.gz.partial"
-WORK_ENC="${BACKUP_DIR}/.bizboard-${STAMP}.enc.partial"
+BASE="${BACKUP_DIR}/${KIND}-${STAMP}.sql.gz"
+WORK_SQL="${BACKUP_DIR}/.${KIND}-${STAMP}.sql.partial"
+WORK_GZ="${BACKUP_DIR}/.${KIND}-${STAMP}.sql.gz.partial"
+WORK_ENC="${BACKUP_DIR}/.${KIND}-${STAMP}.enc.partial"
 trap 'rm -f "$WORK_SQL" "$WORK_GZ" "$WORK_ENC"' EXIT
 
 fail() {
@@ -73,8 +83,10 @@ pg_dump -h "${PGHOST:-db}" -U "${BACKUP_DB_USER:-${POSTGRES_USER}}" "${POSTGRES_
 # WP-B4: a dump taken by a role that row-level security hides has the schema but no rows.
 # The companies table must have at least one data line after its COPY header (the end-of-data
 # marker is the two characters backslash-dot; a real row is always longer).
-awk '/^COPY public[.]accounts_company /{getline; if (length($0) > 2) found=1} END{exit !found}' "$WORK_SQL" \
-    || fail "the dump has no company rows (dumped by a role that RLS hides?). Use the owner role in BACKUP_DB_USER."
+if [ "$KIND" = "bizboard" ]; then
+    awk '/^COPY public[.]accounts_company /{getline; if (length($0) > 2) found=1} END{exit !found}' "$WORK_SQL" \
+        || fail "the dump has no company rows (dumped by a role that RLS hides?). Use the owner role in BACKUP_DB_USER."
+fi
 gzip -c "$WORK_SQL" > "$WORK_GZ" || fail "gzip failed."
 gzip -t "$WORK_GZ" || fail "compressed dump failed the gzip integrity test."
 rm -f "$WORK_SQL"
@@ -120,11 +132,11 @@ else
 fi
 
 # 5. Mark success only after everything above passed.
-printf '%s %s\n' "$STAMP" "$(basename "$OUT")" > "${BACKUP_DIR}/LAST_SUCCESS"
+printf '%s %s\n' "$STAMP" "$(basename "$OUT")" > "${BACKUP_DIR}/${MARKER}"
 
 # 6. Retention by age, never below the newest MIN_KEEP files.
 COUNT=0
-for f in $(ls -1t "${BACKUP_DIR}"/bizboard-* 2>/dev/null || true); do
+for f in $(ls -1t "${BACKUP_DIR}/${KIND}"-* 2>/dev/null || true); do
     COUNT=$((COUNT + 1))
     [ "$COUNT" -le "$MIN_KEEP" ] && continue
     if [ -n "$(find "$f" -mtime +"$RETENTION_DAYS" 2>/dev/null)" ]; then

@@ -84,7 +84,7 @@ inaccessible with that profile.
 
 | Feature | Flag(s) (frozen value) | Why out for freeze |
 |---|---|---|
-| GSTR report screens / on-portal filing | Trial plan grants `ENABLE_GSTR` for GSTR-1 and GSTR-3B worksheets | Labelled "Not filed — worksheet for your CA". 2B and IMS are not in this release. Not GSTN filing (see C1) |
+| GSTR report screens / on-portal filing | Trial and every seeded paid plan grant `ENABLE_GSTR` for GSTR-1 and GSTR-3B worksheets (D-16) | Labelled "Not filed — worksheet for your CA". 2B and IMS are not in this release. Not GSTN filing (see C1) |
 | GSTN JSON export | `ENABLE_GSTN_JSON=0` | Depends on GSTR screens |
 | Live NIC e-invoice / e-way | `GSP_LIVE_ENABLED=0` | No live GSP integration in pilot (see C2) |
 | e-invoice sandbox submit UI | `VITE_ENABLE_EINVOICE_SUBMIT=false` | Preview only; not a filing path (see C2) |
@@ -140,12 +140,14 @@ belongs to. Source: `backend/config/settings.py`,
 | `ENABLE_SETUP_WIZARD` / `VITE_ENABLE_SETUP_WIZARD` | both | **ON** (`1` / `true`) | A19 SUPPORTED |
 | `company.accounting_enabled` / `VITE_ENABLE_ACCOUNTING` | both | per-company opt-in; ≥1 pilot company ON (D5) → `FG-2a/gl` hard gate | C4 |
 | `company.ai_features_enabled` / `VITE_ENABLE_AI` | both | OFF | B |
-| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | trial plan | ON for GSTR-1 and GSTR-3B worksheets via `trial_plan_modules`. `TRIAL_HELD_FALSE` keeps GSTN JSON false. The pilot env file stays `ENABLE_GSTR=0`; a subscribed trial lifts the grantable key. | Not filing. 2B and IMS stay out of this release |
+| `ENABLE_GSTR` / `VITE_ENABLE_GSTR` | trial plan + paid plans | ON for GSTR-1 and GSTR-3B worksheets via `trial_plan_modules` and, since D-16 (2026-10-25), `freeze_safe_modules` on Free/Starter/Professional/Enterprise. `TRIAL_HELD_FALSE` keeps GSTN JSON false. The pilot env file stays `ENABLE_GSTR=0`; a subscribed trial or paid plan lifts the grantable key. | Not filing. 2B and IMS stay out of this release |
 | `ENABLE_GSTN_JSON` | backend | OFF | B |
 | `ENABLE_FIXED_ASSETS` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D6 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_BOE` | backend | **OFF** (`0`) — Django default OFF; tests opt in via `settings_test` | B (D10 → KNOWN LIMITATION, revision 2026-09-09b) |
 | `ENABLE_ARCH05_STATUTORY_FORMS` | backend | **OFF** (`0`) | D15 — ARCH-05 drug-licence (20B/21B) + FSSAI compliance; ships per-company when a pharma/food pilot is provisioned; no effect on the ARCH-03 pilot |
 | `ENABLE_TENANT_ERASURE` | backend | **OFF** (`0`) | D13 owner-initiated erasure endpoint. **SR-40 signed 2026-09-10:** default mode is `tombstone` — statutory tax docs kept with party PII scrubbed, `Company` row survives with `erased_at`, `purge_tombstoned_companies` hard-deletes after the 8-yr GST window. Flag still OFF by default; flip it per deployment when erasure requests are handled in-product. |
+| `DATA_RETENTION_ENFORCE` | backend | **OFF** (`0`) | D-13 data retention: the daily `apply_data_retention_task` records read-only dates and sends the 30/7-day warnings; erasure of a lapsed read-only workspace runs only with this flag ON, which waits on counsel confirming the retention period (`backend/accounts/retention.py`). |
+| `DB_VIA_PGBOUNCER` | backend | **OFF** (`0`) | WP-5 (BB-068): set to `1` only by `docker-compose.pgbouncer.yml`, which puts PgBouncer (session mode) in front of api/worker/beat. Settings refuse to boot with it on and `DB_CONN_MAX_AGE` non-zero. Production starts without the pool (`docs/ops/POSTGRES.md`). |
 | `ENABLE_TALLY` / `VITE_ENABLE_TALLY` | both | OFF | B |
 | `ENABLE_LEGACY_IMPORT` | backend (runtime flag in the app) | OFF; granted per pilot company like Tally (WP-GR1b) | B |
 | `ENABLE_POS` / `VITE_ENABLE_POS` / `VITE_ENABLE_ATOMIC_POS_CHECKOUT` | both | **ON** (D1) | A23 SUPPORTED |

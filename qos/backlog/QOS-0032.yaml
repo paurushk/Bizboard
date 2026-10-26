@@ -30,7 +30,7 @@ recommendation: Decide a delivery channel for the pilot (email at minimum) and w
 test_required: 'a WF chain: dunning schedule -> email sent -> delivery status recorded'
 guard_ref:
   test: backend/tests/test_a07_dunning.py::test_dunning_falls_back_to_email_when_no_phone
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

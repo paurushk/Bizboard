@@ -21,7 +21,7 @@ recommendation: "Done. The tablet queue and the browser journeys now guard these
 test_required: "backend/tests/test_mfg_left_outs.py"
 guard_ref:
   test: "backend/tests/test_mfg_left_outs.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-21"
 closed: "2026-10-21"

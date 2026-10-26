@@ -21,7 +21,7 @@ recommendation: "Done: request_hash on IdempotencyRecord (migration core 0045), 
 test_required: "backend/tests/test_double_submit_money_paths.py (14 tests) and the updated persona test."
 guard_ref:
   test: "backend/tests/test_double_submit_money_paths.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-02"
 closed: "2026-10-02"

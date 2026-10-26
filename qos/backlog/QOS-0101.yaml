@@ -24,7 +24,7 @@ recommendation: "Fail closed on encryption, dump to a checked temp file, verify 
 test_required: "backend/tests/test_backup_scripts.py (11 behavioural tests that run the real scripts under sh with stub binaries)."
 guard_ref:
   test: "backend/tests/test_backup_scripts.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "ops"
 opened: "2026-10-02"
 closed: "2026-10-02"

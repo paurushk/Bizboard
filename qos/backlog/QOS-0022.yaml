@@ -32,7 +32,7 @@ recommendation: 'Done: scripts/restore_drill.sh + manage.py check_invariants + a
 test_required: a scheduled restore-drill job that runs the invariant sweep against the restored DB
 guard_ref:
   test: backend/tests/test_check_invariants_command.py::test_check_invariants_clean_company_passes
-lifecycle: fixed
+lifecycle: verified
 owner: ops
 opened: '2026-09-10'
 closed: null

@@ -21,7 +21,7 @@ recommendation: "Done. Run manage.py customers_audit against production-like dat
 test_required: "backend/tests/test_customers_master.py::test_sales_staff_cannot_archive_or_unblock_by_patch"
 guard_ref:
   test: "backend/tests/test_customers_master.py::test_sales_staff_cannot_archive_or_unblock_by_patch"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-12"

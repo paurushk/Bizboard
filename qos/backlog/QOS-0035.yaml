@@ -33,7 +33,7 @@ recommendation: 'Done: de-dup + range detection in the shared serial-input parse
 test_required: a bulk-serial-ingest flow with a partial-failure report, covered by QOS-0009's tests
 guard_ref:
   test: backend/tests/test_item_godown_expiry.py::test_serial_bulk_ingest_partial_failure
-lifecycle: fixed
+lifecycle: verified
 depends_on:
 - QOS-0009
 owner: web

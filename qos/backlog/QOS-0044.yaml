@@ -41,7 +41,7 @@ test_required: a test that flips the flag on and confirms a no-credit-limit, ove
   blocked at invoice-complete, and that it is not blocked with the flag off
 guard_ref:
   test: backend/tests/test_a07_dunning.py::test_auto_credit_hold_blocks_severe_overdue_customer_with_no_credit_limit
-lifecycle: fixed
+lifecycle: verified
 depends_on:
 - QOS-0032
 owner: backend

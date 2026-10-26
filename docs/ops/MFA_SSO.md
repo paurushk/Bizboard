@@ -1,5 +1,10 @@
 # MFA / SSO decision (4.3)
 
+> **Superseded, 2026-10-24.** Two-step sign-in is built: an authenticator app (TOTP) plus hashed
+> recovery codes (`backend/accounts/mfa_service.py`, Security page in the app). Production requires
+> it for Owners, Accountants and anyone who can post journals (`MFA_ENFORCE_FOR_MONEY_ROLES`).
+> The text below is the original pre-freeze decision, kept for history.
+
 Freeze **does not** require a TOTP product. A26 is OTP-SMS (optional) + password.
 
 | Option | Freeze | LLM may |

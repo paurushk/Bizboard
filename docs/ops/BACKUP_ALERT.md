@@ -5,6 +5,7 @@ If the daily dump job exits non-zero, page on-call (`docs/ops/ALERTS.md`). Encry
 Minimum:
 
 - Cron/host job: `docker compose --profile backup run --rm backup`
+- With error tracking on (`docs/ops/GLITCHTIP.md`): also `docker compose ... run --rm glitchtip-backup`
 - Copy `./backups/bizboard-*.sql.gz` off-host
 - Alert if no new object in 26h
 - Monthly `scripts/restore_drill.sh` dated in `GO_NO_GO.md`

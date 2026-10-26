@@ -21,7 +21,7 @@ recommendation: "Done: prefetch the conversions with their documents, return the
 test_required: "backend/tests/test_quotation_closure_cross.py::test_wp7_list_query_count_does_not_grow_with_rows"
 guard_ref:
   test: "backend/tests/test_quotation_closure_cross.py::test_wp7_list_query_count_does_not_grow_with_rows"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

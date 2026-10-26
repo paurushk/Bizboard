@@ -77,3 +77,9 @@ screens: [`../reviews/PURCHASE_OTHER_SCREENS_REVIEW_2026-10-15.md`](../reviews/P
 | P3 | Bill of entry with a zero assessable value | The server refuses a BoE with no BCD/IGST/cess but does not check the assessable value. Confirm whether a zero assessable value can ever be correct. (PB-01) | |
 | P4 | Owner approval of a 3-way match difference on a purchase bill | The app now lets an Owner or Manager complete a bill that differs from its order or receipt, after writing a reason; the reason and the differences are stored in the audit log. Confirm that a written reason is enough for your audit trail. | |
 | P5 | Releasing a cancelled-GSTIN hold (bill or payment) | An Owner or Accountant can complete a bill from, or pay, a supplier whose GSTIN is cancelled, after writing a reason. The system does **not** decide whether the ITC on such a bill is claimable. Confirm that claim is still reviewed separately (GSTR-2B / ITC eligibility). | |
+
+## Returns: bills of supply (BB-100 F2, 2026-10-24)
+
+| # | Item | What the CA confirms | Sign-off |
+|---|------|----------------------|----------|
+| R1 | Non-GST invoices (bills of supply) of a regular taxpayer in GSTR-1 Table 8 / Table 13 and GSTR-3B 3.1(c)/(e) | Which tables and columns they belong in, and whether taxable lines may sit on one. Options and the observed example: [`F2_BILLS_OF_SUPPLY_IN_GST_RETURNS.md`](F2_BILLS_OF_SUPPLY_IN_GST_RETURNS.md) | |

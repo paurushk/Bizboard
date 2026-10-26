@@ -49,3 +49,33 @@ If any answer is no → not this pilot cohort. Do not bend a guardrail to hit th
 
 Aim for ~15 screened conversations → 6 onboarded → ≥4 completing 4 weeks. Track name, trade,
 turnover, screening result, CA confirmed (y/n), onboarded date, status.
+
+## 5. Pipeline tracker
+
+Keep this table current (copy names here only with the business's consent; otherwise use a
+code like P-01). Target from §4: ~15 screened → 6 onboarded → ≥4 completing.
+
+| Code | Trade | Turnover band | Old system | Screening (§2) | CA confirmed | Signed (date) | Books imported | Parallel month | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| P-01 | | | | | | | | | |
+
+## 6. After a pilot signs: import and the parallel month
+
+1. **Agreement:** `PILOT_AGREEMENT_OUTLINE.md`, signed; onboarding call per `ONBOARDING.md`.
+2. **Import their books** (support grants the flag per company, with a reason and ticket, via the
+   admin action "Grant or revoke a rollout flag"; revoke after cutover):
+   - Busy / Vyapar / Marg: `ENABLE_LEGACY_IMPORT`; parties and items exports with the columns in
+     `docs/help/LEGACY_IMPORT.md` (macro: `docs/ops/SUPPORT_MACROS.md` → legacy-import).
+   - Tally: `ENABLE_TALLY` (granted per pilot, not globally); Tally XML through the import screen.
+   - Opening balances as of the cutover date.
+3. **Parallel month:** they keep their old system and Bizboard side by side for one full month.
+   At month end, export the old system's trial balance and map its ledgers once:
+   ```bash
+   python manage.py compare_trial_balance --company <id> --as-of <YYYY-MM-DD> \
+     --theirs their_tb.xlsx --mapping their_ledgers.csv --tolerance 1.00
+   ```
+   Every difference over the tolerance is explained (timing, a missed entry, a mapping) before
+   the pilot drops the old system. Keep the output with the pilot's record.
+4. **Weekly check-in** for the 4 weeks; feedback goes in as tickets (`docs/ops/TICKET_TAXONOMY.md`).
+5. **Exit:** at the end they choose to continue, or take the full readable export (Settings) and we
+   delete on request.

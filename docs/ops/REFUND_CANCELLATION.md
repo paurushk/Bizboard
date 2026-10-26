@@ -12,7 +12,12 @@ Factual product behavior from `billing.services.company_writes_blocked`.
 - Customer **payment-gateway refunds** unwind the captured `GatewayPayment`
   when the signed webhook says REFUNDED. That is A25 sandbox collections, not
   SaaS plan refunds.
-- There is no in-product coupon / proration engine in v1.
+- Plan changes (SaaS Phase 2): an upgrade is on at once and the difference for the rest of the
+  period is charged now (prorated); a downgrade takes effect at the next renewal with no charge now.
+  There is no coupon engine.
+- TDS a customer deducts on Bizboard's invoices is credited to the next renewal or refunded after a
+  Form 16A claim (Settings → Billing → Claim back TDS).
+- Proposed policy text for counsel: `docs/roadmap/SIGNOFF_PACK_2026-10-23.md` §B-4.
 
 ## What operators still own
 

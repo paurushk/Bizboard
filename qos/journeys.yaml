@@ -8,6 +8,9 @@
 # Keep this in sync with docs/TESTING_STRATEGY.md sections 4-5 and
 # backend/tests/personas/README.md. The dashboard's "zero-evidence" indicator
 # counts rows with evidence: none.
+#
+# golden: (lead pilots ARCH-01 / ARCH-03) the live-browser spec(s) in web/e2e-golden that walk the
+#   journey; .github/workflows/lead-pilot-journeys.yml runs them nightly at desktop and phone size.
 
 journeys:
   # --- ARCH-01 Counter Retailer -------------------------------------------
@@ -17,24 +20,28 @@ journeys:
     journey: "5-line counter checkout, keyboard + scanner only"
     evidence: test          # test_wf19_pos_checkout, PJ-RETAIL-SALES
     ref: "backend/tests/workflows/test_wf19_pos_checkout.py; tests/personas/test_pj_retail.py"
+    golden: "pos-golden-path.spec.ts; lifecycle-arch01.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-RETAIL-P2-POS-SPEED
     persona: P2
     archetype: ARCH-01
     journey: "POS checkout within the H-02 35s no-mouse budget"
     evidence: test          # web/e2e/pos-keyboard-checkout.spec.ts H-02 35s budget
     ref: "TESTING_STRATEGY.md#6.10; hypothesis H-02"
+    golden: "web/e2e/pos/pos-perf-sla.spec.ts (light)"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-RETAIL-P2-OFFLINE
     persona: P2
     archetype: ARCH-01
     journey: "Offline draft outbox: queue during a drop, flush idempotently on reconnect"
     evidence: test
     ref: "web/e2e/personas/offline-outbox-conflict.spec.ts"
+    golden: "web/e2e/personas/offline-outbox-conflict.spec.ts (light)"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-RETAIL-P1-DAYCLOSE
     persona: P1
     archetype: ARCH-01
     journey: "End-of-day till reconciliation and daily sales summary"
     evidence: test
     ref: "tests/personas/test_pj_retail.py::test_pj_retail_owner_normal_day"
+    golden: "lead-pilot-gaps.spec.ts::J-RETAIL-P1-DAYCLOSE"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
 
   # --- ARCH-03 Semi-Wholesaler -----------------------------------------------
   - id: J-TRADE-P3-QUOTE
@@ -43,42 +50,49 @@ journeys:
     journey: "Field: product+price lookup, quotation with slab price on the spot"
     evidence: test
     ref: "test_wf06_quotation_to_invoice; tests/personas/test_pj_trader.py"
+    golden: "quotation-inline-customer.spec.ts; lifecycle-arch03.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P3-CREDITBLOCK
     persona: P3
     archetype: ARCH-03
     journey: "Order booked against an over-limit customer is explained, not silently dropped"
     evidence: test
     ref: "test_wave15_credit_limit_refund.py"
+    golden: "lead-pilot-gaps.spec.ts::J-TRADE-P3-CREDITBLOCK"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P1-LOOP
     persona: P1
     archetype: ARCH-03
     journey: "Complete B2B loop: purchase -> stock+AP -> order -> challan -> invoice -> AR -> receipt -> allocation"
     evidence: test
     ref: "tests/workflows/test_wf_arch03_complete_loop.py; PJ-TRADER-OWNER"
+    golden: "lifecycle-arch03.spec.ts; lifecycle-arch03-purchase.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P5-ALLOC
     persona: P5
     archetype: ARCH-03
     journey: "Partial multi-invoice receipt allocation with no orphan balance (H-01)"
     evidence: test
     ref: "test_payment_allocation.py; gl.party_subledger_complete"
+    golden: "money-in-golden.spec.ts; payments-golden-path.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P5-BANKREC
     persona: P5
     archetype: ARCH-03
     journey: "Match bank statement lines to GL (proper reconciliation, not just import)"
     evidence: test
     ref: "tests/personas/test_pj_bank_reconciliation.py::test_pj_bank_reconciliation_aa_matching_and_journal"
+    golden: "lead-pilot-gaps.spec.ts::J-TRADE-P5-BANKREC"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P5-MONTHEND
     persona: P5
     archetype: ARCH-03
     journey: "Period close + GSTR-1/3B worksheet export + TB=0"
     evidence: test
     ref: "test_wf27_gstr1_3b_tie_out; PJ-WHOLE-ACCT"
+    golden: "lead-pilot-gaps.spec.ts::J-TRADE-P5-MONTHEND; lifecycle-arch03.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P3-FLAKYNET
     persona: P3
     archetype: ARCH-03
     journey: "Book an order over a degraded field connection"
     evidence: test
     ref: "web/e2e/personas/offline-outbox-conflict.spec.ts J-TRADE-P3-FLAKYNET"
+    golden: "web/e2e/personas/offline-outbox-conflict.spec.ts (light)"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
 
   # --- ARCH-04 Multi-Godown Stockist ---------------------------------------
   - id: J-GODOWN-P4-TRANSFER
@@ -211,12 +225,14 @@ journeys:
     journey: "Checkout completes with no printer attached. The slip is a PDF. Hardware spooling is a known limitation."
     evidence: test
     ref: "backend/tests/test_pdf_and_share.py::test_j_retail_p2_thermal_sale_completes_without_a_printer"
+    golden: "lead-pilot-gaps.spec.ts::J-RETAIL-P2-THERMAL"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-RETAIL-P1-REORDER
     persona: P1
     archetype: ARCH-01
     journey: "Review reorder thresholds and restock the counter"
     evidence: test
     ref: "tests/personas/test_pj_archetype_golden_journeys.py::test_pj_golden_journey_kirana_retail_fast_turnover"
+    golden: "comp002-replenishment.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
 
   # --- ARCH-02 Composition (deprioritised, computation kept) -------------
   - id: J-COMP-P1-BOS
@@ -233,24 +249,28 @@ journeys:
     journey: "Enter the vendor's purchase bill on delivery -> stock + AP posted atomically"
     evidence: test
     ref: "tests/workflows/test_wf04_purchase.py; test_a2_posting_atomicity.py"
+    golden: "purchase-golden-path.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P3-CHALLAN
     persona: P3
     archetype: ARCH-03
     journey: "Issue a delivery challan and dispatch before billing"
     evidence: test
     ref: "test_next_batch_so_challan.py; test_wf_arch03_complete_loop.py"
+    golden: "lifecycle-arch03.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P5-TCS
     persona: P5
     archetype: ARCH-03
     journey: "TCS 206C on a sale over threshold - collection, GL, worksheet"
     evidence: test
     ref: "test_wf34_tcs_on_sales_206c; test_wf36_tds_tcs_worksheets_reconcile"
+    golden: "lead-pilot-gaps.spec.ts::J-TRADE-P5-TCS"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
   - id: J-TRADE-P5-DUNNING
     persona: P5
     archetype: ARCH-03
     journey: "Dunning cadence schedules reminders; merchant sends the share link"
     evidence: test
     ref: "test_wf42_dunning_schedule (send half is a stated LIM - QOS-0032)"
+    golden: "lead-pilot-gaps.spec.ts::J-TRADE-P5-DUNNING; collection-walk.spec.ts"  # stabilization WP-6 nightly lead-pilot run (desktop + phone)
 
   # --- ARCH-04 Multi-Godown (extra touchpoints) ------------------------
   - id: J-GODOWN-P2-CENTRAL

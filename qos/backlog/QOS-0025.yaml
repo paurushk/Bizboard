@@ -28,7 +28,7 @@ recommendation: 'Add an e2e assertion: log in as SALES_STAFF, load the app, asse
 test_required: an e2e check asserting zero 403s on a non-owner first load
 guard_ref:
   test: web/e2e/personas/role-boundaries.spec.ts
-lifecycle: fixed
+lifecycle: verified
 duplicates:
 - QOS-0001
 owner: web

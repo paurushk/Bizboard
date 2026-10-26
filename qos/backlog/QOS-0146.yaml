@@ -21,7 +21,7 @@ recommendation: "Done. Switch the sub-module on for a real company only after th
 test_required: "backend/tests/test_mfg_revaluation.py"
 guard_ref:
   test: "backend/tests/test_mfg_revaluation.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-21"
 closed: "2026-10-21"

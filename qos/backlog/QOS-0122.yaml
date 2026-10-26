@@ -21,7 +21,7 @@ recommendation: "Done. The advance GST setting stays off until the CA signs off 
 test_required: "backend/tests/test_money_in_phase2_b.py::test_cross_module_tie_out_through_cheque_tds_discount_bounce_void_and_refund"
 guard_ref:
   test: "backend/tests/test_money_in_phase2_b.py::test_cross_module_tie_out_through_cheque_tds_discount_bounce_void_and_refund"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

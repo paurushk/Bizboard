@@ -26,7 +26,7 @@ recommendation: "Done: a bizboard_http_latency_ms histogram (edges at 500/800/20
 test_required: "backend/tests/test_ops_metrics_histogram.py; node web/scripts/check-bundle-budget.mjs"
 guard_ref:
   test: "backend/tests/test_ops_metrics_histogram.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-02"
 closed: "2026-10-02"

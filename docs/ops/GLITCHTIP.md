@@ -105,7 +105,8 @@ for the uptime monitors. Recipients:
 
 The Telegram relay (`/api/v1/ops/alert/`) takes its token only from a header in staging and
 production (BUG-SEC-021) and GlitchTip webhooks cannot set headers, so GlitchTip pages through email
-or ntfy. Bizboard's own watcher still uses Telegram for "tracker down".
+or ntfy. Bizboard's own ops pages (tracker down, backup failed, audit seal missed, break-glass) go to
+Telegram (`OPS_TELEGRAM_CHAT_ID`) and, when `OPS_NTFY_URL` is set, to the same ntfy topic.
 
 ## 5. Uptime probe
 
@@ -113,6 +114,14 @@ Monitors "API live" (`/api/v1/health/`) and "API ready" (`/api/v1/health/?ready=
 expecting 200, against `GLITCHTIP_MONITOR_BASE_URL` (default `http://api:8000` inside the stack).
 Inside the stack this watches the app process, not the public edge; for an outside view (DNS, TLS,
 edge) run mode B or add one free external check on the public URL.
+
+## 5b. Public status page (BB-128)
+
+`glitchtip-init` creates a public status page "Bizboard" listing both monitors. The app's nginx
+publishes it at `https://<app domain>/status/` (`nginx/default.conf`, `location = /status/`): GET only,
+GlitchTip's cookies and security headers replaced with a strict policy (no script, no forms, no
+framing), so the tracker UI stays private. Mode B: point the same location at the tracker VM, or
+expose only `/status-pages/` on the tracker's edge. With the profile off it answers 503.
 
 ## 6. Prove it (execution-record rows in `HOSTED_STAGING.md`)
 
@@ -133,7 +142,10 @@ Then fill the project URL in `docs/ops/OGATE_HUMAN.md` (OG1-H1).
 
 - **Upgrade:** change the pinned tag in `docker-compose.glitchtip.yml` (all three services), read
   GlitchTip's release notes, deploy. It migrates on start.
-- **Backups:** `docker compose ... exec glitchtip-db pg_dump -U glitchtip glitchtip`, nightly. It holds
+- **Backups:** nightly, next to the app's dump (same cron, same encryption, off-site copy and
+  retention as `scripts/backup.sh`, with `BACKUP_KIND=glitchtip`):
+  `docker compose ... run --rm glitchtip-backup`. Files are `glitchtip-<stamp>.sql.gz[.gpg|.age]` in
+  `GLITCHTIP_BACKUP_DIR` (default `./backups/glitchtip`), marker `LAST_SUCCESS_glitchtip`. It holds
   error history, not customer data.
 - **Retention:** `GLITCHTIP_RETENTION_DAYS` (default 90).
 - **Volume:** Postgres-only mode (no Valkey) is fine at pilot volume. If ingestion lags, add a Valkey
@@ -186,6 +198,23 @@ Review pass (same day), each checked live against the running GlitchTip:
 | ntfy topic change | old topic removed, new one added, email recipient kept |
 | Monitored host not in `DJANGO_ALLOWED_HOSTS` | setup step prints the `WARNING`; a `.domain` entry that covers it does not |
 
-Not yet run: GlitchTip inside a running Bizboard stack (local staging runs a 2026-10-20 image without
+### 2026-10-23, inside local staging (mode A)
+
+Local staging rebuilt on the current code (migrations applied, app role re-applied) with
+`COMPOSE_PROFILES=errors`; GlitchTip at `http://localhost:8096`, alerts to the founder's email and a
+private ntfy topic.
+
+| Check | Result |
+|---|---|
+| `glitchtip-init` | admin, organisation, projects, token, alerts, monitors on `http://api:8000`; no `MISMATCH`, no host warning |
+| `sentry_test_event` from the api container | issue in `bizboard-api`; email notification sent; ntfy push received on the topic |
+| Uncaught error in the rebuilt SPA (`127.0.0.1:8081`) | `POST /api/v1/client-errors/` → 200; issue in `bizboard-web`; push received |
+| Real errors | 8 `DisallowedHost` issues for a public hostname routed to local staging that `DJANGO_ALLOWED_HOSTS` does not list (configuration, not a code fault) |
+| `observability_gate_check` | `sentry_configured=True`, `browser_relay_configured=True`, `error_tracker_readable=True` |
+| Uptime monitors | first **down**: GlitchTip 6 gates monitors on private addresses with `GLITCHTIP_UPTIME_ALLOW_PRIVATE_IPS` (the general flag does not apply); fixed in the compose file, then both up, with "back up" pushes |
+| `run --rm glitchtip-backup` | `glitchtip-20261023T083203Z.sql.gz`, 163 tables, own marker; the app's `LAST_SUCCESS` untouched |
+| Ops page via `OPS_NTFY_URL` | `send_ops_alert` → `sent`; push on the topic |
+
+Not yet run (first pass): GlitchTip inside a running Bizboard stack (local staging then ran a 2026-10-20 image without
 this code), alert email / ntfy delivery to a phone, the uptime monitors against a live API, and
 anything on a hosted environment.

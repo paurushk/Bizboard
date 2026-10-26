@@ -21,7 +21,7 @@ recommendation: "Done. Run report_receipt_anomalies once per tenant before deplo
 test_required: "backend/tests/test_money_in_phase2.py::test_credit_mode_is_refused_by_the_service_and_the_api"
 guard_ref:
   test: "backend/tests/test_money_in_phase2.py::test_credit_mode_is_refused_by_the_service_and_the_api"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

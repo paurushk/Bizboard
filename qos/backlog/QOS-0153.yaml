@@ -37,7 +37,7 @@ recommendation: Keep the race tests in the Postgres CI lane; write the golden jo
 test_required: backend/tests/agents/test_races_postgres.py
 guard_ref:
   test: backend/tests/agents/test_races_postgres.py
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-10-21'
 closed: '2026-10-22'

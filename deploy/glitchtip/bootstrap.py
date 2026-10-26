@@ -26,7 +26,7 @@ from apps.api_tokens.models import APIToken
 from apps.organizations_ext.models import Organization, OrganizationUser, OrganizationUserRole
 from apps.projects.models import Project, ProjectKey
 from apps.teams.models import Team
-from apps.uptime.models import Monitor
+from apps.uptime.models import Monitor, StatusPage
 from apps.users.models import User
 
 ORG_SLUG = "bizboard"
@@ -34,7 +34,11 @@ TEAM_SLUG = "ops"
 PROJECTS = (("bizboard-api", "python-django", "BB_API_KEY"), ("bizboard-web", "javascript-react", "BB_WEB_KEY"))
 OPS_TOKEN_LABEL = "bizboard-ops (read only)"
 TOKEN_SCOPES = ("project:read", "event:read", "org:read", "team:read", "member:read")
-MONITORS = (("API live", "/api/v1/health/"), ("API ready", "/api/v1/health/?ready=1"))
+# (name shown on the public status page and in alerts, path, former name renamed in place)
+MONITORS = (
+    ("Bizboard app", "/api/v1/health/", "API live"),
+    ("Saving and loading data", "/api/v1/health/?ready=1", "API ready"),
+)
 
 
 def env(name: str) -> str:
@@ -182,7 +186,8 @@ def main() -> None:
         print(f"  WARNING: DJANGO_ALLOWED_HOSTS does not include '{monitor_host}', so the uptime "
               f"monitors will get HTTP 400 and report the API as down. Add it to DJANGO_ALLOWED_HOSTS.")
     if monitor_base:
-        for name, path in MONITORS:
+        for name, path, former in MONITORS:
+            Monitor.objects.filter(organization=org, name=former).update(name=name)
             monitor, created = Monitor.objects.get_or_create(
                 organization=org,
                 name=name,
@@ -194,6 +199,15 @@ def main() -> None:
                 monitor.save(update_fields=["url"])
             if created:
                 print(f"  created uptime monitor '{name}' -> {monitor.url}")
+
+    # BB-128: the public status page lists the API monitors (served at
+    # /status-pages/bizboard/<slug>/; only that path needs to be public, see GLITCHTIP.md).
+    status_page, created = StatusPage.objects.get_or_create(
+        organization=org, name=env("BB_STATUS_PAGE_NAME") or "Bizboard", defaults={"is_public": True},
+    )
+    status_page.monitors.add(*Monitor.objects.filter(organization=org, name__in=[n for n, _, _ in MONITORS]))
+    if created:
+        print(f"  created public status page /status-pages/{ORG_SLUG}/{status_page.slug}/")
 
     print("glitchtip-init: ready.")
     print(f"  SENTRY_DSN={dsns['bizboard-api']}")

@@ -30,7 +30,7 @@ recommendation: Scope and build the drug-licence form set (20B/21B) and FSSAI de
 test_required: a WF chain covering a batch-traceable statutory invoice with the drug-licence fields
 guard_ref:
   test: backend/tests/workflows/test_wf60_arch05_statutory_forms.py::test_wf60_arch05_drug_licence_soft_block_then_pdf
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: '2026-09-11'

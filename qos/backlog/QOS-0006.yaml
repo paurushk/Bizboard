@@ -29,7 +29,7 @@ recommendation: Document and tool a pre-merge `pytest -m postgres` against a loc
 test_required: CONTRIBUTING documents the local Postgres lane; a make/script target runs it
 guard_ref:
   test: scripts/test_concurrency_local.sh
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

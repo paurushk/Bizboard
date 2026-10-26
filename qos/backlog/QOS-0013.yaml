@@ -28,7 +28,7 @@ recommendation: Add a WebKit project for the golden + a11y specs; fix or formall
 test_required: a WebKit e2e project green; the two mobile fails fixed or accepted with a rationale
 guard_ref:
   test: web/playwright.config.ts::webkit
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

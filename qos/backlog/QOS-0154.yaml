@@ -1,0 +1,38 @@
+id: QOS-0154
+category: USABILITY
+title: 'Phone: the void-receipt bottom sheet was not exposed as a dialog'
+persona:
+- P5
+- P3
+journey: Void a mistaken receipt from a phone
+problem: 'On narrow screens the void-receipt confirmation opens as a bottom sheet (MUI Drawer) with no
+  role="dialog", no aria-modal and no label. Screen readers did not announce it, and the reason field was
+  not reachable as part of a dialog. The desktop dialog was correct.'
+evidence:
+  strength: single-run
+  source:
+  - web/e2e-golden/money-in-golden.spec.ts
+  - docs/STABILIZATION_PLAN.md
+  detail: 'Found 2026-10-23 by the first phone-size run of the lead-pilot golden journeys (WP-6, Pixel 7
+    viewport, live Django + Postgres 17): getByRole("dialog") found nothing after Void was pressed; the
+    accessibility tree showed the sheet as a plain generic container. The only other bottom sheet
+    (BillReviewPanel source-bill viewer) is a viewer, not a confirmation.'
+scoring:
+  reach: 3
+  severity: 2
+  frequency: 2
+  impact_band: Low
+business_metric: none
+priority: P2
+priority_rationale: Impact Low but it is an accessibility defect on a money correction path; single run.
+effort: S
+recommendation: Give the bottom sheet role="dialog", aria-modal and aria-labelledby pointing at its title
+  (done in VoidReceiptDialog.tsx); keep the phone project in the nightly lead-pilot run so other
+  phone-only sheets are caught.
+test_required: web/src/pages/sales/VoidReceiptDialog.test.tsx both variants expose a labelled dialog
+guard_ref:
+  test: web/src/pages/sales/VoidReceiptDialog.test.tsx::phone bottom sheet
+lifecycle: verified
+owner: web
+opened: '2026-10-23'
+closed: null

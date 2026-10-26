@@ -29,7 +29,7 @@ test_required: a test exercising UnsavedChangesGuard on standard routes, in the 
 guard_ref:
   test: web/src/components/UnsavedChangesGuard.test.tsx::does not throw when rendered outside a data router
     (UX-001)
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

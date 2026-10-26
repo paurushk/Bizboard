@@ -241,7 +241,7 @@ the LLM half now; a named human must provision, approve, or operate.
 |---|---|---|---|---|---|---|
 | 4.1 | Authentication | Split | LLM done · Human open | Auth/OTP/session tests; OTP_DEBUG_ECHO=0 guards | Live SMS/DLT or keep OTP off | Auth/OTP/session tests; OTP_DEBUG_ECHO=0 guards |
 | 4.2 | Password/account protection | LLM | Closed | Lockout, throttles, reset-oracle tests | None | Lockout, throttles, reset-oracle tests |
-| 4.3 | MFA / SSO | Split | LLM done · Human open | Implement TOTP + hashed recovery; SSO decision doc | Enroll a real owner device; decide SSO in/out | docs/ops/MFA_SSO.md (decision only; no TOTP product) |
+| 4.3 | MFA / SSO | Split | LLM done · Human open | Implement TOTP + hashed recovery; SSO decision doc | Enroll a real owner device; decide SSO in/out | `backend/accounts/mfa_service.py` (TOTP + hashed recovery codes, built; required for money roles in production); docs/ops/MFA_SSO.md is the original decision |
 | 4.4 | Role/permission matrix | Split | LLM done · Human open | Diff UI vs backend; complete matrix from FG-2d | Approve role names and Sales Staff limits | Diff UI vs backend; complete matrix from FG-2d |
 | 4.5 | Backend authorization | LLM | Closed | API 403/404 suite; admin mixin guards | Named staff-admin allowlist (4.7) | API 403/404 suite; admin mixin guards |
 | 4.6 | Support impersonation | Split | LLM done · Human open | Build consented+audited impersonation OR guard that none exists | Decide screenshare-only vs product impersonation | tests/test_no_impersonation.py |

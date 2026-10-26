@@ -34,7 +34,7 @@ recommendation: 'Done: the dashboard attention card. The daily-digest half is a 
 test_required: an e2e check that the attention card appears and links to the correct filtered list
 guard_ref:
   test: web/src/components/CollectionAttentionCard.test.tsx
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

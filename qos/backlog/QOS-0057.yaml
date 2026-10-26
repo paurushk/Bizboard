@@ -32,7 +32,7 @@ recommendation: 'Walk CR-090/092/093/094/095/096/097/098/099/102 against the cur
 test_required: every CR-090..CR-104 entry has a current verdict; still-open ones are QOS items with tests
 guard_ref:
   test: docs/reviews/CR_090_104_RESTATUS_2026-09-11.md
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

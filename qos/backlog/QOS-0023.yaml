@@ -25,7 +25,7 @@ recommendation: Pin deploy references to image digests (sha256) in the CD pipeli
 test_required: the deploy pipeline references image digests, asserted by a CI check
 guard_ref:
   test: .github/workflows/ci.yml
-lifecycle: fixed
+lifecycle: verified
 owner: devops
 opened: '2026-09-10'
 closed: null

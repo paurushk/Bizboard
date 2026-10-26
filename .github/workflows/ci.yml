@@ -389,6 +389,23 @@ jobs:
           docker compose -p glitchtip --env-file .env.glitchtip -f docker-compose.glitchtip.yml --profile errors config >/dev/null
           # Off by default: the overlay adds no service without the profile.
           test -z "$(docker compose -f docker-compose.yml -f docker-compose.glitchtip.yml config --services | grep glitchtip || true)"
+      # WP-5 (BB-068): the PgBouncer overlay renders on staging and prod, and points the app at the
+      # pool with persistent connections off.
+      - name: PgBouncer overlay renders
+        env:
+          PGBOUNCER_AUTH_PASSWORD: ci-pgbouncer-not-for-prod
+        run: |
+          docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml \
+            -f docker-compose.pgbouncer.yml config >/dev/null
+          rendered="$(docker compose --profile migrate -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.pgbouncer.yml config --format json)"
+          echo "$rendered" | python3 -c "import json,sys; s=json.load(sys.stdin)['services']; e=s['api']['environment']; assert '@pgbouncer:6432/' in e['DATABASE_URL'], 'api not via pgbouncer'; assert str(e['DB_CONN_MAX_AGE'])=='0'; assert '@db:5432/' in s['migrate']['environment']['DATABASE_URL'], 'migrate must stay direct'; assert 'ports' not in s['pgbouncer'], 'pgbouncer must not publish a port'"
+      # WP-6: the local Prometheus + Alertmanager overlay renders.
+      - name: Monitoring overlay renders
+        env:
+          METRICS_TOKEN: ci-metrics-not-for-prod
+          OPS_ALERT_TOKEN: ci-ops-not-for-prod
+        run: |
+          docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.monitoring.yml config >/dev/null
       # M1-010: a committed capacitor.config must never hardcode server.url.
       - name: capacitor.config has no hardcoded server url
         run: |
@@ -787,6 +804,9 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       CELERY_BROKER_URL: redis://localhost:6379/1
       CELERY_TASK_ALWAYS_EAGER: "0"
+      # settings_test forces eager mode, so a separate worker never saw these tasks. The tests in
+      # tests/broker/ switch the app to this broker and run an in-process worker (QOS-0012).
+      REAL_BROKER_URL: redis://localhost:6379/1
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -795,29 +815,18 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -c constraints.txt -r requirements-dev.txt
-      - name: Start a Celery worker
-        run: |
-          celery -A config worker --loglevel=warning -Q celery,high_priority,media_heavy,reports --concurrency=2 &
-          echo $! > /tmp/celery.pid
-          sleep 5
-      - name: Chains against the real broker (advisory)
-        run: |
-          pytest -m "not flaky_quarantine" -p no:randomly -q --tb=short \
-            tests/workflows/test_wf01_sale_intrastate.py \
-            tests/workflows/test_wf04_purchase.py \
-            tests/errors/test_async_task_state.py \
-            tests/errors/test_webhook_and_async_contracts.py || true
-      - name: Stop the worker
-        if: always()
-        run: kill "$(cat /tmp/celery.pid)" || true
+      - name: Chains through the real broker (advisory; failures now show)
+        run: pytest -p no:randomly -q --tb=short tests/broker/
 
   # QOS-0019 / 95-plan V3: mutation audit on the crown-jewel modules. Advisory —
   # mutmut needs Linux (no native Windows), so this is the home for it. Do not
   # make this blocking. Survivors are missing assertions; triage them into
   # core/invariants/ or tests/gst/. Not a merge gate.
   mutation-audit:
+    # A real run takes hours (about 1 h per 1,000 mutants on 6 cores), so it runs on pushes to main only.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 350
     continue-on-error: true
     defaults:
       run:
@@ -846,13 +855,13 @@ jobs:
           python-version: "3.13"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
-      - run: pip install -c constraints.txt -r requirements-dev.txt && pip install mutmut
-      - name: Mutation audit (advisory)
+      - run: pip install -c constraints.txt -r requirements-dev.txt && pip install "mutmut>=3.2"
+      # Stabilization WP-5: targets live in backend/setup.cfg [mutmut]. The old `|| true` hid that
+      # mutmut 3 rejected the mutmut-2 flags, so this lane never mutated anything. It now fails
+      # when a module's score drops below scripts/ci_gates/mutation_baseline.json.
+      - name: Mutation audit + per-module score gate
         working-directory: .
-        run: bash scripts/mutation_audit.sh || true
-      - name: Show survivors
-        working-directory: .
-        run: bash scripts/mutation_audit.sh results || true
+        run: bash scripts/mutation_audit.sh
 
   # Q-OS Product Quality Backlog gate. Blocking: the backlog schema, the
   # evidence->priority cap, lifecycle/guard invariants, and doc-in-sync must

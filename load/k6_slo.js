@@ -12,8 +12,12 @@
  * setup() instead of once per iteration. With 10+5 VUs re-logging in every
  * ~0.5-1s, the script tripped Bizboard's own 10/min login throttle within
  * seconds, so every measurement after that point was throttle-rejection
- * latency, not real endpoint latency. M1-026's bearer-token capture is kept,
- * just moved to run once.
+ * latency, not real endpoint latency. Since 2026-10-23 setup() uses the session cookies
+ * (staging is cookie-only) and aborts the run when sign-in gives no session.
+ *
+ * D-10/D-11 (2026-10-24): STAFF_EMAILS gives each VU its own login (see k6_mixed.js), and
+ * Completes run at a fixed COMPLETES_PER_MIN (default 50) because the server allows 60 per
+ * minute per company; faster than that measures 429s, not Complete latency.
  *
  * QOS-0003 follow-up: completeDraft() used to hit one hardcoded DRAFT_ID for
  * the whole 2m run — only the first call actually completed it, the other
@@ -34,6 +38,11 @@ import exec from "k6/execution";
 // A 30-minute soak belongs in load/k6_mixed.js. Access tokens last 15 minutes
 // (JWT_ACCESS_MINUTES); set JWT_ACCESS_MINUTES=60 on staging before a soak.
 const ONLY = __ENV.K6_ONLY || "all";
+// Under the 60/min per-company Complete limit (D-11).
+const COMPLETES_PER_MIN = Number(__ENV.COMPLETES_PER_MIN || "50");
+// One login per VU (D-10); setup() signs them in one every LOGIN_GAP_S, under the 10/min login limit.
+const STAFF_EMAILS = (__ENV.STAFF_EMAILS || "").split(",").map((s) => s.trim()).filter(Boolean);
+const LOGIN_GAP_S = Number(__ENV.LOGIN_GAP_S || "7");
 
 function wants(name) {
   return ONLY === "all" || ONLY === name;
@@ -49,9 +58,12 @@ if (wants("list")) {
     startTime: "0s",
   };
   scenarios.list_complete_complete = {
-    executor: "constant-vus",
-    vus: 5,
+    executor: "constant-arrival-rate",
+    rate: COMPLETES_PER_MIN,
+    timeUnit: "1m",
     duration: "2m",
+    preAllocatedVUs: 5,
+    maxVUs: 10,
     exec: "completeDraft",
     startTime: "10s",
   };
@@ -88,7 +100,11 @@ if (wants("reports")) {
   thresholds["http_req_duration{name:report_gstr1}"] = ["p(95)<8000"];
 }
 
-export const options = { scenarios, thresholds };
+export const options = {
+  scenarios,
+  thresholds,
+  setupTimeout: `${Math.ceil(Math.max(1, STAFF_EMAILS.length) * (LOGIN_GAP_S + 2)) + 60}s`,
+};
 
 const BASE = __ENV.BASE_URL || "http://localhost:8000";
 const EMAIL = __ENV.EMAIL || "";
@@ -103,20 +119,25 @@ const draftPool = new SharedArray("draftInvoiceIds", function () {
     : [];
 });
 
-export function setup() {
-  // M1-026: capture the bearer token from the login body and send it on every
-  // subsequent request. Without this, k6's implicit cookie jar was the only
-  // thing carrying "auth" — if the backend issues a bearer token in the body
-  // (it does: {success, data: {access, ...}}) rather than a cookie, every
-  // later call ran unauthenticated and the p95 thresholds below measured
-  // 401/403 rejection latency, not real endpoint latency.
-  if (!EMAIL || !PASSWORD) return { headers: null };
+// Staging is cookie-only: login sets the session cookies and returns no access token, so
+// send those cookies (plus X-CSRFToken) on every request. A bearer token in the body, where a
+// backend still sends one, is used as well. No session = abort the run: a script whose VUs
+// silently skip their work reports green thresholds over zero requests (2026-10-23 dry run).
+function signIn(email) {
   const login = http.post(
     `${BASE}/api/v1/auth/login/`,
-    JSON.stringify({ email: EMAIL, password: PASSWORD }),
+    JSON.stringify({ email, password: PASSWORD }),
     { headers: { "Content-Type": "application/json" }, tags: { name: "login" } },
   );
-  if (login.status !== 200 && login.status !== 201) return { headers: null };
+  const parts = [];
+  let csrf = "";
+  for (const name in login.cookies) {
+    const jar = login.cookies[name];
+    if (jar && jar.length) {
+      parts.push(`${name}=${jar[0].value}`);
+      if (name === "csrftoken") csrf = jar[0].value;
+    }
+  }
   let access = null;
   try {
     const body = login.json();
@@ -124,17 +145,35 @@ export function setup() {
   } catch (e) {
     access = null;
   }
-  if (!access) return { headers: null };
-  return {
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${access}`,
-    },
-  };
+  if (login.status !== 200 || (parts.length === 0 && !access)) {
+    throw new Error(`sign-in for ${email} gave no session (HTTP ${login.status}; wrong password, two-step, or throttled)`);
+  }
+  const headers = { "Content-Type": "application/json" };
+  if (parts.length) headers.Cookie = parts.join("; ");
+  if (csrf) headers["X-CSRFToken"] = csrf;
+  if (access) headers.Authorization = `Bearer ${access}`;
+  return headers;
+}
+
+export function setup() {
+  const emails = STAFF_EMAILS.length ? STAFF_EMAILS : [EMAIL];
+  if (!emails[0] || !PASSWORD) throw new Error("EMAIL (or STAFF_EMAILS) and PASSWORD are required.");
+  const sessions = [];
+  emails.forEach((email, i) => {
+    if (i > 0) sleep(LOGIN_GAP_S);
+    sessions.push(signIn(email));
+  });
+  return { sessions };
+}
+
+// VU n uses login n, wrapping when there are fewer logins than VUs.
+function sessionFor(data) {
+  const sessions = (data && data.sessions) || [];
+  return sessions.length ? sessions[(__VU - 1) % sessions.length] : null;
 }
 
 export function listInvoices(data) {
-  const headers = data && data.headers;
+  const headers = sessionFor(data);
   if (!headers) {
     sleep(1);
     return;
@@ -151,7 +190,7 @@ export function listInvoices(data) {
 }
 
 export function completeDraft(data) {
-  const headers = data && data.headers;
+  const headers = sessionFor(data);
   if (!headers) {
     sleep(1);
     return;
@@ -191,7 +230,7 @@ export function completeDraft(data) {
 }
 
 export function dashboard(data) {
-  const headers = data && data.headers;
+  const headers = sessionFor(data);
   if (!headers) {
     sleep(1);
     return;
@@ -205,7 +244,7 @@ export function dashboard(data) {
 }
 
 export function reports(data) {
-  const headers = data && data.headers;
+  const headers = sessionFor(data);
   if (!headers) {
     sleep(1);
     return;

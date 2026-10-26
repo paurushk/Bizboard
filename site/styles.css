@@ -1,0 +1,303 @@
+/* Bizboard marketing site — DRAFT. Shared styles, no frameworks, no external fonts. */
+
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f4f6f8;
+  --text: #1a1f24;
+  --muted: #4a5560;
+  --brand: #0b5cad;
+  --brand-dark: #08457f;
+  --border: #d3d9df;
+  --draft-bg: #fff4d6;
+  --draft-border: #a86b00;
+  --draft-text: #5c3a00;
+  --focus: #b3006b;
+  --radius: 8px;
+  --max: 68rem;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Noto Sans Devanagari",
+    "Nirmala UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.25;
+  margin: 0 0 0.75rem;
+}
+
+h1 { font-size: 1.75rem; }
+h2 { font-size: 1.4rem; margin-top: 0.5rem; }
+h3 { font-size: 1.1rem; }
+
+p, ul, ol { margin: 0 0 1rem; }
+
+a {
+  color: var(--brand);
+  text-underline-offset: 2px;
+}
+
+a:hover { color: var(--brand-dark); }
+
+/* Visible focus for keyboard users */
+a:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  left: 0.5rem;
+  top: -3rem;
+  background: var(--text);
+  color: #fff;
+  padding: 0.5rem 0.75rem;
+  z-index: 10;
+}
+
+.skip-link:focus { top: 0.5rem; color: #fff; }
+
+.wrap {
+  width: 100%;
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 1rem;
+}
+
+/* Draft banner (every page) */
+.draft-banner {
+  background: var(--draft-bg);
+  border-bottom: 2px solid var(--draft-border);
+  color: var(--draft-text);
+  font-size: 0.95rem;
+  padding: 0.6rem 0;
+}
+
+.draft-banner p { margin: 0; }
+
+.draft-tag {
+  display: inline-block;
+  background: var(--draft-bg);
+  border: 1px solid var(--draft-border);
+  color: var(--draft-text);
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 0.1rem 0.4rem;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+/* Header */
+.site-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header .wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+.logo {
+  font-weight: 800;
+  font-size: 1.25rem;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.site-nav ul {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+}
+
+.site-nav a { display: inline-block; padding: 0.25rem 0; }
+
+/* Sections */
+section { padding: 2rem 0; }
+section.alt { background: var(--bg-soft); }
+
+.hero { padding: 2.5rem 0 2rem; }
+.lead { font-size: 1.1rem; color: var(--muted); max-width: 46rem; }
+
+.btn {
+  display: inline-block;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius);
+  border: 2px solid var(--brand);
+}
+
+.btn:hover { background: var(--brand-dark); border-color: var(--brand-dark); color: #fff; }
+
+.btn-secondary {
+  background: transparent;
+  color: var(--brand);
+}
+
+.btn-secondary:hover { background: var(--bg-soft); color: var(--brand-dark); }
+
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 1.25rem 0 0.5rem;
+}
+
+.note { font-size: 0.9rem; color: var(--muted); }
+
+/* Card grid: one column on phones, more as space allows */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  padding: 0;
+  list-style: none;
+  margin: 0 0 1rem;
+}
+
+@media (min-width: 40rem) {
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  h1 { font-size: 2.1rem; }
+}
+
+@media (min-width: 64rem) {
+  .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  min-width: 0;
+}
+
+.card h3 { display: flex; align-items: center; gap: 0.5rem; }
+
+.icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  color: var(--brand);
+}
+
+/* Steps */
+.steps { padding-left: 1.25rem; }
+.steps li { margin-bottom: 0.5rem; }
+
+.callout {
+  border-left: 4px solid var(--brand);
+  background: var(--bg-soft);
+  padding: 0.75rem 1rem;
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+section.alt .callout { background: var(--bg); }
+
+/* Plan cards */
+.plan { display: flex; flex-direction: column; }
+.plan .price { font-size: 1.6rem; font-weight: 800; margin: 0.25rem 0; }
+.plan .price small { font-size: 0.9rem; font-weight: 400; color: var(--muted); }
+.plan ul { padding-left: 1.1rem; }
+
+/* Comparison table: scrolls inside its own box, never the page */
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 34rem;
+  font-size: 0.95rem;
+}
+
+caption {
+  text-align: left;
+  padding: 0.75rem;
+  font-weight: 700;
+}
+
+th,
+td {
+  border-top: 1px solid var(--border);
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+thead th { background: var(--bg-soft); }
+tbody th { font-weight: 600; }
+
+/* FAQ */
+details {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+  background: var(--bg);
+}
+
+summary { cursor: pointer; font-weight: 700; }
+details p { margin: 0.75rem 0 0; }
+
+/* Footer */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--bg-soft);
+  padding: 1.5rem 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.site-footer ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; transition: none !important; }
+}

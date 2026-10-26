@@ -26,7 +26,7 @@ recommendation: Keep the branch GSTIN screen and the cross-tenant isolation test
 test_required: Company GSTIN list stays tenant-scoped
 guard_ref:
   test: backend/tests/test_b06_020_cross_tenant_membership_gstin.py::test_company_gstins_list_excludes_other_tenant
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-10'
 closed: '2026-09-28'

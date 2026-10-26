@@ -28,7 +28,7 @@ recommendation: Decide the CSP delivery point (edge vs app) and add a header-pre
 test_required: a CSP header presence test + pen-test findings triaged as QOS items
 guard_ref:
   test: backend/tests/errors/test_freeze_gate_contracts.py::test_api_response_carries_hardening_headers
-lifecycle: fixed
+lifecycle: verified
 owner: ops
 opened: '2026-09-10'
 closed: null

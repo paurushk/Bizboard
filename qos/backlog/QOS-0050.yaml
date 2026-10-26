@@ -28,7 +28,7 @@ recommendation: 'Add a drill (compose-based or a Phase 5 lane): kill Redis, then
 test_required: a chaos drill covering Redis-down and Postgres-down with the asserted degradation contract
 guard_ref:
   test: backend/tests/errors/test_chaos_degradation.py::test_cache_outage_degrades_health_not_crash
-lifecycle: fixed
+lifecycle: verified
 owner: ops
 opened: '2026-09-10'
 closed: null

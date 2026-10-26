@@ -11,7 +11,11 @@ evidence:
   source:
   - docs/TESTING_STRATEGY.md#7 G-10
   - docs/FREEZE_SCOPE.md H3
-  detail: Eager mode is the test default; ordering is only exercised against a real broker.
+  detail: 'Eager mode is the test default; ordering is only exercised against a real broker. 2026-10-23:
+    the earlier real-broker lane never sent a task through Redis (settings_test forces eager mode and the
+    pytest step ended in || true). tests/broker/ now runs an in-process worker on a real broker: the
+    e-invoice submit chain retries a failed IRP call through the broker and ends GENERATED, and a double
+    delivery yields one IRN and one audit event. Passed locally against Redis 7 on 2026-10-23.'
 scoring:
   reach: 2
   severity: 3
@@ -25,8 +29,8 @@ recommendation: 'Phase 5: run WF-17, period-close, and e-invoice-submit chains a
   assert the user-visible end state under interleaving.'
 test_required: key chains run green against a real broker in a Phase 5 lane
 guard_ref:
-  test: .github/workflows/ci.yml
-lifecycle: fixed
+  test: backend/tests/broker/test_real_broker_einvoice.py
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

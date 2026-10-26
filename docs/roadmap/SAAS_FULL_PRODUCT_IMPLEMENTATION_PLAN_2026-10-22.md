@@ -645,7 +645,7 @@ WP-A1 commit/tag (previous plan) — nothing below starts before it
 | API / mobile compatibility test against the last release's schema | E-03 | M |
 | Flag expiry guard | P-05 | S |
 | Consented product analytics on the Journey Health pipeline | P-01 | M |
-| NPS / CSAT survey | P-04 | S |
+| NPS / CSAT survey | P-04 (built 2026-10-24, D-08: behind `ENABLE_SATISFACTION_SURVEY`) | S |
 | Audit log screen and export for owners | I-04 | M |
 | Annual plans + deferred-revenue schedule | B-02 | M |
 | Add-ons (users, SMS packs, storage, AI credits) | B-03 | M |

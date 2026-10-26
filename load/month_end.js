@@ -11,7 +11,7 @@
  *
  *   k6 run -e BASE_URL=https://staging.example \
  *     -e TENANTS="owner1@t1.test:pass1,owner2@t2.test:pass2,..." \
- *     -e PERIOD=2026-09 -e DURATION=2h \
+ *     -e TOTP_SECRETS="owner1@t1.test=JBSWY3DPEHPK3PXP,owner2@t2.test=..."  *     -e PERIOD=2026-09 -e DURATION=2h \
  *     -e EMAIL=... -e PASSWORD=... -e DRAFT_INVOICE_IDS=$(python manage.py seed_draft_pool --count 3000 --company "Load Tenant") \
  *     load/month_end.js
  *
@@ -19,9 +19,11 @@
  * Staging must set JWT_ACCESS_MINUTES >= the run length. Staging is cookie-only (no Bearer token,
  * no access token in the login body), so the script signs each tenant in once in setup() — paced
  * under the 10/min per-address login limit — and sends the session cookies (plus X-CSRFToken on
- * the Completes). Before the run: every tenant account has ENABLE_GSTR granted, and either has no
- * two-step requirement on staging or is not an owner/accountant (a money role is asked to enrol
- * and gets no session). setup() stops the run if any sign-in gets no session. Record the run in
+ * the Completes). Before the run: every tenant account has ENABLE_GSTR granted and has finished
+ * two-step enrolment. Owners and accountants must use two-step, so give each one's authenticator
+ * secret (the base32 key shown at enrolment) in TOTP_SECRETS="owner1@t1.test=BASE32,..."; setup()
+ * answers the two-step challenge with the current code. An account still asked to enrol gets no
+ * session, and setup() stops the run if any sign-in gets no session. Record the run in
  * docs/ops/LOAD_RESULTS_TEMPLATE.md ("Month-end GST peak"); pre-scale workers as in
  * docs/ops/WORKER_SCALE.md#month-end-and-gst-deadlines.
  *
@@ -29,6 +31,7 @@
  */
 import http from "k6/http";
 import { check, sleep } from "k6";
+import crypto from "k6/crypto";
 import { SharedArray } from "k6/data";
 import exec from "k6/execution";
 
@@ -44,6 +47,40 @@ function seconds(text) {
   if (!m) return 7200;
   const n = Number(m[1]);
   return m[2] === "h" ? n * 3600 : m[2] === "m" ? n * 60 : n;
+}
+
+// Authenticator secrets by email, for accounts that must pass two-step (owners, accountants).
+const totpSecrets = {};
+for (const pair of (__ENV.TOTP_SECRETS || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+  const i = pair.indexOf("=");
+  if (i > 0) totpSecrets[pair.slice(0, i).trim().toLowerCase()] = pair.slice(i + 1).trim();
+}
+
+function base32Bytes(secret) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = "";
+  for (const ch of secret.replace(/[\s=]/g, "").toUpperCase()) {
+    const v = alphabet.indexOf(ch);
+    if (v < 0) throw new Error("TOTP secret is not base32");
+    bits += v.toString(2).padStart(5, "0");
+  }
+  const out = new Uint8Array(Math.floor(bits.length / 8));
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(bits.slice(i * 8, i * 8 + 8), 2);
+  return out.buffer;
+}
+
+// RFC 6238 code (SHA-1, 30 s, 6 digits), the same as the authenticator app shows.
+export function totp(secret, nowMs = Date.now()) {
+  const counter = new Uint8Array(8);
+  let step = Math.floor(nowMs / 30000);
+  for (let i = 7; i >= 0; i--) {
+    counter[i] = step & 0xff;
+    step = Math.floor(step / 256);
+  }
+  const mac = new Uint8Array(crypto.hmac("sha1", base32Bytes(secret), counter.buffer, "binary"));
+  const o = mac[mac.length - 1] & 0x0f;
+  const n = ((mac[o] & 0x7f) << 24) | (mac[o + 1] << 16) | (mac[o + 2] << 8) | mac[o + 3];
+  return String(n % 1000000).padStart(6, "0");
 }
 
 const tenants = new SharedArray("tenants", function () {
@@ -96,11 +133,29 @@ export const options = {
 };
 
 function session(email, password) {
-  const res = http.post(
+  let res = http.post(
     `${BASE}/api/v1/auth/login/`,
     JSON.stringify({ email, password }),
     { headers: { "Content-Type": "application/json" }, tags: { name: "login" } },
   );
+  // Two-step: the login answers with a challenge token and sets no cookies.
+  let body = {};
+  try {
+    body = res.json() || {};
+  } catch (e) {
+    body = {};
+  }
+  const data = body.data || body;
+  const mfaToken = data.mfaToken || data.mfa_token;
+  if (res.status === 200 && (data.mfaRequired || data.mfa_required) && mfaToken) {
+    const secret = totpSecrets[email.toLowerCase()];
+    if (!secret) return null;
+    res = http.post(
+      `${BASE}/api/v1/auth/mfa/verify/`,
+      JSON.stringify({ mfaToken, code: totp(secret) }),
+      { headers: { "Content-Type": "application/json" }, tags: { name: "login_mfa" } },
+    );
+  }
   const parts = [];
   let csrf = "";
   for (const name in res.cookies) {
@@ -121,7 +176,11 @@ export function setup() {
   const sessions = [];
   for (const t of tenants) {
     const headers = session(t.email, t.password);
-    if (!headers) throw new Error(`sign-in for ${t.email} gave no session (wrong password, two-step, or throttled)`);
+    if (!headers) {
+      throw new Error(
+        `sign-in for ${t.email} gave no session (wrong password, two-step without a TOTP_SECRETS entry, not enrolled, or throttled)`,
+      );
+    }
     sessions.push(headers);
     sleep(LOGIN_GAP_S);
   }

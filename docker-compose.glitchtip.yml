@@ -33,8 +33,10 @@ x-glitchtip-env: &glitchtip-env
   ENABLE_ORGANIZATION_CREATION: "false"
   GLITCHTIP_MAX_EVENT_LIFE_DAYS: ${GLITCHTIP_RETENTION_DAYS:-90}
   GLITCHTIP_ENABLE_UPTIME: "true"
-  # Uptime monitors call the API on the private stack network (http://api:8000).
-  GLITCHTIP_ALLOW_PRIVATE_IPS: ${GLITCHTIP_ALLOW_PRIVATE_IPS:-true}
+  # Uptime monitors call the API on the private stack network (http://api:8000). GlitchTip 6
+  # gates monitors with their own flag; its general GLITCHTIP_ALLOW_PRIVATE_IPS (alert webhooks)
+  # stays at its default (off), since ntfy and email need no private address.
+  GLITCHTIP_UPTIME_ALLOW_PRIVATE_IPS: ${GLITCHTIP_ALLOW_PRIVATE_IPS:-true}
   MEDIA_ROOT: /code/uploads
 
 services:
@@ -107,6 +109,35 @@ services:
     volumes:
       - ./deploy/glitchtip:/bootstrap:ro
     entrypoint: ["sh", "-c", "./manage.py shell < /bootstrap/bootstrap.py"]
+
+  # Nightly, next to the app's dump (same cron as `--profile backup run --rm backup`):
+  #   docker compose ... run --rm glitchtip-backup      (needs COMPOSE_PROFILES=errors; running it
+  #   by name enables its own profile, so a plain `up` never starts it)
+  # scripts/backup.sh with BACKUP_KIND=glitchtip: same encryption, offsite copy and retention.
+  glitchtip-backup:
+    profiles: ["errors-backup"]
+    image: postgres:17-alpine
+    restart: "no"
+    environment:
+      BACKUP_KIND: glitchtip
+      PGHOST: glitchtip-db
+      PGPASSWORD: ${GLITCHTIP_DB_PASSWORD:-}
+      POSTGRES_USER: glitchtip
+      POSTGRES_DB: glitchtip
+      BACKUP_GPG_RECIPIENT: ${BACKUP_GPG_RECIPIENT:-}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_ALLOW_UNENCRYPTED: ${BACKUP_ALLOW_UNENCRYPTED:-0}
+      BACKUP_OFFSITE_CMD: ${BACKUP_OFFSITE_CMD:-}
+      BACKUP_REQUIRE_OFFSITE: ${BACKUP_REQUIRE_OFFSITE:-0}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_MIN_KEEP: ${BACKUP_MIN_KEEP:-7}
+    volumes:
+      - ${GLITCHTIP_BACKUP_DIR:-./backups/glitchtip}:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    depends_on:
+      glitchtip-db:
+        condition: service_healthy
 
 volumes:
   glitchtip_postgres:

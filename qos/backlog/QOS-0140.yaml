@@ -21,7 +21,7 @@ recommendation: "Keep the postgres race tests running in CI so the lock is not r
 test_required: "backend/tests/test_dan_concurrency_postgres.py"
 guard_ref:
   test: "backend/tests/test_dan_concurrency_postgres.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-20"
 closed: "2026-10-20"

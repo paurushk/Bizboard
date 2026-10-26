@@ -35,7 +35,7 @@ test_required: Axe has no serious or critical finding on any route in route-smok
   check of the editors and POS.
 guard_ref:
   test: web/e2e/route-smoke.spec.ts
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-10-01'
 closed: '2026-10-22'

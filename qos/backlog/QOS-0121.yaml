@@ -21,7 +21,7 @@ recommendation: "Done. Void and refund accept an Idempotency-Key; reasons are ke
 test_required: "backend/tests/test_money_in_phase2.py::test_refunding_part_of_an_advance_keeps_every_reader_consistent"
 guard_ref:
   test: "backend/tests/test_money_in_phase2.py::test_refunding_part_of_an_advance_keeps_every_reader_consistent"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

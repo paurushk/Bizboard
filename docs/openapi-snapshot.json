@@ -5638,6 +5638,66 @@
                 }
             }
         },
+        "/api/v1/billing/referral/": {
+            "get": {
+                "operationId": "billing_referral_retrieve",
+                "description": "GET /api/v1/billing/referral/ — the owner's referral code and counts. Counts only: the\nreferrer never sees which businesses signed up. 404 while ENABLE_SAAS_REFERRALS is off.",
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReferralPanel"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/billing/referral/check/{code}/": {
+            "get": {
+                "operationId": "billing_referral_check_retrieve",
+                "description": "GET /api/v1/billing/referral/check/<code>/ — before sign-up: is this a live referral code?\nSays only yes or no (never whose code it is). Rate-limited.",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "code",
+                        "schema": {
+                            "type": "string"
+                        },
+                        "required": true
+                    }
+                ],
+                "tags": [
+                    "billing"
+                ],
+                "security": [
+                    {}
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PublicReferralCheck"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/billing/subscription/": {
             "get": {
                 "operationId": "billing_subscription_retrieve",
@@ -6282,6 +6342,35 @@
                 "responses": {
                     "204": {
                         "description": "No response body"
+                    }
+                }
+            }
+        },
+        "/api/v1/company/members/": {
+            "get": {
+                "operationId": "company_members_list",
+                "description": "GET /api/v1/company/members/ — active members who have signed up (no pending invites).",
+                "tags": [
+                    "company"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/TeamMember"
+                                    }
+                                }
+                            }
+                        },
+                        "description": ""
                     }
                 }
             }
@@ -49607,6 +49696,78 @@
                 }
             }
         },
+        "/api/v1/support/satisfaction/": {
+            "post": {
+                "operationId": "support_satisfaction_create",
+                "description": "POST /api/v1/support/satisfaction/ — an NPS answer (\"Not now\" = no score) or a CSAT rating.",
+                "tags": [
+                    "support"
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SatisfactionAnswer"
+                            }
+                        },
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SatisfactionAnswer"
+                            }
+                        },
+                        "application/x-www-form-urlencoded": {
+                            "schema": {
+                                "$ref": "#/components/schemas/SatisfactionAnswer"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/SatisfactionSaved"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
+        "/api/v1/support/satisfaction/nps-due/": {
+            "get": {
+                "operationId": "support_satisfaction_nps_due_retrieve",
+                "description": "GET /api/v1/support/satisfaction/nps-due/ — show the recommend-us prompt now?",
+                "tags": [
+                    "support"
+                ],
+                "security": [
+                    {
+                        "jwtAuth": []
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NpsDue"
+                                }
+                            }
+                        },
+                        "description": ""
+                    }
+                }
+            }
+        },
         "/api/v1/support/shared/": {
             "get": {
                 "operationId": "support_shared_list",
@@ -59450,6 +59611,22 @@
                 ],
                 "type": "string",
                 "description": "* `QUEUED` - Queued\n* `SENT` - Sent\n* `LINK_READY` - Link Ready\n* `FAILED` - Failed"
+            },
+            "NpsDue": {
+                "type": "object",
+                "properties": {
+                    "due": {
+                        "type": "boolean"
+                    },
+                    "enabled": {
+                        "type": "boolean",
+                        "description": "ENABLE_SATISFACTION_SURVEY is on for this company."
+                    }
+                },
+                "required": [
+                    "due",
+                    "enabled"
+                ]
             },
             "Operator": {
                 "type": "object",
@@ -72257,6 +72434,17 @@
                 "type": "string",
                 "description": "* `PLANNED` - Planned\n* `READY` - Ready\n* `INVOICED` - Invoiced"
             },
+            "PublicReferralCheck": {
+                "type": "object",
+                "properties": {
+                    "valid": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "valid"
+                ]
+            },
             "PurchaseCreditNote": {
                 "type": "object",
                 "properties": {
@@ -75129,6 +75317,31 @@
                     "uses"
                 ]
             },
+            "ReferralPanel": {
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "is_active": {
+                        "type": "boolean"
+                    },
+                    "signed_up": {
+                        "type": "integer",
+                        "description": "Businesses that signed up with the link (not voided)."
+                    },
+                    "qualified": {
+                        "type": "integer",
+                        "description": "Of those, businesses that started paying (not voided)."
+                    }
+                },
+                "required": [
+                    "code",
+                    "is_active",
+                    "qualified",
+                    "signed_up"
+                ]
+            },
             "ReferralReward": {
                 "type": "object",
                 "properties": {
@@ -77657,6 +77870,59 @@
                     "units"
                 ]
             },
+            "SatisfactionAnswer": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "$ref": "#/components/schemas/SatisfactionAnswerKindEnum"
+                    },
+                    "score": {
+                        "type": "integer",
+                        "maximum": 10,
+                        "minimum": 0,
+                        "nullable": true
+                    },
+                    "comment": {
+                        "type": "string",
+                        "maxLength": 2000
+                    },
+                    "platform_ticket": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "kind"
+                ]
+            },
+            "SatisfactionAnswerKindEnum": {
+                "enum": [
+                    "NPS",
+                    "CSAT"
+                ],
+                "type": "string",
+                "description": "* `NPS` - Would recommend (0-10)\n* `CSAT` - Support satisfaction (1-5)"
+            },
+            "SatisfactionSaved": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "kind": {
+                        "type": "string"
+                    },
+                    "score": {
+                        "type": "integer",
+                        "nullable": true
+                    }
+                },
+                "required": [
+                    "id",
+                    "kind",
+                    "score"
+                ]
+            },
             "SerialNumber": {
                 "type": "object",
                 "properties": {
@@ -78995,6 +79261,27 @@
                         "maxLength": 64
                     }
                 }
+            },
+            "TeamMember": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "description": "Company membership id, the value the pickers assign."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Full name, or the part of the email before @ when none is set."
+                    },
+                    "role": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "role"
+                ]
             },
             "Ticket": {
                 "type": "object",

@@ -26,8 +26,15 @@ APP_USER="$(getv APP_DB_USER)"; APP_PW="$(getv APP_DB_PASSWORD)"
 COMPOSE_ARGS=(--env-file "$ENV_FILE")
 for f in "$@"; do COMPOSE_ARGS+=(-f "$f"); done
 
+# WP-5: when PGBOUNCER_AUTH_PASSWORD is set, also create the pgbouncer_auth lookup role
+# used by docker-compose.pgbouncer.yml (docs/ops/POSTGRES.md).
+PGB_PW="$(getv PGBOUNCER_AUTH_PASSWORD)"
+PGB_ARGS=()
+if [[ -n "$PGB_PW" ]]; then PGB_ARGS=(-v pgb_pw="$PGB_PW"); fi
+
 docker compose "${COMPOSE_ARGS[@]}" \
   exec -T db psql -v ON_ERROR_STOP=1 -U "$OWNER" -d "$DB" \
   -v app_user="$APP_USER" -v app_pw="$APP_PW" -v owner="$OWNER" -v dbname="$DB" \
-  -f - < scripts/sql/app_role.sql
-echo "App role '$APP_USER' ready (NOSUPERUSER NOBYPASSRLS)."
+  ${PGB_ARGS[@]+"${PGB_ARGS[@]}"} -f - < scripts/sql/app_role.sql
+echo "App role '$APP_USER' ready (NOSUPERUSER NOBYPASSRLS, 30s statement / 60s idle-in-transaction timeouts)."
+if [[ -n "$PGB_PW" ]]; then echo "PgBouncer lookup role 'pgbouncer_auth' ready."; fi

@@ -1,0 +1,59 @@
+# Overlay: put PgBouncer (session mode) between api/worker/beat and Postgres (WP-5, BB-068).
+#
+#   docker compose --env-file .env.staging -f docker-compose.yml -f docker-compose.staging.yml \
+#     -f docker-compose.pgbouncer.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.pgbouncer.yml up -d
+#
+# Before the first start: set PGBOUNCER_AUTH_PASSWORD in the env file and run the app-role script
+# (scripts/staging-db-role.sh or scripts/db-app-role.sh), which creates the pgbouncer_auth lookup
+# role. migrate / backup / restore keep connecting to db directly as the owner.
+# Why session mode, CONN_MAX_AGE=0 and role-level timeouts: deploy/pgbouncer.ini, docs/ops/POSTGRES.md.
+
+x-via-pgbouncer: &via-pgbouncer
+  DATABASE_URL: postgresql://${APP_DB_USER:?Set APP_DB_USER}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD}@pgbouncer:6432/${POSTGRES_DB}
+  DB_CONN_MAX_AGE: "0"
+  DB_VIA_PGBOUNCER: "1"
+
+services:
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:?Set PGBOUNCER_AUTH_PASSWORD (see docs/ops/POSTGRES.md)}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        umask 077
+        mkdir -p /tmp/pgbouncer
+        printf '"pgbouncer_auth" "%s"\n' "$$PGBOUNCER_AUTH_PASSWORD" > /tmp/pgbouncer/userlist.txt
+        unset PGBOUNCER_AUTH_PASSWORD
+        exec pgbouncer /etc/pgbouncer/pgbouncer.ini
+    volumes:
+      - ./deploy/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    tmpfs:
+      - /tmp/pgbouncer:mode=0700,uid=70,gid=70
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6432"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  api:
+    environment: *via-pgbouncer
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+  worker:
+    environment: *via-pgbouncer
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+  beat:
+    environment: *via-pgbouncer
+    depends_on:
+      pgbouncer:
+        condition: service_healthy

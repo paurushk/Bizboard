@@ -26,7 +26,7 @@ recommendation: Make the 5 fixtures' dates relative to timezone.now(); once gree
 test_required: determinism-probe green on main for 3 consecutive runs, then promoted to blocking
 guard_ref:
   test: backend/tests/test_pr6_period_gl.py::test_completed_pcn_without_je_blocks_after_cutoff
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

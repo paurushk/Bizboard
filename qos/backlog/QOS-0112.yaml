@@ -21,7 +21,7 @@ recommendation: "Done. Run release_orphan_quotation_conversions --dry-run once i
 test_required: "backend/tests/test_quotation_closure.py::test_wp4_flag_off_leaves_an_orphan_and_the_sweep_releases_it"
 guard_ref:
   test: "backend/tests/test_quotation_closure.py::test_wp4_flag_off_leaves_an_orphan_and_the_sweep_releases_it"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

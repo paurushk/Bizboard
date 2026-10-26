@@ -21,7 +21,7 @@ recommendation: "Done. Keep the ledger invariant check in any future import path
 test_required: "backend/tests/test_quotation_closure.py::test_wp2_restore_round_trip_keeps_ledger_revisions_and_links"
 guard_ref:
   test: "backend/tests/test_quotation_closure.py::test_wp2_restore_round_trip_keeps_ledger_revisions_and_links"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

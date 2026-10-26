@@ -37,7 +37,7 @@ recommendation: 'Done: expiry-policy x guard-band matrix + the two serial tests.
 test_required: expiry-policy matrix axis + the two serial tests, green in the Phase 2 gate
 guard_ref:
   test: backend/tests/matrices/test_company_settings_matrix.py::test_expiry_guard_band_matrix
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

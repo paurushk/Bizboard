@@ -30,7 +30,7 @@ recommendation: Locate FINDINGS_2026-09-05.md (git history / branches / author) 
 test_required: the R findings doc is in the repo, or the register records R as formally superseded
 guard_ref:
   test: docs/reviews/MASTER_ISSUE_REGISTER.md
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-09-10'
 closed: null

@@ -24,7 +24,7 @@ recommendation: "Done. Whether a pilot tenant may be granted each extension flag
 test_required: "python scripts/ci_gates/run_guards.py"
 guard_ref:
   test: "scripts/ci_gates/guards/guard_config_consistency.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-02"
 closed: "2026-10-02"

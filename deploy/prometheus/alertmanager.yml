@@ -1,0 +1,20 @@
+# WP-6: Alertmanager for the rules in alerts.yml. Pages go through the app's ops relay
+# (/api/v1/ops/alert/), which already sends to the on-call ntfy topic and Telegram (D-02), so there
+# is one paging path to keep working. The relay token is read from a file written at container
+# start from OPS_ALERT_TOKEN (docker-compose.monitoring.yml); it is never in this file.
+route:
+  receiver: ops-relay
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: ops-relay
+    webhook_configs:
+      - url: http://api:8000/api/v1/ops/alert/
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /alertmanager/ops_alert_token

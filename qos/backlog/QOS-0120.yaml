@@ -21,7 +21,7 @@ recommendation: "Done. Ask the CA to confirm account 1270 before turning TDS on 
 test_required: "backend/tests/test_money_in_phase2.py::test_partial_allocation_clears_the_same_amount_in_the_gl_and_on_the_invoice"
 guard_ref:
   test: "backend/tests/test_money_in_phase2.py::test_partial_allocation_clears_the_same_amount_in_the_gl_and_on_the_invoice"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

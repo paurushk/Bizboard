@@ -21,7 +21,7 @@ recommendation: "Done. The trigram indexes were added after profiling on Postgre
 test_required: "backend/tests/test_money_in_receipts.py::test_void_requires_a_reason_on_the_server"
 guard_ref:
   test: "backend/tests/test_money_in_receipts.py::test_void_requires_a_reason_on_the_server"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

@@ -26,7 +26,7 @@ recommendation: "Three layers: a model/QuerySet guard with an explicit audit_mai
 test_required: "backend/tests/test_audit_append_only.py (SQLite plus Postgres trigger tests)."
 guard_ref:
   test: "backend/tests/test_audit_append_only.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-02"
 closed: "2026-10-02"

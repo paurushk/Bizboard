@@ -21,7 +21,7 @@ recommendation: "Done: pro-rata header shares, cumulative rounding so the docume
 test_required: "backend/tests/test_quotation_closure.py::test_wp1_even_split_shares_header_and_sums_to_quote"
 guard_ref:
   test: "backend/tests/test_quotation_closure.py::test_wp1_even_split_shares_header_and_sums_to_quote"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

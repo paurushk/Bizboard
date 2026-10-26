@@ -21,7 +21,7 @@ recommendation: "Done. Needs MFG_JOB_WORK and MFG_SHOP_FLOOR, and the job-work C
 test_required: "backend/tests/test_mfg_subcontract.py"
 guard_ref:
   test: "backend/tests/test_mfg_subcontract.py"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-21"
 closed: "2026-10-21"

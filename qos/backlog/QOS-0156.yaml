@@ -1,0 +1,42 @@
+id: QOS-0156
+category: RELIABILITY_TRUST
+title: 'A page reload during a session refresh signed the user out'
+persona:
+- P1
+- P2
+- P5
+journey: Stay signed in through normal use (reloads, flaky networks)
+problem: 'Refresh tokens rotate on every refresh and the old one is blacklisted at once. When a reload
+  (or a dropped connection) aborted the refresh response after the server had rotated the token, the
+  browser kept the old cookie, the next refresh was refused and the user was thrown back to sign-in.
+  The golden e2e helpers already worked around it ("a reload while one is in flight can revoke the
+  token family").'
+evidence:
+  strength: single-run
+  source:
+  - web/e2e-golden/lead-pilot-gaps.spec.ts
+  - web/e2e-golden/helpers/documents.ts
+  detail: 'Reproduced 2026-10-23 in the live golden run: a reload right after a flag grant landed on the
+    sign-in page. Fixed with a same-device, single-use grace window (REFRESH_REUSE_GRACE_SECONDS, default
+    20): the token rotated within the window may be replayed once from the same live device session
+    (user agent + IP prefix); the token the browser never received is retired; a signed-out or revoked
+    session never qualifies. The month-end golden test that reloads now passes.'
+scoring:
+  reach: 4
+  severity: 3
+  frequency: 2
+  impact_band: Medium
+business_metric: none
+priority: P1
+priority_rationale: Random sign-outs erode trust on every screen; single run but the mechanism is certain.
+effort: S
+recommendation: Keep the grace short and same-device only; BUG-107 (stolen token desync) still holds
+  outside the window and across devices. Pure rotation stays tested with the grace at 0.
+test_required: backend/tests/test_user_sessions_id3.py reload replay keeps the session, is single use,
+  refused from another device, refused after sign-out
+guard_ref:
+  test: backend/tests/test_user_sessions_id3.py::test_a_reload_that_lost_the_rotated_cookie_keeps_the_user_signed_in
+lifecycle: verified
+owner: backend
+opened: '2026-10-23'
+closed: null

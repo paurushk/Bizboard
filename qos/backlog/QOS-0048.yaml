@@ -40,7 +40,7 @@ recommendation: 'Done: the quick-entry sheet (the rep''s own recent customers + 
 test_required: a mobile quick-entry e2e journey if pursued
 guard_ref:
   test: web/src/pages/sales/QuickEntryPage.test.tsx
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

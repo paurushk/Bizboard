@@ -12,6 +12,7 @@ match `docs/pilot/DPDP_POSTURE.md`.
 | Comms | WhatsApp send status, AR dunning flags | `sales`, `payments` |
 | Telemetry | shop-floor events without GSTIN/phone | `insights.ShopFloorEvent` |
 | SaaS billing | Razorpay subscription ids, seat counts | `billing.Subscription` — not customer AR |
+| Bizboard referrals (D-19, flag off) | which company referred which (company ids only), signed-up / started-paying dates, staff settlement note | `billing.ReferralLink`, `billing.ReferralEvent` — the referrer sees counts only; links nulled when the referred company is erased |
 
 Request logs hash user/company ids and redact document numbers / GSTIN (`test_request_log_masks_ids_and_carries_no_body`). Card PAN/CVV are never stored (`docs/ops/PCI_SCOPE.md`).
 

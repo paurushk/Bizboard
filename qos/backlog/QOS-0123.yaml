@@ -21,7 +21,7 @@ recommendation: "Done. Re-run backend/perf/receipts_profile.py on Postgres after
 test_required: "backend/tests/test_money_in_phase2.py::test_export_needs_the_export_permission_and_is_audited"
 guard_ref:
   test: "backend/tests/test_money_in_phase2.py::test_export_needs_the_export_permission_and_is_audited"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-11"
 closed: "2026-10-11"

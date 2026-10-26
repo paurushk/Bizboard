@@ -21,7 +21,7 @@ recommendation: "DONE: the filing date is recorded per financial year on the GST
 test_required: "backend/tests/test_credit_debit_notes_plan.py::test_credit_note_stops_at_annual_return_filing_date"
 guard_ref:
   test: "backend/tests/test_credit_debit_notes_plan.py::test_credit_note_stops_at_annual_return_filing_date"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "founder"
 opened: "2026-10-14"
 closed: "2026-10-14"

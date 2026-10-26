@@ -21,7 +21,7 @@ recommendation: "Done. A cancelled or fully converted quote does not block a new
 test_required: "backend/tests/test_quotation_closure.py::test_wp3_create_response_has_real_totals"
 guard_ref:
   test: "backend/tests/test_quotation_closure.py::test_wp3_create_response_has_real_totals"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

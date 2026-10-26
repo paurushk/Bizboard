@@ -11,7 +11,7 @@
 | B — Managed Postgres + Redis + VM for api/worker/web | Prefer for paid beta | App still one AZ unless Human funds HA |
 | C — Full k8s | Out of freeze | Do not start in an LLM session |
 
-**Default recommendation for freeze:** B. Do not enable PgBouncer until `CONN_MAX_AGE=0` (see `docs/ops/POSTGRES.md`). Do not enable prod RLS.
+**Default recommendation for freeze:** B. PgBouncer is built as an opt-in overlay (`docker-compose.pgbouncer.yml`, session mode, `CONN_MAX_AGE=0` enforced at boot); start without it and enable it only when connections become the limit (`docs/ops/POSTGRES.md`, WP-5 2026-10-25). Do not enable prod RLS.
 
 ## Already decided in code
 

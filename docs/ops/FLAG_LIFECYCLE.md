@@ -23,6 +23,9 @@ product changelog. Paid plans must not enable Table B dark modules.
 `ENABLE_PAYROLL`, `ENABLE_CRM`, `VITE_ENABLE_*` counterparts, live
 `GSP_LIVE_ENABLED`. Guard: `scripts/ci_gates/guards/guard_freeze_table_b_defaults.py`.
 
+The env value of `ENABLE_GSTR` stays `0`, but the trial and every seeded paid plan grant it
+(GSTR-1/3B worksheets only, D-16), so `FREEZE_DARK_PLAN_MODULES` no longer lists it.
+
 `ENABLE_POS`, `ENABLE_TDS`, and `ENABLE_SETUP_WIZARD` are freeze-supported
 (A23 / A24 / A19). Production and staging env templates pin them `1`. They
 are grantable, not dark modules.

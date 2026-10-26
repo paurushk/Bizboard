@@ -32,7 +32,7 @@ test_required: 'a test: drift the reserved cache -> inventory_summary available 
   is flagged and available is not understated'
 guard_ref:
   test: backend/tests/test_a4_a5_reporting.py::test_qos0059_reserved_drift_does_not_understate_available
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

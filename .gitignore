@@ -72,3 +72,9 @@ docker-compose.digest.yml
 
 # pytest-xdist per-worker copies of the reuse-db SQLite test DB
 backend/.pytest_local.db_gw*
+
+# mutmut 3 working copy and results (scripts/mutation_audit.sh)
+backend/mutants/
+backend/mutation_results.txt
+backend/coverage.xml
+backend/pg_skips.json

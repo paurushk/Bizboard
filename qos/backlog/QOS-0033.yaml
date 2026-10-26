@@ -28,7 +28,7 @@ recommendation: Add a blessed snapshot of the GSTR-1 HSN summary for a mixed-rat
 test_required: a GSTR-1 HSN summary snapshot test in tests/snapshots/
 guard_ref:
   test: backend/tests/snapshots/test_gstr1_json.py::test_gstr1_hsn_summary_snapshot_mixed_rate
-lifecycle: fixed
+lifecycle: verified
 owner: backend
 opened: '2026-09-10'
 closed: null

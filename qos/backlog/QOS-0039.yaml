@@ -34,7 +34,7 @@ recommendation: 'Done: bulk-accept-exact endpoint + BankReconPage button. Fuzzy 
 test_required: a test that bulk-accept touches only EXACT-class rows and is undoable
 guard_ref:
   test: backend/tests/test_phase3_payments.py::test_bulk_accept_exact_matches_only_exact_class_and_is_undoable
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

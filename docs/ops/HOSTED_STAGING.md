@@ -28,7 +28,7 @@ bottom as each step is done — the scorecard row moves from L1 to L2 only with 
 
 1. `.env` from `.env.production.example` with `DJANGO_ENV=staging`. Required (staging refuses to
    boot without them): `POSTGRES_RLS_ENABLED=1`, `APP_DB_USER`/`APP_DB_PASSWORD`,
-   `MFA_ENCRYPTION_KEY`, `PLANWAVE_DATA_KEY`, `GSP_FERNET_KEY`, `OTP_PEPPER`, `SECRET_KEY`,
+   `MFA_ENCRYPTION_KEY`, `PLANWAVE_DATA_KEY`, `GSP_FERNET_KEY`, `OTP_PEPPER`, `DJANGO_SECRET_KEY`,
    `METRICS_TOKEN`, `SENTRY_DSN`, `SENTRY_RELEASE` (= the git SHA), `VITE_SENTRY_DSN`, and
    `SENTRY_BROWSER_DSN` (= `VITE_SENTRY_DSN`; the API relays browser reports only to it).
    Sentry or self-hosted GlitchTip (`docs/ops/GLITCHTIP.md`, on its own VM).
@@ -61,6 +61,34 @@ the client pick its own identity with a spoofed hop. Only nginx may be reachable
 it binds to loopback unless `APP_BIND` says otherwise, and the api container has no published
 port. Check after deploy: send a request with `X-Forwarded-For: 1.2.3.4` and confirm the audit /
 session IP is your real address, not `1.2.3.4` and not the proxy's.
+
+## 2a. First boot in about 60 minutes (WP-4 kit, provider-neutral)
+
+Run in order; each step is safe to repeat.
+
+| # | Step | Command | Done when |
+|---|---|---|---|
+| 1 | Harden the VM | `sudo scripts/host/bootstrap_vm.sh --deploy-user bizboard --ssh-key "<your public key>"` (add `--tunnel` with a Cloudflare tunnel) | `sudo scripts/host/bootstrap_vm.sh --check` prints `missing: 0` |
+| 2 | Clone at the tag, as the deploy user | `git clone ... $STAGING_DIR && git checkout <tag>` | — |
+| 3 | Render `.env` from the secret store | `scripts/host/render_env.sh <file\|aws-ssm\|azure-kv\|gcp-sm\|cmd> .env <arg>` | No "missing from the secret store" line; `.env` is mode 600 |
+| 4 | Database roles | `--profile migrate run --rm migrate`, then `scripts/db-app-role.sh .env docker-compose.yml docker-compose.prod.yml` | Role line says NOSUPERUSER NOBYPASSRLS, 30s/60s timeouts |
+| 5 | Start | `docker compose --env-file .env -f docker-compose.yml -f docker-compose.prod.yml up -d` (PgBouncer overlay only if decided, `docs/ops/POSTGRES.md`) | `/api/v1/health/?ready=1` is 200 |
+| 6 | Check | `python3 scripts/host/preflight.py --url https://<host> --env-file .env` | `0 FAIL`; do each MANUAL line once and record it below |
+
+**Docker bypasses ufw.** A container port published on `0.0.0.0` is open to the internet whatever
+ufw says. Only nginx publishes a port, on `APP_BIND` (default `127.0.0.1`); GlitchTip publishes on
+127.0.0.1. Preflight fails if any container publishes on all interfaces, or if anything other than
+22/80/443 listens on all interfaces.
+
+**Deploy workflow secrets.** `.github/workflows/deploy-staging.yml` runs in the GitHub `staging`
+environment and reads the following from that environment's secrets:
+- `STAGING_SSH_HOST`, `STAGING_SSH_USER`, `STAGING_SSH_KEY` (the deploy user's private key) and `STAGING_DIR`;
+- `STAGING_BASE_URL`, `STAGING_SMOKE_EMAIL` and `STAGING_SMOKE_PASSWORD` for the post-deploy smoke test.
+
+No host is typed in when the workflow is triggered, so a run cannot be pointed at another machine.
+The non-secret three (host, user, directory) may instead be environment *variables*; if you move
+them, change `secrets.` to `vars.` in the workflow. Add a required reviewer on the `staging`
+environment, so a deploy needs an approval.
 
 ## 3. First deploy
 

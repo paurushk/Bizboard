@@ -16,5 +16,18 @@ fills DPAs. This list is **not** a legal DPA.
 | tally | Tally | no | Table B dark |
 | whatsapp_cloud | Meta Cloud | no | Table B dark; `wa.me` share-link stays |
 
+**Not in `integration_inventory.py` but processing personal data when switched on** (added
+2026-10-25, WP-3; contract checks in `docs/legal/drafts/VENDOR_CONTRACT_CHECKLIST.md`):
+
+| Code name | Typical vendor | Money path | Freeze |
+|---|---|---|---|
+| llm_provider (`LLM_PROVIDER`) | OpenAI (default), Anthropic, DeepSeek | no | Owner-switched AI features only |
+| google_signin | Google | no | "Sign in with Google", if enabled |
+| edge_and_turnstile | Cloudflare | no | Edge/TLS if used; Turnstile at sign-up |
+| telegram_alerts | Telegram | no | Only when a user links Telegram |
+| identity_check (`IDENTITY_PROVIDER`) | PAN / Udyam verification provider | no | Off unless configured |
+| account_aggregator (`FIU_BASE_URL`) | FIU / AA gateway | no | Off unless configured |
+| hosting | Host (region not chosen, D-18) and backup storage account | no | Always, once hosted |
+
 Region / residency commitments are Human. Flip a dark flag only via
 `docs/ops/FREEZE_EXCEPTION.md`.

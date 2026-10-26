@@ -39,7 +39,7 @@ recommendation: 'Done: label-print page (barcode + name + price, CODE128 via jsb
 test_required: label template + reorder worksheet snapshot if pursued
 guard_ref:
   test: web/src/pages/inventory/LabelPrintPage.test.tsx
-lifecycle: fixed
+lifecycle: verified
 owner: web
 opened: '2026-09-10'
 closed: null

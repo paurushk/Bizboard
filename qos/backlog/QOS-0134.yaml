@@ -31,7 +31,7 @@ recommendation: Add test_ccj_concurrency_postgres.py to the Postgres lane in CI 
 test_required: backend/tests/test_ccj_concurrency_postgres.py
 guard_ref:
   test: backend/tests/test_ccj_concurrency_postgres.py
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-10-19'
 closed: '2026-10-22'

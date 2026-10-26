@@ -31,7 +31,7 @@ recommendation: Add the accounting concurrency file to the Postgres lane in CI a
 test_required: backend/tests/test_acs_concurrency_postgres.py
 guard_ref:
   test: backend/tests/test_acs_concurrency_postgres.py
-lifecycle: fixed
+lifecycle: verified
 owner: founder
 opened: '2026-10-17'
 closed: '2026-10-22'

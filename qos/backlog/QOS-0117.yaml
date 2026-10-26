@@ -21,7 +21,7 @@ recommendation: "Done. Pilot the lifecycle flag with one company before making i
 test_required: "backend/tests/test_quotation_closure_cross.py::test_wp14b_share_makes_a_link_marks_sent_and_serves_the_pdf"
 guard_ref:
   test: "backend/tests/test_quotation_closure_cross.py::test_wp14b_share_makes_a_link_marks_sent_and_serves_the_pdf"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "web"
 opened: "2026-10-10"
 closed: "2026-10-10"

@@ -21,7 +21,7 @@ recommendation: "Done: the permission rule runs through mask_commercial and omit
 test_required: "backend/tests/test_quotation_closure_cross.py::test_product_cost_permission_matrix_omits_the_field_and_keeps_below_cost"
 guard_ref:
   test: "backend/tests/test_quotation_closure_cross.py::test_product_cost_permission_matrix_omits_the_field_and_keeps_below_cost"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"

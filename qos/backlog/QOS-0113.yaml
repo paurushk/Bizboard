@@ -21,7 +21,7 @@ recommendation: "Done: Close remaining with a required reason and an audit entry
 test_required: "backend/tests/test_quotation_closure_cross.py::test_wp6_partly_converted_expired_quote_deadlock_is_resolved_by_close_remaining"
 guard_ref:
   test: "backend/tests/test_quotation_closure_cross.py::test_wp6_partly_converted_expired_quote_deadlock_is_resolved_by_close_remaining"
-lifecycle: "fixed"
+lifecycle: "verified"
 owner: "backend"
 opened: "2026-10-10"
 closed: "2026-10-10"
