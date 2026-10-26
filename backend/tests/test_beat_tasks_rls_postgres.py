@@ -28,6 +28,7 @@ from tests.rls_helpers import app_role, needs_pg
 # tenant table.
 BEAT_TASKS = {
     "accounting.tasks.post_monthly_depreciation": "FAN_OUT",
+    "accounts.tasks.apply_data_retention_task": "FAN_OUT",
     "accounts.tasks.purge_readable_exports_task": "BYPASS",
     "accounts.tasks.run_scheduled_backups_task": "FAN_OUT",
     "accounts.tasks.run_settings_alerts_task": "FAN_OUT",
@@ -38,6 +39,7 @@ BEAT_TASKS = {
     "agents.tasks.purge_steps": "FAN_OUT",
     "billing.tasks.reconcile_saas_subscriptions_task": "BYPASS",
     "billing.tasks.plan_change_and_renewal_task": "BYPASS",
+    "billing.tasks.qualify_saas_referrals_task": "BYPASS",
     "billing.tasks.run_saas_dunning_task": "BYPASS",
     "billing.tasks.tds_credits_and_reminders_task": "BYPASS",
     "contracts.tasks.refresh_contract_statuses": "PER_COMPANY",
@@ -198,3 +200,19 @@ def test_old_invoice_zips_are_purged_under_the_app_role(tenant_a):
     FileAsset.objects.filter(pk=asset.pk).update(created_at=timezone.now() - timedelta(days=30))
     with _rls_on(), app_role():
         assert purge_old_invoice_zips_task() == 1
+
+
+@pytest.mark.postgres
+@needs_pg
+@pytest.mark.django_db(transaction=True)
+def test_data_retention_starts_the_clock_under_the_app_role(tenant_a):
+    from accounts.models import Company
+    from accounts.tasks import apply_data_retention_task
+    from tests.test_data_retention import _lapse
+
+    _lapse(tenant_a)
+    with _rls_on(), app_role():
+        apply_data_retention_task()
+    with rls_bypass():
+        assert Company.objects.get(pk=tenant_a.company.pk).read_only_since is not None
+

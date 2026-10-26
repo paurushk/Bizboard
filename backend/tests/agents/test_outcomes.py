@@ -59,7 +59,7 @@ def test_funnel_rates_and_treated_recovery(col):
     out = outcomes.collections_outcomes(col.company)
     assert out["funnel"]["EXECUTED"] == 2 and out["funnel"]["REJECTED"] == 1
     assert out["approval_rate"] == round(2 / 3, 3) and out["edited_rate"] == 0.5
-    assert out["treated"]["customers"] == 2 and out["treated"]["received_within_7_days"] == "500"
+    assert out["treated"]["customers"] == 2 and out["treated"]["received_within_7_days"] == "500.00"
     assert out["held_out"]["enabled"] is False
 
 

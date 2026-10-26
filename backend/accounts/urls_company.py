@@ -10,6 +10,7 @@ from .series_views import NumberSeriesView
 from .session_views import MemberSessionCountsView
 from .settings_history import SettingsHistoryView
 from .settings_preview import SettingsPreviewView
+from .team_views import TeamMembersView
 from .settings_health import SettingsHealthView
 from .views import (
     CompanyDetailView,
@@ -42,6 +43,7 @@ urlpatterns = [
     # WP-ID1: hand the company to another owner.
     path("ownership/", OwnershipView.as_view(), name="company-ownership"),
     path("users/session-counts/", MemberSessionCountsView.as_view(), name="company-user-session-counts"),
+    path("members/", TeamMembersView.as_view(), name="company-members"),
     path("ownership/transfer/", OwnershipTransferView.as_view(), name="company-ownership-transfer"),
     path("ownership/accept/", OwnershipAcceptView.as_view(), name="company-ownership-accept"),
     path("ownership/cancel/", OwnershipCancelView.as_view(), name="company-ownership-cancel"),

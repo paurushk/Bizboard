@@ -170,6 +170,39 @@ class PlatformTicketMessage(CompanyScopedModel):
     body = models.TextField()
 
 
+class SatisfactionResponse(CompanyScopedModel):
+    """BB-136 (D-08, 2026-10-24): an NPS answer, or a CSAT rating on a resolved support request.
+
+    Behind ENABLE_SATISFACTION_SURVEY (off by default). An NPS row with no score is "Not now",
+    which still counts as being asked, so the prompt does not come back for 90 days.
+    """
+
+    class Kind(models.TextChoices):
+        NPS = "NPS", "Would recommend (0-10)"
+        CSAT = "CSAT", "Support satisfaction (1-5)"
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=4, choices=Kind.choices, db_index=True)
+    score = models.PositiveSmallIntegerField(null=True, blank=True)
+    comment = models.TextField(blank=True)
+    platform_ticket = models.ForeignKey(
+        PlatformTicket, null=True, blank=True, on_delete=models.CASCADE, related_name="satisfaction",
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["platform_ticket"],
+                condition=models.Q(platform_ticket__isnull=False),
+                name="uniq_csat_per_platform_ticket",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.score if self.score is not None else 'not now'}"
+
+
 class TenantHealthSnapshot(CompanyScopedModel):
     """WP-PO2: one company's weekly health score (support/health.py). Staff-only, in Django admin."""
 

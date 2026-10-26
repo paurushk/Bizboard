@@ -1,4 +1,11 @@
-"""Optional demo seed: python manage.py seed_demo"""
+"""Optional demo seed: python manage.py seed_demo [--with-activity]
+
+``--with-activity`` (BB-134) adds three months of believable trading through the real services
+so a demo's dashboard, outstanding, aging and GSTR-1 worksheet are not empty: GST invoices to a
+local, an inter-state and a walk-in customer, receipts that leave some bills paid, some part-paid
+and some outstanding, and one sales return. Every document is tagged ``DEMO:<n>``, so re-running
+skips what exists. Demo script: docs/onboarding/DEMO_SCRIPT.md.
+"""
 
 from decimal import Decimal
 
@@ -21,7 +28,14 @@ DEFAULT_TERMS = (
 
 
 class Command(BaseCommand):
-    help = "Seed a demo company with sample masters and opening stock."
+    help = "Seed a demo company with sample masters and opening stock (--with-activity adds sales)."
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--with-activity",
+            action="store_true",
+            help="Also create three months of invoices, receipts and a return (idempotent).",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):
@@ -55,6 +69,8 @@ class Command(BaseCommand):
                 self.stdout.write(f"Demo Traders updated fields: {', '.join(updates)}")
             else:
                 self.stdout.write("Demo Traders already exists — skipping.")
+            if options.get("with_activity"):
+                self._activity(company)
             return
 
         user = User.objects.create_user(
@@ -130,4 +146,87 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f"Seeded Demo Traders. Login: {user.email} / DemoPass123! "
             f"(customer={customer.id}, supplier={supplier.id}, products={Product.objects.filter(company=company).count()})"
+        ))
+        if options.get("with_activity"):
+            self._activity(company)
+
+    def _activity(self, company):
+        from datetime import timedelta
+
+        from core.seed_guard import seed_load_scope
+        from payments.models import PaymentAllocation
+        from payments.services import PaymentService
+        from sales.models import SalesInvoice, SalesReturn
+        from sales.return_service import ReturnService
+        from sales.services import SalesService
+
+        owner = CompanyUser.objects.filter(company=company, role=CompanyUser.Role.OWNER).order_by("id").first().user
+        local = Customer.objects.filter(company=company, name="Sharma Medicals").first()
+        interstate, _ = Customer.objects.get_or_create(
+            company=company, name="Patel Pharma Distributors",
+            defaults={"state": "Maharashtra", "phone": "9822001100", "gstin": "27AAFCP1234Q1ZB",
+                      "billing_address": "8, Kalbadevi Road, Mumbai 400002"},
+        )
+        walk_in, _ = Customer.objects.get_or_create(
+            company=company, name="Walk-in Customer", defaults={"state": "Karnataka"},
+        )
+        products = list(Product.objects.filter(company=company).order_by("id"))
+        today = timezone.localdate()
+        made = paid = returned = 0
+        with seed_load_scope():
+            for n in range(24):
+                note = f"DEMO:{n:02d}"
+                customer = (local, interstate, walk_in)[n % 3]
+                invoice = SalesInvoice.objects.filter(company=company, notes=note).first()
+                if invoice is None:
+                    invoice = SalesInvoice.objects.create(
+                        company=company, customer=customer,
+                        invoice_type=SalesInvoice.InvoiceType.GST,
+                        invoice_date=today - timedelta(days=88 - n * 3 - (n % 2)),
+                        status=SalesInvoice.Status.DRAFT, notes=note, created_by=owner,
+                    )
+                    lines = [
+                        {
+                            "product": product,
+                            "quantity": Decimal(1 + (n + i) % 3),
+                            "unit_price": product.selling_price,
+                            "discount_percent": Decimal("5") if customer is local and i == 0 else Decimal("0"),
+                            "gst_rate": product.gst_rate,
+                        }
+                        for i, product in enumerate(products[: 1 + n % len(products)])
+                    ]
+                    SalesService.set_items(invoice, lines, owner)
+                if invoice.status == SalesInvoice.Status.DRAFT:
+                    SalesService.complete(invoice, owner)
+                    invoice.refresh_from_db()
+                    made += 1
+                # Older bills mostly paid, recent ones open: a real-looking outstanding and aging.
+                share = Decimal("1") if n < 12 and n % 4 != 3 else (Decimal("0.5") if n % 4 == 1 else Decimal("0"))
+                if share and invoice.grand_total > 0 and not PaymentAllocation.objects.filter(
+                        company=company, sales_invoice=invoice).exists():
+                    amount = (invoice.grand_total * share).quantize(Decimal("0.01"))
+                    receipt = PaymentService.create_receipt(
+                        company=company, customer=invoice.customer, amount=amount,
+                        mode="UPI" if n % 2 else "CASH", receipt_date=invoice.invoice_date + timedelta(days=2),
+                        notes=note, reference=f"DEMO-RCPT-{n:02d}", user=owner,
+                    )
+                    PaymentService.allocate_receipt(receipt=receipt, sales_invoice=invoice, amount=amount, user=owner)
+                    paid += 1
+            first = SalesInvoice.objects.filter(company=company, notes="DEMO:00").first()
+            if first is not None and not SalesReturn.objects.filter(company=company, sales_invoice=first).exists():
+                sales_return = SalesReturn.objects.create(
+                    company=company, customer=first.customer, sales_invoice=first,
+                    return_date=first.invoice_date + timedelta(days=5),
+                    reason="Damaged strip returned by customer", created_by=owner,
+                )
+                item = first.items.select_related("product").first()
+                ReturnService.set_return_items(sales_return, [{
+                    "product": item.product, "quantity": Decimal("1"), "unit_price": item.unit_price,
+                    "discount_percent": Decimal("0"), "gst_rate": item.gst_rate,
+                }], owner)
+                ReturnService.complete_return(sales_return, owner)
+                returned = 1
+        self.stdout.write(self.style.SUCCESS(
+            f"Demo activity: {made} invoices completed, {paid} receipts, {returned} return "
+            f"(already present items skipped)."
         ))

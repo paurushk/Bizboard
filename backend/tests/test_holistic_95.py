@@ -235,12 +235,15 @@ def test_v3_mutation_audit_job_is_advisory():
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
+    if not (root / ".github").is_dir() or not (root / "backend" / "setup.cfg").is_file():
+        pytest.skip("not running from the repository (e.g. inside mutmut's mutants/ copy)")
     ci = (root / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "\n  mutation-audit:\n" in ci
     block = ci.split("\n  mutation-audit:\n", 1)[1].split("\n  qos-lint:\n", 1)[0]
     assert "continue-on-error: true" in block
     assert "scripts/mutation_audit.sh" in block
-    script = (root / "scripts" / "mutation_audit.sh").read_text(encoding="utf-8")
+    # mutmut 3 takes its targets from backend/setup.cfg [mutmut], not from the script (WP-5).
+    script = (root / "backend" / "setup.cfg").read_text(encoding="utf-8")
     for target in (
         "accounting/services.py",
         "core/services/place_of_supply.py",

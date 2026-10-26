@@ -92,18 +92,46 @@ def link_chat_id(user, chat_id: str) -> None:
     user.save(update_fields=["telegram_chat_id", "telegram_link_code", "telegram_link_code_expires_at"])
 
 
+def _push_ops_ntfy(text: str) -> bool:
+    """Best-effort phone push of an ops page to OPS_NTFY_URL. Never raises."""
+    from django.conf import settings
+
+    url = (getattr(settings, "OPS_NTFY_URL", "") or "").strip()
+    if not url.startswith("https://"):
+        if url:
+            logger.warning("OPS_NTFY_URL must be an https:// topic URL; ops push not sent.")
+        return False
+    try:
+        resp = requests.post(
+            url,
+            data=text.encode("utf-8"),
+            # Header values must be ASCII; the text itself may carry emoji.
+            headers={"Title": "Bizboard ops", "Priority": "high", "Tags": "rotating_light"},
+            timeout=5,
+        )
+    except requests.RequestException:
+        logger.warning("Ops alert ntfy push failed", exc_info=True)
+        return False
+    if not resp.ok:
+        logger.warning("Ops alert ntfy push answered HTTP %s", resp.status_code)
+    return resp.ok
+
+
 def send_ops_alert(text: str) -> TelegramSendResult:
-    """Best-effort page to the fixed ops/on-call chat (not a per-user recipient).
+    """Best-effort page to the fixed ops/on-call chat (not a per-user recipient),
+    plus a phone push to OPS_NTFY_URL when that is set.
 
     Used by the Sentry/health-check webhook relay — never raises, since a
     failed page must not turn the alert source's webhook call into an error.
     """
     from django.conf import settings
 
+    pushed = _push_ops_ntfy(text)
     chat_id = (getattr(settings, "OPS_TELEGRAM_CHAT_ID", "") or "").strip()
     if not chat_id:
-        logger.warning("OPS_TELEGRAM_CHAT_ID is not configured; ops alert not sent.")
-        return TelegramSendResult(mode="unlinked")
+        if not pushed:
+            logger.warning("OPS_TELEGRAM_CHAT_ID / OPS_NTFY_URL not configured; ops alert not sent.")
+        return TelegramSendResult(mode="sent" if pushed else "unlinked")
     try:
         return send_telegram_message(chat_id, text)
     except Exception:

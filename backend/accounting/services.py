@@ -255,6 +255,10 @@ class PostingService:
     @staticmethod
     def _ensure_chart(company):
         """Ensure Wave-3 GST split + RCM + disposal accounts exist (auto-seed if missing)."""
+        from core.services.lookup_cache import first_time
+
+        if not first_time(("chart_ensured", company.pk)):
+            return  # already checked (and seeded if needed) earlier in this operation
         required = (
             "1310", "1320", "1330", "1370", "2210", "2220", "2230", "2240", "2250", "2260",
             "2270", "2280",
@@ -286,7 +290,12 @@ class PostingService:
 
     @staticmethod
     def _account(company, code):
-        acct = Account.objects.filter(company=company, code=code, is_active=True).first()
+        from core.services.lookup_cache import cached
+
+        acct = cached(
+            ("account", company.pk, code),
+            lambda: Account.objects.filter(company=company, code=code, is_active=True).first(),
+        )
         if acct is not None:
             return acct
         # Not active — either missing (seed it) or a system account was

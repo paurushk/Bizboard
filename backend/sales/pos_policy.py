@@ -198,11 +198,9 @@ def pin_ok(company, pin: str, user=None):
     if hashed and check_password(str(pin), hashed):
         cache.delete(key)
         return True
-    try:
-        cache.add(key, 0, PIN_LOCK_SECONDS)
-        cache.incr(key)
-    except ValueError:
-        cache.set(key, 1, PIN_LOCK_SECONDS)
+    from core.services.counters import incr
+
+    incr(key, 1, PIN_LOCK_SECONDS)
     return False
 
 

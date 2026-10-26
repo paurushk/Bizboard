@@ -9,7 +9,6 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 
-from django.core.cache import cache
 from django.http import JsonResponse
 
 _LOCAL: dict[str, list[float]] = defaultdict(list)
@@ -66,15 +65,12 @@ def _hit(key: str, limit: int, window: int) -> bool:
     """Return True when the caller is still inside the limit."""
     now = time.time()
     try:
-        added = cache.add(key, 1, timeout=window)
-        if added:
-            return True
-        try:
-            count = cache.incr(key)
-        except ValueError:
-            cache.set(key, 1, timeout=window)
-            return True
-        return count <= limit
+        # core.services.counters restores the TTL when Redis re-creates an expiring key without
+        # one; with the old add-then-incr a busy user crossing a window edge could be left at
+        # ttl -1, refused on every API call until Redis was flushed (2026-10-23, api:u<id>).
+        from core.services.counters import incr
+
+        return incr(key, 1, window) <= limit
     except Exception:
         _cache_down()
         if not _fail_closed(key):

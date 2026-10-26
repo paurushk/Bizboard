@@ -919,10 +919,25 @@ def test_page_warns_about_a_utr_shared_with_a_supplier_payment(tenant_a):
     assert row["id"] == receipt.id and "supplier payment" in row["utr_warning"]
 
 
-def test_summary_is_one_aggregate_over_the_receipts(tenant_a, django_assert_max_num_queries):
+def test_summary_is_one_aggregate_over_the_receipts(tenant_a, settings):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
     customer = make_customer(tenant_a.company)
-    for _ in range(5):
+
+    def summary_queries():
+        with CaptureQueriesContext(connection) as ctx:
+            resp = tenant_a.client.get(f"{URL}summary/")
+        assert resp.status_code == 200
+        return len(ctx.captured_queries), resp.data["count"]
+
+    _receipt(tenant_a, customer, "10", "CASH")
+    summary_queries()  # warm the per-user caches so both measurements are like for like
+    one, _ = summary_queries()
+    for _ in range(4):
         _receipt(tenant_a, customer, "10", "CASH")
-    with django_assert_max_num_queries(8):
-        resp = tenant_a.client.get(f"{URL}summary/")
-    assert resp.status_code == 200 and resp.data["count"] == 5
+    five, count = summary_queries()
+    assert count == 5
+    assert five == one  # one aggregate: the query count does not grow with the receipts
+    if not settings.POSTGRES_RLS_ENABLED:  # RLS adds a fixed per-request scope setup
+        assert five <= 8

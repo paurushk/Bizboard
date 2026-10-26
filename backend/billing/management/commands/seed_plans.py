@@ -5,7 +5,7 @@ from billing.models import Plan
 
 
 class Command(BaseCommand):
-    help = "Seed standard PRD §22 SaaS subscription plans (freeze-safe modules)."
+    help = "Seed standard PRD §22 SaaS subscription plans (freeze-safe modules; GST worksheets on every plan, D-16)."
 
     def handle(self, *args, **options):
         plans_data = [

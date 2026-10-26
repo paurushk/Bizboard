@@ -69,3 +69,11 @@ def plan_change_and_renewal_task():
     result = _run_parts({"reverted": revert_unpaid_upgrades, "reminded": send_renewal_reminders})
     logger.info("Plan change / renewal reminders %s", result)
     return result
+
+
+@shared_task
+def qualify_saas_referrals_task():
+    """D-19 (BB-139): mark referred businesses that now pay as qualified (billing/referrals.py)."""
+    from billing.referrals import qualify_referrals
+
+    return qualify_referrals()

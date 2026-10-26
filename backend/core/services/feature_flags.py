@@ -86,6 +86,16 @@ COMPANY_ROLLOUT_KEYS = (
     # INV-IDR-02: expiry write-off, serial scrap and stock-count posting need a second person's
     # approval under the same rule as a manual adjustment. Off until the owner agrees the thresholds.
     "STOCK_LOSS_APPROVAL_ALL_PATHS",
+    # BB-136 (D-08, 2026-10-24): occasional NPS prompt and a CSAT rating on resolved support
+    # requests. Off until the founder turns it on for a company.
+    "ENABLE_SATISFACTION_SURVEY",
+    # BB-100 F2 (D-14, 2026-10-24): a regular company's Non-GST invoices may hold only nil, exempt
+    # or non-GST lines, and are reported in GSTR-1 Tables 8 and 13 and GSTR-3B 3.1(c)/(e).
+    # Off until the CA agrees the treatment (docs/ca/F2_BILLS_OF_SUPPLY_IN_GST_RETURNS.md).
+    "GST_BILL_OF_SUPPLY_RETURNS",
+    # BB-139 (D-19, 2026-10-25): a Bizboard customer refers another business (billing/referrals.py).
+    # Not ENABLE_REFERRALS, which gates the CRM customer-referral screens. Off by default.
+    "ENABLE_SAAS_REFERRALS",
 )
 
 # Rollout keys that are on unless the company JSON sets them to false (a kill-switch).

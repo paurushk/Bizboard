@@ -1,6 +1,7 @@
 import uuid
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -345,6 +346,13 @@ class Company(TimeStampedModel):
     # placeholder retaining only statutory tax documents. purge_expired_tombstones
     # hard-deletes it once the GST retention window elapses.
     erased_at = models.DateTimeField(null=True, blank=True)
+    # D-13 (2026-10-25): how long a read-only workspace is kept before its data is deleted (the
+    # anonymised 8-year tax copy stays). The owner sets it; accounts/retention.py enforces it.
+    data_retention_days = models.PositiveIntegerField(
+        default=90, validators=[MinValueValidator(30), MaxValueValidator(3650)],
+    )
+    # When the workspace last became read-only (no paid or trial access); cleared on renewal.
+    read_only_since = models.DateTimeField(null=True, blank=True)
     # Wave B onboarding — progress is derived; only user choices/analytics persist.
     onboarding_dismissed_at = models.DateTimeField(null=True, blank=True)
     tax_profile_confirmed_at = models.DateTimeField(null=True, blank=True)

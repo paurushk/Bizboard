@@ -287,9 +287,9 @@ def _compose(name: str) -> dict:
 
 def test_glitchtip_overlay_is_opt_in_pinned_and_private():
     services = _compose("docker-compose.glitchtip.yml")["services"]
-    assert set(services) == {"glitchtip-db", "glitchtip", "glitchtip-init"}
+    assert set(services) == {"glitchtip-db", "glitchtip", "glitchtip-init", "glitchtip-backup"}
     for name, svc in services.items():
-        assert svc.get("profiles") == ["errors"], name
+        assert svc.get("profiles") == (["errors-backup"] if name == "glitchtip-backup" else ["errors"]), name
         image = svc["image"]
         assert ":" in image and not image.endswith(":latest"), name
     assert all(p.startswith("127.0.0.1:") for p in services["glitchtip"]["ports"])
@@ -317,3 +317,33 @@ def test_deploy_records_the_release_before_the_tracker_setup_can_fail():
 def test_setup_step_is_told_the_apps_allowed_hosts():
     env = _compose("docker-compose.glitchtip.yml")["services"]["glitchtip-init"]["environment"]
     assert env["BB_APP_ALLOWED_HOSTS"] == "${DJANGO_ALLOWED_HOSTS:-}"
+
+
+def test_glitchtip_backup_reuses_the_app_backup_script():
+    svc = _compose("docker-compose.glitchtip.yml")["services"]["glitchtip-backup"]
+    assert svc["environment"]["BACKUP_KIND"] == "glitchtip"
+    assert svc["environment"]["PGHOST"] == "glitchtip-db"
+    assert "./scripts/backup.sh:/backup.sh:ro" in svc["volumes"]
+
+
+def test_in_stack_uptime_monitors_may_reach_the_api_but_webhooks_may_not():
+    # GlitchTip 6 blocks monitors on private addresses unless its uptime flag is on; the general
+    # flag (alert webhooks) is a separate setting and stays off.
+    env = _compose("docker-compose.glitchtip.yml")["services"]["glitchtip"]["environment"]
+    assert env["GLITCHTIP_UPTIME_ALLOW_PRIVATE_IPS"] == "${GLITCHTIP_ALLOW_PRIVATE_IPS:-true}"
+    assert "GLITCHTIP_ALLOW_PRIVATE_IPS" not in env
+
+
+def test_public_status_page_is_one_read_only_path():
+    conf = (ROOT / "nginx" / "default.conf").read_text(encoding="utf-8")
+    block = conf[conf.index("location = /status/ {"):]
+    block = block[: block.index("\n    }\n")]
+    assert "limit_except GET HEAD { deny all; }" in block
+    assert "proxy_pass $status_upstream/status-pages/bizboard/bizboard/;" in block
+    assert "proxy_hide_header Set-Cookie;" in block and "proxy_hide_header Content-Security-Policy;" in block
+    assert "default-src 'none'" in block and "frame-ancestors 'none'" in block
+    assert "@status_unavailable" in block  # tracker off -> 503, never the app's error page
+    # Only the status page is proxied to the tracker: no other location points at it.
+    assert conf.count("glitchtip:8000") == 1
+    boot = (ROOT / "deploy" / "glitchtip" / "bootstrap.py").read_text(encoding="utf-8")
+    assert "StatusPage.objects.get_or_create" in boot and '"is_public": True' in boot

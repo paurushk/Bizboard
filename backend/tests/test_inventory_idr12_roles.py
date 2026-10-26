@@ -44,7 +44,8 @@ SCREENS = [
     ("Stock transfers", "/api/v1/inventory/transfers/", MANAGE),
     ("Stock counts", "/api/v1/inventory/stock-counts/", MANAGE),
     ("Serial numbers (lookup)", "/api/v1/inventory/serials/", SERIAL_LOOKUP),
-    ("Batches", "/api/v1/inventory/batches/", MANAGE),
+    # BB-100 F7: anyone who sells or buys picks a lot on the line; a lot carries no cost.
+    ("Batches", "/api/v1/inventory/batches/", READ),
     ("Reorder rules", "/api/v1/inventory/reorder-levels/", MANAGE),
     ("Stock valuation", "/api/v1/inventory/valuation/", BOOKS),
 ]
@@ -115,7 +116,11 @@ def test_role_matrix_for_the_inventory_writes(world, role):
     ).status_code
     cancel = client.post(f"/api/v1/inventory/stock-counts/{count_id}/cancel/", {}, format="json").status_code
     new_godown = client.post("/api/v1/inventory/warehouses/", {"name": f"G-{role}", "code": f"G{role[:5]}"}, format="json").status_code
+    new_lot = client.post(
+        "/api/v1/inventory/batches/", {"product": product.id, "batch_no": f"L-{role}"}, format="json",
+    ).status_code
     if role in MANAGE:
+        assert new_lot == 201, new_lot
         assert adjust in (200, 201, 202), adjust
         assert cancel == 200, cancel
         assert new_godown == 201, new_godown
@@ -123,6 +128,7 @@ def test_role_matrix_for_the_inventory_writes(world, role):
         assert adjust in (401, 403), adjust
         assert cancel in (401, 403, 404), cancel
         assert new_godown in (401, 403), new_godown
+        assert new_lot in (401, 403), new_lot
 
 
 # --------------------------------------------------------------------------- cost visibility

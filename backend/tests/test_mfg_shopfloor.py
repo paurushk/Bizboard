@@ -289,10 +289,15 @@ def test_load_is_spread_to_the_due_date_and_flags_an_overloaded_day(tenant_a, me
 
 @pytest.mark.usefixtures("noon_today")
 def test_utilisation_sets_hours_worked_against_hours_available(tenant_a, method):
+    from freezegun import freeze_time
+
     company, fg, comp, cut, sew, bom, wo, cards = routed(tenant_a, method)
-    shopfloor.start_card(cards[0], user=tenant_a.owner)
-    backdate_open_log(cards[0], 120)
-    shopfloor.finish_card(cards[0], qty_good=100, user=tenant_a.owner)
+    # A still clock between backdating and finishing: on a loaded machine the ticking clock added
+    # seconds (120.13 minutes). Service calls only, so the request throttle timer is not involved.
+    with freeze_time(timezone.now()):
+        shopfloor.start_card(cards[0], user=tenant_a.owner)
+        backdate_open_log(cards[0], 120)
+        shopfloor.finish_card(cards[0], qty_good=100, user=tenant_a.owner)
     today = timezone.localdate()
     rows_ = {r["code"]: r for r in shopfloor.utilisation(company, today, today)}
     assert rows_["CUT"]["worked_minutes"] == D("120.00") and rows_["CUT"]["available_minutes"] == D(480)

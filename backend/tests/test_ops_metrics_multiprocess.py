@@ -86,3 +86,21 @@ def test_without_the_directory_the_process_local_output_is_unchanged():
 
     assert not ops_metrics.multiprocess_enabled()
     assert ops_metrics._mp() is None
+
+
+BROKEN_DIR = """
+from core import ops_metrics as m
+assert m._mp() is None
+assert m._mp() is None  # no DuplicateTimeseries on the next call
+m.record_http_result(status=200, duration_ms=10)  # requests keep working
+from prometheus_client import REGISTRY
+names = set(REGISTRY._names_to_collectors)
+assert not any(n.startswith("bizboard_http") for n in names), names
+print("ok")
+"""
+
+
+def test_an_unwritable_metrics_dir_turns_metrics_off_without_poisoning_the_process(tmp_path):
+    """WP-6 game day: a root-owned PROMETHEUS_MULTIPROC_DIR made every scrape 500 for good."""
+    env = _env(tmp_path / "missing" / "dir")
+    assert _run(BROKEN_DIR, env).strip().endswith("ok")

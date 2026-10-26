@@ -52,6 +52,7 @@ def test_seed_plans_are_freeze_safe():
     for slug, plan in by_slug.items():
         for key in FREEZE_DARK_PLAN_MODULES:
             assert plan.modules.get(key) is False, f"{slug}.{key}"
+        assert plan.modules.get("ENABLE_GSTR") is True, slug  # D-16
         if slug == "free":
             assert plan.modules.get("ENABLE_POS") is False
             assert plan.monthly_complete_limit == 30
@@ -74,6 +75,7 @@ def test_seeded_paid_plan_does_not_enable_table_b(tenant_a):
     for key in FREEZE_DARK_PLAN_MODULES:
         assert flags.data.get(key) is False, key
     assert flags.data.get("ENABLE_POS") is True
+    assert flags.data.get("ENABLE_GSTR") is True  # D-16: worksheets on paid plans
 
 
 def test_plan_name_price_and_modules_are_edited_on_the_plan(db):
@@ -526,3 +528,17 @@ def test_payment_webhook_parks_unexpected_error_and_replays(tenant_a):
     assert event.status == DeadLetterEvent.Status.REPLAYED
     link.refresh_from_db()
     assert link.status == PaymentLinkStatus.PAID
+
+
+@override_settings(ENABLE_GSTR=False)
+def test_a_paid_plan_lifts_gst_worksheets_with_the_env_switch_off(tenant_a):
+    """D-16: production keeps ENABLE_GSTR=0; the paid plan grant shows the worksheets, as the trial does."""
+    call_command("seed_plans")
+    Subscription.objects.create(
+        company=tenant_a.company, plan=Plan.objects.get(slug="starter"), status=Subscription.Status.ACTIVE,
+    )
+    flags = tenant_a.client.get("/api/v1/feature-flags/")
+    assert flags.status_code == 200
+    assert flags.data.get("ENABLE_GSTR") is True
+    assert flags.data.get("ENABLE_GSTN_JSON") is not True
+    assert tenant_a.client.get("/api/v1/reports/gstr1/?period=2026-08").status_code != 403

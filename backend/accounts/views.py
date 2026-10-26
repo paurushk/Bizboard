@@ -115,7 +115,9 @@ def _load_invite_token(token: str) -> dict:
     return signing.loads(token, salt=_INVITE_SALT, max_age=_INVITE_MAX_AGE)
 
 
-def _set_refresh_cookie(response, refresh_token: str, *, request=None, previous: str | None = None):
+def _set_refresh_cookie(
+    response, refresh_token: str, *, request=None, previous: str | None = None, previous_jti: str = "",
+):
     """BB-000257: store refresh JWT in httpOnly cookie.
 
     WP-ID3: with ``request`` the token is also recorded as a signed-in device (``previous`` is the
@@ -124,7 +126,7 @@ def _set_refresh_cookie(response, refresh_token: str, *, request=None, previous:
     if request is not None:
         from .user_sessions import track
 
-        track(request, refresh_token, previous=previous)
+        track(request, refresh_token, previous=previous, previous_jti=previous_jti)
     max_age = int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
     response.set_cookie(
         settings.JWT_REFRESH_COOKIE_NAME,
@@ -259,16 +261,11 @@ def _login_fail_ip_key(email, ip):
 
 
 def _incr_with_ttl(key):
-    """BB-000291: prefer atomic Redis INCR; fall back to get/set."""
-    try:
-        cache.incr(key)
-    except ValueError:
-        # Key missing — seed with TTL. add is atomic (only sets if absent).
-        if not cache.add(key, 1, LOGIN_FAIL_WINDOW_SECONDS):
-            try:
-                cache.incr(key)
-            except ValueError:
-                cache.set(key, 1, LOGIN_FAIL_WINDOW_SECONDS)
+    """BB-000291: count a failure inside the lockout window. core.services.counters also restores
+    the TTL when Redis re-creates an expiring key without one (a permanent lockout otherwise)."""
+    from core.services.counters import incr
+
+    incr(key, 1, LOGIN_FAIL_WINDOW_SECONDS)
 
 
 def _record_login_failure(email, ip=None):
@@ -310,15 +307,9 @@ def _otp_phone_rate_limited(phone: str) -> bool:
 
 def _record_otp_phone_request(phone: str) -> None:
     cache.set(_otp_phone_cooldown_key(phone), 1, OTP_PHONE_COOLDOWN_SECONDS)
-    hour_key = _otp_phone_hour_key(phone)
-    try:
-        cache.incr(hour_key)
-    except ValueError:
-        if not cache.add(hour_key, 1, OTP_PHONE_HOUR_SECONDS):
-            try:
-                cache.incr(hour_key)
-            except ValueError:
-                cache.set(hour_key, 1, OTP_PHONE_HOUR_SECONDS)
+    from core.services.counters import incr
+
+    incr(_otp_phone_hour_key(phone), 1, OTP_PHONE_HOUR_SECONDS)
 
 
 def _unrecord_otp_phone_request(phone: str) -> None:
@@ -355,15 +346,9 @@ def _otp_email_rate_limited(email: str) -> bool:
 
 def _record_otp_email_request(email: str) -> None:
     cache.set(_otp_email_cooldown_key(email), 1, OTP_PHONE_COOLDOWN_SECONDS)
-    hour_key = _otp_email_hour_key(email)
-    try:
-        cache.incr(hour_key)
-    except ValueError:
-        if not cache.add(hour_key, 1, OTP_PHONE_HOUR_SECONDS):
-            try:
-                cache.incr(hour_key)
-            except ValueError:
-                cache.set(hour_key, 1, OTP_PHONE_HOUR_SECONDS)
+    from core.services.counters import incr
+
+    incr(_otp_email_hour_key(email), 1, OTP_PHONE_HOUR_SECONDS)
 
 
 def _unrecord_otp_email_request(email: str) -> None:
@@ -513,6 +498,11 @@ def create_owner_account(request, data, *, password: str | None):
             from insights.telemetry import record_event
 
             record_event(company, "signup_completed", user=user, journey="signup", success=True)
+        if data.get("referral_code"):
+            from billing.referrals import attribute_signup
+
+            # D-19: written for the referrer under its own RLS scope; never fails the sign-up.
+            attribute_signup(company, data["referral_code"], owner_email=user.email)
     return user, company
 
 
@@ -772,19 +762,30 @@ class CookieTokenRefreshView(APIView):
         if cookie_raw:
             SessionAuthentication().enforce_csrf(request)
         try:
-            old = RefreshToken(raw)
+            grace_session = None
+            try:
+                old = RefreshToken(raw)  # verifies signature and expiry, and checks the blacklist
+            except TokenError:
+                # A reload that aborted the last refresh response replays the token it rotated.
+                from rest_framework_simplejwt.tokens import Token
+
+                from .user_sessions import session_for_rotation_grace
+
+                grace_session = session_for_rotation_grace(request, raw)
+                if grace_session is None:
+                    raise
+                old = RefreshToken(raw, verify=False)
+                old.payload = old.token_backend.decode(raw, verify=True)  # signature still required
+                Token.verify(old)  # expiry and token type, without the blacklist check
             user_id = old.get("user_id")
             user = User.objects.filter(pk=user_id, is_active=True).first()
             if not user:
                 raise AuthenticationFailed("Invalid refresh token.")
-            try:
-                old.check_blacklist()
-            except TokenError as exc:
-                raise AuthenticationFailed("Invalid refresh token.") from exc
-            try:
-                old.blacklist()
-            except TokenError as exc:
-                raise AuthenticationFailed("Invalid refresh token.") from exc
+            if grace_session is None:
+                try:
+                    old.blacklist()
+                except TokenError as exc:
+                    raise AuthenticationFailed("Invalid refresh token.") from exc
             if not CompanyUser.objects.filter(user=user, is_active=True).exists():
                 raise AuthenticationFailed("No active company membership.")
             if enrolment_required(user):
@@ -797,7 +798,16 @@ class CookieTokenRefreshView(APIView):
             env = (getattr(settings, "DJANGO_ENV", "") or "").lower().strip()
             access_body = tokens["access"] if _access_in_json_body_allowed() else None
             response = Response({"access": access_body})
-            _set_refresh_cookie(response, tokens["refresh"], request=request, previous=raw)
+            if grace_session is not None:
+                # The session already moved on to the token the browser never received; retire
+                # that token too, so only the one issued now stays valid.
+                from .user_sessions import retire_after_grace
+
+                retire_after_grace(grace_session.current_jti)
+            _set_refresh_cookie(
+                response, tokens["refresh"], request=request, previous=raw,
+                previous_jti=grace_session.current_jti if grace_session is not None else "",
+            )
             _set_access_cookie(response, tokens["access"])
             _ensure_csrf_cookie(request)
             return response

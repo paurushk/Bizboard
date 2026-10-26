@@ -103,6 +103,11 @@ def test_postgres_statement_timeouts_are_configured():
     # SR0-06: session-level RLS GUCs (core/rls.py) are only safe behind session pooling.
     assert "pool_mode = session" in pgb
     assert "pool_mode = transaction\n" not in pgb
+    # WP-5: PgBouncer drops the startup `options`, so the same timeouts must sit on the app role.
+    role_sql = (ROOT / "scripts" / "sql" / "app_role.sql").read_text(encoding="utf-8")
+    assert "SET statement_timeout = %L', :'app_user', '30s'" in role_sql
+    assert "SET idle_in_transaction_session_timeout = %L', :'app_user', '60s'" in role_sql
+    assert "auth_query" in pgb and "userlist.txt" in pgb
     assert "CONN_MAX_AGE" in pgb or "CONN_MAX_AGE" in (ROOT / "docs" / "ops" / "POSTGRES.md").read_text(
         encoding="utf-8"
     )
@@ -301,3 +306,15 @@ def test_support_macros_do_not_claim_gst_filing():
     assert "wizard_completed" in rollup
     assert "Do not treat this as" in rollup
 
+
+
+def test_every_nginx_header_block_sets_permissions_policy():
+    """WP-1 (ZAP 10063): nginx add_header does not inherit (M1-021), so each block that re-declares
+    the baseline headers must carry Permissions-Policy too; only camera and location are allowed."""
+    for rel in ("nginx/default.conf", "web/nginx.conf"):
+        conf = (ROOT / rel).read_text(encoding="utf-8")
+        blocks = conf.count("add_header Referrer-Policy")
+        assert blocks and conf.count("add_header Permissions-Policy") == blocks, rel
+        assert "camera=(self), geolocation=(self), microphone=()" in conf, rel
+    web = (ROOT / "web" / "nginx.conf").read_text(encoding="utf-8")
+    assert web.count("Cross-Origin-Opener-Policy same-origin-allow-popups") == web.count("add_header Referrer-Policy")

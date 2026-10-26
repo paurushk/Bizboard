@@ -370,11 +370,21 @@ def _rate_buckets(items, invoice=None) -> dict[Decimal, dict]:
     return buckets
 
 
+def _outward_invoice_types(company) -> set:
+    """Invoice types the outward returns read. With the bill-of-supply flag on (D-14), a regular
+    company's Non-GST invoices are reported too: Tables 8 and 13 and GSTR-3B 3.1(c)/(e)."""
+    from core.services.registration_gates import bill_of_supply_rules_on
+
+    if bill_of_supply_rules_on(company):
+        return set(GST_INVOICE_TYPES) | {SalesInvoice.InvoiceType.NON_GST}
+    return set(GST_INVOICE_TYPES)
+
+
 def _gst_sales_invoices_base(company, date_from: date, date_to: date):
     return SalesInvoice.objects.filter(
         company=company,
         status__in=OPEN_RECEIVABLE_STATUSES,
-        invoice_type__in=GST_INVOICE_TYPES,
+        invoice_type__in=_outward_invoice_types(company),
         invoice_date__gte=date_from,
         invoice_date__lte=date_to,
         # BB-000335: Tally-migration opening balances are not real supplies —
@@ -763,6 +773,12 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         ch = _charge_line(inv, intra_state=intra)
         if ch is not None:
             items = list(items) + [ch]
+        if inv.invoice_type == SalesInvoice.InvoiceType.NON_GST:
+            # D-14: a bill of supply carries no tax. A line saved as TAXABLE before the rule
+            # existed is reported as exempt (in memory only), not as a 0% B2CS row.
+            for item in items:
+                if (getattr(item, "supply_nature", None) or "TAXABLE").upper() == "TAXABLE":
+                    item.supply_nature = "EXEMPT"
         buckets = _rate_buckets(items, invoice=inv)
         for item in items:
             nature = (getattr(item, "supply_nature", None) or "TAXABLE").upper()
@@ -870,7 +886,7 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
         status=SalesInvoice.Status.CANCELLED,
         invoice_date__gte=date_from,
         invoice_date__lte=date_to,
-        invoice_type__in=GST_INVOICE_TYPES,
+        invoice_type__in=_outward_invoice_types(company),
     )
     if stamp_id is not None:
         cancelled_qs = cancelled_qs.filter(company_gstin_id=stamp_id)
@@ -884,7 +900,7 @@ def build_gstr1(company, period: str, *, company_gstin=None) -> dict:
     prior_cancel_qs = SalesInvoice.objects.filter(
         company=company,
         status=SalesInvoice.Status.CANCELLED,
-        invoice_type__in=GST_INVOICE_TYPES,
+        invoice_type__in=_outward_invoice_types(company),
         invoice_date__lt=date_from,
         cancelled_at__date__gte=date_from,
         cancelled_at__date__lte=date_to,

@@ -18,9 +18,11 @@ the same ~15s cache as HealthView. Never put a company id in a label.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 
+logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _REQUEST_COUNT = 0
 _HTTP_5XX = 0
@@ -41,39 +43,70 @@ def multiprocess_enabled() -> bool:
 
 
 _MP: dict | None = None
+_MP_FAILED = False
 
 
 def _mp() -> dict | None:
-    """The prometheus_client metric objects, created once per process (multiprocess mode only)."""
-    global _MP
-    if _MP is not None or not multiprocess_enabled():
+    """The prometheus_client metric objects, created once per process (multiprocess mode only).
+
+    If creating them fails (for example the multiprocess directory is not writable), the ones
+    already registered are unregistered and metrics stay off for this process. Leaving them
+    registered made every later call fail with DuplicateTimeseries, so /api/v1/metrics/ answered
+    500 for the life of the worker (WP-6 game day, 2026-10-25).
+    """
+    global _MP, _MP_FAILED
+    if _MP is not None or _MP_FAILED or not multiprocess_enabled():
         return _MP
     try:
-        from prometheus_client import Counter, Histogram
+        from prometheus_client import REGISTRY, Counter, Histogram
     except ImportError:  # pragma: no cover - requirements.txt pins it
         return None
-    _MP = {
-        "requests": Counter("bizboard_http_requests", "HTTP requests handled.", ["status_class"]),
-        "http_5xx": Counter("bizboard_http_5xx", "HTTP responses with status >= 500."),
-        "latency": Histogram(
+    created: list = []
+
+    def track(metric):
+        created.append(metric)
+        return metric
+
+    try:
+        _MP = _build_metrics(Counter, Histogram, track)
+    except Exception:  # noqa: BLE001 - metrics must never break the app
+        for metric in created:
+            try:
+                REGISTRY.unregister(metric)
+            except Exception:  # noqa: BLE001, S110 - best effort clean-up
+                pass
+        _MP_FAILED = True
+        logger.exception("Prometheus metrics are off in this process (PROMETHEUS_MULTIPROC_DIR=%s)",
+                         os.environ.get("PROMETHEUS_MULTIPROC_DIR"))
+        return None
+    return _MP
+
+
+def _build_metrics(Counter, Histogram, track) -> dict:  # noqa: N803 - the prometheus_client classes
+    mp = {
+        "requests": track(Counter("bizboard_http_requests", "HTTP requests handled.", ["status_class"])),
+        "http_5xx": track(Counter("bizboard_http_5xx", "HTTP responses with status >= 500.")),
+        "latency": track(Histogram(
             "bizboard_http_latency_ms",
             "Request latency in milliseconds.",
             buckets=[*LATENCY_BUCKETS_MS, float("inf")],
-        ),
-        "events": Counter("bizboard_business_events", "Business events (receipts created, voided...).", ["event"]),
-        "celery_failures": Counter("bizboard_celery_task_failure", "Celery task failures."),
-        "celery_duration": Histogram(
+        )),
+        "events": track(Counter(
+            "bizboard_business_events", "Business events (receipts created, voided...).", ["event"],
+        )),
+        "celery_failures": track(Counter("bizboard_celery_task_failure", "Celery task failures.")),
+        "celery_duration": track(Histogram(
             "bizboard_celery_task_duration_seconds",
             "Celery task run time in seconds.",
             ["task", "status"],
             buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900, float("inf")),
-        ),
+        )),
     }
     # Events an alert waits for once are created at 0: Prometheus increase() can't see a series go
     # from absent to 1, so the first crossing after a restart would otherwise never page.
     for name in PRECREATED_EVENTS:
-        _MP["events"].labels(event=name)
-    return _MP
+        mp["events"].labels(event=name)
+    return mp
 
 
 PRECREATED_EVENTS = ("sms_platform_cap_80",)

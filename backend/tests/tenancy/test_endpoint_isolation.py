@@ -42,6 +42,10 @@ _ALLOWLIST_SUFFIXES = (
     # (company membership required to call it at all) even though the
     # response itself carries no tenant-scoped data to leak.
     "IntegrationsInventoryView",
+    # core.error_tunnel.client_error_tunnel: unauthenticated same-origin relay for browser error
+    # envelopes. It reads and writes no rows; it only forwards an envelope addressed to the one
+    # configured SENTRY_BROWSER_DSN (tests/test_client_error_tunnel.py covers the refusals).
+    "client_error_tunnel",
 )
 _ALLOWLIST_MODULES = (
     "accounts.urls_auth",  # login / register / token — pre-company

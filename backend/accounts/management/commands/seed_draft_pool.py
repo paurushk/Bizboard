@@ -38,6 +38,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from accounts.models import Company, CompanyUser
+from core.exceptions import BusinessRuleError
 from inventory.models import MovementType
 from inventory.services import InventoryService
 from masters.models import Customer, Product
@@ -80,11 +81,21 @@ class Command(BaseCommand):
         count = max(1, options["count"])
         # seed_demo only opens 100 units of stock — nowhere near enough for a
         # load-test-sized pool that each completes 1 unit.
-        InventoryService.post_movement(
-            company=company, product=product,
-            movement_type=MovementType.OPENING_STOCK,
-            quantity=Decimal(count), unit_cost=product.purchase_price, user=owner.user,
-        )
+        try:
+            InventoryService.post_movement(
+                company=company, product=product,
+                movement_type=MovementType.OPENING_STOCK,
+                quantity=Decimal(count), unit_cost=product.purchase_price, user=owner.user,
+            )
+        except BusinessRuleError:
+            # Opening stock is once per product; a second pool on the same tenant (or a seeded
+            # pilot company) tops up with a signed adjustment instead.
+            InventoryService.post_movement(
+                company=company, product=product,
+                movement_type=MovementType.ADJUSTMENT,
+                quantity=Decimal(count), unit_cost=product.purchase_price, user=owner.user,
+                reason="seed_draft_pool top-up for a load-test pool",
+            )
 
         today = timezone.localdate()
         ids: list[str] = []

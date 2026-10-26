@@ -6,6 +6,8 @@ TB zero -> customer receipt -> allocation. Every downstream ledger must agree.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from decimal import Decimal
 
 import pytest
@@ -35,7 +37,9 @@ def test_wf01_sale_intrastate_full_chain(tenant_a, assert_consistent):
     done = tenant_a.client.post(f"/api/v1/sales/invoices/{inv['id']}/complete/")
     latency_ms = (time.perf_counter() - t0) * 1000
     assert done.status_code == 200, done.data
-    assert latency_ms < 2500, f"Invoice completion roundtrip took {latency_ms:.2f}ms (SLA <= 2500ms)"
+    # mutmut instruments every call and runs this file from its mutants/ copy; timing is not what it checks.
+    if not os.environ.get("MUTANT_UNDER_TEST") and "mutants" not in Path(__file__).parts:
+        assert latency_ms < 2500, f"Invoice completion roundtrip took {latency_ms:.2f}ms (SLA <= 2500ms)"
     d = done.data
 
     # --- money identity: 3 x 100 = 300 taxable; 18% -> 27 + 27; grand 354 ---

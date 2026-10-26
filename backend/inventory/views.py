@@ -771,6 +771,13 @@ class BatchLotViewSet(CompanyScopedViewSet):
     serializer_class = BatchLotSerializer
     permission_classes = [IsAuthenticated, HasCompany, CanManageInventory]
 
+    def get_permissions(self):
+        # BB-100 F7: whoever sells or buys picks a lot on the line, so reading lots follows the
+        # stock-view rule (a lot carries no cost). Creating or changing lots stays inventory-only.
+        if self.action in ("list", "retrieve"):
+            return [IsAuthenticated(), HasCompany(), CanViewInventorySurfaces()]
+        return super().get_permissions()
+
     def get_queryset(self):
         qs = super().get_queryset()
         if product := self.request.query_params.get("product"):

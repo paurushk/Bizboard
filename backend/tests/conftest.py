@@ -13,6 +13,27 @@ from masters.models import Customer, Product, Supplier
 
 
 @pytest.fixture(autouse=True)
+def _broken_ledger_ok(request):
+    """``@pytest.mark.broken_ledger_ok``: the test builds an unbalanced or empty POSTED journal on
+    purpose (to prove a check catches it). On PostgreSQL the ledger balance triggers
+    (accounting 0023) are deferred to commit, and test teardown checks deferred constraints, so
+    they would reject it. Disable them inside this test's own transaction; the rollback at
+    teardown restores them, and no other test is affected.
+    """
+    if request.node.get_closest_marker("broken_ledger_ok") is None:
+        yield
+        return
+    request.getfixturevalue("db")
+    from django.db import connection
+
+    if connection.vendor == "postgresql":
+        with connection.cursor() as cur:
+            cur.execute("ALTER TABLE accounting_journalline DISABLE TRIGGER bizboard_journalline_balanced")
+            cur.execute("ALTER TABLE accounting_journalentry DISABLE TRIGGER bizboard_journalentry_balanced")
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _money_write_idempotency_key(monkeypatch):
     """Existing money-write tests omit Idempotency-Key. Production rejects that.
 

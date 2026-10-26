@@ -248,6 +248,13 @@ class CustomerReceipt(CompanyScopedModel):
                 & ~models.Q(status__in=[ReceiptStatus.VOIDED, ReceiptStatus.REFUNDED]),
                 name="uniq_receipt_utr_per_company",
             ),
+            # BB-062: the numbering service never reuses a number; the database now guarantees it,
+            # as it already did for invoices, purchases, returns and journals.
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_receipt_number_per_company",
+            ),
         ]
 
 
@@ -313,6 +320,12 @@ class SupplierPayment(CompanyScopedModel):
                 fields=["company", "utr"],
                 condition=~models.Q(utr="") & ~models.Q(status=SupplierPaymentStatus.VOIDED),
                 name="uniq_supplier_payment_utr_per_company",
+            ),
+            # BB-062: see the receipt constraint above.
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                condition=~models.Q(number=""),
+                name="uniq_supplier_payment_number_per_company",
             ),
         ]
 

@@ -59,6 +59,7 @@ def test_ar_fails_when_an_invoice_outstanding_disagrees_with_the_ledger(tenant_a
 
 
 @pytest.mark.no_invariant_check
+@pytest.mark.broken_ledger_ok
 def test_ap_fails_when_a_supplier_ledger_line_is_altered(tenant_a):
     _books(tenant_a, True)
     pur = _purchase(tenant_a, make_supplier(tenant_a.company), make_product(tenant_a.company, sku="AP-1"))
@@ -70,6 +71,7 @@ def test_ap_fails_when_a_supplier_ledger_line_is_altered(tenant_a):
 
 
 @pytest.mark.no_invariant_check
+@pytest.mark.broken_ledger_ok
 def test_output_gst_fails_when_the_posted_tax_differs_from_the_lines(tenant_a):
     _books(tenant_a, True)
     inv_id = _gst_sale(tenant_a)

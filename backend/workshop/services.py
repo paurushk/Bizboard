@@ -341,7 +341,7 @@ def update_line(job, line, user, *, quantity=None, unit_price=None, labour_minut
     """Change a line and move its stock hold by the difference (JOB-03)."""
     job = JobCard.objects.select_for_update().get(pk=job.pk)
     _assert_lines_editable(job)
-    line = JobCardLine.objects.select_for_update().select_related("product", "batch").get(pk=line.pk, job=job)
+    line = JobCardLine.objects.select_for_update(of=("self",)).select_related("product", "batch").get(pk=line.pk, job=job)
     new_qty = Decimal(str(quantity)) if quantity is not None else line.quantity
     new_price = Decimal(str(unit_price)) if unit_price is not None else line.unit_price
     new_qty, new_price = _positive_money(new_qty, new_price)
@@ -382,7 +382,7 @@ def update_line(job, line, user, *, quantity=None, unit_price=None, labour_minut
 def remove_line(job, line, user):
     job = JobCard.objects.select_for_update().get(pk=job.pk)
     _assert_lines_editable(job)
-    line = JobCardLine.objects.select_for_update().select_related("product", "batch").get(pk=line.pk, job=job)
+    line = JobCardLine.objects.select_for_update(of=("self",)).select_related("product", "batch").get(pk=line.pk, job=job)
     if line.kind == JobCardLine.Kind.PART and tracks_inventory(line.product):
         InventoryService.release_reservation(
             job.company, _warehouse(job), line.product, line.quantity, user=user, batch=line.batch,

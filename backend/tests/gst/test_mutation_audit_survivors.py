@@ -61,6 +61,9 @@ def test_dexp_is_domestic_pos_not_96():
     assert is_export_or_sez_supply("DEXP") is False
     assert is_deemed_export_supply("DEXP") is True
     assert is_deemed_export_supply("EXPWP") is False
+    # WP-5 survivor: the supply type is normalised (trim + upper-case) before the lookup.
+    assert is_deemed_export_supply(" dexp ") is True
+    assert is_deemed_export_supply(None) is False
     assert resolve_place_of_supply_code(supply_type="DEXP", party_gstin=KA_GSTIN) == "29"
     assert resolve_place_of_supply_code(supply_type="EXPWP") == "96"
 

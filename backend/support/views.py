@@ -303,7 +303,7 @@ class PlatformTicketViewSet(viewsets.ViewSet):
     def list(self, request):
         from .serializers import PlatformTicketSerializer
 
-        rows = self._qs(request).select_related("raised_by").order_by("-created_at")[:100]
+        rows = self._qs(request).select_related("raised_by").prefetch_related("satisfaction").order_by("-created_at")[:100]
         return Response(PlatformTicketSerializer(rows, many=True).data)
 
     def create(self, request):

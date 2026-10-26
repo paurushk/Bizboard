@@ -378,7 +378,10 @@ def apply_rcm_memo_after_tax(document, items) -> None:
     document.grand_total = q2(grand_total)
 
 
-_RATEABLE_DOCS = frozenset({"SalesInvoice", "PurchaseInvoice"})
+# Quotations and orders take the same HSN-table rate as the bill they become, so a customer
+# is never quoted one GST total and invoiced another (BB-100 finding F1), nor a supplier order
+# priced at one rate and billed at another.
+_RATEABLE_DOCS = frozenset({"SalesInvoice", "PurchaseInvoice", "Quotation", "SalesOrder", "PurchaseOrder"})
 _FROZEN_STATUS = frozenset({"COMPLETED", "RETURNED", "CANCELLED"})
 
 
@@ -833,6 +836,8 @@ def build_totals_preview(
     When ``customer`` is given and a line carries no ``unit_price``, the price is resolved exactly
     as the saved document would (customer price list / quantity slab, else catalogue price).
     """
+    from django.utils import timezone
+
     from core.services.place_of_supply import party_intra_state
 
     supply_type = str(data.get("supply_type") or "").strip().upper()
@@ -863,7 +868,12 @@ def build_totals_preview(
         rcm_igst = 0
         rcm_cess = 0
         supply_type = data.get("supply_type") or ""
-        invoice_date = data.get("invoice_date") or data.get("bill_date")
+        # The HSN table needs a date. A quote or order preview sends its own date; with none,
+        # use today, the same default a saved document gets (else the preview skips re-rating).
+        invoice_date = (
+            data.get("invoice_date") or data.get("bill_date") or data.get("quotation_date")
+            or data.get("order_date") or timezone.localdate()
+        )
         status = "DRAFT"
         _preview_rateable = True
 

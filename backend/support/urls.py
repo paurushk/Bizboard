@@ -1,4 +1,8 @@
+from django.urls import path
+
 from core.routers import DefaultRouter
+
+from .satisfaction_views import NpsDueView, SatisfactionAnswerView
 
 from .views import PlatformTicketViewSet, SupportAccessGrantViewSet, TicketViewSet, VendorTicketShareViewSet
 
@@ -9,4 +13,8 @@ router.register("shared", VendorTicketShareViewSet, basename="vendor-ticket-shar
 router.register("platform-tickets", PlatformTicketViewSet, basename="platform-ticket")
 router.register("access-grants", SupportAccessGrantViewSet, basename="support-access-grant")
 
-urlpatterns = router.urls
+urlpatterns = [
+    # BB-136: NPS prompt and support CSAT (behind ENABLE_SATISFACTION_SURVEY).
+    path("satisfaction/", SatisfactionAnswerView.as_view(), name="support-satisfaction"),
+    path("satisfaction/nps-due/", NpsDueView.as_view(), name="support-satisfaction-nps-due"),
+] + router.urls

@@ -643,7 +643,7 @@ class StockCountSessionSerializer(serializers.ModelSerializer):
             if lines is None:
                 return instance
             existing = {
-                row.id: row for row in instance.lines.select_related("product").select_for_update().order_by("id")
+                row.id: row for row in instance.lines.select_related("product").select_for_update(of=("self",)).order_by("id")
             }
             ids = [line.get("id") for line in lines]
             if ids and all(i in existing for i in ids):

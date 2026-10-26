@@ -15,6 +15,7 @@ import logging
 import re
 from datetime import timedelta
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from core.netutil import ip_prefix  # noqa: F401 - re-exported for callers and tests
@@ -22,6 +23,7 @@ from core.netutil import ip_prefix  # noqa: F401 - re-exported for callers and t
 logger = logging.getLogger(__name__)
 
 NEW_DEVICE_WINDOW = timedelta(days=90)
+_GRACE_KEY = "refresh-grace-used:"
 
 
 _BROWSERS = (("Edg/", "Edge"), ("OPR/", "Opera"), ("Chrome/", "Chrome"), ("Firefox/", "Firefox"),
@@ -48,9 +50,65 @@ def _jti(raw: str) -> str:
     return str(RefreshToken(str(raw), verify=False).get("jti") or "")
 
 
-def track(request, refresh_raw: str, *, previous: str | None = None) -> None:
+def session_for_rotation_grace(request, raw: str):
+    """The live session a just-rotated refresh token may be replayed into, or ``None``.
+
+    A reload can abort the refresh response after the server rotated the token, so the browser
+    presents the old one again. That is allowed only when the old token was blacklisted within
+    ``REFRESH_REUSE_GRACE_SECONDS`` and this same device (user agent and IP prefix) still has a
+    live, unrevoked session that was moved on in that window. Sign-out revokes the session, so a
+    signed-out token never comes back.
+    """
+    from django.conf import settings
+    from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from core.netutil import client_ip
+
+    from .models import UserSession
+
+    grace = getattr(settings, "REFRESH_REUSE_GRACE_SECONDS", 0)
+    if not grace:
+        return None
+    try:
+        token = RefreshToken(str(raw), verify=False)
+        jti, user_id = token["jti"], token.get("user_id")
+    except Exception:  # noqa: BLE001
+        return None
+    since = timezone.now() - timedelta(seconds=grace)
+    if not BlacklistedToken.objects.filter(token__jti=jti, blacklisted_at__gte=since).exists():
+        return None
+    meta = getattr(request, "META", {}) or {}
+    session = (
+        UserSession.objects.filter(
+            user_id=user_id,
+            revoked_at__isnull=True,
+            last_used_at__gte=since,
+            device_label=device_label(meta.get("HTTP_USER_AGENT")),
+            ip_prefix=ip_prefix(client_ip(request)),
+        )
+        .exclude(current_jti=jti)
+        .order_by("-last_used_at")
+        .first()
+    )
+    # Single use: a replayed token, or one the grace itself retired, cannot be replayed again.
+    if session is None or not cache.add(f"{_GRACE_KEY}{jti}", 1, grace):
+        return None
+    return session
+
+
+def retire_after_grace(jti: str) -> None:
+    """Blacklist the token the browser never received; it cannot use the grace either."""
+    from django.conf import settings
+
+    _blacklist_jti(jti)
+    cache.set(f"{_GRACE_KEY}{jti}", 1, max(1, getattr(settings, "REFRESH_REUSE_GRACE_SECONDS", 0)))
+
+
+def track(request, refresh_raw: str, *, previous: str | None = None, previous_jti: str = "") -> None:
     """Record a newly issued refresh token. ``previous`` is the refresh token it replaces (a
-    refresh or a company switch); without it this is a new sign-in."""
+    refresh or a company switch); without it this is a new sign-in. ``previous_jti`` names the
+    session's current token directly (the rotation-grace replay, where ``previous`` is stale)."""
     from .models import UserSession
 
     try:
@@ -63,8 +121,8 @@ def track(request, refresh_raw: str, *, previous: str | None = None) -> None:
         logger.exception("could not read a refresh token for session tracking")
         return
     now = timezone.now()
-    prev_jti = ""
-    if previous:
+    prev_jti = previous_jti
+    if previous and not prev_jti:
         try:
             prev_jti = _jti(previous)
         except Exception:  # noqa: BLE001

@@ -160,6 +160,7 @@ def test_cr098_boe_cancel_unlinks_draft_purchase(tenant_a):
 # Builds ledger rows straight through the ORM with no documents behind them, so the
 # docs-vs-ledger and empty-entry invariants (WP-F4 / WP-F6) are expected to flag it.
 @pytest.mark.no_invariant_check
+@pytest.mark.broken_ledger_ok
 def test_cr103_empty_posted_je_not_treated_as_done(tenant_a):
     from accounting.management.commands.backfill_missing_postings import _has_je
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from django.conf import settings
 
-from billing.entitlements import FREEZE_DARK_PLAN_MODULES
+from billing.entitlements import FREEZE_DARK_PLAN_MODULES, freeze_safe_modules
 from core.services.feature_flags import DARK_MODULE_KEYS, ENV_FLAG_KEYS, ROLLOUT_GRANTABLE_KEYS
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -18,7 +18,9 @@ def test_freeze_dark_modules_are_known_env_flags():
     for key in ("ENABLE_MANUFACTURING", "ENABLE_PAYROLL", "ENABLE_CRM"):
         assert key in DARK_MODULE_KEYS
         assert key in FREEZE_DARK_PLAN_MODULES
-    assert "ENABLE_GSTR" in FREEZE_DARK_PLAN_MODULES
+    # D-16: GST worksheets are granted on every paid plan, like the trial.
+    assert "ENABLE_GSTR" not in FREEZE_DARK_PLAN_MODULES
+    assert freeze_safe_modules(pos=False)["ENABLE_GSTR"] is True
     assert "ENABLE_TALLY" in FREEZE_DARK_PLAN_MODULES
     assert "ENABLE_POS" not in FREEZE_DARK_PLAN_MODULES
     assert "ENABLE_POS" in ROLLOUT_GRANTABLE_KEYS

@@ -83,3 +83,4 @@
 /api/v1/support/platform-tickets/{id}/   # isolation proved by tests/test_saas_phase1_ops.py::test_tickets_never_cross_companies (404 across tenants, every verb)
 /api/v1/support/platform-tickets/{id}/reply/   # isolation proved by tests/test_saas_phase1_ops.py::test_tickets_never_cross_companies (404 across tenants, every verb)
 /api/v1/support/platform-tickets/{id}/resolve/   # isolation proved by tests/test_saas_phase1_ops.py::test_tickets_never_cross_companies (404 across tenants, every verb)
+/api/v1/billing/referral/check/{code}/   # D-19 public pre-sign-up code check: answers only {valid: bool}, never company data; tests/test_saas_referrals.py::test_the_public_check_says_only_yes_or_no

@@ -2417,7 +2417,8 @@ class PaymentService:
         receipts = list(
             CustomerReceipt.objects.filter(gateway_payment=gp)
             .select_related("gateway_payment")
-            .select_for_update()
+            # gateway_payment is nullable: Postgres cannot lock the outer-joined side.
+            .select_for_update(of=("self",))
         )
         je_seq = int(raw.get("refund_je_seq") or 0)
         # B4-036: a refund can span more than one receipt against the same

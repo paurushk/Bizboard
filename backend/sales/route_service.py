@@ -796,8 +796,9 @@ class RouteService:
         if not stored or not verify_otp(stored, supplied):
             # A six-digit code must not be guessable by retrying.
             try:
-                cache.add(fail_key, 0, timeout=POD_OTP_LOCK_SECONDS)
-                cache.incr(fail_key)
+                from core.services.counters import incr
+
+                incr(fail_key, 1, POD_OTP_LOCK_SECONDS)
             except Exception:  # noqa: BLE001 - a cache outage must not block a delivery
                 pass
             raise BusinessRuleError(

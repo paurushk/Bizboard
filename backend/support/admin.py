@@ -11,6 +11,7 @@ from .models import (
     DataPrivacyRequest,
     PlatformTicket,
     PlatformTicketMessage,
+    SatisfactionResponse,
     SupportAccessGrant,
     SupportAccessLog,
     TenantHealthSnapshot,
@@ -186,3 +187,40 @@ class SupportAccessLogAdmin(_BypassMixin, SuperuserOnlyAdminMixin, admin.ModelAd
 
     def has_delete_permission(self, request, obj=None):
         return False  # the owner's record of every look support took
+
+
+@admin.register(SatisfactionResponse)
+class SatisfactionResponseAdmin(SuperuserOnlyAdminMixin, _BypassMixin, admin.ModelAdmin):
+    """BB-136: NPS answers and support CSAT, across companies. The list header shows the NPS of
+    the answered rows in the current filter (promoters 9-10 minus detractors 0-6)."""
+
+    list_display = ("created_at", "company", "user", "kind", "score", "platform_ticket", "short_comment")
+    list_filter = ("kind", "created_at")
+    search_fields = ("comment", "company__name", "user__email")
+    readonly_fields = ("company", "user", "kind", "score", "comment", "platform_ticket", "created_at")
+    fields = readonly_fields
+
+    @admin.display(description="Comment")
+    def short_comment(self, obj):
+        return (obj.comment or "")[:80]
+
+    def has_add_permission(self, request):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from .satisfaction import nps_score_summary
+
+        response = super().changelist_view(request, extra_context=extra_context)
+        try:
+            rows = response.context_data["cl"].queryset.filter(kind=SatisfactionResponse.Kind.NPS)
+        except (AttributeError, KeyError):
+            return response
+        summary = nps_score_summary(rows)
+        if summary["nps"] is not None:
+            self.message_user(
+                request,
+                f"NPS {summary['nps']} from {summary['answered']} answers "
+                f"({summary['promoters']} promoters, {summary['passives']} passives, {summary['detractors']} detractors).",
+            )
+        return response
+

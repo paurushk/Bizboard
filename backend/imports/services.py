@@ -1793,10 +1793,18 @@ class ImportService:
             str(r.get("sku") or r.get("item code") or "").strip().casefold()
             for r in (job.extra_sheets or {}).get("opening_serials") or []
         }
-        existing_by_sku = {
-            (p.sku or "").casefold(): p
-            for p in Product.objects.filter(company=job.company).exclude(sku="")
-        }
+        # BB-074: load only the products this file names. Building every product of a large
+        # catalogue as a model instance was most of the commit time on a second import.
+        file_skus = {(row.get("sku") or "").strip().casefold() for row in preview} - {""}
+        matched_ids = [
+            pk
+            for pk, sku in Product.objects.filter(company=job.company).exclude(sku="").values_list("pk", "sku")
+            if (sku or "").casefold() in file_skus
+        ]
+        existing_by_sku = {}
+        for start in range(0, len(matched_ids), 900):  # under SQLite's bound-parameter cap
+            for p in Product.objects.filter(pk__in=matched_ids[start:start + 900]):
+                existing_by_sku[(p.sku or "").casefold()] = p
         # B3-012: _custom_fields_for_commit used to refresh_from_db the
         # company row and rebuild this set on every single preview row. The
         # live custom-field defs can't change mid-commit (this all runs in

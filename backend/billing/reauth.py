@@ -22,12 +22,9 @@ def _fail_key(user_id) -> str:
 
 
 def _count_failure(user_id) -> None:
-    key = _fail_key(user_id)
-    if not cache.add(key, 1, REAUTH_WINDOW_SECONDS):
-        try:
-            cache.incr(key)
-        except ValueError:
-            cache.set(key, 1, REAUTH_WINDOW_SECONDS)
+    from core.services.counters import incr
+
+    incr(_fail_key(user_id), 1, REAUTH_WINDOW_SECONDS)
 
 
 def require_reauth(request) -> None:

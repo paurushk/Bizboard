@@ -341,3 +341,55 @@ class TrialFingerprint(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["kind", "digest"])]
+
+
+class ReferralLink(CompanyScopedModel):
+    """D-19 (2026-10-25, BB-139): a Bizboard customer's link for referring another business.
+
+    ``company`` is the referrer. One link per company, made the first time its owner opens the
+    referral panel. Behind the company flag ENABLE_SAAS_REFERRALS (off). Not the CRM referral codes
+    (crm.ReferralCode), which track a tenant's own customers' referrals.
+    """
+
+    code = models.CharField(max_length=16, unique=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="billing_referral_link_one_per_company"),
+        ]
+
+
+class ReferralEvent(CompanyScopedModel):
+    """A business that signed up with a referral link, and later started paying (D-19).
+
+    Belongs to the **referrer** (``company``), so the referrer's owner sees it and RLS keeps it in
+    the referrer's tenant; written for the referrer from the referred company's sign-up through
+    billing.referrals.record_event (company_scope), never directly. The reward is recorded only:
+    Bizboard staff settle it by hand in Django admin (``settled_at``).
+    """
+
+    class Kind(models.TextChoices):
+        SIGNED_UP = "SIGNED_UP", "Signed up"
+        QUALIFIED = "QUALIFIED", "Started paying"
+
+    link = models.ForeignKey(ReferralLink, on_delete=models.CASCADE, related_name="events")
+    # SET_NULL: erasing the referred company must neither fail nor leave a link to it.
+    referred_company = models.ForeignKey(
+        "accounts.Company", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    voided_at = models.DateTimeField(null=True, blank=True)
+    void_reason = models.CharField(max_length=200, blank=True)
+    settled_at = models.DateTimeField(null=True, blank=True)
+    settled_note = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["referred_company", "kind"],
+                condition=models.Q(referred_company__isnull=False),
+                name="billing_referral_event_once_per_company",
+            ),
+        ]

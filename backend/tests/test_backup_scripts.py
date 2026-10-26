@@ -245,3 +245,29 @@ def test_restore_age_without_identity_fails(env):
     r = run(RESTORE, e)
     assert r.returncode != 0
     assert "RESTORE_AGE_IDENTITY" in r.stderr
+
+
+def test_glitchtip_kind_dumps_without_the_company_check_and_keeps_its_own_marker(env):
+    """BACKUP_KIND=glitchtip (docs/ops/GLITCHTIP.md): the tracker has no company table, so the
+    RLS company-rows check is the app's only; files and marker never mix with the app's."""
+    e, backups, _ = env
+    r = run(BACKUP, e, BACKUP_ALLOW_UNENCRYPTED="1", BACKUP_KIND="glitchtip", FAKE_PG_EMPTY="1")
+    assert r.returncode == 0, r.stderr
+    (name,) = sorted(p.name for p in backups.glob("glitchtip-*"))
+    assert name.endswith(".sql.gz")
+    assert dumps(backups) == []
+    assert (backups / "LAST_SUCCESS_glitchtip").read_text().split()[1] == name
+    assert not (backups / "LAST_SUCCESS").exists()
+
+
+def test_the_app_dump_still_refuses_an_rls_hidden_dump_by_default(env):
+    e, backups, _ = env
+    r = run(BACKUP, e, BACKUP_ALLOW_UNENCRYPTED="1", FAKE_PG_EMPTY="1")
+    assert r.returncode != 0 and "no company rows" in r.stderr
+
+
+def test_unknown_backup_kind_is_refused(env):
+    e, backups, _ = env
+    r = run(BACKUP, e, BACKUP_ALLOW_UNENCRYPTED="1", BACKUP_KIND="other")
+    assert r.returncode != 0 and "BACKUP_KIND must be" in r.stderr
+    assert not backups.exists() or not any(backups.iterdir())

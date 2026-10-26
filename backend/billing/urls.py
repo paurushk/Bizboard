@@ -1,5 +1,7 @@
 from django.urls import path
 
+from .referral_views import PublicReferralCheckView, ReferralLinkView
+
 from .views import (
     CheckoutView,
     DeadLetterListView,
@@ -18,6 +20,8 @@ from .views import (
 )
 
 urlpatterns = [
+    path("referral/", ReferralLinkView.as_view(), name="billing-referral"),
+    path("referral/check/<str:code>/", PublicReferralCheckView.as_view(), name="billing-public-referral-check"),
     path("plans/", PlanListView.as_view(), name="billing-plans"),
     path("subscription/", SubscriptionDetailView.as_view(), name="billing-subscription"),
     path("vendor/tenants/", VendorTenantsView.as_view(), name="billing-vendor-tenants"),

@@ -284,6 +284,14 @@ if "sqlite" in _db_engine:
 else:
     # CFG-05: reap dead pooled connections (needed with CONN_MAX_AGE > 0).
     DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
+# WP-5 (BB-068): behind PgBouncer (docker-compose.pgbouncer.yml) Django must not hold connections
+# open; PgBouncer does the pooling, and a long-lived client connection pins a server connection.
+DB_VIA_PGBOUNCER = _env_bool("DB_VIA_PGBOUNCER")
+if DB_VIA_PGBOUNCER and DATABASES["default"].get("CONN_MAX_AGE"):
+    raise ImproperlyConfigured(
+        "DB_VIA_PGBOUNCER=1 needs DB_CONN_MAX_AGE=0 (PgBouncer pools the connections; "
+        "see docs/ops/POSTGRES.md)."
+    )
 # BB-000546: Postgres statement / idle-in-transaction timeouts (ignored on SQLite).
 if "postgresql" in _db_engine or "postgres" in _db_engine:
     _db_opts = DATABASES["default"].setdefault("OPTIONS", {})
@@ -393,6 +401,8 @@ REST_FRAMEWORK = {
         "register": _E2E_AUTH_THROTTLE or "5/min",
         # Sign-up email verification code — same shape as "otp" (send budget).
         "register_otp": _E2E_AUTH_THROTTLE or "5/min",
+        # D-19: the public referral-code check before sign-up.
+        "referral_check": "30/min",
         # B6-012: tight budget for current-password verification (change-password
         # / delete-account) so a stolen short-lived access token can't brute-force it.
         "sensitive_action": "10/min",
@@ -423,7 +433,8 @@ REST_FRAMEWORK = {
         "password_reset": "5/min",
         "password_reset_confirm": "20/min",
         "tenant_api": "10000/min",
-        "sales_complete": "30/min",
+        # D-11 (2026-10-24): 60 Completes per minute per company, room for 2-3 busy counters.
+        "sales_complete": "60/min",
         "purchase_complete": "30/min",
         "customer_portal_request": "5/min",
         "customer_portal_read": "60/min",
@@ -451,6 +462,12 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
 }
+
+# A refresh token rotated this many seconds ago is accepted once more from the same live device
+# session: a page reload that aborts the refresh response otherwise signs the user out, because
+# the browser never stored the rotated cookie. 0 turns the grace off. Signed-out or revoked
+# sessions never qualify (accounts/user_sessions.py session_for_rotation_grace).
+REFRESH_REUSE_GRACE_SECONDS = max(0, int(os.environ.get("REFRESH_REUSE_GRACE_SECONDS", "20")))
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Bizboard API",
@@ -746,6 +763,16 @@ CELERY_BEAT_SCHEDULE = {
     "accounts-settings-alerts-daily": {
         "task": "accounts.tasks.run_settings_alerts_task",
         "schedule": crontab(hour=7, minute=5),
+    },
+    # D-13: read-only workspaces - warnings 30/7 days ahead, erasure only with DATA_RETENTION_ENFORCE.
+    "accounts-data-retention-daily": {
+        "task": "accounts.tasks.apply_data_retention_task",
+        "schedule": crontab(hour=4, minute=40),
+    },
+    # D-19 (BB-139): referred businesses that started paying.
+    "billing-qualify-saas-referrals-daily": {
+        "task": "billing.tasks.qualify_saas_referrals_task",
+        "schedule": crontab(hour=5, minute=10),
     },
     "accounts-sweep-expired-sandboxes": {
         "task": "accounts.tasks.sweep_expired_sandboxes_task",
@@ -1334,6 +1361,9 @@ TELEGRAM_WEBHOOK_SECRET = _env_value("TELEGRAM_WEBHOOK_SECRET")
 # as TELEGRAM_BOT_TOKEN above — this is not per-user, just one ops sink.
 OPS_ALERT_TOKEN = _env_value("OPS_ALERT_TOKEN")
 OPS_TELEGRAM_CHAT_ID = _env_value("OPS_TELEGRAM_CHAT_ID")
+# Also push every ops page to this ntfy topic (https://ntfy.sh/<long random topic>, or a
+# self-hosted ntfy): a free phone push next to, or instead of, the Telegram chat.
+OPS_NTFY_URL = _env_value("OPS_NTFY_URL")
 
 # Wave 17F — payment gateway env credentials
 CASHFREE_APP_ID = _env_value("CASHFREE_APP_ID")
@@ -1353,6 +1383,11 @@ ENABLE_ROUTE_PROFIT = _env_bool("ENABLE_ROUTE_PROFIT")
 ENABLE_SUPPLIER_PRICE_HISTORY = _env_bool("ENABLE_SUPPLIER_PRICE_HISTORY")
 ENABLE_CUSTOMER_PORTAL = _env_bool("ENABLE_CUSTOMER_PORTAL")
 ENABLE_ACTION_ASSIGNMENT = _env_bool("ENABLE_ACTION_ASSIGNMENT")
+# D-13 (2026-10-25): erase read-only workspaces after their retention period. Off until counsel
+# confirms the policy; while off the daily task only warns owners and logs what it would delete.
+DATA_RETENTION_ENFORCE = _env_bool("DATA_RETENTION_ENFORCE")
+# D-19 (BB-139): at most this many sign-ups per referral link per day are attributed.
+SAAS_REFERRAL_DAILY_CAP = _env_int("SAAS_REFERRAL_DAILY_CAP", 20)
 ENABLE_PREDICTIVE_DUNNING = _env_bool("ENABLE_PREDICTIVE_DUNNING")
 ENABLE_CUSTOMER_360 = _env_bool("ENABLE_CUSTOMER_360", "1")  # on by default: founder decision 2026-10-11
 # CUS-07: reject a customer whose GSTIN prefix disagrees with its state (and a changed phone that is
@@ -1447,6 +1482,8 @@ LOGGING = {
     "disable_existing_loggers": False,
     "formatters": {
         "verbose": {
+            # BB-048: secrets and personal data are masked in every line, tracebacks included.
+            "()": "core.log_redaction.RedactingFormatter",
             # CFG-08: timestamp so stdout capture is correlatable with the JSON
             # access log line emitted by RequestIdMiddleware.
             "format": "{asctime} {levelname} {name} {message}",

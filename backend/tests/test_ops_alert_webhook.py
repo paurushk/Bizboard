@@ -102,3 +102,61 @@ def test_ops_alert_empty_body_is_a_noop_200():
     c = APIClient()
     resp = c.post("/api/v1/ops/alert/?token=secret123", {}, format="json")
     assert resp.status_code == 200
+
+
+@override_settings(OPS_TELEGRAM_CHAT_ID="", OPS_NTFY_URL="https://ntfy.sh/bb-test-topic")
+def test_ops_page_also_pushes_to_ntfy_when_set():
+    from core.services.telegram import send_ops_alert
+
+    with mock.patch("core.services.telegram.requests.post") as post:
+        post.return_value.ok = True
+        result = send_ops_alert("⚠️ backup failed")
+    assert result.mode == "sent"
+    assert post.call_args.args[0] == "https://ntfy.sh/bb-test-topic"
+    assert post.call_args.kwargs["data"] == "⚠️ backup failed".encode()
+    assert all(v.isascii() for v in post.call_args.kwargs["headers"].values())
+
+
+@override_settings(OPS_TELEGRAM_CHAT_ID="-100555", TELEGRAM_BOT_TOKEN="dummy", OPS_NTFY_URL="https://ntfy.sh/t")
+def test_ntfy_failure_never_blocks_the_telegram_page():
+    import requests
+
+    from core.services.telegram import send_ops_alert
+
+    with mock.patch("core.services.telegram.requests.post") as post:
+        telegram_ok = mock.Mock(status_code=200)
+        telegram_ok.json.return_value = {"ok": True}
+        post.side_effect = [requests.ConnectionError("ntfy down"), telegram_ok]
+        result = send_ops_alert("db is down")
+    assert post.call_count == 2
+    assert result.mode != "unlinked"
+
+
+@override_settings(OPS_TELEGRAM_CHAT_ID="", OPS_NTFY_URL="http://ntfy.sh/plain-http")
+def test_ntfy_needs_https():
+    from core.services.telegram import send_ops_alert
+
+    with mock.patch("core.services.telegram.requests.post") as post:
+        assert send_ops_alert("x").mode == "unlinked"
+    post.assert_not_called()
+
+
+@override_settings(OPS_ALERT_TOKEN="secret123", DJANGO_ENV="staging")
+def test_alertmanager_bearer_token_and_payload_are_relayed():
+    """WP-6: Alertmanager sends Authorization: Bearer and its own JSON shape."""
+    c = APIClient()
+    payload = {
+        "status": "firing",
+        "alerts": [{
+            "status": "firing",
+            "labels": {"alertname": "BizBoardWorkerDown", "severity": "page"},
+            "annotations": {"summary": "A Celery worker stopped answering", "runbook": "docs/ops/ALERTS.md#pdf-queue"},
+        }],
+    }
+    with mock.patch("core.services.telegram.send_ops_alert") as page:
+        resp = c.post("/api/v1/ops/alert/", payload, format="json", HTTP_AUTHORIZATION="Bearer secret123")
+    assert resp.status_code == 200
+    text = page.call_args.args[0]
+    assert "FIRING: BizBoardWorkerDown: A Celery worker stopped answering" in text
+    assert "docs/ops/ALERTS.md#pdf-queue" in text
+    assert c.post("/api/v1/ops/alert/", payload, format="json", HTTP_AUTHORIZATION="Bearer wrong").status_code == 401

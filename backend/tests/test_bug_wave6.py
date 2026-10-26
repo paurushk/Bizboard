@@ -178,6 +178,7 @@ def test_bug_perf_003_gstr_walks_in_chunks():
 
 
 @pytest.mark.no_invariant_check  # one-sided ORM journal is a report fixture, not a posted chain
+@pytest.mark.broken_ledger_ok
 def test_bug_perf_004_balances_use_company_column_and_rollup(tenant_a):
     from accounting.models import Account, JournalEntry, JournalLine
     from accounting.reports import _balances, refresh_account_monthly_balances, trial_balance
@@ -366,6 +367,7 @@ def test_bug_sec_018_viewer_cannot_hold_financial_reports():
 
 
 @pytest.mark.no_invariant_check  # one-sided ORM journals are a report fixture, not a posted chain
+@pytest.mark.broken_ledger_ok
 def test_bug_acc_007_comparative_store_pnl_splits_overhead(tenant_a):
     from accounting.models import Account, CostCenter, JournalEntry, JournalLine
     from accounting.reports import comparative_store_pnl

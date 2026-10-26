@@ -2,6 +2,7 @@ import logging
 
 from django.contrib.auth.password_validation import validate_password
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from core.permissions import get_company_user
@@ -99,6 +100,9 @@ class RegisterSerializer(serializers.Serializer):
     otp_code = serializers.CharField(max_length=6, min_length=6)
     # WP-H5: the person agrees to the current Terms and Privacy Policy (and, as owner, the DPA).
     accept_terms = serializers.BooleanField(required=False, default=False)
+    # D-19 (BB-139): the ?ref= code of a Bizboard customer's referral link, if any. Unknown or
+    # disabled codes are ignored silently (billing/referrals.py), never an error.
+    referral_code = serializers.CharField(max_length=32, required=False, allow_blank=True, default="")
 
     def validate_accept_terms(self, value):
         from django.conf import settings
@@ -172,6 +176,9 @@ class CompanySerializer(serializers.ModelSerializer):
     onboarding = serializers.SerializerMethodField()
     dismiss_onboarding = serializers.BooleanField(write_only=True, required=False, default=False)
     confirm_tax_profile = serializers.BooleanField(write_only=True, required=False, default=False)
+    data_deletion_due_at = serializers.SerializerMethodField(
+        help_text="D-13: when this read-only workspace's data is deleted; null while it is not read-only.",
+    )
     mark_onboarding_started = serializers.BooleanField(write_only=True, required=False, default=False)
 
     class Meta:
@@ -213,9 +220,11 @@ class CompanySerializer(serializers.ModelSerializer):
             "onboarding_dismissed_at", "tax_profile_confirmed_at", "onboarding_started_at",
             "onboarding", "dismiss_onboarding", "confirm_tax_profile",
             "mark_onboarding_started", "updated_at",
+            # D-13: the owner sets how long a read-only workspace is kept (30-3650 days, default 90).
+            "data_retention_days", "read_only_since", "data_deletion_due_at",
         ]
         read_only_fields = [
-            "updated_at",
+            "updated_at", "read_only_since",
             "gstin_verification_status", "gstin_legal_name", "gstin_verified_at",
             "pan_verification_status", "pan_legal_name", "pan_verified_at",
             "udyam_verification_status", "udyam_enterprise_name", "udyam_verified_at",
@@ -243,6 +252,13 @@ class CompanySerializer(serializers.ModelSerializer):
         from core.services.gsp_secrets import gsp_credentials_configured
 
         return gsp_credentials_configured(obj.gsp_credentials_encrypted or "")
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_data_deletion_due_at(self, obj):
+        from accounts.retention import deletion_due_at
+
+        due = deletion_due_at(obj)
+        return due.isoformat() if due else None
 
     def get_onboarding(self, obj) -> dict:
         from .onboarding import derive_onboarding

@@ -2,7 +2,15 @@ from django.contrib import admin
 
 from core.admin import RlsBypassAdminMixin, SuperuserOnlyAdminMixin
 
-from .models import DeadLetterEvent, Plan, SaasTdsClaim, Subscription, TrialFingerprint
+from .models import (
+    DeadLetterEvent,
+    Plan,
+    ReferralEvent,
+    ReferralLink,
+    SaasTdsClaim,
+    Subscription,
+    TrialFingerprint,
+)
 
 
 @admin.register(Plan)
@@ -154,3 +162,57 @@ class TrialFingerprintAdmin(SuperuserOnlyAdminMixin, admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(ReferralLink)
+class ReferralLinkAdmin(RlsBypassAdminMixin, SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    """D-19 (BB-139): each referrer's code. Untick "is active" to stop a code counting."""
+
+    list_display = ("company", "code", "is_active", "created_at")
+    list_filter = ("is_active",)
+    search_fields = ("code", "company__name")
+    fields = ("company", "code", "is_active", "created_at")
+    readonly_fields = ("company", "code", "created_at")
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(ReferralEvent)
+class ReferralEventAdmin(RlsBypassAdminMixin, SuperuserOnlyAdminMixin, admin.ModelAdmin):
+    """D-19 (BB-139): referrals to settle by hand. The reward is recorded only (no credit or
+    discount in the product): agree it with the referrer, then mark the QUALIFIED row settled."""
+
+    list_display = ("company", "referred_company", "kind", "created_at", "voided_at", "settled_at")
+    list_filter = ("kind", ("voided_at", admin.EmptyFieldListFilter), ("settled_at", admin.EmptyFieldListFilter))
+    search_fields = ("company__name", "referred_company__name", "link__code")
+    readonly_fields = ("company", "link", "referred_company", "kind", "created_at", "voided_at", "settled_at")
+    fields = readonly_fields + ("void_reason", "settled_note")
+    actions = ("mark_settled", "void_selected")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(description="Mark settled (reward given by hand; add the note on each row)")
+    def mark_settled(self, request, queryset):
+        from django.utils import timezone
+
+        n = 0
+        for event in queryset.filter(kind=ReferralEvent.Kind.QUALIFIED, voided_at__isnull=True, settled_at__isnull=True):
+            event.settled_at = timezone.now()
+            event.settled_note = event.settled_note or f"Settled by {request.user.email}"
+            event.save(update_fields=["settled_at", "settled_note", "updated_at"])
+            n += 1
+        self.message_user(request, f"{n} referral(s) marked settled. Only qualified, unvoided rows can be settled.")
+
+    @admin.action(description="Void (not a real referral)")
+    def void_selected(self, request, queryset):
+        from django.utils import timezone
+
+        n = queryset.filter(voided_at__isnull=True).update(
+            voided_at=timezone.now(), void_reason=f"Voided by {request.user.email}",
+        )
+        self.message_user(request, f"{n} referral event(s) voided.")

@@ -44,6 +44,15 @@ from sales.services import SalesService
 
 LOAD_COMPANY = "Load Tenant"
 LOAD_EMAIL = "load-tenant@bizboard.local"
+# Sales staff (no journal posting) are outside the money-role two-step rule, so this login can
+# sign in unattended where MFA is enforced (staging, production); the owner above cannot.
+# The invoice load scripts (k6_smoke, k6_slo, k6_mixed) use it: list, draft and Complete.
+LOAD_STAFF_EMAIL = "load-staff@bizboard.local"
+
+
+def load_staff_email(index: int) -> str:
+    """Staff login ``index`` (1-based). The first keeps its original address."""
+    return LOAD_STAFF_EMAIL if index == 1 else f"load-staff-{index:02d}@bizboard.local"
 
 
 def mix_bucket(index: int) -> str:
@@ -77,6 +86,13 @@ class Command(BaseCommand):
         parser.add_argument("--password", required=True)
         parser.add_argument("--shard", default="0/1")
         parser.add_argument(
+            "--staff",
+            type=int,
+            default=25,
+            help="Sales-staff logins to create, one per k6 virtual user (the per-user API limit "
+            "makes one login a bottleneck). They share --password.",
+        )
+        parser.add_argument(
             "--span-days",
             type=int,
             default=None,
@@ -106,6 +122,8 @@ class Command(BaseCommand):
         n_customers = max(1, options["customers"])
         shard_index, shard_count = _parse_shard(options["shard"])
         self._span = (max(1, options["span_days"]), invoices) if options.get("span_days") else None
+        self._staff_count = max(1, options.get("staff") or 1)
+        staff_count = self._staff_count
         with seed_load_scope():
             company, user = self._ensure_company(
                 options["company"], options["password"], n_products, n_customers, invoices
@@ -132,9 +150,42 @@ class Command(BaseCommand):
             completed = seeded.filter(status=SalesInvoice.Status.COMPLETED).count()
             returned = seeded.filter(status=SalesInvoice.Status.RETURNED).count()
             self.stdout.write(
-                f"company_id={company.id} email={user.email} "
+                f"company_id={company.id} email={user.email} staff_email={LOAD_STAFF_EMAIL} "
+                f"staff_emails={','.join(load_staff_email(i) for i in range(1, staff_count + 1))} "
                 f"completed={completed} returned={returned} created_this_run={done}"
             )
+
+    def _ensure_staff(self, company, password, count=1):
+        for index in range(1, max(1, count) + 1):
+            self._ensure_one_staff(company, password, index)
+
+    def _ensure_one_staff(self, company, password, index):
+        email = load_staff_email(index)
+        staff = User.objects.filter(email=email).first()
+        if staff is None:
+            staff = User.objects.create_user(
+                email=email,
+                password=password,
+                full_name="Load Tenant Sales" if index == 1 else f"Load Tenant Sales {index:02d}",
+                phone="9000000098" if index == 1 else f"90000{index:05d}",
+            )
+        else:
+            staff.set_password(password)
+            staff.save(update_fields=["password"])
+        CompanyUser.objects.update_or_create(
+            company=company,
+            user=staff,
+            defaults={
+                "role": CompanyUser.Role.SALES_STAFF,
+                "is_active": True,
+                "can_create_sales": True,
+                # Dashboard, GSTR worksheets and their xlsx downloads (month_end.js). Neither flag
+                # is a money role, so the login still needs no two-step.
+                "can_view_financial_reports": True,
+                "can_export": True,
+                "can_post_journals": False,
+            },
+        )
 
     def _ensure_company(self, name, password, n_products, n_customers, invoices):
         company = Company.objects.filter(name=name).first()
@@ -193,6 +244,8 @@ class Command(BaseCommand):
                 flags["ENABLE_GSTR"] = True
                 company.feature_flags = flags
                 company.save(update_fields=["billing_override_active", "feature_flags"])
+
+        self._ensure_staff(company, password, getattr(self, "_staff_count", 1))
 
         unit = Unit.objects.filter(company=company, short_name="pcs").first()
         if unit is None:

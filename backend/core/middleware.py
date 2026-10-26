@@ -213,8 +213,12 @@ class PostgresRlsMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
+    # WP-6 game day: the health probe reads no tenant table and checks the database itself. Binding
+    # RLS first made it answer 500 (set_config failing) instead of its own 503 while Postgres was down.
+    RLS_EXEMPT_PATHS = ("/api/v1/health/",)
+
     def __call__(self, request):
-        if not getattr(settings, "POSTGRES_RLS_ENABLED", False):
+        if not getattr(settings, "POSTGRES_RLS_ENABLED", False) or request.path in self.RLS_EXEMPT_PATHS:
             return self.get_response(request)
 
         from core.rls import set_rls_company
@@ -318,6 +322,14 @@ class ContentSecurityPolicyMiddleware:
         policy = self.admin_policy if request.path.startswith("/admin/") else self.policy
         if policy:
             response["Content-Security-Policy"] = policy
+        # WP-1 (ZAP 90004): API data is for this site only; other sites may not embed it. Public link
+        # endpoints (shared invoices, payment pages) stay embeddable.
+        if (
+            request.path.startswith("/api/")
+            and not request.path.startswith("/api/v1/public/")
+            and "Cross-Origin-Resource-Policy" not in response
+        ):
+            response["Cross-Origin-Resource-Policy"] = "same-site"
         return response
 
 

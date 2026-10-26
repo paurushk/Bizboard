@@ -502,6 +502,10 @@ def test_cr_016_duplicate_opening_stock_file_rejected(tenant_a):
     assert "already committed" in str(resp2.data)
 
 
+@pytest.mark.skipif(
+    bool(__import__("os").environ.get("MUTANT_UNDER_TEST")) or "mutants" in __import__("pathlib").Path(__file__).parts,
+    reason="a wall-clock budget; mutmut instruments every call (stabilization WP-5)",
+)
 def test_i4_catalog_import_of_5000_skus_meets_ten_seconds(tenant_a):
     """I4 (PHASE_0_DOD section I, Must): catalog import of 5,000 SKUs <= 10s.
 

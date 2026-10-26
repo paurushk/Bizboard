@@ -67,3 +67,7 @@ urlpatterns.append(path("api/v1/", include((api_v1_patterns, "v1"))))
 # BB-000753: also expose /metrics at root for scrapers.
 urlpatterns.append(path("metrics/", MetricsView.as_view(), name="metrics-root"))
 # Media is never served via Django static() — use FileAsset download endpoints only.
+
+# WP-1: JSON (not Django's HTML page) for unknown or failing /api/ paths.
+handler404 = "core.error_pages.not_found"
+handler500 = "core.error_pages.server_error"

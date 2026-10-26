@@ -106,6 +106,13 @@ def resolve_series_gstin(company, stamp=None):
     """BB-000729: document stamp, else primary CompanyGstin, else company.gstin."""
     if stamp is not None:
         return _gstin_key(stamp) or None
+    from core.services.lookup_cache import cached
+
+    return cached(("series_gstin", company.pk, getattr(company, "gstin", None)),
+                  lambda: _company_series_gstin(company), keep_none=True)
+
+
+def _company_series_gstin(company):
     from accounts.models import CompanyGstin
 
     primary = (

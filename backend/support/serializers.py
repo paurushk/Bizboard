@@ -229,13 +229,20 @@ class PlatformTicketSerializer(serializers.ModelSerializer):
     """WP-PO3: a tenant's request to Bizboard support."""
 
     raised_by_email = serializers.CharField(source="raised_by.email", read_only=True)
+    satisfaction_score = serializers.SerializerMethodField(
+        help_text="BB-136: the CSAT rating (1-5) given on this request, or null.",
+    )
+
+    def get_satisfaction_score(self, obj) -> int | None:
+        row = next(iter(obj.satisfaction.all()), None)
+        return row.score if row is not None else None
 
     class Meta:
         model = PlatformTicket
         fields = [
             "id", "subject", "description", "severity", "tag", "status", "raised_by_email",
             "support_id", "route", "app_version", "error_codes", "sla_due_at", "first_response_at",
-            "resolved_at", "created_at",
+            "resolved_at", "created_at", "satisfaction_score",
         ]
         read_only_fields = fields
 

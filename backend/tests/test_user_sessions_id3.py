@@ -149,3 +149,56 @@ def test_a_device_signed_out_is_not_known_for_the_new_device_email(tenant_a, dja
     with django_capture_on_commit_callbacks(execute=True):
         _login(tenant_a.owner, ua=SAFARI_IPHONE, ip="198.51.100.7")
     assert len(mail.outbox) == 1  # the signed-out device signing in again is reported
+
+
+# --- Refresh rotation grace: a reload that aborted the refresh response must not sign the user out.
+
+
+def _refresh_cookie(client):
+    return client.cookies[settings.JWT_REFRESH_COOKIE_NAME].value
+
+
+def _replay(client, raw):
+    client.cookies[settings.JWT_REFRESH_COOKIE_NAME] = raw
+    return client.post("/api/v1/auth/refresh/", {}, format="json")
+
+
+def test_a_reload_that_lost_the_rotated_cookie_keeps_the_user_signed_in(tenant_a):
+    client = _login(tenant_a.owner)
+    before = _refresh_cookie(client)
+    assert client.post("/api/v1/auth/refresh/", {}, format="json").status_code == 200
+    lost = _refresh_cookie(client)  # the browser never stored this one: the reload aborted the response
+
+    resp = _replay(client, before)
+    assert resp.status_code == 200, resp.content
+    now = _refresh_cookie(client)
+    assert now not in (before, lost)
+    # Still one device; the token the browser never received is retired, the new one works.
+    rows = list(UserSession.objects.filter(user=tenant_a.owner, revoked_at__isnull=True))
+    assert len(rows) == 1
+    assert _replay(client, lost).status_code == 401
+    assert _replay(client, before).status_code == 401  # the grace is single use
+    assert _replay(client, now).status_code == 200
+
+
+def test_the_grace_does_not_outlive_its_window(tenant_a, settings):
+    settings.REFRESH_REUSE_GRACE_SECONDS = 0
+    client = _login(tenant_a.owner)
+    before = _refresh_cookie(client)
+    assert client.post("/api/v1/auth/refresh/", {}, format="json").status_code == 200
+    assert _replay(client, before).status_code == 401
+
+
+def test_a_rotated_token_replayed_from_another_device_is_refused(tenant_a):
+    client = _login(tenant_a.owner)
+    before = _refresh_cookie(client)
+    assert client.post("/api/v1/auth/refresh/", {}, format="json").status_code == 200
+    thief = APIClient(HTTP_USER_AGENT=SAFARI_IPHONE, REMOTE_ADDR="198.51.100.7")
+    assert _replay(thief, before).status_code == 401
+
+
+def test_a_signed_out_token_never_comes_back_through_the_grace(tenant_a):
+    client = _login(tenant_a.owner)
+    raw = _refresh_cookie(client)
+    assert client.post("/api/v1/auth/logout/").status_code == 200
+    assert _replay(client, raw).status_code == 401

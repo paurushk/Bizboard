@@ -7,6 +7,7 @@ from django.http import FileResponse, Http404, HttpResponse
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view
 from rest_framework.decorators import permission_classes as drf_permission_classes
+from rest_framework.decorators import authentication_classes as drf_authentication_classes
 from rest_framework.decorators import throttle_classes
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -604,6 +605,24 @@ def _ops_alert_text(payload: dict) -> str | None:
     if text:
         return text[:4096]
 
+    # WP-6: Prometheus Alertmanager webhook (deploy/prometheus/alertmanager.yml).
+    alerts = payload.get("alerts")
+    if isinstance(alerts, list) and payload.get("status") in ("firing", "resolved"):
+        lines = []
+        for alert in alerts[:10]:
+            if not isinstance(alert, dict):
+                continue
+            state = "FIRING" if alert.get("status", payload["status"]) == "firing" else "RESOLVED"
+            name = (alert.get("labels") or {}).get("alertname", "alert")
+            ann = alert.get("annotations") or {}
+            line = f"{'🔴' if state == 'FIRING' else '✅'} {state}: {name}"
+            if ann.get("summary"):
+                line += f": {ann['summary']}"
+            if ann.get("runbook"):
+                line += f" ({ann['runbook']})"
+            lines.append(line)
+        return "\n".join(lines)[:4096] if lines else None
+
     if payload:
         import json
 
@@ -612,6 +631,7 @@ def _ops_alert_text(payload: dict) -> str | None:
 
 
 @api_view(["POST"])
+@drf_authentication_classes([])  # its own shared-secret token; a Bearer token here is not a session
 @drf_permission_classes([AllowAny])
 @throttle_classes([OpsAlertWebhookThrottle])
 def ops_alert_webhook(request):
@@ -625,6 +645,11 @@ def ops_alert_webhook(request):
     """
     configured = (getattr(settings, "OPS_ALERT_TOKEN", "") or "").strip()
     header = request.headers.get("X-Ops-Alert-Token", "") or ""
+    # WP-6: Alertmanager's webhook can only send ``Authorization: Bearer <token>``, not a custom
+    # header. Still a header, so the BUG-SEC-021 rule below holds.
+    auth = request.headers.get("Authorization", "") or ""
+    if not header and auth.lower().startswith("bearer "):
+        header = auth[7:].strip()
     # BUG-SEC-021: production and staging accept the header only. A query-string
     # token lands in access logs and Referer.
     if getattr(settings, "DJANGO_ENV", "") in ("production", "staging"):

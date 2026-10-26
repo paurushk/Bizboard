@@ -93,7 +93,7 @@ def test_resumes_a_leftover_draft_and_refills_drained_stock():
         invoice_date=timezone.localdate(),
         status=SalesInvoice.Status.DRAFT,
         notes="SEED_LOAD:000001",
-        created_by=CompanyUser.objects.get(company=company).user,
+        created_by=CompanyUser.objects.get(company=company, role=CompanyUser.Role.OWNER).user,
     )
     call_command(
         "seed_load_tenant",
@@ -137,3 +137,65 @@ def test_span_days_spreads_a_small_run_over_the_whole_year():
     today = timezone.localdate()
     assert (today - dates[0]).days >= 300  # reaches back about a year, not just 20 days
     assert dates[-1] == today
+
+
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
+@override_settings(DJANGO_ENV="test")
+def test_load_tenant_has_a_sales_staff_login_outside_the_two_step_rule():
+    """Owners must enrol in two-step where MFA is enforced, so unattended load runs sign in as
+    sales staff (2026-10-23: every seeded owner hit mfaEnrollmentRequired on staging)."""
+    from accounts.management.commands.seed_load_tenant import LOAD_STAFF_EMAIL
+    from accounts.mfa_service import user_has_money_role
+
+    out = StringIO()
+    with patch("sales.handlers.safe_delay"):
+        call_command("seed_load_tenant", invoices=2, products=2, customers=2, password="LoadPass123!", stdout=out)
+    staff = CompanyUser.objects.get(user__email=LOAD_STAFF_EMAIL, company__name="Load Tenant")
+    assert staff.role == CompanyUser.Role.SALES_STAFF and staff.can_create_sales and not staff.can_post_journals
+    assert staff.can_view_financial_reports and staff.can_export  # dashboard + GST worksheets
+    assert staff.user.check_password("LoadPass123!")
+    assert user_has_money_role(staff.user) is False
+    assert f"staff_email={LOAD_STAFF_EMAIL}" in out.getvalue()
+    # A second run keeps one membership and resets the password.
+    with patch("sales.handlers.safe_delay"):
+        call_command("seed_load_tenant", invoices=2, products=2, customers=2, password="Other123!x", stdout=StringIO())
+    assert CompanyUser.objects.filter(user__email=LOAD_STAFF_EMAIL).count() == 1
+    staff.user.refresh_from_db()
+    assert staff.user.check_password("Other123!x")
+
+
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
+@override_settings(DJANGO_ENV="test")
+def test_load_tenant_has_one_staff_login_per_virtual_user():
+    """D-10 (2026-10-24): the per-user API limit makes one login a bottleneck, so the soak gets
+    one sales-staff login per k6 virtual user, all with the same password and no two-step."""
+    from accounts.management.commands.seed_load_tenant import load_staff_email
+    from accounts.mfa_service import user_has_money_role
+
+    out = StringIO()
+    with patch("sales.handlers.safe_delay"):
+        call_command(
+            "seed_load_tenant", invoices=2, products=2, customers=2, password="LoadPass123!", staff=3, stdout=out,
+        )
+    emails = [load_staff_email(i) for i in (1, 2, 3)]
+    assert emails[1] == "load-staff-02@bizboard.local"
+    staff = CompanyUser.objects.filter(user__email__in=emails, company__name="Load Tenant")
+    assert staff.count() == 3
+    assert all(cu.role == CompanyUser.Role.SALES_STAFF and cu.user.check_password("LoadPass123!") for cu in staff)
+    assert not any(user_has_money_role(cu.user) for cu in staff)
+    assert f"staff_emails={','.join(emails)}" in out.getvalue()
+
+
+@pytest.mark.invariant_skip("inventory.balance_equals_movements", reason="stock balances or movements are written directly through the ORM")
+@override_settings(DJANGO_ENV="test")
+def test_a_second_draft_pool_on_the_same_tenant_tops_up_stock():
+    """seed_draft_pool used to fail with 'Opening stock has already been recorded' on any company
+    that already had opening stock, so a pool could not be refilled for a second run."""
+    with patch("sales.handlers.safe_delay"):
+        call_command("seed_load_tenant", invoices=2, products=2, customers=2, password="LoadPass123!", stdout=StringIO())
+    first, second = StringIO(), StringIO()
+    call_command("seed_draft_pool", count=3, company="Load Tenant", stdout=first, stderr=StringIO())
+    call_command("seed_draft_pool", count=3, company="Load Tenant", stdout=second, stderr=StringIO())
+    ids = first.getvalue().strip().split(",") + second.getvalue().strip().split(",")
+    assert len(set(ids)) == 6
+    assert SalesInvoice.objects.filter(pk__in=ids, status=SalesInvoice.Status.DRAFT).count() == 6

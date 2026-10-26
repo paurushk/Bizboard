@@ -14,6 +14,7 @@ from core.services.audit import AuditService, record_document_event, record_edit
 from core.exceptions import BusinessRuleError
 from core.help_codes import HelpCode
 from core.services.billing import apply_rcm_memo_after_tax, recompute_totals_for_stamped_gstin
+from core.services.lookup_cache import with_lookup_cache
 from core.services.tax_engine.registry import get_tax_engine
 from core.services.place_of_supply import (
     assert_place_of_supply_for_gst,
@@ -1015,6 +1016,7 @@ class SalesService:
         return draft
 
     @staticmethod
+    @with_lookup_cache  # BB-067: chart accounts and the series GSTIN fetched once per Complete
     @transaction.atomic
     def complete(invoice: SalesInvoice, user, *, confirm_sales_rcm=False, confirm_blank_pos=False,
                  confirm_gstin_total_change=False, confirm_missing_licence=False,
@@ -1106,6 +1108,9 @@ class SalesService:
 
         tax_enabled = _tax_enabled(invoice.invoice_type)
         assert_may_issue_gst_tax_invoice(invoice.company, tax_enabled=tax_enabled)
+        from core.services.registration_gates import assert_bill_of_supply_lines
+
+        assert_bill_of_supply_lines(invoice.company, invoice_type=invoice.invoice_type, items=items)
         assert_statutory_licence_present(
             invoice.company, items, confirm_missing_licence=confirm_missing_licence, invoice=invoice
         )

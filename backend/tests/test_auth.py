@@ -635,9 +635,9 @@ def test_logout_blacklists_refresh_token_and_prevents_reuse(tenant_a):
     assert reuse_resp.status_code == 401
 
 
-def test_refresh_rotates_token(tenant_a):
-    from django.conf import settings
-
+def test_refresh_rotates_token(tenant_a, settings):
+    # Pure rotation; the short same-device reload grace has its own tests in test_user_sessions_id3.py.
+    settings.REFRESH_REUSE_GRACE_SECONDS = 0
     client = APIClient()
     login = client.post("/api/v1/auth/login/", {
         "email": tenant_a.owner.email, "password": "StrongPass123!",

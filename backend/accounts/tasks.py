@@ -61,6 +61,35 @@ def run_settings_alerts_company_task(company_id=None):
 
 
 @shared_task
+def apply_data_retention_task():
+    """D-13 orchestrator: one retention task per live, not-yet-erased company."""
+    ids = _live_company_ids(erased_at__isnull=True)
+    for pk in ids:
+        apply_data_retention_company_task.delay(company_id=pk)
+    logger.info("apply_data_retention_task queued %s companies", len(ids))
+    return {"queued": len(ids)}
+
+
+@shared_task
+def apply_data_retention_company_task(company_id=None):
+    """D-13: one company's daily read-only bookkeeping, deletion warning and (when enforced) erasure.
+
+    Runs inside rls_bypass(): erasure also writes platform tables. A failure here is one company's,
+    so it no longer stops the other companies' sweep."""
+    from accounts.models import Company
+    from accounts.retention import apply_retention
+    from core.rls import rls_bypass
+
+    with rls_bypass():
+        company = Company.objects.filter(pk=company_id).first()
+        if company is None:
+            return "missing"
+        outcome = apply_retention(company)
+    logger.info("apply_data_retention_company_task company=%s %s", company_id, outcome)
+    return outcome
+
+
+@shared_task
 def sweep_expired_sandboxes_task():
     """R-014: daily wipe+delete of sandbox companies past sandbox_expires_at."""
     from accounts.tenant_backup import sweep_expired_sandboxes

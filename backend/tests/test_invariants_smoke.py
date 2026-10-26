@@ -158,6 +158,12 @@ def test_the_sweep_actually_catches_a_broken_journal(tenant_a):
     with pytest.raises(InvariantViolation):
         assert_all_invariants(company)  # red
 
+    # On PostgreSQL the ledger balance trigger (accounting 0023) is deferred to commit, and test
+    # teardown checks deferred constraints, so the deliberately broken entry must not outlive the
+    # test. Deleting it (lines first: they protect the entry) is the one change that trigger allows.
+    JournalLine.objects.filter(entry=entry).delete()
+    entry.delete()
+
 
 @pytest.mark.invariant_skip("gl.ar_ties_to_documents", reason="sales documents or journals are built through the ORM, so receivables in the ledger and on documents cannot tie")
 def test_sequences_intact_flags_a_gap(tenant_a):

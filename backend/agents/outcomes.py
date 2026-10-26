@@ -78,12 +78,12 @@ def collections_outcomes(company, *, since=None) -> dict:
         "approval_rate": round(by_status["EXECUTED"] / decided, 3) if decided else None,
         "edited_rate": round(edited / len(executed), 3) if executed else None,
         "treated": {
-            "customers": len(treated_customers), "received_within_7_days": str(treated_total),
+            "customers": len(treated_customers), "received_within_7_days": str(treated_total.quantize(Decimal("0.01"))),
             "per_customer": per(treated_total, len(treated_customers)),
         },
         "held_out": {
             "enabled": bool(flags.get("AGENT_COLLECTIONS_HOLDOUT")), "customers": len(held_customers),
-            "received_within_7_days": str(held_total), "per_customer": per(held_total, len(held_customers)),
+            "received_within_7_days": str(held_total.quantize(Decimal("0.01"))), "per_customer": per(held_total, len(held_customers)),
         },
         "note": "Approximate: the held-out comparison uses today's invoice due dates. Review with the owner; do not publish as proof.",
     }
