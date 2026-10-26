@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { SettingsContinuity } from '@/components/settings/SettingsContinuity';
 import MenuIcon from '@mui/icons-material/Menu';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import Alert from '@mui/material/Alert';
@@ -34,8 +36,10 @@ import { CompanyRequiredDialog } from '@/components/CompanyRequiredDialog';
 import { LocaleSwitcher } from '@/components/LocaleSwitcher';
 import { useSubscriptionGate } from '@/hooks/useSubscriptionGate';
 import { useFeatureFlagEpoch } from '@/config/featureFlags';
+import { FeatureOffNotice } from '@/components/FeatureOffNotice';
+import { NpsPrompt } from '@/components/support/NpsPrompt';
 import { getLocale, subscribeLocale, t } from '@/i18n';
-import { filterNav, isNavPathActive, type NavItem } from '@/navigation/menu';
+import { filterNav, isNavPathActive, switchedOffFlag, type NavItem } from '@/navigation/menu';
 import { GlobalConfirmHost } from '@/components/GlobalConfirmHost';
 import { LegalAcceptanceGate } from '@/components/LegalAcceptanceGate';
 import { SupportAccessBanner } from '@/components/support/SupportAccessPanel';
@@ -43,6 +47,15 @@ import { AnnouncementBanners, WhatsNewButton } from '@/components/WhatsNewButton
 import { listDrafts } from '@/offline/invoiceDraftCache';
 import { drainPodPhotos } from '@/offline/photoOutbox';
 import { STOCK_FLUSHED_EVENT, useStockOffline } from '@/pages/inventory/useStockOffline';
+
+const VISUALLY_HIDDEN = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+} as const;
 
 const DRAWER_WIDTH = 272;
 const MOBILE_BILLING_TIP_KEY = 'bizboard.dismiss.mobileBillingTip';
@@ -350,9 +363,28 @@ export function AppShell() {
               label={t('billing.outboxPendingBadge', { count: pendingDrafts })}
             />
           ) : null}
-          <Button color="inherit" size="small" onClick={togglePrivacyMask}>
+          {/* Phone: an icon, so the header fits 360-400px without pushing controls off-screen. */}
+          <Button
+            color="inherit"
+            size="small"
+            onClick={togglePrivacyMask}
+            sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
+          >
             {privacyMask ? t('app.showAmounts') : t('app.hideAmounts')}
           </Button>
+          <IconButton
+            color="inherit"
+            size="small"
+            onClick={togglePrivacyMask}
+            sx={{ display: { xs: 'inline-flex', sm: 'none' } }}
+          >
+            {privacyMask ? <VisibilityIcon fontSize="small" /> : <VisibilityOffIcon fontSize="small" />}
+            {/* Named by its text, not aria-label: an aria-label containing "amounts" was matched by
+                every "Amount" field label lookup on the page. */}
+            <Box component="span" sx={VISUALLY_HIDDEN}>
+              {privacyMask ? t('app.showAmounts') : t('app.hideAmounts')}
+            </Box>
+          </IconButton>
           <WhatsNewButton />
           <CompanySwitcher />
           <LocaleSwitcher />
@@ -460,9 +492,10 @@ export function AppShell() {
           <SettingsContinuity />
           <SupportAccessBanner />
           <AnnouncementBanners />
-          <Outlet />
+          {switchedOffFlag(location.pathname) ? <FeatureOffNotice /> : <Outlet />}
         </ErrorBoundary>
         <CommandPalette />
+        <NpsPrompt />
         <GlobalConfirmHost />
         <LegalAcceptanceGate />
         <CompanyRequiredDialog />

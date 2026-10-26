@@ -12,6 +12,7 @@ vi.setConfig({ testTimeout: 40_000 });
 const api = vi.hoisted(() => ({
   getPurchaseOrder: vi.fn(),
   getProduct: vi.fn(),
+  previewPurchaseTotals: vi.fn(),
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
@@ -45,6 +46,7 @@ vi.mock('@/api/resources', async (importOriginal) => {
     fetchSupplierNudge: async () => ({ rows: [] }),
     getPurchaseOrder: (...args: unknown[]) => api.getPurchaseOrder(...args),
     getProduct: (...args: unknown[]) => api.getProduct(...args),
+    previewPurchaseTotals: (...args: unknown[]) => api.previewPurchaseTotals(...args),
   };
 });
 
@@ -85,6 +87,23 @@ describe('PurchaseOrderEditorPage opening a saved order', () => {
   beforeEach(() => {
     api.getPurchaseOrder.mockReset();
     api.getProduct.mockReset();
+    api.previewPurchaseTotals.mockReset();
+    api.previewPurchaseTotals.mockRejectedValue(new Error('no preview'));
+  });
+
+  it('shows the server totals and the HSN-table rate notice, as the purchase bill will (BB-100 F1)', async () => {
+    api.getPurchaseOrder.mockResolvedValue(order(''));
+    api.previewPurchaseTotals.mockResolvedValue({
+      subtotal: 180, discountTotal: 0, taxableTotal: 180, cgstTotal: 16.2, sgstTotal: 16.2, igstTotal: 0,
+      cessTotal: 0, roundOff: -0.4, grandTotal: 212, taxTotal: 32.4, intraState: true,
+      items: [{ taxableAmount: 180, cgst: 16.2, sgst: 16.2, igst: 0, cess: 0, lineTotal: 212.4, gstRate: 18,
+        rateOverrideReason: 'rate changed 12%→18% by HSN table' }],
+    });
+    mount('/purchases/orders/5');
+    expect(await screen.findByText('rate changed 12%→18% by HSN table')).toBeTruthy();
+    await waitFor(() =>
+      expect(api.previewPurchaseTotals).toHaveBeenCalledWith(expect.objectContaining({ orderDate: '2026-09-01', supplier: 31 })),
+    );
   });
 
   it('fills the form and the lines from the saved order', async () => {

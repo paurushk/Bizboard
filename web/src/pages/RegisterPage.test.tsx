@@ -136,3 +136,52 @@ describe('RegisterPage mobile number', () => {
     expect(registerMock.mock.calls[0][0].acceptTerms).toBe(true);
   });
 });
+
+const referral = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock('@/api/billing', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/billing')>()),
+  checkReferralCode: (code: string) => referral.check(code),
+}));
+
+/** D-19: a ?ref= code is checked, shown as an invitation, and sent with the sign-up. */
+describe('RegisterPage referral link', () => {
+  afterEach(() => {
+    registerMock.mockReset();
+    referral.check.mockReset();
+    sessionStorage.clear();
+  });
+
+  it('says the visitor was invited and sends the code with the sign-up', async () => {
+    referral.check.mockResolvedValue(true);
+    registerMock.mockResolvedValue(undefined);
+    render(
+      <MemoryRouter initialEntries={['/register?ref=ab-cd2345']}>
+        <RegisterPage />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(t('auth.referralInvited'))).toBeTruthy();
+    expect(referral.check).toHaveBeenCalledWith('abcd2345');
+    await userEvent.type(screen.getByLabelText(t('auth.companyName')), 'Shri Krishna Enterprises');
+    await userEvent.type(screen.getByLabelText(t('auth.email')), 'owner@example.com');
+    await userEvent.type(screen.getByLabelText(t('auth.verificationCode')), '123456');
+    await userEvent.type(screen.getByLabelText(t('auth.password')), 'long-enough-1');
+    await userEvent.click(screen.getByLabelText(t('auth.state')));
+    await userEvent.click(await screen.findByRole('option', { name: 'Uttar Pradesh' }));
+    await userEvent.click(screen.getByRole('checkbox'));
+    await userEvent.click(screen.getByRole('button', { name: t('auth.register') }));
+    await vi.waitFor(() => expect(registerMock).toHaveBeenCalled());
+    expect(registerMock.mock.calls[0][0]).toMatchObject({ referralCode: 'abcd2345' });
+  });
+
+  it('shows nothing for an unknown code and never blocks the form', async () => {
+    referral.check.mockResolvedValue(false);
+    render(
+      <MemoryRouter initialEntries={['/register?ref=NOPE']}>
+        <RegisterPage />
+      </MemoryRouter>,
+    );
+    await vi.waitFor(() => expect(referral.check).toHaveBeenCalled());
+    expect(screen.queryByText(t('auth.referralInvited'))).toBeNull();
+    expect(screen.getByRole('button', { name: t('auth.register') })).toBeTruthy();
+  });
+});

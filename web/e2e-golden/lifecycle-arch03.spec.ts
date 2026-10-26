@@ -103,7 +103,8 @@ test('lifecycle ARCH-03: quote-SO-challan-SI-return-residual DN-pay-attention-cl
   await expect(page.getByText(invoiceNumber!).first()).toBeVisible();
 
   await page.goto('/reports/customer-ledger');
-  await expect(page.getByText(/ledger|customer/i).first()).toBeVisible();
+  // The page heading, not the first text match: at phone size that is the hidden menu's "Customers".
+  await expect(page.getByRole('heading', { level: 1, name: /ledger|customer/i })).toBeVisible();
 
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;

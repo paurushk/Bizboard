@@ -2205,6 +2205,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/billing/referral/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET /api/v1/billing/referral/ — the owner's referral code and counts. Counts only: the
+         *     referrer never sees which businesses signed up. 404 while ENABLE_SAAS_REFERRALS is off.
+         */
+        get: operations["billing_referral_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/billing/referral/check/{code}/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * @description GET /api/v1/billing/referral/check/<code>/ — before sign-up: is this a live referral code?
+         *     Says only yes or no (never whose code it is). Rate-limited.
+         */
+        get: operations["billing_referral_check_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/subscription/": {
         parameters: {
             query?: never;
@@ -2497,6 +2537,23 @@ export interface paths {
         head?: never;
         /** @description BB-000674: Owner CRUD for branch GSTIN registrations. */
         patch: operations["company_gstins_partial_update"];
+        trace?: never;
+    };
+    "/api/v1/company/members/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/company/members/ — active members who have signed up (no pending invites). */
+        get: operations["company_members_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/company/nav-scope/": {
@@ -17777,6 +17834,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/support/satisfaction/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description POST /api/v1/support/satisfaction/ — an NPS answer ("Not now" = no score) or a CSAT rating. */
+        post: operations["support_satisfaction_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/support/satisfaction/nps-due/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description GET /api/v1/support/satisfaction/nps-due/ — show the recommend-us prompt now? */
+        get: operations["support_satisfaction_nps_due_retrieve"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/support/shared/": {
         parameters: {
             query?: never;
@@ -20856,6 +20947,11 @@ export interface components {
          * @enum {string}
          */
         NotificationStatusEnum: "QUEUED" | "SENT" | "LINK_READY" | "FAILED";
+        NpsDue: {
+            due: boolean;
+            /** @description ENABLE_SATISFACTION_SURVEY is on for this company. */
+            enabled: boolean;
+        };
         Operator: {
             readonly id: number;
             code: string;
@@ -25358,6 +25454,9 @@ export interface components {
          * @enum {string}
          */
         ProjectMilestoneStatusEnum: "PLANNED" | "READY" | "INVOICED";
+        PublicReferralCheck: {
+            valid: boolean;
+        };
         PurchaseCreditNote: {
             readonly id: number;
             readonly number: string;
@@ -26236,6 +26335,14 @@ export interface components {
             /** Format: date-time */
             readonly createdAt: string;
         };
+        ReferralPanel: {
+            code: string;
+            isActive: boolean;
+            /** @description Businesses that signed up with the link (not voided). */
+            signedUp: number;
+            /** @description Of those, businesses that started paying (not voided). */
+            qualified: number;
+        };
         ReferralReward: {
             readonly id: number;
             readonly referralCode: number;
@@ -26967,6 +27074,23 @@ export interface components {
             grandTotal: string;
             fullyReturned: boolean;
         };
+        SatisfactionAnswer: {
+            kind: components["schemas"]["SatisfactionAnswerKindEnum"];
+            score?: number | null;
+            comment?: string;
+            platformTicket?: number | null;
+        };
+        /**
+         * @description * `NPS` - Would recommend (0-10)
+         *     * `CSAT` - Support satisfaction (1-5)
+         * @enum {string}
+         */
+        SatisfactionAnswerKindEnum: "NPS" | "CSAT";
+        SatisfactionSaved: {
+            id: number;
+            kind: string;
+            score: number | null;
+        };
         SerialNumber: {
             readonly id: number;
             product: number;
@@ -27429,6 +27553,13 @@ export interface components {
             /** Format: date */
             receivedOn?: string;
             reference?: string;
+        };
+        TeamMember: {
+            /** @description Company membership id, the value the pickers assign. */
+            id: number;
+            /** @description Full name, or the part of the email before @ when none is set. */
+            name: string;
+            role: string;
         };
         Ticket: {
             readonly id: number;
@@ -31291,6 +31422,46 @@ export interface operations {
             };
         };
     };
+    billing_referral_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReferralPanel"];
+                };
+            };
+        };
+    };
+    billing_referral_check_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicReferralCheck"];
+                };
+            };
+        };
+    };
     billing_subscription_retrieve: {
         parameters: {
             query?: never;
@@ -31786,6 +31957,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CompanyGstin"];
+                };
+            };
+        };
+    };
+    company_members_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMember"][];
                 };
             };
         };
@@ -57127,6 +57317,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    support_satisfaction_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SatisfactionAnswer"];
+                "multipart/form-data": components["schemas"]["SatisfactionAnswer"];
+                "application/x-www-form-urlencoded": components["schemas"]["SatisfactionAnswer"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SatisfactionSaved"];
+                };
+            };
+        };
+    };
+    support_satisfaction_nps_due_retrieve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NpsDue"];
+                };
             };
         };
     };

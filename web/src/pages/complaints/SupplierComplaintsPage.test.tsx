@@ -37,7 +37,8 @@ vi.mock('@/api/care', async (importOriginal) => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  listCompanyUsers: vi.fn(async () => []),
+  listTeamMembers: vi.fn(async () => []),
+  TEAM_MEMBERS_QUERY_KEY: ['company-users', 'team'],
   listPurchasesPage: vi.fn(async () => ({ results: [{ id: 50, number: 'PB-000050' }], count: 1, next: null, previous: null })),
   listSalesInvoicesPage: vi.fn(),
   getCustomer: vi.fn(),

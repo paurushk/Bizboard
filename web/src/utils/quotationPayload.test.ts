@@ -86,7 +86,8 @@ describe('commercial fields and line extras', () => {
   it('the preview body carries the stored header, so it matches what is saved', () => {
     const body = buildQuotationPreviewBody(full, { supplyType: 'B2B', companyGstin: 4 });
     expect(body).toMatchObject({
-      customer: 7, invoiceType: 'GST', supplyType: 'B2B', companyGstin: 4, additionalCharges: 100,
+      // BB-100 F1: the server rates GST by the HSN table in force on the quote's date.
+      customer: 7, invoiceType: 'GST', quotationDate: '2026-10-05', supplyType: 'B2B', companyGstin: 4, additionalCharges: 100,
       invoiceDiscount: 50, invoiceDiscountMode: 'BEFORE_TAX', autoRoundOff: false, chargesGstRate: 18,
     });
     expect((body.items as Array<Record<string, unknown>>)[0]).toMatchObject({ cessRate: 12, hsnCode: '3004' });

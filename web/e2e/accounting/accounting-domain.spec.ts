@@ -17,7 +17,6 @@ const ROUTES = [
   '/accounting/accounts',
   '/accounting/bank-reconciliation',
   '/accounting/cost-centers',
-  '/accounting/fixed-assets',
   '/accounting/periods',
 ];
 
@@ -32,4 +31,13 @@ test.describe('accounting domain (books off — the mocked-company default)', ()
       await expect(enableLink).toHaveAttribute('href', '/settings/accounting');
     });
   }
+});
+
+// Fixed assets is its own module (ENABLE_FIXED_ASSETS, off unless granted). A bookmark to it shows the
+// switched-off notice, not the books-off prompt (BB-100 FeatureOffNotice in AppShell).
+test('/accounting/fixed-assets says the module is not switched on', async ({ page }) => {
+  await loginAsOwner(page);
+  await page.goto('/accounting/fixed-assets', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByText('This is not switched on for your company')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: 'Go to the dashboard' })).toHaveAttribute('href', '/');
 });

@@ -246,6 +246,19 @@ describe('QuotationEditorPage — edit', () => {
     }
   });
 
+  it('shows the HSN-table rate notice under the line and sends the quote date to the preview (BB-100 F1)', async () => {
+    api.getQuotation.mockResolvedValue(quote());
+    api.previewSalesTotals.mockResolvedValue({
+      subtotal: 1000, discountTotal: 0, taxableTotal: 1000, cgstTotal: 90, sgstTotal: 90, igstTotal: 0,
+      cessTotal: 0, roundOff: 0, grandTotal: 1180, taxTotal: 180, intraState: true,
+      items: [{ taxableAmount: 1000, cgst: 90, sgst: 90, igst: 0, cess: 0, lineTotal: 1180, gstRate: 18,
+        rateOverrideReason: 'rate changed 12%→18% by HSN table' }],
+    });
+    mount('/sales/quotations/5');
+    expect(await screen.findByText('rate changed 12%→18% by HSN table')).toBeTruthy();
+    expect(api.previewSalesTotals.mock.calls.at(-1)?.[0]).toMatchObject({ quotationDate: '2026-10-01' });
+  });
+
   it('lets the quantity be cleared and retyped as a decimal, keeps the line id and invoice type', async () => {
     api.getQuotation.mockResolvedValue(quote());
     mount('/sales/quotations/5');

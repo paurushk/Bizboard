@@ -628,7 +628,7 @@ export function QuotationEditorPage() {
         </Stack>
       </Paper>
 
-      <Paper variant="outlined" sx={{ p: 2, overflow: 'auto' }}>
+      <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} variant="outlined" sx={{ p: 2, overflow: 'auto' }}>
         {showCost && serverTotals?.estimatedMargin != null ? (
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
             {t('billing.expectedProfit')}: {formatMoney(serverTotals.estimatedMargin)}
@@ -648,13 +648,20 @@ export function QuotationEditorPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {form.lines.map((l) => {
+              {form.lines.map((l, i) => {
                 const available = stock.data?.[String(l.productId)];
                 const short = available != null && l.qty > toNumber(available);
+                // Same notice as the invoice: the HSN table changed this line's GST rate.
+                const rateNotice = serverTotals?.items?.[i]?.rateOverrideReason;
                 return (
                   <TableRow key={l.key}>
                     <TableCell>
                       {l.name}
+                      {rateNotice ? (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                          {rateNotice}
+                        </Typography>
+                      ) : null}
                       {l.priceListName ? (
                         <Typography variant="caption" display="block" color="text.secondary">
                           {t('phase1.quotationPriceListApplied')}: {l.priceListName}

@@ -49,7 +49,8 @@ vi.mock('@/api/resources', () => ({
   dismissAttentionRow: (...args: unknown[]) => dismissAttentionRow(...args),
   snoozeAttentionRow: (...args: unknown[]) => snoozeAttentionRow(...args),
   assignAttentionRow: vi.fn(),
-  listCompanyUsers: vi.fn(async () => []),
+  listTeamMembers: vi.fn(async () => []),
+  TEAM_MEMBERS_QUERY_KEY: ['company-users', 'team'],
 }));
 
 describe('AttentionPage', () => {

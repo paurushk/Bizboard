@@ -34,6 +34,39 @@ beforeEach(() => {
 });
 
 describe('WP-PO3 contact support', () => {
+  it('lets the person rate a resolved request 1-5 when the survey is on (BB-136)', async () => {
+    const user = userEvent.setup();
+    client.get.mockImplementation(async (url: string) => {
+      if (url === '/support/platform-tickets/') {
+        return { data: [
+          { id: 4, subject: 'Printer', status: 'RESOLVED', satisfactionScore: null },
+          { id: 3, subject: 'GST', status: 'RESOLVED', satisfactionScore: 5 },
+          { id: 2, subject: 'Open one', status: 'OPEN', satisfactionScore: null },
+        ] };
+      }
+      if (url === '/support/satisfaction/nps-due/') return { data: { due: false, enabled: true } };
+      return { data: {} };
+    });
+    renderRoutes([{ path: '/help/contact', element: <ContactSupportPage /> }], '/help/contact');
+    expect(await screen.findByText('You rated this 5 out of 5.')).toBeInTheDocument();
+    expect(screen.getAllByRole('group', { name: 'How was the help on this request?' })).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: '4 out of 5' }));
+    await waitFor(() =>
+      expect(client.post).toHaveBeenCalledWith('/support/satisfaction/', { kind: 'CSAT', score: 4, comment: '', platform_ticket: 4 }),
+    );
+  });
+
+  it('offers no rating while the survey is off', async () => {
+    client.get.mockImplementation(async (url: string) => {
+      if (url === '/support/platform-tickets/') return { data: [{ id: 4, subject: 'Printer', status: 'RESOLVED', satisfactionScore: null }] };
+      if (url === '/support/satisfaction/nps-due/') return { data: { due: false, enabled: false } };
+      return { data: {} };
+    });
+    renderRoutes([{ path: '/help/contact', element: <ContactSupportPage /> }], '/help/contact');
+    expect(await screen.findByText(/Printer/)).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'How was the help on this request?' })).toBeNull();
+  });
+
   it('sends the Support ID, screen and error codes, never form contents', async () => {
     const user = userEvent.setup();
     const view = renderRoutes([{ path: '/help/contact', element: <ContactSupportPage /> }], '/help/contact');

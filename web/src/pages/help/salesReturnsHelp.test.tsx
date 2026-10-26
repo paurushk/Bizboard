@@ -1,6 +1,7 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { getContextHelpPage, resolveContextHelpPage } from '@/contextHelp';
+import { resolveContextHelpPage } from '@/contextHelp';
+import { getContextHelpPage } from '@/contextHelp/catalog';
 import { FAQ_ITEMS } from './faqContent';
 
 function faqText(id: string): string {

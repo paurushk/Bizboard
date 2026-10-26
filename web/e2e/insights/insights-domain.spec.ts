@@ -11,7 +11,6 @@ import { loginAsOwner } from '../helpers/auth';
  */
 const ROUTES = [
   '/insights/alerts',
-  '/insights/health',
   '/insights/cashflow',
   '/insights/assistant',
 ];
@@ -27,4 +26,13 @@ test.describe('insights domain (AI off — the default)', () => {
       await expect(enableLink).toHaveAttribute('href', '/settings/ai');
     });
   }
+});
+
+// The health score is deterministic (no AI), so it opens without AI switched on: the dashboard chip
+// links to it (App.tsx routes it outside allowAiInsights).
+test('/insights/health opens without AI switched on', async ({ page }) => {
+  await loginAsOwner(page);
+  await page.goto('/insights/health', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('heading', { name: 'Business Health', level: 1 })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: 'Open Insights settings' })).toHaveCount(0);
 });

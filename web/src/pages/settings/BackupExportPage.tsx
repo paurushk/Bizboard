@@ -20,6 +20,7 @@ import {
 import type { TenantBackupStatus } from '@/api/legacy/company';
 import { useAuth } from '@/auth/AuthContext';
 import { SettingsPage } from '@/components/settings/SettingsPage';
+import { DataRetentionPanel } from '@/components/settings/DataRetentionPanel';
 import { ReadableExportPanel } from '@/components/settings/ReadableExportPanel';
 import { t } from '@/i18n';
 import { ForbiddenPage } from '@/pages/ForbiddenPage';
@@ -240,6 +241,8 @@ export function BackupExportPage() {
             <AutomaticBackup />
 
             <ReadableExportPanel />
+
+            <DataRetentionPanel />
 
             <Typography variant="h6" sx={{ pt: 1 }}>
               {t('backupPage.checkTitle')}

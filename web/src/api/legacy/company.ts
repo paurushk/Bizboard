@@ -38,6 +38,22 @@ export async function listCompanyUsers(): Promise<CompanyUser[]> {
   return withMocks(async () => fetchAllPagesMasters<CompanyUser>('/company/users/'), mockUsers);
 }
 
+/** BB-100 F10: who is on the team (id, name, role) — readable by any member, for assignee pickers. */
+export type TeamMember = { id: number; name: string; role: string };
+
+/** Under ['company-users'], so a change on the Users page refreshes the pickers too. */
+export const TEAM_MEMBERS_QUERY_KEY = ['company-users', 'team'] as const;
+
+export async function listTeamMembers(): Promise<TeamMember[]> {
+  return withMocks(
+    async () => {
+      const { data } = await apiClient.get('/company/members/');
+      return unwrapData<TeamMember[]>(data);
+    },
+    mockUsers.filter((u) => u.user).map((u) => ({ id: u.id, name: u.fullName || u.email.split('@')[0], role: u.role })),
+  );
+}
+
 export async function inviteCompanyUser(payload: {
   email: string;
   password?: string;

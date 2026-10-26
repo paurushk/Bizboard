@@ -18,6 +18,9 @@ const api = vi.hoisted(() => ({
   setBackupSchedule: vi.fn(),
   takeBackupNow: vi.fn(),
   downloadFileAsset: vi.fn(),
+  // D-13 retention panel (tested in DataRetentionPanel.test.tsx).
+  getCompany: vi.fn(async () => ({ id: 1, dataRetentionDays: 90, dataDeletionDueAt: null })),
+  updateCompany: vi.fn(),
 }));
 vi.mock('@/api/resources', () => api);
 // WP-DL1 panel: no readable exports in these tests.

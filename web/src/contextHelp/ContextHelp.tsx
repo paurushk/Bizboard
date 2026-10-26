@@ -19,9 +19,25 @@ import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { getLocale, t } from '@/i18n';
 import { HelpRichText } from '@/pages/help/HelpRichText';
 import type { LocalizedText } from '@/pages/help/types';
-import { getContextHelpPage } from './catalog';
+import { type ContextHelpCatalog, loadContextHelpCatalog, loadedContextHelpCatalog } from './catalogLoader';
 import { resolveContextHelpPage } from './routes';
 import type { ContextHelpPage } from './types';
+
+function useCatalog(): ContextHelpCatalog | null {
+  const [mod, setMod] = useState<ContextHelpCatalog | null>(loadedContextHelpCatalog);
+  useEffect(() => {
+    if (mod) return undefined;
+    let live = true;
+    loadContextHelpCatalog().then(
+      (m) => live && setMod(m),
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [mod]);
+  return mod;
+}
 
 function pick(text: LocalizedText): { value: string; fallbackHi: boolean } {
   const locale = getLocale();
@@ -137,7 +153,8 @@ function ContextHelpBody({ page }: { page: ContextHelpPage }) {
 export function ContextHelp({ page }: { page?: string }) {
   const location = useLocation();
   const pageId = page ?? resolveContextHelpPage(location.pathname);
-  const content = getContextHelpPage(pageId);
+  const catalog = useCatalog();
+  const content = catalog?.getContextHelpPage(pageId);
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const drawerId = useId();

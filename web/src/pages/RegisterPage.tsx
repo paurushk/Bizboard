@@ -15,6 +15,7 @@ import { Controller, useForm } from 'react-hook-form';
 import { Link as RouterLink, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { googleSignIn, MfaEnrollmentRequiredError, MfaRequiredError, requestRegisterOtp } from '@/api/auth';
+import { checkReferralCode } from '@/api/billing';
 import { GoogleSignInButton } from '@/components/GoogleSignInButton';
 import { GoogleSignupForm } from '@/components/GoogleSignupForm';
 import { getErrorMessage, getFieldErrors } from '@/api/client';
@@ -69,6 +70,19 @@ type RegisterForm = z.infer<typeof registerSchema>;
 // Fields whose server errors are shown under the field rather than in the banner.
 const FORM_FIELDS = Object.keys(registerSchema.shape) as (keyof RegisterForm)[];
 
+const REFERRAL_KEY = 'bb_referral_code';
+
+/** D-19: the ?ref= code, kept for this tab so a detour through Google sign-in on /login keeps it. */
+function referralCodeFrom(search: string): string {
+  const fromUrl = (new URLSearchParams(search).get('ref') ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+  try {
+    if (fromUrl) sessionStorage.setItem(REFERRAL_KEY, fromUrl);
+    return fromUrl || sessionStorage.getItem(REFERRAL_KEY) || '';
+  } catch {
+    return fromUrl;
+  }
+}
+
 export function RegisterPage() {
   const { register: registerUser, isAuthenticated, setSession } = useAuth();
   const navigate = useNavigate();
@@ -78,6 +92,18 @@ export function RegisterPage() {
   const [google, setGoogle] = useState<{ credential: string; email: string } | null>(
     fromLogin.googleCredential ? { credential: fromLogin.googleCredential, email: fromLogin.email ?? '' } : null,
   );
+  const [referralCode] = useState(() => referralCodeFrom(location.search));
+  const [referralValid, setReferralValid] = useState(false);
+  useEffect(() => {
+    if (!referralCode) return undefined;
+    let live = true;
+    checkReferralCode(referralCode)
+      .then((ok) => live && setReferralValid(ok))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [referralCode]);
   const onGoogleCredential = async (credential: string) => {
     setError(null);
     try {
@@ -167,7 +193,7 @@ export function RegisterPage() {
       setIsSubmitting(true);
       setError(null);
       try {
-        await registerUser({ ...values, password });
+        await registerUser({ ...values, password, referralCode });
         // R-068: register never issues a session — send the operator to sign in.
         navigate(
           `/login?registered=1&email=${encodeURIComponent(values.email)}`,
@@ -198,10 +224,16 @@ export function RegisterPage() {
     >
       <Paper sx={{ p: 4, width: '100%', maxWidth: 480 }}>
         {google ? (
-          <GoogleSignupForm credential={google.credential} email={google.email} onCancel={() => setGoogle(null)} />
+          <GoogleSignupForm
+            credential={google.credential}
+            email={google.email}
+            onCancel={() => setGoogle(null)}
+            referralCode={referralCode}
+          />
         ) : (
         <Stack spacing={2} component="form" onSubmit={submitRegister} noValidate>
           <Typography variant="h4">{t('auth.registerTitle')}</Typography>
+          {referralValid ? <Alert severity="success">{t('auth.referralInvited')}</Alert> : null}
           <GoogleSignInButton text="signup_with" onCredential={(c) => void onGoogleCredential(c)} />
           {error ? <Alert severity="error">{error}</Alert> : null}
           <TextField

@@ -4,7 +4,10 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import { convertLead, getDedupeCandidates, listLeadsPage, resolveDedupe } from '@/api/crm';
+import { listTeamMembers } from '@/api/resources';
 import { LeadsPage } from '@/pages/crm/LeadsPage';
+
+const auth = vi.hoisted(() => ({ role: 'OWNER' }));
 
 vi.mock('@/pages/erp/erpShared', () => ({
   ModuleGate: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -16,7 +19,7 @@ vi.mock('@/hooks/useSubscriptionGate', () => ({
 }));
 
 vi.mock('@/auth/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 1, email: 'u@x.test', fullName: 'U', role: 'OWNER', companyId: 9 } }),
+  useAuth: () => ({ user: { id: 1, email: 'u@x.test', fullName: 'U', role: auth.role, companyId: 9 } }),
 }));
 
 vi.mock('@/config/features', () => ({
@@ -49,7 +52,8 @@ vi.mock('@/api/crm', () => ({
 }));
 
 vi.mock('@/api/resources', () => ({
-  listCompanyUsers: vi.fn(async () => []),
+  listTeamMembers: vi.fn(async () => []),
+  TEAM_MEMBERS_QUERY_KEY: ['company-users', 'team'],
   listCustomersPage: vi.fn(async () => ({ results: [], count: 0, next: null, previous: null })),
 }));
 
@@ -163,6 +167,31 @@ describe('LeadsPage assignee target (GM-41)', () => {
     const root = box.closest('.MuiInputBase-root');
     expect(root).toBeTruthy();
     expect(getComputedStyle(root as HTMLElement).minHeight).toBe('44px');
+  });
+});
+
+describe('LeadsPage assignee list (BB-100 F10)', () => {
+  it('lets a manager, not just the owner, pick a teammate by name', async () => {
+    auth.role = 'MANAGER';
+    vi.mocked(listTeamMembers).mockResolvedValue([{ id: 3, name: 'Ravi Kumar', role: 'SALES_STAFF' }]);
+    vi.mocked(listLeadsPage).mockResolvedValue({
+      results: [{ id: 7, name: 'Asha', phone: '', email: '', status: 'NEW', assignedTo: null } as never],
+      count: 1,
+      next: null,
+      previous: null,
+    });
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <LeadsPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole('combobox', { name: 'Assign Asha' }));
+    expect(await screen.findByRole('option', { name: 'Ravi Kumar' })).toBeInTheDocument();
+    auth.role = 'OWNER';
   });
 });
 

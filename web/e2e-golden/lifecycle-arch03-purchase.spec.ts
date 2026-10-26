@@ -74,7 +74,7 @@ test('lifecycle purchase residual: bill, partial pay, return, residual DN, AP, p
   ).toBeVisible();
 
   await page.goto('/attention');
-  await expect(page.getByText('Needs attention').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: 'Needs attention', level: 1 })).toBeVisible({ timeout: 20_000 });
 
   await page.goto('/accounting/periods');
   await expect(page.getByText(/CLOSED/i)).toHaveCount(0);

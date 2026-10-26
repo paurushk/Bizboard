@@ -45,6 +45,7 @@ import { ErrorState, LoadingState } from '@/components/PageState';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { StatusChip } from '@/components/StatusChip';
 import { useSupplierSearch } from '@/hooks/usePartySearch';
+import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { useProductCfFilters } from '@/hooks/useProductCfFilters';
 import { useProductSearch } from '@/hooks/useProductSearch';
 import { t } from '@/i18n';
@@ -254,6 +255,27 @@ export function PurchaseOrderEditorPage() {
       ),
     [lineTaxes, lines, intraState, purchaseType],
   );
+
+  // BB-100 F1: the server rates GST from the HSN table on the order date, as the saved order and
+  // the purchase bill will. Its totals win over the local estimate once they arrive.
+  const previewOnline = typeof navigator === 'undefined' || navigator.onLine;
+  const previewBody =
+    previewOnline && supplierId && lines.length > 0 && !readOnly
+      ? {
+          supplier: Number(supplierId),
+          purchaseType,
+          orderDate,
+          items: lines.map((l) => ({
+            product: l.product,
+            quantity: l.quantity,
+            unitPrice: l.unitPrice,
+            gstRate: purchaseType === 'NON_GST' ? 0 : l.gstRate,
+            cessRate: purchaseType === 'NON_GST' ? 0 : l.cessRate ?? 0,
+          })),
+        }
+      : null;
+  const preview = usePreviewTotals('purchase', previewBody);
+  const serverTotals = preview.ready ? preview.totals : null;
 
   const zeroQty = lines.some((l) => Number(l.quantity) <= 0);
   const canSaveBase = Boolean(supplierId) && lines.length > 0;
@@ -466,9 +488,16 @@ export function PurchaseOrderEditorPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {lines.map((l) => (
+              {lines.map((l, i) => (
                 <TableRow key={l.key}>
-                  <TableCell>{l.productName}</TableCell>
+                  <TableCell>
+                    {l.productName}
+                    {serverTotals?.items?.[i]?.rateOverrideReason ? (
+                      <Typography variant="caption" display="block" color="text.secondary">
+                        {serverTotals.items[i].rateOverrideReason}
+                      </Typography>
+                    ) : null}
+                  </TableCell>
                   <TableCell align="right" sx={{ minWidth: 88 }}>
                     {readOnly ? (
                       l.quantity
@@ -577,7 +606,7 @@ export function PurchaseOrderEditorPage() {
           </Stack>
           </Stack>
         ) : null}
-        <SimpleTotalsPanel totals={totals} />
+        <SimpleTotalsPanel totals={serverTotals ?? totals} />
       </Stack>
     </DocumentEditorShell>
   );

@@ -15,6 +15,7 @@ import { billingOps, listVendorTenants, suspendSubscription } from '@/api/roadma
 import { isAllowedPaymentUrl } from '@/utils/safeUrl';
 import { useAuth } from '@/auth/AuthContext';
 import { BizboardInvoicesPanel } from '@/components/billing/BizboardInvoicesPanel';
+import { ReferralPanel } from '@/components/billing/ReferralPanel';
 import { SuspendWorkspaceDialog, type SuspendInput } from '@/components/billing/SuspendWorkspaceDialog';
 import { AsyncSection } from '@/components/settings/AsyncSection';
 import { SettingsPage } from '@/components/settings/SettingsPage';
@@ -165,6 +166,8 @@ export function BillingPage() {
               </Paper>
 
               <BizboardInvoicesPanel companyKey={user?.companyId} />
+
+              <ReferralPanel companyKey={user?.companyId} />
 
               {tenantRows.length > 0 ? (
                 <Paper sx={{ p: 3 }}>

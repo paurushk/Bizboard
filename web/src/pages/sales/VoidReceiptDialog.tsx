@@ -19,6 +19,8 @@ import { formatMoney, toNumber } from '@/utils/money';
 import { todayIso } from '@/components/billing';
 import { MAX_VOID_REASON_LENGTH, MIN_VOID_REASON_LENGTH } from '@/pages/sales/receiptStatus';
 
+const VOID_SHEET_TITLE_ID = 'void-receipt-sheet-title';
+
 interface Props {
   target: CustomerReceipt | null;
   /** Bottom drawer on narrow screens, centred dialog otherwise. */
@@ -115,7 +117,7 @@ function VoidForm({
   if (stacked) {
     return (
       <Box sx={{ p: 2 }}>
-        <Typography variant="subtitle1" fontWeight={600} component="h2">
+        <Typography id={VOID_SHEET_TITLE_ID} variant="subtitle1" fontWeight={600} component="h2">
           {t('billing.voidAction')}
         </Typography>
         {body}
@@ -145,7 +147,14 @@ export function VoidReceiptDialog({ target, narrow, onCancel, ...rest }: Props) 
   };
   if (narrow) {
     return (
-      <Drawer anchor="bottom" open={open} onClose={close}>
+      // A bottom sheet is still a modal dialog: without these, screen readers do not announce it
+      // and the reason field is not reachable as part of a dialog (found by the phone e2e run).
+      <Drawer
+        anchor="bottom"
+        open={open}
+        onClose={close}
+        PaperProps={{ role: 'dialog', 'aria-modal': true, 'aria-labelledby': VOID_SHEET_TITLE_ID }}
+      >
         {target ? <VoidForm key={target.id} target={target} onCancel={close} stacked {...rest} /> : null}
       </Drawer>
     );

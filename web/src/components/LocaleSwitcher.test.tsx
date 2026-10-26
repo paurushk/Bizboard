@@ -68,4 +68,13 @@ describe('LocaleSwitcher', () => {
     await userEvent.click(screen.getAllByRole('button')[0]);
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it('on a phone shows one button that offers the other language, and switches back', async () => {
+    render(<LocaleSwitcher compact />);
+    expect(screen.getAllByRole('button')).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: /locale.switchToHindi/ }));
+    expect(i18n.state.current).toBe('hi');
+    await userEvent.click(screen.getByRole('button', { name: /locale.switchToEnglish/ }));
+    expect(i18n.state.current).toBe('en');
+  });
 });

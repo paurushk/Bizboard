@@ -456,9 +456,12 @@ export function BankReconPage() {
   const canWrite = canCreatePayments(user) && !writesBlocked;
   const qc = useQueryClient();
   const health = useQuery({ queryKey: ['payment-health'], queryFn: api.getPaymentHealth });
+  // BB-100 F7: reconciliation is for people who record payments; others would only get a 403.
+  const mayRecon = canCreatePayments(user);
   const query = useQuery({
     queryKey: ['payment-recon'],
     queryFn: () => api.listRecon() as Promise<Row[]>,
+    enabled: mayRecon,
   });
   const [searchParams, setSearchParams] = useSearchParams();
   const focusLine = Number(searchParams.get('line')) || null;
@@ -467,7 +470,7 @@ export function BankReconPage() {
     const raw = searchParams.get('direction');
     return raw === 'credit' || raw === 'debit' ? raw : '';
   });
-  const review = useQuery({ queryKey: ['payment-recon-review'], queryFn: api.listReconNeedsReview });
+  const review = useQuery({ queryKey: ['payment-recon-review'], queryFn: api.listReconNeedsReview, enabled: mayRecon });
   const matchReturn = useMutation({
     mutationFn: (payload: { line: number; receipt: number }) => api.matchReconReturn(payload),
     onSuccess: () => {

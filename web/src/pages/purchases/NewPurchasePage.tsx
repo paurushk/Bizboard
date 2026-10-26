@@ -62,6 +62,7 @@ import {
   OUTBOX_WARNING_DISMISS_KEY,
   savePurchaseDraft,
 } from '@/offline/invoiceDraftCache';
+import { useCoarsePointer } from '@/hooks/useCoarsePointer';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { loadSupplierDefaults, saveSupplierDefaults } from '@/pages/purchases/supplierDefaults';
 import { usePurchaseOffline } from '@/pages/purchases/usePurchaseOffline';
@@ -173,6 +174,7 @@ export function NewPurchasePage() {
   const billUploadState = location.state as { importJobId?: number; productsCreated?: number } | null;
   const qc = useQueryClient();
   const barcodeRef = useRef<HTMLInputElement>(null);
+  const coarsePointer = useCoarsePointer();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const skipAutosaveRef = useRef(false);
   const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
@@ -367,9 +369,11 @@ export function NewPurchasePage() {
       pageSize: 100,
       ...(supplierId ? { supplier: String(supplierId) } : {}),
     }),
-    enabled: Boolean(supplierId),
+    // The endpoint 404s while bills of entry are switched off for the company.
+    enabled: Boolean(supplierId) && isRuntimeFlagEnabled('ENABLE_BOE'),
   });
-  const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
+  // BB-100 F7: the branch-GSTIN list is owner-only (B6-011); others would only get a 403.
+  const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins, enabled: isOwner });
   const costCenters = useQuery({
     queryKey: ['cost-centers'],
     queryFn: listCostCenters,
@@ -1598,6 +1602,8 @@ export function NewPurchasePage() {
       ) : null}
       <Paper sx={{ p: 2 }}>
         <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+          {/* One left column: anything placed straight in the row above becomes its own column. */}
+          <Stack spacing={1} sx={{ flex: 1, minWidth: 0 }}>
           {defaultsApplied ? (
             <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
               {t('billing.supplierDefaultsApplied')}
@@ -1646,10 +1652,16 @@ export function NewPurchasePage() {
           {purchaseType !== 'NON_GST' && selectedSupplier && !String(selectedSupplier.gstin ?? '').trim() ? (
             <Alert severity="warning">{t('billing.supplierNoGstinRcm')}</Alert>
           ) : null}
-          <Button size="small" onClick={() => setPurchaseExtras((open) => !open)} aria-expanded={purchaseExtras}>
+          <Button
+            size="small"
+            onClick={() => setPurchaseExtras((open) => !open)}
+            aria-expanded={purchaseExtras}
+            sx={{ alignSelf: 'flex-start' }}
+          >
             {t('billing.purchaseExtras')}
           </Button>
           <Collapse in={purchaseExtras || Boolean(shipFrom || shipFromAddress || billOfEntryId)}>
+          <Stack spacing={1}>
           <TextField
             size="small"
             label={t('billing.shipFrom')}
@@ -1664,7 +1676,9 @@ export function NewPurchasePage() {
             value={shipFromAddress}
             onChange={(e) => setShipFromAddress(e.target.value)}
           />
+          </Stack>
           </Collapse>
+          </Stack>
 
           <Stack spacing={1.5} sx={{ flex: 1, minWidth: 280 }}>
             <Typography variant="body2" color="text.secondary">
@@ -1799,7 +1813,7 @@ export function NewPurchasePage() {
             ) : null}
             </Stack>
             </Collapse>
-            <Stack direction="row" spacing={1}>
+            <Stack direction="row" spacing={1} alignItems="center" useFlexGap flexWrap="wrap">
               <CompactField
                 label={t('billing.purchaseInvDate')}
                 type="date"
@@ -1821,27 +1835,6 @@ export function NewPurchasePage() {
                 ) : null}
                 <MenuItem value="NON_GST">{t('billing.nonGstInvoice')}</MenuItem>
               </CompactField>
-              <Collapse in={purchaseExtras || Boolean(billOfEntryId)}>
-              <HelpHint intent="purchase-bill-blocked" slot="boe">
-              <Stack direction="row" alignItems="center" spacing={0.25}>
-              <CompactField
-                select
-                label={t('boe.linkOnPurchase')}
-                value={billOfEntryId}
-                onChange={(e) => setBillOfEntryId(e.target.value === '' ? '' : Number(e.target.value))}
-                sx={{ minWidth: 200 }}
-              >
-                <MenuItem value="">{t('boe.none')}</MenuItem>
-                {(billsOfEntry.data?.results ?? []).map((b) => (
-                  <MenuItem key={b.id} value={b.id}>
-                    {b.boeNumber} ({b.status})
-                  </MenuItem>
-                ))}
-              </CompactField>
-              <FieldHelpTip slot="boe" title={t('help.boeTip')} />
-              </Stack>
-              </HelpHint>
-              </Collapse>
               {purchaseType === 'GST' ? (
                 <Chip
                   size="small"
@@ -1851,6 +1844,27 @@ export function NewPurchasePage() {
                 />
               ) : null}
             </Stack>
+            <Collapse in={purchaseExtras || Boolean(billOfEntryId)}>
+            <HelpHint intent="purchase-bill-blocked" slot="boe">
+            <Stack direction="row" alignItems="center" spacing={0.25}>
+            <CompactField
+              select
+              label={t('boe.linkOnPurchase')}
+              value={billOfEntryId}
+              onChange={(e) => setBillOfEntryId(e.target.value === '' ? '' : Number(e.target.value))}
+              sx={{ minWidth: 200 }}
+            >
+              <MenuItem value="">{t('boe.none')}</MenuItem>
+              {(billsOfEntry.data?.results ?? []).map((b) => (
+                <MenuItem key={b.id} value={b.id}>
+                  {b.boeNumber} ({b.status})
+                </MenuItem>
+              ))}
+            </CompactField>
+            <FieldHelpTip slot="boe" title={t('help.boeTip')} />
+            </Stack>
+            </HelpHint>
+            </Collapse>
             {purchaseType === 'GST' ? (
               <>
               <HelpHint intent="purchase-bill-blocked" slot="itc">
@@ -2159,7 +2173,7 @@ export function NewPurchasePage() {
                   {...params}
                   inputRef={barcodeRef}
                   placeholder={`+ ${t('billing.addItem')} / ${t('billing.searchProduct')}`}
-                  autoFocus
+                  autoFocus={!coarsePointer}
                   disabled={isCompletedEdit}
                 />
               )}

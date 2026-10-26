@@ -73,7 +73,7 @@ export async function registerTenant(
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL('/', { timeout: 20_000 });
   await page.getByRole('button', { name: 'Skip for now' }).click({ timeout: 1_500 }).catch(() => undefined);
-  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({ timeout: 20_000 });
+  await expectSignedInShell(page);
 }
 
 /**
@@ -460,8 +460,14 @@ export async function saveAndCompleteSalesInvoice(page: Page, rowMatcher: RegExp
       await completeHere.click();
       const confirm = page.getByRole('dialog').getByRole('button', { name: /^(Complete|Confirm|Yes)/ });
       if (await appears(confirm.first(), 3_000)) await confirm.first().click();
-      // A completed invoice offers payment and the PDF; a draft does not.
-      await expect(page.getByRole('button', { name: 'Record Payment' })).toBeVisible({ timeout: 20_000 });
+      // A completed invoice offers payment and the PDF; a draft does not. At phone size
+      // Record Payment moves into the "More" menu, so either button proves completion.
+      await expect(
+        page
+          .getByRole('button', { name: 'Record Payment' })
+          .or(page.getByRole('button', { name: 'Download PDF' }))
+          .first(),
+      ).toBeVisible({ timeout: 20_000 });
       await page.goto('/sales/history');
       // Let the session refresh settle: a reload while one is in flight can revoke the token family.
       await page.waitForLoadState('networkidle');
@@ -624,12 +630,25 @@ export async function signOut(page: Page) {
   await expect(page).toHaveURL(/\/login/, { timeout: 20_000 });
 }
 
+/**
+ * The signed-in app shell is up. Desktop shows the sidebar; at phone size the sidebar sits in a
+ * drawer behind the "Open navigation" button (the nightly lead-pilot run uses a phone project).
+ */
+export async function expectSignedInShell(page: Page) {
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .or(page.getByRole('button', { name: 'Open navigation' }))
+      .first(),
+  ).toBeVisible({ timeout: 20_000 });
+}
+
 export async function loginWithPassword(page: Page, email: string, password: string) {
   await page.goto('/login');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible({ timeout: 20_000 });
+  await expectSignedInShell(page);
 }
 
 /** Invite a staff member with a known password (development invite token path). */

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { ensureLocaleLoaded } from '@/i18n';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { CssBaseline, ThemeProvider } from '@mui/material';
@@ -72,7 +73,8 @@ if (shouldUseMocks() || hasStoredSession()) {
 
 registerPwa();
 
-createRoot(document.getElementById('root')!).render(
+// A Hindi user's catalogue is a separate chunk: fetch it first so the app never flashes English.
+void ensureLocaleLoaded().finally(() => createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
@@ -89,4 +91,4 @@ createRoot(document.getElementById('root')!).render(
       </QueryClientProvider>
     </ErrorBoundary>
   </StrictMode>,
-);
+));

@@ -28,10 +28,11 @@ import {
   assignAttentionRow,
   dismissAttentionRow,
   getAttentionFeed,
-  listCompanyUsers,
+  listTeamMembers,
   markAttentionSeen,
   reopenAttentionRow,
   snoozeAttentionRow,
+  TEAM_MEMBERS_QUERY_KEY,
 } from '@/api/resources';
 import { isRuntimeFlagEnabled, useFeatureFlagEpoch } from '@/config/featureFlags';
 import { AgentPrepareButton } from '@/components/agents/AgentPrepareButton';
@@ -107,8 +108,9 @@ export function AttentionPage() {
     placeholderData: keepPreviousData,
   });
   const members = useQuery({
-    queryKey: ['company-users'],
-    queryFn: listCompanyUsers,
+    queryKey: TEAM_MEMBERS_QUERY_KEY,
+    queryFn: listTeamMembers,
+    // BB-100 F10: readable by any member, so a manager can assign too.
     enabled: assignmentOn,
   });
   const [pending, setPending] = useState<AttentionRow | null>(null);
@@ -226,7 +228,7 @@ export function AttentionPage() {
       {assignmentOn && !setAside ? (
         <Typography variant="caption" color="text.secondary" component="div">
           {row.assignedTo
-            ? (members.data ?? []).find((member) => member.id === row.assignedTo)?.fullName || row.assignedTo
+            ? (members.data ?? []).find((member) => member.id === row.assignedTo)?.name || row.assignedTo
             : t('osPlan.unassigned')}
           {row.dueDate ? ` · ${row.dueDate}` : ''}
         </Typography>
@@ -547,8 +549,8 @@ export function AttentionPage() {
               onChange={(e) => setAssignee(e.target.value)}
             >
               <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
-              {(members.data ?? []).filter((member) => member.user).map((member) => (
-                <MenuItem key={member.id} value={String(member.id)}>{member.fullName || member.email}</MenuItem>
+              {(members.data ?? []).map((member) => (
+                <MenuItem key={member.id} value={String(member.id)}>{member.name}</MenuItem>
               ))}
             </TextField>
             <TextField

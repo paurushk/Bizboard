@@ -364,7 +364,7 @@ export function DashboardPage() {
 
 
       {data.recentInvoices && data.recentInvoices.length > 0 ? (
-        <Paper variant="outlined" sx={{ p: 2.5, overflow: 'auto', position: 'relative' }}>
+        <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} variant="outlined" sx={{ p: 2.5, overflow: 'auto', position: 'relative' }}>
           <Typography variant="h6" component="h2" sx={{ mb: 2 }}>
             {t('dashboard.recentInvoices')}
           </Typography>

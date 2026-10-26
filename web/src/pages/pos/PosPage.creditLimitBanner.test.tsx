@@ -154,6 +154,8 @@ vi.mock('@/api/legacy/sales', () => ({
 const posCheckout = vi.fn();
 
 vi.mock('@/api/resources', () => ({
+  // Books on: the POS till and the Day book account filter need them (BB-100).
+  getAccountingSettings: async () => ({ accountingEnabled: true }),
   getCompany: vi.fn(async () => COMPANY),
   listCustomersPage: vi.fn(async () => ({
     results: [WALKIN_CUSTOMER],

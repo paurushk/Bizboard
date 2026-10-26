@@ -22,10 +22,12 @@ export function GoogleSignupForm({
   credential,
   email,
   onCancel,
+  referralCode = '',
 }: {
   credential: string;
   email: string;
   onCancel: () => void;
+  referralCode?: string;
 }) {
   const { setSession } = useAuth();
   const navigate = useNavigate();
@@ -39,7 +41,7 @@ export function GoogleSignupForm({
     setBusy(true);
     setError(null);
     try {
-      const result = await googleSignIn(credential, { companyName, state, acceptTerms });
+      const result = await googleSignIn(credential, { companyName, state, acceptTerms, referralCode });
       if (result.kind === 'session') {
         await setSession(result.user, result.tokens.access);
         navigate('/', { replace: true });

@@ -56,6 +56,8 @@ export interface RegisterPayload {
   otpCode: string;
   /** WP-H5: agrees to the current Terms of Service and Privacy Policy (recorded server-side). */
   acceptTerms?: boolean;
+  /** D-19: the ?ref= code of a Bizboard customer's referral link. Unknown codes are ignored. */
+  referralCode?: string;
 }
 
 function tokensFromBody(body: { access?: string | null; refresh?: string }): AuthTokens {
@@ -387,7 +389,14 @@ export type GoogleSignInResult =
 
 export async function googleSignIn(
   credential: string,
-  signup?: { companyName: string; state?: string; phone?: string; gstin?: string; acceptTerms: boolean },
+  signup?: {
+    companyName: string;
+    state?: string;
+    phone?: string;
+    gstin?: string;
+    acceptTerms: boolean;
+    referralCode?: string;
+  },
 ): Promise<GoogleSignInResult> {
   const { data } = await apiClient.post('/auth/google/', {
     credential,
@@ -398,6 +407,7 @@ export async function googleSignIn(
           phone: signup.phone ?? '',
           gstin: signup.gstin ?? '',
           accept_terms: signup.acceptTerms,
+          referral_code: signup.referralCode ?? '',
         }
       : {}),
   });

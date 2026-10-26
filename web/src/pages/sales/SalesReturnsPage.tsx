@@ -1083,7 +1083,7 @@ export function SalesReturnsPage() {
                 </Typography>
               ) : null}
               <Divider />
-              <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+              <Paper tabIndex={0} role="region" aria-label={t('common.scrollableTable')} variant="outlined" sx={{ overflow: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow>

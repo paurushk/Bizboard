@@ -12,6 +12,8 @@ export interface PlatformTicket {
   raisedByEmail: string;
   slaDueAt: string | null;
   createdAt: string;
+  /** BB-136: the 1-5 rating given on this request, or null. */
+  satisfactionScore?: number | null;
   messages?: Array<{ id: number; body: string; fromStaff: boolean; authorEmail: string; createdAt: string }>;
 }
 
@@ -49,6 +51,29 @@ export async function openPlatformTicket(input: {
 
 export async function replyPlatformTicket(id: number, body: string): Promise<void> {
   await apiClient.post(`/support/platform-tickets/${id}/reply/`, { body });
+}
+
+/** BB-136 (D-08): is the survey on for this company, and is the recommend-us prompt due now? */
+export const NPS_DUE_QUERY_KEY = ['satisfaction', 'nps-due'] as const;
+
+export async function getNpsDue(): Promise<{ due: boolean; enabled: boolean }> {
+  const { data } = await apiClient.get('/support/satisfaction/nps-due/');
+  return unwrapData(data);
+}
+
+/** NPS: score 0-10, or null for "Not now". CSAT: 1-5 on the member's own resolved request. */
+export async function sendSatisfaction(input: {
+  kind: 'NPS' | 'CSAT';
+  score: number | null;
+  comment?: string;
+  platformTicket?: number;
+}): Promise<void> {
+  await apiClient.post('/support/satisfaction/', {
+    kind: input.kind,
+    score: input.score,
+    comment: input.comment ?? '',
+    ...(input.platformTicket ? { platform_ticket: input.platformTicket } : {}),
+  });
 }
 
 /** WP-ID4: the owner lets Bizboard support view the company's data, read-only, up to 72 hours. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { en, hi } from '@/i18n';
+import { en } from '@/i18n';
+import { hi } from '@/i18n/hi';
 
 type Bag = Record<string, string>;
 const enQuick = (en as unknown as { quickEntry: Bag }).quickEntry;

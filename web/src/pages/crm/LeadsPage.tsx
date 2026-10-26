@@ -39,7 +39,7 @@ import {
   type ImportResult,
   type Lead,
 } from '@/api/crm';
-import { listCompanyUsers, listCustomersPage } from '@/api/resources';
+import { listCustomersPage, listTeamMembers, TEAM_MEMBERS_QUERY_KEY } from '@/api/resources';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { StatusChip } from '@/components/StatusChip';
@@ -144,7 +144,8 @@ function LeadsPageInner() {
       assigned_to: assigneeFilter || undefined,
     }),
   });
-  const members = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers });
+  // BB-100 F10: the team list is readable by any member, so a manager or assignee can hand a lead on.
+  const members = useQuery({ queryKey: TEAM_MEMBERS_QUERY_KEY, queryFn: listTeamMembers });
   const campaigns = useQuery({ queryKey: ['campaigns', 'filter'], queryFn: () => listCampaignsPage({ pageSize: 100 }) });
   const customersQuery = useQuery({
     queryKey: ['customers', 'crm'],
@@ -429,7 +430,7 @@ function LeadsPageInner() {
         <TextField select label={t('osPlan.assignee')} value={assigneeFilter} onChange={(e) => { setAssigneeFilter(e.target.value); setPage(1); }} sx={{ minWidth: 180 }}>
           <MenuItem value="">{t('common.all')}</MenuItem>
           {(members.data ?? []).map((member) => (
-            <MenuItem key={member.id} value={String(member.id)}>{member.fullName || member.email}</MenuItem>
+            <MenuItem key={member.id} value={String(member.id)}>{member.name}</MenuItem>
           ))}
         </TextField>
       </Stack>
@@ -495,7 +496,7 @@ function LeadsPageInner() {
                     >
                       <MenuItem value="">{t('osPlan.unassigned')}</MenuItem>
                       {(members.data ?? []).map((member) => (
-                        <MenuItem key={member.id} value={member.id}>{member.fullName || member.email}</MenuItem>
+                        <MenuItem key={member.id} value={member.id}>{member.name}</MenuItem>
                       ))}
                     </TextField>
                     {lead.dedupeReview === 'PENDING_REVIEW' ? (

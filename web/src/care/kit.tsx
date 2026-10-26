@@ -26,7 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
 import { recordLinks, recordTimeline, type LinkItem, type SlaState, type TimelineRow } from '@/api/care';
-import { listCompanyUsers } from '@/api/resources';
+import { listTeamMembers, TEAM_MEMBERS_QUERY_KEY, type TeamMember } from '@/api/resources';
 import { StatusChip } from '@/components/StatusChip';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 import { t } from '@/i18n';
@@ -341,7 +341,7 @@ export function EntityPicker<T extends { id: number }>({
   );
 }
 
-export type Member = { id: number; fullName: string; email: string };
+export type Member = TeamMember;
 
 /** A teammate. The list is short, so it is fetched once and filtered here. */
 export function MemberPicker({
@@ -357,8 +357,9 @@ export function MemberPicker({
   disabled?: boolean;
   minWidth?: number;
 }) {
-  const users = useQuery({ queryKey: ['company-users'], queryFn: listCompanyUsers, staleTime: 60_000 });
-  const members = (users.data ?? []) as unknown as Member[];
+  // BB-100 F10: the team list (id, name, role) is readable by any member, unlike /company/users/.
+  const users = useQuery({ queryKey: TEAM_MEMBERS_QUERY_KEY, queryFn: listTeamMembers, staleTime: 60_000 });
+  const members = users.data ?? [];
   const selected = members.find((member) => member.id === value) ?? null;
   return (
     <Autocomplete
@@ -366,7 +367,7 @@ export function MemberPicker({
       value={selected}
       disabled={disabled}
       isOptionEqualToValue={(a, b) => a.id === b.id}
-      getOptionLabel={(member) => member.fullName || member.email}
+      getOptionLabel={(member) => member.name}
       onChange={(_, next) => onChange(next ? next.id : null)}
       noOptionsText={t('care.common.noMatches')}
       sx={{ minWidth }}

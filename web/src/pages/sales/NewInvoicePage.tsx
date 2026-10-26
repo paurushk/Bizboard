@@ -71,6 +71,7 @@ import { canAccessPos, canCreatePayments, canCreateSales, canImportSalesBill, ca
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { CustomFieldFilterBar } from '@/components/CustomFieldFilterBar';
 import { useVisibleCustomFieldDefs } from '@/hooks/useActiveCustomFieldDefs';
+import { useCoarsePointer } from '@/hooks/useCoarsePointer';
 import { usePreviewTotals } from '@/hooks/usePreviewTotals';
 import { UnsavedChangesGuard } from '@/components/UnsavedChangesGuard';
 import { DocumentTaxSummary } from '@/components/DocumentTaxSummary';
@@ -179,6 +180,7 @@ export function NewInvoicePage() {
   const companyId = user?.companyId ?? 0;
   const userId = user?.id ?? 0;
   const barcodeRef = useRef<HTMLInputElement>(null);
+  const coarsePointer = useCoarsePointer();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [skipLeaveGuard, setSkipLeaveGuard] = useState(false);
 
@@ -441,7 +443,8 @@ export function NewInvoicePage() {
     retry: false,
   });
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
-  const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
+  // BB-100 F7: the branch-GSTIN list is owner-only (B6-011); others would only get a 403.
+  const companyGstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins, enabled: isOwner });
   const costCenters = useQuery({
     queryKey: ['cost-centers'],
     queryFn: listCostCenters,
@@ -2589,7 +2592,7 @@ export function NewInvoicePage() {
                   {...params}
                   inputRef={barcodeRef}
                   placeholder={`+ ${t('billing.addItem')} / ${t('billing.searchProduct')}`}
-                  autoFocus
+                  autoFocus={!coarsePointer}
                   disabled={isCompletedEdit}
                   helperText={t('billing.scanEnterHint')}
                   onKeyDown={(e) => {
@@ -2650,9 +2653,11 @@ export function NewInvoicePage() {
             {t('billing.scanBarcode')}
           </Button>
         </Stack>
-        <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1, display: 'block' }}>
-          {t('billing.shortcutsBar')}
-        </Typography>
+        {coarsePointer ? null : (
+          <Typography variant="caption" color="text.secondary" sx={{ px: 2, pb: 1, display: 'block' }}>
+            {t('billing.shortcutsBar')}
+          </Typography>
+        )}
 
         <Box
           sx={{

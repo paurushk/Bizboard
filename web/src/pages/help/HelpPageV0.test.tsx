@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setLocale } from '@/i18n';
 import { HelpPageV0 } from './HelpPageV0';
 
 describe('HelpPageV0 FAQ catalog', () => {
@@ -29,6 +30,18 @@ describe('HelpPageV0 FAQ catalog', () => {
     expect(
       screen.queryByText(/How do I set the conversion rate between a base unit and an alternate unit/i),
     ).not.toBeInTheDocument();
+  });
+
+  it('mounts an answer only once its question is opened (BB-100: /help rendered blank for seconds)', async () => {
+    render(
+      <MemoryRouter>
+        <HelpPageV0 />
+      </MemoryRouter>,
+    );
+    const answer = /Rejected quantity drafts a supplier debit note/;
+    expect(screen.queryByText(answer)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Where is goods received (GRN)?' }));
+    expect(await screen.findByText(answer)).toBeInTheDocument();
   });
 });
 
@@ -73,3 +86,25 @@ describe('HelpPageV0 deep links', () => {
     expect(scroll).not.toHaveBeenCalled();
   });
 });
+
+/** BB-100 F4: the machine-drafted Hindi shows when Hindi is selected; English stays the fallback. */
+describe('HelpPageV0 in Hindi', () => {
+  afterEach(() => setLocale('en'));
+
+  it('shows the Hindi question and answer, says it is a draft, and finds Hindi search words', async () => {
+    setLocale('hi');
+    render(
+      <MemoryRouter>
+        <HelpPageV0 />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/मशीन से अनुवादित/)).toBeInTheDocument();
+    const question = screen.getByRole('button', { name: 'मूल इकाई और वैकल्पिक इकाई के बीच कन्वर्ज़न दर कैसे सेट करें?' });
+    fireEvent.click(question);
+    expect(question.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByText(/sit in one alternate unit/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'कन्वर्ज़न' } });
+    expect(screen.getByRole('button', { name: /कन्वर्ज़न दर/ })).toBeInTheDocument();
+  });
+});
+

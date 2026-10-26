@@ -232,6 +232,12 @@ export interface Company {
   id: number;
   /** Last change to the record; sent back as `expected_updated_at` so two owners cannot overwrite each other. */
   updatedAt?: string;
+  /** D-13: days a read-only workspace is kept before its data is deleted (owner-set, 30-3650). */
+  dataRetentionDays?: number;
+  /** D-13: when the workspace became read-only; null while it has paid or trial access. */
+  readOnlySince?: string | null;
+  /** D-13: when its data will be deleted; null while it is not read-only. */
+  dataDeletionDueAt?: string | null;
   name: string;
   legalName?: string;
   gstin?: string;

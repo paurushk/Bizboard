@@ -6,7 +6,7 @@ import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DayBookPage } from '@/pages/reports/DayBookPage';
 
-const state = vi.hoisted(() => ({ ties: true, balanced: true, ledgerCalls: [] as unknown[] }));
+const state = vi.hoisted(() => ({ ties: true, balanced: true, ledgerCalls: [] as unknown[], booksOn: true, accountCalls: 0 }));
 
 vi.mock('@/auth/AuthContext', () => ({
   useAuth: () => ({ user: { id: 1, email: 'o@x.test', fullName: 'O', role: 'OWNER', canExport: true, companyId: 9 } }),
@@ -14,6 +14,8 @@ vi.mock('@/auth/AuthContext', () => ({
 
 vi.mock('@/components/billing', () => ({ todayIso: () => '2026-09-21' }));
 vi.mock('@/api/resources', () => ({
+  // Books on: the POS till and the Day book account filter need them (BB-100).
+  getAccountingSettings: async () => ({ accountingEnabled: state.booksOn }),
   getDayBook: async () => ({
     date: '2026-09-21',
     inflow: '200',
@@ -39,7 +41,10 @@ vi.mock('@/api/resources', () => ({
     };
   },
   exportLedgerDayBook: vi.fn(async () => new Blob(['x'])),
-  listAccounts: async () => [{ id: 3, code: '1100', name: 'Cash', type: 'ASSET', isActive: true }],
+  listAccounts: async () => {
+    state.accountCalls += 1;
+    return [{ id: 3, code: '1100', name: 'Cash', type: 'ASSET', isActive: true }];
+  },
 }));
 
 function wrap(ui: ReactElement, path = '/reports/day-book') {
@@ -79,6 +84,19 @@ describe('DayBookPage', () => {
     await screen.findAllByText('JV-1');
     await userEvent.click(screen.getByRole('button', { name: 'Next day' }));
     await waitFor(() => expect((state.ledgerCalls.at(-1) as Record<string, string>).date_from).toBe('2026-09-22'));
+  });
+
+  it('with books off it does not ask for accounts and hides the account filter (BB-100)', async () => {
+    state.booksOn = false;
+    state.accountCalls = 0;
+    try {
+      wrap(<DayBookPage />);
+      await screen.findAllByText('JV-1');
+      expect(state.accountCalls).toBe(0);
+      expect(screen.queryByLabelText('Account', { exact: true })).toBeNull();
+    } finally {
+      state.booksOn = true;
+    }
   });
 
   it('opens on the account named in the link', async () => {

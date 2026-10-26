@@ -172,6 +172,25 @@ export interface TdsClaim {
   creditRemaining: string;
 }
 
+/** D-19 (BB-139): the owner's referral code and counts (404 while ENABLE_SAAS_REFERRALS is off). */
+export interface ReferralPanelData {
+  code: string;
+  isActive: boolean;
+  signedUp: number;
+  qualified: number;
+}
+
+export async function getReferralPanel(): Promise<ReferralPanelData> {
+  const { data } = await apiClient.get('/billing/referral/');
+  return unwrapData(data);
+}
+
+/** Before sign-up: is this a live referral code? Says only yes or no. */
+export async function checkReferralCode(code: string): Promise<boolean> {
+  const { data } = await apiClient.get(`/billing/referral/check/${encodeURIComponent(code)}/`);
+  return Boolean(unwrapData<{ valid: boolean }>(data).valid);
+}
+
 export async function getTdsClaims(): Promise<{ claims: TdsClaim[]; sections: TdsSection[] }> {
   const { data } = await apiClient.get('/billing/tds-claims/');
   return unwrapData(data);

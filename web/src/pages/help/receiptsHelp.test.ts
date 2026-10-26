@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getContextHelpPage } from '@/contextHelp';
+import { getContextHelpPage } from '@/contextHelp/catalog';
 import { FAQ_ITEMS } from '@/pages/help/faqContent';
 
 const RECEIPT_FAQS = [

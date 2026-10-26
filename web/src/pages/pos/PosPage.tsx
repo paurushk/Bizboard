@@ -65,7 +65,7 @@ import {
 import { printPosThermalOrWarn } from '@/pages/pos/printPosThermal';
 import { PosTillStrip } from '@/pages/pos/PosTillStrip';
 import { cashNeedsOpenShift, clearPosOutage, posOutageId, posTerminalId, posTerminalLabel } from '@/pages/pos/posTerminal';
-import { useTill } from '@/pages/pos/useTill';
+import { useTill, useTillAvailable } from '@/pages/pos/useTill';
 import { collectPosPayment, createPosHold, getPosSettings, listPosHolds, postPosEvent, releasePosHold, returnPosBill } from '@/pages/pos/posCounterApi';
 import { DRAWER_KICK, isNative, printEscPos, readScaleWeight } from '@/lib/native';
 import {
@@ -581,7 +581,8 @@ export function PosPage() {
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
-  const tillToday = useTill(posTerminalId());
+  const tillAvailable = useTillAvailable();
+  const tillToday = useTill(posTerminalId(), tillAvailable);
   const tillShift = tillToday.data?.shift;
   const warehouses = useQuery({ queryKey: ['warehouses'], queryFn: listWarehouses });
 
@@ -2725,13 +2726,15 @@ export function PosPage() {
           {t('pos.leftUnpaid', { number: unpaidRecover.number })}
         </Alert>
       ) : null}
-      <PosTillStrip
-        onClosed={() => {
-          if (walkInCustomer?.id) setCustomerId(walkInCustomer.id);
-          setNameOnlySale(false);
-          setWalkInName('');
-        }}
-      />
+      {tillAvailable ? (
+        <PosTillStrip
+          onClosed={() => {
+            if (walkInCustomer?.id) setCustomerId(walkInCustomer.id);
+            setNameOnlySale(false);
+            setWalkInName('');
+          }}
+        />
+      ) : null}
       {openWarehouses.length === 0 ? (
         <Alert severity="info" sx={{ mb: 1 }} action={<Button component={RouterLink} to="/inventory/warehouses">{t('pos.setupGodown')}</Button>}>
           {t('pos.noWarehouse')}

@@ -64,5 +64,5 @@ test('lifecycle ARCH-01: POS checkout -> history badge -> Owner sales return -> 
   await page.goto('/attention');
   await expect(page).toHaveURL(/\/attention/);
   await expect(page.locator('body')).not.toContainText(/something went wrong/i);
-  await expect(page.getByText('Needs attention').first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: 'Needs attention', level: 1 })).toBeVisible({ timeout: 20_000 });
 });

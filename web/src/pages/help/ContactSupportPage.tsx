@@ -8,7 +8,14 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { listPlatformTickets, openPlatformTicket, type SupportSeverity } from '@/api/platformSupport';
+import {
+  getNpsDue,
+  listPlatformTickets,
+  NPS_DUE_QUERY_KEY,
+  openPlatformTicket,
+  sendSatisfaction,
+  type SupportSeverity,
+} from '@/api/platformSupport';
 import { useAuth } from '@/auth/AuthContext';
 import { HelpErrorAlert } from '@/pages/help/HelpErrorAlert';
 import { SupportAccessPanel } from '@/components/support/SupportAccessPanel';
@@ -25,6 +32,13 @@ export function ContactSupportPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const tickets = useQuery({ queryKey: ['platform-tickets', user?.companyId], queryFn: listPlatformTickets });
+  // BB-136: rate a resolved request 1-5 when the company has the survey on.
+  const survey = useQuery({ queryKey: NPS_DUE_QUERY_KEY, queryFn: getNpsDue, staleTime: 30 * 60_000, retry: false });
+  const rate = useMutation({
+    mutationFn: (input: { id: number; score: number }) =>
+      sendSatisfaction({ kind: 'CSAT', score: input.score, platformTicket: input.id }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['platform-tickets'] }),
+  });
   // WP-GR1a: "Ask support to switch on Tally import" lands here with ?topic=tally-import.
   const [params] = useSearchParams();
   const topic = params.get('topic') === 'tally-import' ? 'tally-import-request' : '';
@@ -95,14 +109,43 @@ export function ContactSupportPage() {
         <Typography color="text.secondary">{t('platformSupport.none')}</Typography>
       ) : null}
       {(tickets.data ?? []).map((row) => (
-        <Typography key={row.id} variant="body2">
-          {t('platformSupport.line', {
-            id: String(row.id),
-            subject: row.subject,
-            status: t(`platformSupport.status.${row.status}`),
-          })}
-        </Typography>
+        <Stack key={row.id} spacing={0.5}>
+          <Typography variant="body2">
+            {t('platformSupport.line', {
+              id: String(row.id),
+              subject: row.subject,
+              status: t(`platformSupport.status.${row.status}`),
+            })}
+          </Typography>
+          {survey.data?.enabled && row.status === 'RESOLVED' ? (
+            row.satisfactionScore != null ? (
+              <Typography variant="caption" color="text.secondary">
+                {t('survey.csatRated', { n: String(row.satisfactionScore) })}
+              </Typography>
+            ) : (
+              <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap" role="group" aria-label={t('survey.csatQuestion')}>
+                <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>
+                  {t('survey.csatQuestion')}
+                </Typography>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <Button
+                    key={n}
+                    size="small"
+                    variant="outlined"
+                    disabled={rate.isPending}
+                    aria-label={t('survey.csatScore', { n: String(n) })}
+                    onClick={() => rate.mutate({ id: row.id, score: n })}
+                    sx={{ minWidth: 36, minHeight: 36, px: 0 }}
+                  >
+                    {n}
+                  </Button>
+                ))}
+              </Stack>
+            )
+          ) : null}
+        </Stack>
       ))}
+      {rate.isError ? <Typography variant="caption" color="error">{t('survey.failed')}</Typography> : null}
       {user?.role === 'OWNER' ? <SupportAccessPanel tickets={tickets.data ?? []} /> : null}
     </Stack>
   );

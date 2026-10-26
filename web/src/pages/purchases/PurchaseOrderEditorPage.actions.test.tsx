@@ -24,6 +24,8 @@ vi.mock('@/api/resources', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/api/resources')>();
   return {
     ...actual,
+    // The server preview is not under test here; the editor falls back to its local totals.
+    previewPurchaseTotals: async () => { throw new Error('no preview'); },
     getCompany: async () => ({ id: 9, name: 'Acme', registrationType: 'REGULAR', state: 'Delhi', gstin: '07AAAAA0000A1Z5' }),
     getSupplier: async (id: number) => ({ id, name: `Supplier ${id}`, status: 'ACTIVE', state: 'Delhi' }),
     listSuppliersPage: async () => ({ results: [], count: 0, next: null, previous: null }),

@@ -46,7 +46,8 @@ vi.mock('@/api/care', async (importOriginal) => ({
 
 vi.mock('@/api/resources', () => ({
   getCustomer: vi.fn(async () => ({ id: 5, name: 'Ravi' })),
-  listCompanyUsers: vi.fn(async () => [{ id: 8, fullName: 'Priya Staff', email: 'p@x.test' }]),
+  listTeamMembers: vi.fn(async () => [{ id: 8, name: 'Priya Staff', role: 'SALES_STAFF' }]),
+  TEAM_MEMBERS_QUERY_KEY: ['company-users', 'team'],
   listProductsPage: vi.fn(async (params: { product_type?: string }) => ({
     results: params.product_type === 'SERVICE'
       ? [{ id: 20, name: 'Labour hour', sku: 'LB-1', sellingPrice: '300' }]

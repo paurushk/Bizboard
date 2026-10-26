@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react';
 import Button from '@mui/material/Button';
 import ButtonGroup from '@mui/material/ButtonGroup';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { getLocale, setLocale, subscribeLocale, t } from '@/i18n';
 
-export function LocaleSwitcher() {
+export function LocaleSwitcher({ compact }: { compact?: boolean } = {}) {
   const [locale, setLocaleState] = useState(getLocale());
+  // On a phone the two-button group pushed हिंदी off the right edge of the header
+  // (found by the axe phone run). There, one button offers the other language.
+  const narrow = useMediaQuery(useTheme().breakpoints.down('sm'));
+  const single = compact ?? narrow;
 
   useEffect(() => subscribeLocale(() => setLocaleState(getLocale())), []);
 
@@ -30,6 +36,22 @@ export function LocaleSwitcher() {
     borderColor: 'rgba(255, 255, 255, 0.6)',
     '&:hover': { borderColor: 'common.white', bgcolor: 'rgba(255, 255, 255, 0.08)' },
   } as const;
+
+  if (single) {
+    const other = locale === 'hi' ? 'en' : 'hi';
+    return (
+      <Button
+        size="small"
+        variant="outlined"
+        lang={other}
+        aria-label={`${t('locale.language')}: ${other === 'hi' ? t('locale.switchToHindi') : t('locale.switchToEnglish')}`}
+        onClick={() => switchTo(other)}
+        sx={{ ...inactiveSx, minWidth: 0, flexShrink: 0 }}
+      >
+        {other === 'hi' ? t('locale.switchToHindi') : t('locale.switchToEnglish')}
+      </Button>
+    );
+  }
 
   return (
     <ButtonGroup size="small" variant="outlined" aria-label={t('locale.language')}>

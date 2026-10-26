@@ -45,6 +45,8 @@ vi.mock('@/api/resources', async (importOriginal) => {
     ...actual,
     getCompany: async () => ({ id: 9, name: 'Acme', registrationType: 'REGULAR', state: 'Delhi', gstin: '07AAAAA0000A1Z5' }),
     getCustomer: async (id: number) => ({ id, name: 'Anil Store', status: 'ACTIVE', state: 'Delhi' }),
+    // The server preview is not under test here; the editor falls back to its local totals.
+    previewSalesTotals: async () => { throw new Error('no preview'); },
     listCustomersPage: async () => ({ results: [], count: 0, next: null, previous: null }),
     listProductsPage: async () => ({ results: [], count: 0, next: null, previous: null }),
     searchProducts: async () => [],

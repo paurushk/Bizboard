@@ -14,6 +14,26 @@ import { defineConfig, devices } from '@playwright/test';
  * Override ports (e.g. if 8000/5173 are already in use locally) with
  * E2E_GOLDEN_API_PORT / E2E_GOLDEN_WEB_PORT.
  */
+/** Golden specs that walk the lead-pilot journeys in qos/journeys.yaml (ARCH-01 + ARCH-03). */
+export const LEAD_PILOT_SPECS = [
+  'lifecycle-arch01.spec.ts',
+  'lifecycle-arch03.spec.ts',
+  'lifecycle-arch03-purchase.spec.ts',
+  'pos-golden-path.spec.ts',
+  'invoice-golden-path.spec.ts',
+  'quotation-inline-customer.spec.ts',
+  'payments-golden-path.spec.ts',
+  'money-in-golden.spec.ts',
+  'collection-walk.spec.ts',
+  'returns-golden.spec.ts',
+  'purchase-golden-path.spec.ts',
+  'route-pod-golden.spec.ts',
+  'accounting-golden-path.spec.ts',
+  'repeat-last-invoice-golden-path.spec.ts',
+  'lead-pilot-gaps.spec.ts',
+  'comp002-replenishment.spec.ts',
+];
+
 const apiPort = process.env.E2E_GOLDEN_API_PORT || '8000';
 const webPort = process.env.E2E_GOLDEN_WEB_PORT || '5173';
 const backendBase = process.env.E2E_GOLDEN_API_URL || `http://127.0.0.1:${apiPort}`;
@@ -87,7 +107,15 @@ export default defineConfig({
     baseURL: webBase,
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Stabilization WP-6: the lead-pilot journeys (ARCH-01 counter, ARCH-03 semi-wholesale)
+    // again at Android-phone size. Opt-in so the merge gate stays as fast as before; the
+    // nightly lead-pilot-journeys workflow turns it on.
+    ...(process.env.E2E_GOLDEN_PHONE
+      ? [{ name: 'phone', testMatch: LEAD_PILOT_SPECS, use: { ...devices['Pixel 7'] } }]
+      : []),
+  ],
   webServer: process.env.E2E_GOLDEN_SKIP_WEBSERVER
     ? undefined
     : [

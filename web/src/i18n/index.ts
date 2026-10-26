@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { en, type MessageTree } from './en';
-import { hi } from './hi';
 
-const catalogs: Record<string, MessageTree> = {
-  en,
-  hi: hi as unknown as MessageTree,
+// WP-8 (bundle budget): English is built in; Hindi (~135 KB gzip) is its own chunk, fetched before
+// the first render for a Hindi user (ensureLocaleLoaded in main.tsx) or when someone switches to it.
+const catalogs: Record<string, MessageTree> = { en };
+const loaders: Record<string, () => Promise<MessageTree>> = {
+  hi: () => import('./hi').then((m) => m.hi as unknown as MessageTree),
 };
+const SUPPORTED = new Set(['en', ...Object.keys(loaders)]);
 
 const LOCALE_STORAGE_KEY = 'bizboard:locale';
 
@@ -16,7 +18,7 @@ function loadStoredLocale(): string {
   if (typeof localStorage !== 'undefined') {
     const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
     if (stored === 'ta' || stored === 'gu') return 'en';
-    if (stored && catalogs[stored]) return stored;
+    if (stored && SUPPORTED.has(stored)) return stored;
   }
   return 'en';
 }
@@ -66,18 +68,46 @@ export function tOptional(key: string, vars?: Record<string, string | number>): 
   return value;
 }
 
-export function setLocale(next: string) {
-  const resolved = catalogs[next] ? next : 'en';
-  if (resolved === locale) return;
-  locale = resolved;
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem(LOCALE_STORAGE_KEY, locale);
-    } catch {
-      // Storage quota or restricted environment
-    }
+/** Make a catalogue available without fetching it (the test setup registers Hindi this way). */
+export function registerLocale(name: string, tree: MessageTree) {
+  catalogs[name] = tree;
+}
+
+async function loadLocale(name: string): Promise<void> {
+  if (catalogs[name] || !loaders[name]) return;
+  catalogs[name] = await loaders[name]();
+}
+
+/** Fetch the saved locale's catalogue before the first render. Offline or failed: English shows. */
+export async function ensureLocaleLoaded(): Promise<void> {
+  try {
+    await loadLocale(locale);
+  } catch {
+    // English fallback (t() resolves every key against en).
   }
-  listeners.forEach((fn) => fn());
+}
+
+export function setLocale(next: string) {
+  const resolved = SUPPORTED.has(next) ? next : 'en';
+  if (resolved === locale && catalogs[resolved]) return;
+  const apply = () => {
+    locale = resolved;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(LOCALE_STORAGE_KEY, locale);
+      } catch {
+        // Storage quota or restricted environment
+      }
+    }
+    listeners.forEach((fn) => fn());
+  };
+  if (catalogs[resolved]) {
+    apply();
+    return;
+  }
+  loadLocale(resolved).then(apply, () => {
+    // Could not fetch the catalogue (offline): stay on the current locale.
+  });
 }
 
 export function getLocale() {
@@ -100,5 +130,4 @@ export function useLocale(): string {
 }
 
 export { en };
-export { hi };
 // R-084: ta/gu catalogs removed — switcher is en/hi only.

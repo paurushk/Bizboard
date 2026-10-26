@@ -18,7 +18,7 @@ import Typography from '@mui/material/Typography';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '@/api/client';
-import { exportLedgerDayBook, getDayBook, getLedgerDayBook, listAccounts } from '@/api/resources';
+import { exportLedgerDayBook, getAccountingSettings, getDayBook, getLedgerDayBook, listAccounts } from '@/api/resources';
 import { AccountSelect } from '@/components/accounting/AccountSelect';
 import { EmptyState, ErrorState, LoadingState } from '@/components/PageState';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
@@ -73,7 +73,10 @@ function LedgerTab() {
   const [pageSize, setPageSize] = useState(50);
   const [error, setError] = useState('');
   const q = useDebouncedValue(text.trim(), 300);
-  const accounts = useQuery({ queryKey: ['accounts'], queryFn: listAccounts });
+  // BB-100: the account filter needs books on; with books off the accounts list is refused (400).
+  const settings = useQuery({ queryKey: ['accounting-settings'], queryFn: getAccountingSettings, staleTime: 30_000 });
+  const booksOn = Boolean(settings.data?.accountingEnabled ?? settings.data?.accounting_enabled);
+  const accounts = useQuery({ queryKey: ['accounts'], queryFn: listAccounts, enabled: booksOn });
   const params = useMemo(() => {
     const p: Record<string, string> = { date_from: dateFrom, date_to: dateTo };
     if (voucherType) p.voucher_type = voucherType;
@@ -123,7 +126,9 @@ function LedgerTab() {
           <MenuItem value="">{t('dayBook.allTypes')}</MenuItem>
           {(data?.voucherTypes ?? []).map((v) => <MenuItem key={v.key} value={v.key}>{v.label}</MenuItem>)}
         </TextField>
-        <AccountSelect accounts={accounts.data} label={t('phase.journalAccount')} value={account} onChange={(id) => { setAccount(id); setPage(0); }} size="small" sx={{ minWidth: 220 }} />
+        {booksOn ? (
+          <AccountSelect accounts={accounts.data} label={t('phase.journalAccount')} value={account} onChange={(id) => { setAccount(id); setPage(0); }} size="small" sx={{ minWidth: 220 }} />
+        ) : null}
         <TextField size="small" label={t('dayBook.search')} value={text} onChange={(e) => { setText(e.target.value); setPage(0); }} sx={{ flex: 1 }} />
       </Stack>
       {canExport(user) ? (

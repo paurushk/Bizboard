@@ -15,7 +15,7 @@ import {
   isPayrollEnabled,
   isPosEnabled,
 } from '@/config/features';
-import { isMoneyHubEnabled, isRuntimeFlagEnabled } from '@/config/featureFlags';
+import { getCachedFeatureFlags, isMoneyHubEnabled, isRuntimeFlagEnabled } from '@/config/featureFlags';
 import { isNavMarkedNotReady } from '@/navigation/notReadyNav';
 import { SETTINGS_GROUPS, SETTINGS_ROUTES } from '@/navigation/settingsAccess';
 
@@ -530,6 +530,25 @@ export function isReallyReachable(user: User | null, path: string): boolean {
     if (item.children?.some((child) => childMatches(child, path))) return true;
   }
   return false;
+}
+
+/**
+ * BB-100: the flag that switches off the page at `pathname`, or null. The menu already hides
+ * these items; this stops a bookmark or shared link opening the page and showing a raw API
+ * error. Null until flags have loaded, so a page a company has switched on never flashes as off.
+ */
+export function switchedOffFlag(pathname: string): string | null {
+  if (getCachedFeatureFlags() === null) return null;
+  const walk = (items: NavItem[]): string | null => {
+    for (const item of items) {
+      const gate = FLAG_GATED_NAV[item.id];
+      if (gate && item.path && pathMatches(item.path, pathname) && !isRuntimeFlagEnabled(gate)) return gate;
+      const nested = item.children ? walk(item.children) : null;
+      if (nested) return nested;
+    }
+    return null;
+  };
+  return walk(navigation);
 }
 
 export function isNavPathActive(pathname: string, navPath?: string, exact = false): boolean {

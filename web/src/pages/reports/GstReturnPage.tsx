@@ -137,7 +137,12 @@ function GstReturnPage({ kind }: { kind: GstReturnKind }) {
   const [format, setFormat] = useState<'json' | 'xlsx' | 'gstn-json'>('xlsx');
   const [companyGstin, setCompanyGstin] = useState<string>('');
   const title = kind === 'gstr1' ? t('nav.gstr1') : t('nav.gstr3b');
-  const gstins = useQuery({ queryKey: ['company-gstins'], queryFn: listCompanyGstins });
+  // BB-100 F7: the branch-GSTIN list is owner-only (B6-011); others would only get a 403.
+  const gstins = useQuery({
+    queryKey: ['company-gstins'],
+    queryFn: listCompanyGstins,
+    enabled: user?.role === 'OWNER',
+  });
   const companyQuery = useQuery({ queryKey: ['company'], queryFn: getCompany });
   const registrationType =
     companyQuery.data?.registrationType ?? user?.company?.registrationType;

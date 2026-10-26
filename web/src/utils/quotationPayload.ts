@@ -99,6 +99,8 @@ export function buildQuotationPreviewBody(
   return {
     customer: form.customerId,
     invoiceType: form.invoiceType,
+    // The GST rate comes from the HSN table in force on this date, as on the saved quote.
+    ...(form.quotationDate ? { quotationDate: form.quotationDate } : {}),
     ...(extra.supplyType ? { supplyType: extra.supplyType } : {}),
     ...(extra.companyGstin ? { companyGstin: extra.companyGstin } : {}),
     additionalCharges: form.additionalCharges ?? 0,

@@ -2855,4 +2855,171 @@ const AGENT_FAQ: FaqItem[] = [
   ),
 ];
 
-export const FAQ_ITEMS: FaqItem[] = [...V0_FAQ_ITEMS, ...MORE_FAQ, ...AGENT_FAQ];
+/** BB-108: your Bizboard account — plan, payments, data, sign-in and support (SaaS Phase 1/2). */
+const ACCOUNT_FAQ: FaqItem[] = [
+  faq(
+    'plan-change',
+    'Subscription & billing',
+    'How do I upgrade or downgrade my plan?',
+    ['upgrade', 'downgrade', 'change plan', 'switch plan', 'plan badlo', 'proration'],
+    [
+      'Open Settings → **t:nav.billing** and choose the new plan. Only the owner can change it.',
+      '**Upgrade:** the new plan is on straight away. You pay only the difference for the rest of the current period, and from your next renewal you pay the new price. If the difference is not paid by the date shown, the plan goes back.',
+      '**Downgrade:** you keep the current plan until the period ends, and the change happens on the date shown on the Billing page. Nothing is charged again for the current period.',
+    ],
+  ),
+  faq(
+    'autopay-mandate',
+    'Subscription & billing',
+    'How does automatic renewal (UPI Autopay or card) work?',
+    ['autopay', 'upi autopay', 'mandate', 'auto debit', 'recurring', 'emandate', 'nach'],
+    [
+      'When you pay for a plan you approve a renewal **mandate** with UPI Autopay, a card or a bank e-mandate. The Billing page shows how it renews, its status and the next debit date.',
+      'If you change to a plan with a different price, the Billing page asks you to **approve the new renewal mandate**. Until you do, renewal uses the old amount.',
+      'If a debit fails the status shows **last debit failed, retrying**. If debits stop, update your payment method on the Billing page.',
+    ],
+  ),
+  faq(
+    'payment-failed',
+    'Subscription & billing',
+    'My renewal payment failed. What happens now?',
+    ['payment failed', 'past due', 'renewal failed', 'card declined', 'read only', 'locked'],
+    [
+      'Your data is safe and is never deleted because of a failed payment.',
+      'Once the paid period has ended without a successful payment, the workspace becomes **read-only**: you can open, search, print and export everything, but you cannot add or change documents until a payment goes through.',
+      'Pay or update the payment method on Settings → **t:nav.billing**; editing comes back as soon as the payment succeeds.',
+    ],
+  ),
+  faq(
+    'bizboard-gst-invoice',
+    'Subscription & billing',
+    'Where are the GST invoices for my Bizboard subscription?',
+    ['gst invoice', 'subscription invoice', 'bill from bizboard', 'itc', 'input tax credit', 'sac'],
+    [
+      'Settings → **t:nav.billing** → **Bizboard invoices** lists a GST invoice for every charge, including automatic renewals, with a PDF for each. Use them to claim input tax credit.',
+      'The invoice is billed to the GSTIN saved on your company. Add or correct your GSTIN before the next charge so the invoice carries it.',
+    ],
+  ),
+  faq(
+    'bizboard-tds-claim',
+    'Subscription & billing',
+    'I deducted TDS when paying Bizboard. How do I get it back?',
+    ['tds', '194j', '194c', 'form 16a', 'tds refund', 'tds credit'],
+    [
+      'On Settings → **t:nav.billing**, under **Claim back TDS**, pick the invoices, choose the TDS section and attach your **Form 16A**, then send the claim.',
+      'Once we check it, the TDS comes off your next renewal, or we refund it to the card or UPI you paid with if you choose that. The claim shows its status there.',
+    ],
+  ),
+  faq(
+    'cancel-subscription',
+    'Subscription & billing',
+    'How do I stop my subscription or close my account?',
+    ['cancel', 'stop subscription', 'close account', 'leave bizboard', 'suspend', 'unsubscribe'],
+    [
+      'The owner can use **Suspend workspace** in the Danger zone at the bottom of Settings → **t:nav.billing**. Renewal charges stop. You keep working until the paid period ends; after that the workspace is read-only.',
+      'Take a copy of your data first (see “How do I download all my data?”). You can choose a plan again later from the same page.',
+    ],
+  ),
+  faq(
+    'download-all-data',
+    'Import, Tally & backup',
+    'How do I download all my data in Excel?',
+    ['download data', 'export all', 'csv', 'excel', 'zip', 'leave', 'data portability', 'readable export'],
+    [
+      'Settings → **t:nav.backupExport** → **Download my data (Excel / CSV)**. Enter your password (and your two-step code if you use one) and press **Prepare my data**.',
+      'You get a ZIP of CSV files that open in Excel or load into other software, with a PDF of each sales invoice. It is prepared in the background; for a large company this can take a few minutes. The download link works for 24 hours.',
+    ],
+  ),
+  faq(
+    'import-busy-vyapar-marg',
+    'Import, Tally & backup',
+    'Can I bring my data from Busy, Vyapar or Marg?',
+    ['busy', 'vyapar', 'marg', 'old software', 'migrate', 'migration', 'parties', 'items export'],
+    [
+      'Yes, masters and opening figures: export your **parties** and your **items** from the old software, then upload them one file at a time on Settings → **t:nav.importData**. Check the counts, then confirm. Opening balances and opening stock come in as opening entries.',
+      'This import is switched on for your company by support when you ask. If the totals do not match the file, the screen tells you which ones; check them before you start billing.',
+    ],
+  ),
+  faq(
+    'two-step-verification',
+    'Users & permissions',
+    'Why am I asked to set up two-step verification?',
+    ['two step', '2fa', 'mfa', 'authenticator', 'otp app', 'google authenticator', 'security code'],
+    [
+      'Owners, accountants and anyone who can post journals must use two-step verification, because they can move money. After your password you enter a 6-digit code from an authenticator app such as Google Authenticator, Microsoft Authenticator or Authy.',
+      'When you set it up you get **recovery codes**. Save them: each one lets you sign in once if you lose your phone. You can turn it on, get new recovery codes or turn it off (with your password and a current code) from **Security** in your profile menu.',
+    ],
+  ),
+  faq(
+    'signed-in-devices',
+    'Users & permissions',
+    'How do I see where my account is signed in, and sign out a device?',
+    ['devices', 'sessions', 'signed in', 'logout other', 'sign out everywhere', 'stolen phone'],
+    [
+      'Open **Security** from your profile menu. **Signed-in devices** lists where your account is signed in now, with the last time each was used. Press **Sign out** next to any device you do not recognise, then change your password.',
+      'We also email you when a new device signs in.',
+    ],
+  ),
+  faq(
+    'google-sign-in',
+    'Getting started',
+    'Can I sign in or sign up with Google?',
+    ['google', 'gmail', 'sign in with google', 'google login', 'social login'],
+    [
+      'Yes, when the **Sign in with Google** button shows on the sign-in page. A new Google sign-up asks for your business name and state to create the account; you can set a password later in your profile.',
+      'Two-step verification still applies to owners and accountants who sign in with Google.',
+    ],
+  ),
+  faq(
+    'transfer-ownership',
+    'Users & permissions',
+    'How do I make someone else the owner?',
+    ['owner', 'transfer ownership', 'change owner', 'hand over', 'new owner'],
+    [
+      'On Settings → **t:nav.users**, choose the person and **Make owner**. Choose whether you stay as Manager or leave the company, and confirm with your password (and two-step code).',
+      'They must accept from the email we send; the offer expires in 72 hours. The new owner controls billing, users and every setting. Until they accept, you can cancel the offer from the same page.',
+    ],
+  ),
+  faq(
+    'owner-lost-access',
+    'Users & permissions',
+    'The owner has left or lost access. How do we get owner access back?',
+    ['owner left', 'lost owner', 'owner recovery', 'locked out', 'no owner', 'owner phone lost'],
+    [
+      'Ask through Help → **Contact support**. Support checks who is asking, and two support staff must approve before anything changes.',
+      'There is then a waiting period. If the current owner can still sign in, Settings → **t:nav.users** shows “Bizboard support is giving owner access to … after …”, and they can cancel it before the time runs out.',
+    ],
+  ),
+  faq(
+    'contact-support',
+    'Getting started',
+    'How do I contact Bizboard support?',
+    ['support', 'help', 'ticket', 'complaint', 'contact', 'raise issue', 'problem'],
+    [
+      'Open Help → **Contact support**, say what you need help with and how bad it is, and press **Send to support**. Your **Support ID**, the screen you were on and recent error codes are attached for you, so we can find exactly what happened. Nothing you typed into other forms is sent.',
+      'We reply by email. The status of each request shows under **Your requests** on the same page.',
+    ],
+  ),
+  faq(
+    'support-access',
+    'Getting started',
+    'Can support look at my data to fix a problem?',
+    ['support access', 'screen share', 'let support see', 'view my data', 'privacy', 'read only access'],
+    [
+      'Only if the owner allows it, and only for one open support request. On Help → **Contact support**, use **Allow read-only access**, choose for how long (72 hours at most) and confirm with your password.',
+      'Support can only read, never change anything. You see every page they open, and access ends when you press **End access now**, when the time runs out or when the request is resolved.',
+    ],
+  ),
+  faq(
+    'getting-started-checklist',
+    'Getting started',
+    'What is the Getting started list on my dashboard?',
+    ['getting started', 'checklist', 'onboarding', 'first steps', 'setup list'],
+    [
+      'It is a short list of first steps: verify your GSTIN, add an item, add a customer or supplier, make your first invoice, record a purchase bill and a payment, invite someone from your team and bring in data from your old software.',
+      'Each step ticks itself when you do it. The owner can hide the list with **Hide this list**.',
+    ],
+  ),
+];
+
+export const FAQ_ITEMS: FaqItem[] = [...V0_FAQ_ITEMS, ...MORE_FAQ, ...AGENT_FAQ, ...ACCOUNT_FAQ];

@@ -22,6 +22,8 @@ const billing = vi.hoisted(() => ({
   getTdsClaims: vi.fn(async () => ({ claims: [], sections: [] })),
   submitTdsClaim: vi.fn(),
   refundTdsClaim: vi.fn(),
+  // D-19 referral panel: the flag is off in these tests, so it is never called.
+  getReferralPanel: vi.fn(),
 }));
 vi.mock('@/api/billing', () => billing);
 
